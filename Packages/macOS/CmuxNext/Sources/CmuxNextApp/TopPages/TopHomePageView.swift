@@ -30,6 +30,8 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// New Chief's create is running: another click waits for it (one Chief per click, not per bounce).
+    private var creatingChief = false
     /// The New Message page (Messages' New Message: a page, not a sheet).
     /// Kept while hidden when the person typed something, with its row in the list.
     private(set) var newMessage: HomeNewMessageView?
@@ -110,8 +112,8 @@ final class TopHomePageView: NSView {
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
-        let home = services.home
-        let registry = services.registry
+        let home = services.home, registry = services.registry
+        list.setDragOut(LinkDragSession.chiefDragOut(services) { [weak home] in home.flatMap(Self.chief) })
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -530,11 +532,32 @@ final class TopHomePageView: NSView {
         requests.refresh()
     }
 
+    /// The New Chief button, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
+    /// at once, under the next free name ("Chief 2"), its conversation shown with the message box
+    /// focused so the person can ask it something; a refusal says why. New Chief… (the sheet) names
+    /// one first.
+    func startChiefConversation() {
+        guard !creatingChief, let services else { return }
+        let home = services.home, registry = services.registry
+        // The names the list shows (records and pending renames) and the Chief rows' titles.
+        let taken = Set(home.chiefNames.values).union(home.homeStore.rows.filter { $0.kind == .chief }.map(\.title))
+        creatingChief = true
+        // task-owner: one create; ends with the owner's answer
+        Task { [weak self] in
+            let outcome = await home.createChief(named: HomeChiefName.next(taken: taken))
+            self?.creatingChief = false
+            guard case .opened(let id) = outcome else { return registry.refuse(outcome.message ?? "") }
+            // Its message box takes the keyboard when it shows: now when listed, else once the inbox lists it.
+            self?.openWhenListed(id)
+        }
+    }
+
     func presentNewChief() {
         guard let services else { return }
-        let home = services.home
-        let sheet = HomeNewChiefSheet()
+        let home = services.home, sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
+        sheet.onCreateOnMachine = HomeMachineChiefStart(cli: services.bundledCLI, auth: services.cloud.auth, socket: { [weak services] in await services?.machines.local.connection?.endpoint?.socketPath }).create(opened: { [weak home] in home?.pendingSelection = $0 })
+        sheet.onCreateOnThisMac = { name, backend in await home.createChief(named: name, backend: backend, onThisMac: true) }
         present(sheet)
     }
 

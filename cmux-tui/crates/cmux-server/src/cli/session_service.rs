@@ -8,8 +8,8 @@
 //! `cmux-tui daemon start --session main`. The unit names are the store's,
 //! so `up`, `down`, `status` and `uninstall` work the same on both.
 
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 
 use cmux_server_core::InstallMode;
 use cmux_server_core::layout::Layout;
@@ -21,13 +21,29 @@ use sha2::{Digest, Sha256};
 
 use super::{Args, Context, Output, lifecycle};
 use crate::error::{Error, Result};
-use crate::service::{Services, SessionHost};
+use crate::process::Runner;
+use crate::service::{Announce, Services, SessionHost, check_private_dir};
 use crate::{fsx, host};
 
 /// The session service this layout's unit runs, when it is one.
 pub(super) fn installed(svc: &Services<'_>) -> Option<SessionUnit> {
     let text = std::fs::read_to_string(svc.unit_path().ok()?).ok()?;
     parse_session_unit(&text)
+}
+
+/// The session of the installed session unit, as the steps that render or
+/// run it need it (uninstall renews the unit as cmux renders it, and on
+/// macOS runs the binary to end the session's terminals). Its binary is the
+/// one install places (`$HOME/SESSION_BINARY`), never the path the file
+/// names: a unit cmux renders for another binary still counts as cmux's only
+/// through the ownership record, and no other binary runs.
+pub(super) fn installed_host(ctx: &Context<'_>, svc: &Services<'_>) -> Option<SessionHost> {
+    if svc.layout.mode != InstallMode::User {
+        return None;
+    }
+    let unit = installed(svc)?;
+    let binary = Path::new(ctx.env.home.as_deref()?).join(SESSION_BINARY);
+    Some(SessionHost { binary: binary.to_str()?.to_owned(), session: unit.session })
 }
 
 pub(super) fn install(
@@ -57,23 +73,36 @@ pub(super) fn install(
         Some(path) => path.clone(),
         None => std::env::current_exe().map_err(|e| Error::io("this binary's path", e))?,
     };
-    let binary_changed = place_binary(&source, &target)?;
-    let mut warnings = Vec::new();
-    link_shim(&fsx::local(&layout.cli_shim), &target, &mut warnings)?;
+    let announce = !args.json;
     let binary = target
         .to_str()
         .ok_or_else(|| Error::rejected("the home directory path is not UTF-8"))?
         .to_owned();
+    let announcer = Announce(ctx.runner);
+    let runner: &dyn Runner = if announce { &announcer } else { ctx.runner };
     let svc = Services {
         session: Some(SessionHost { binary: binary.clone(), session: session.to_owned() }),
+        runner,
+        linger: !args.has("user"),
+        announce,
         ..lifecycle::services(ctx, layout)?
     };
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = svc.lock()?;
+    // Every refusal comes before the first change.
+    svc.preflight()?;
+    let binary_changed = place_binary(&source, &target, announce)?;
+    let mut warnings = Vec::new();
+    link_shim(&fsx::local(&layout.cli_shim), &target, &mut warnings)?;
     let service = svc.install(binary_changed)?;
     warnings.extend(service.warnings.iter().cloned());
     let changed = binary_changed || service.changed;
-    let keeps = match (cfg!(target_os = "linux"), service.linger) {
-        (true, Some(true)) => "It starts at boot and keeps running while you are logged out.",
-        (true, _) => "It starts when you log in and stops when you log out (linger is off).",
+    let keeps = match (cfg!(target_os = "linux"), service.linger, args.has("user")) {
+        (true, Some(true), _) => "It starts at boot and keeps running while you are logged out.",
+        (true, _, true) => {
+            "It starts when you log in and stops when you log out (--user: linger left off)."
+        }
+        (true, _, false) => "It starts when you log in and stops when you log out (linger is off).",
         _ => "It starts when you log in.",
     };
     let json = json!({
@@ -97,38 +126,31 @@ pub(super) fn install(
     Ok(Output::new(json, human))
 }
 
-/// Copies `source` to `target` (mode 0755, through a temporary file and one
-/// rename, so a client probing the path never sees half a binary). `false`:
+/// Copies `source` to `target` (mode 0755, through a new temporary file
+/// with a random name and one rename, so a client probing the path never
+/// sees half a binary and a file planted next to it is never written
+/// through). Refuses a directory other accounts can write to. `false`:
 /// `target` is `source`, or already has its bytes.
-fn place_binary(source: &Path, target: &Path) -> Result<bool> {
+fn place_binary(source: &Path, target: &Path, announce: bool) -> Result<bool> {
+    let dir = target.parent().ok_or_else(|| Error::rejected("the binary path has no parent"))?;
+    fsx::ensure_dir(dir, 0o755)?;
+    check_private_dir(dir, "the cmux binary directory")?;
+    // Only a regular file at the path is kept: a symlink there (even to
+    // this binary) is replaced, so what the service runs cannot change
+    // through a file elsewhere.
+    let regular = std::fs::symlink_metadata(target).is_ok_and(|m| m.is_file());
     let real = |p: &Path| std::fs::canonicalize(p).ok();
-    if real(source).is_some_and(|s| Some(s) == real(target)) {
+    if regular && real(source).is_some_and(|s| Some(s) == real(target)) {
         return Ok(false);
     }
     let wanted = digest(source)?;
-    if target.is_file() && digest(target).ok() == Some(wanted) {
+    if regular && digest(target).ok() == Some(wanted) {
         return Ok(false);
     }
-    let dir = target.parent().ok_or_else(|| Error::rejected("the binary path has no parent"))?;
-    fsx::ensure_dir(dir, 0o755)?;
-    let tmp: PathBuf = dir.join(format!(".cmux-tui.{}.tmp", std::process::id()));
-    let copied = (|| -> std::io::Result<()> {
-        let mut from = std::fs::File::open(source)?;
-        let mut to = std::fs::File::create(&tmp)?;
-        std::io::copy(&mut from, &mut to)?;
-        to.flush()?;
-        to.sync_all()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-        }
-        std::fs::rename(&tmp, target)
-    })();
-    if let Err(e) = copied {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Error::io(format!("copy this binary to {}", target.display()), e));
+    if announce {
+        eprintln!("  write {}", target.display());
     }
+    fsx::atomic_copy(source, target, 0o755)?;
     Ok(true)
 }
 
@@ -138,10 +160,9 @@ fn digest(path: &Path) -> Result<[u8; 32]> {
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = file.read(&mut buf).map_err(|e| Error::io(path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+        // `read` never returns more than the buffer holds.
+        let Some(chunk) = buf.get(..n).filter(|chunk| !chunk.is_empty()) else { break };
+        hasher.update(chunk);
     }
     Ok(hasher.finalize().into())
 }
@@ -166,4 +187,30 @@ fn link_shim(shim: &Path, target: &Path, warnings: &mut Vec<String>) -> Result<(
         fsx::ensure_dir(dir, 0o755)?;
     }
     fsx::swap_symlink(shim, Path::new("cmux-tui"))
+}
+
+/// What `cmux server uninstall` leaves of the session service, and the
+/// command that removes each: the binary (cmux clients reuse it over SSH)
+/// and linger (other services of this user may need it).
+pub(super) fn uninstall_notes(svc: &Services<'_>, unit: &SessionUnit) -> Vec<String> {
+    let mut notes = Vec::new();
+    let binary = Path::new(&unit.binary);
+    if binary.is_file() {
+        let mut rm = unit.binary.clone();
+        let shim = binary.with_file_name("cmux");
+        if std::fs::read_link(&shim).is_ok_and(|t| t == Path::new("cmux-tui") || t == binary) {
+            rm = format!("{rm} {}", shim.display());
+        }
+        notes
+            .push(format!("kept {} (cmux reuses it over SSH); to remove it: rm {rm}", unit.binary));
+    }
+    if cfg!(target_os = "linux")
+        && crate::service::linger_state(svc.runner, &svc.user) == Some(true)
+    {
+        notes.push(format!(
+            "linger stays on (other services of yours may need it); to turn it off: loginctl disable-linger {}",
+            svc.user
+        ));
+    }
+    notes
 }

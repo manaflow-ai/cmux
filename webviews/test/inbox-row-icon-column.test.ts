@@ -174,7 +174,8 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
         );
         const found = problems(rows);
 
-        // The group's chevron: hidden at rest, shown on hover.
+        // The group's chevron: there at rest and on hover, as every row that opens has one (#48648,
+        // conversation.css "One chevron rule").
         const head = page.locator(".cv-message-group__head").first();
         const chevron = head.locator(".cv-tool__chevron");
         const shown = async () =>
@@ -216,7 +217,7 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
         expect(rows.filter((row) => row.kind === "group").length).toBe(3);
         expect(found).toEqual([]);
         expect(hasHead).toBe(true);
-        expect({ atRest, hovered }).toEqual({ atRest: false, hovered: true });
+        expect({ atRest, hovered }).toEqual({ atRest: true, hovered: true });
       } finally {
         await page.close();
       }

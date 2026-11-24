@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import Darwin
 public import Foundation
 
 /// A GitHub repository picked from a chat on this Mac's folder menu, as a folder on this Mac
@@ -91,31 +92,37 @@ public import Foundation
         }
         // The first default folder nothing else holds.
         guard let destination = await Self.firstFree(defaultFolders) else { return .failure(.noFolder) }
-        guard await Self.makeFolder(owner) else { return .failure(.cloneFailed) }
-        let partial = owner.appending(path: ".\(parts[1]).cloning-\(UUID().uuidString)", directoryHint: .isDirectory).path
         let url = "https://github.com/\(repo).git"
-        var cloned = false
-        // The person's own git is tried after the token only when git answered (no access with the token): a clone that
-        // timed out or never started is not run a second time on the same click.
-        var retry = true
-        if let token = await token(repo) {
-            let run = await clone(url, into: partial, environment: [Self.tokenVariable: token], helper: true)
-            cloned = run?.status == 0
-            retry = run != nil
+        let installed = await Self.installClone(in: owner, name: parts[1], destination: destination) { partial in
+            // Try the person's own git only when the token clone returned an exit status.
+            if let token = await self.token(repo) {
+                guard let run = await self.clone(url, into: partial, environment: [Self.tokenVariable: token], helper: true)
+                else { return false }
+                if run.status == 0 { return true }
+                await Self.remove(partial)
+            }
+            return await self.clone(url, into: partial, environment: [:], helper: false)?.status == 0
         }
-        if !cloned, retry {
-            await Self.remove(partial)
-            cloned = await clone(url, into: partial, environment: [:], helper: false)?.status == 0
-        }
-        let moved = cloned ? await Self.move(partial, to: destination) : false
-        // A failed or cancelled clone, or one another clone beat into place, leaves nothing behind.
-        await Self.remove(partial)
-        guard cloned else { return .failure(.cloneFailed) }
-        guard moved else {
+        if case .failure(.cloneFailed) = installed { return installed }
+        if case .failure(.noFolder) = installed {
             // Another clone of it landed there meanwhile (another app): use that one when it is this repository.
             if let top = await checkoutTop(destination, of: repo) { return .success(Checkout(path: top, cloned: false)) }
             return .failure(.noFolder)
         }
+        return installed
+    }
+
+    /// Publish a successful clone from a hidden sibling and clean up the partial checkout on every exit.
+    static func installClone(
+        in parent: URL, name: String, destination: String, run: (String) async -> Bool
+    ) async -> Result<Checkout, Failure> {
+        guard await makeFolder(parent) else { return .failure(.cloneFailed) }
+        let partial = parent.appending(path: ".\(name).cloning-\(UUID().uuidString)", directoryHint: .isDirectory).path
+        let cloned = await run(partial)
+        let moved = cloned ? await move(partial, to: destination) : false
+        await remove(partial)
+        guard cloned else { return .failure(.cloneFailed) }
+        guard moved else { return .failure(.noFolder) }
         return .success(Checkout(path: destination, cloned: true))
     }
 
@@ -133,7 +140,7 @@ public import Foundation
     }
 
     @concurrent nonisolated static func move(_ path: String, to destination: String) async -> Bool {
-        (try? FileManager.checked.moveItem(atPath: path, toPath: destination)) != nil
+        renamex_np(path, destination, UInt32(RENAME_EXCL)) == 0
     }
 
     @concurrent nonisolated static func isFolder(_ path: String) async -> Bool {
@@ -156,13 +163,17 @@ public import Foundation
     func checkoutTop(_ folder: String, of repo: String) async -> String? {
         guard folder.hasPrefix("/"), !folder.contains("\0"), await Self.isFolder(folder),
               let remotes = await git(["-C", folder, "config", "--get-regexp", "^remote\\..*\\.url$"], nil, [:], Self.readTimeout),
-              remotes.status == 0,
-              remotes.stdout.split(separator: "\n").contains(where: { line in
-                  line.split(separator: " ", maxSplits: 1).last.map { Self.gitHubRepository(ofRemote: String($0)) == repo.lowercased() } ?? false
-              }),
+              remotes.status == 0, await Self.anyRemote(remotes.stdout, is: repo),
               let top = await git(["-C", folder, "rev-parse", "--show-toplevel"], nil, [:], Self.readTimeout), top.status == 0 else { return nil }
         let path = top.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.hasPrefix("/") ? path : nil
+    }
+
+    /// Whether a `git config --get-regexp` remote list names `repo`, read off the main actor.
+    @concurrent nonisolated static func anyRemote(_ list: String, is repo: String) async -> Bool {
+        list.split(separator: "\n").contains(where: { line in
+            line.split(separator: " ", maxSplits: 1).last.map { gitHubRepository(ofRemote: String($0)) == repo.lowercased() } ?? false
+        })
     }
 
     /// `owner/name`, lowercased, of a github.com remote URL (`https://github.com/o/n(.git)`, `git@github.com:o/n(.git)`,

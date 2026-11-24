@@ -4,6 +4,8 @@ import { createContext, useContext } from "react";
 /// pushes their keycaps through the bridge's applyShortcuts (CmuxNextAgentPane AgentPaneShortcuts).
 export const SHORTCUT_ACTIONS = {
   newAgentChat: "palette.newAgentChat",
+  /// Show all chats: the command palette's chats page (the New Tab page's All sessions).
+  searchChats: "agentPane.searchChats",
   toggleDictation: "palette.toggleDictation",
   permissionAllowOnce: "agentPane.permission.allowOnce",
   permissionAllowChat: "agentPane.permission.allowChat",
@@ -42,7 +44,7 @@ export const withShortcut = (label: string, shortcut: string | undefined) =>
   shortcut ? `${label} (${shortcut})` : label;
 
 /// A control's tooltip: the label as its `title`, the keycaps as the tooltip's shortcut hint
-/// (`data-tooltip-shortcut`, ui/titleTooltips.ts), drawn in the secondary ink as on native tooltips.
+/// (`data-tooltip-shortcut`, ui/titleTooltips.ts), drawn on a keycap as on native tooltips.
 export const tooltipProps = (label: string, shortcut: string | undefined) => ({
   title: label,
   "data-tooltip-shortcut": shortcut || undefined,
