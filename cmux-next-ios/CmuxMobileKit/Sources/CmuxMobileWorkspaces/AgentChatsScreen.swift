@@ -296,7 +296,6 @@ struct AgentChatsScreen: View {
         case .loading:
             // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
             // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
-            // placeholder-ok: no cached chat page exists for this Mac yet.
             CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
