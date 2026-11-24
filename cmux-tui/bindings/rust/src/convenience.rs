@@ -84,6 +84,7 @@ impl AttachBuilder {
             output_coalesce_ms: Optional::Missing,
             replay_history_start: Optional::Missing,
             resume_generation: Optional::Missing,
+            resume_max_bytes: Optional::Missing,
             resume_offset: Optional::Missing,
             snapshot: Optional::Missing,
             snapshot_images: None,
