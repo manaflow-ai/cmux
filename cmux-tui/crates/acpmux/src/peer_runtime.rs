@@ -37,6 +37,7 @@ impl Peer {
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
