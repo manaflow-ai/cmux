@@ -18,3 +18,7 @@ pub use cmux_terminal_sizing as sizing;
 /// The `cmux.wire/1` client: catalog wire types and the stream mirror with
 /// its intent log (`StreamMirror`), the engine the Mac daemon uses too.
 pub use cmux_cloud_wire as wire;
+
+/// Background delta sync: the cursor each surface is answered by, and the
+/// bounded requests of one wake (`cmux-next-ios/design/background-delta-sync.md`).
+pub mod catch_up;

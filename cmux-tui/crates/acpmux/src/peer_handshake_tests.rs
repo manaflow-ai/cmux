@@ -706,27 +706,36 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
     fake.abort();
 }
 
-/// The pages move the deadline on only up to [`HANDSHAKE_MOST`] in all: a peer whose pages keep
-/// coming in time, with the last one due right at that cap, is cut there and never connects.
+/// The pages have no cap in all: each moves the deadline on by the handshake's own, so a peer
+/// whose pages keep coming in time links however long the whole list takes. The old 300 s
+/// total was a guess; observed handshakes took p99 19 s (n=40, 2026-11-23..24).
 #[tokio::test(start_paused = true)]
-async fn a_paged_watch_list_is_cut_at_the_handshake_cap() {
+async fn a_paged_watch_list_past_the_old_300_s_total_still_links() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    let gap = Duration::from_secs(50);
-    let pages = HANDSHAKE_MOST.as_secs().div_ceil(gap.as_secs());
-    let fake = slow_pages_peer(server, pages, gap);
+    // Twelve pages, each 50 s apart: 600 s in all, twice the total cap this link once had. The
+    // rows come once the list is whole, so the wait for them outlasts the 600 s (paused time).
+    let fake = slow_pages_peer(server, 12, Duration::from_secs(50));
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
-    let started = tokio::time::Instant::now();
-    let ended = peer.serve(client, &mut out_rx).await;
-    let why = ended.expect_err("the handshake is cut");
-    assert!(why.contains("handshake timed out after"), "{why}");
-    assert!(started.elapsed() <= HANDSHAKE_MOST, "cut at the cap: {:?}", started.elapsed());
-    while let Ok((_, _, notice)) = notices.try_recv() {
-        assert!(!matches!(notice, PeerNotice::Connected), "never connects");
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let mut listed = None;
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(3600), notices.recv())
+            .await
+            .expect("the link connects")
+            .expect("the link stays open");
+        match notice {
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
+            PeerNotice::Connected => break,
+            _ => {}
+        }
     }
+    assert_eq!(listed.expect("the whole list").len(), 12);
+    serving.abort();
     fake.abort();
 }
 
