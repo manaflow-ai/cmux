@@ -770,9 +770,9 @@ mod tests {
 
     #[test]
     fn only_the_old_version_refusal_reads_as_a_target_too_old() {
-        let e = too_old(OLD_VERSION_REFUSAL, "fs-agent-lane-17", 200 * 1024 + 1).unwrap();
+        let e = too_old(OLD_VERSION_REFUSAL, "machine-b", 200 * 1024 + 1).unwrap();
         assert!(e.message.contains("over 64 KiB (201 KiB)"), "{}", e.message);
-        assert!(e.message.contains("`acpmux machine update fs-agent-lane-17`"), "{}", e.message);
+        assert!(e.message.contains("`acpmux machine update machine-b`"), "{}", e.message);
         let data = e.data.unwrap();
         assert_eq!(
             (data["refused"].clone(), data["reason"].clone()),
