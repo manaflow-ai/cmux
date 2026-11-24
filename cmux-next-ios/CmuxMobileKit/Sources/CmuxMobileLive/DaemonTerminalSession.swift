@@ -279,6 +279,18 @@ public final class DaemonTerminalSession: TerminalSession {
     nonisolated public static let inputHoldCeiling: TimeInterval = 60
     /// When the coordinator last called the Mac offline (``now``'s clock), while it is.
     private var offlineSince: TimeInterval?
+    /// The Mac link's last progress (``MacSession/progress``, set by the coordinator): every event
+    /// line heard on the attach channel tells it, and keys held while the Mac is called offline
+    /// go after ``inputHoldLimit`` of silence on it, not 10 s after the Mac went offline (Leo,
+    /// 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"). Nil (a
+    /// bench, a test): the hold runs from the key and the Mac going offline, as before.
+    public var linkProgress: LinkProgress?
+    /// The input lane's own progress (its answers, its writes taken): a lane wait is bounded by
+    /// silence on the lane itself, since traffic on the attach channel must not keep a stuck
+    /// lane alive (falling back to the attach channel is the lane's recovery). New per lane.
+    private var laneProgress = LinkProgress()
+    /// Looks at the held keys again when progress on the link kept them past a check.
+    private var heldKeysRecheck: Task<Void, Never>?
     /// At most this many typed bytes wait for a detached terminal; past it
     /// the queue is dropped as an expired one is (a long paste into a dead
     /// link is not replayed whole into whatever runs when it comes back).
@@ -647,18 +659,49 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (``inputHoldCeiling``). Keys typed while attached (a slow but live link)
     /// never expire here.
     private func expireInput() {
-        guard let reason = Self.heldInputExpiry(typedAt: input.filter(\.detached).map(\.at), now: now(),
-                                                gaveUp: gaveUp, offlineSince: macOffline ? offlineSince : nil) else { return }
+        heldKeysRecheck?.cancel()
+        heldKeysRecheck = nil
+        let typedAt = input.filter(\.detached).map(\.at)
+        let progressAge = linkProgress?.lastProgressAge()
+        let offline = macOffline ? offlineSince : nil
+        guard let reason = Self.heldInputExpiry(typedAt: typedAt, now: now(), gaveUp: gaveUp,
+                                                offlineSince: offline, progressAge: progressAge) else {
+            // Progress since the Mac went offline kept them: look again once that progress is a
+            // hold old (each look is one timer; the ceiling ends them).
+            if !typedAt.isEmpty, offline != nil, let progressAge, progressAge < Self.inputHoldLimit {
+                let delay = max(0.25, Self.inputHoldLimit - progressAge)
+                heldKeysRecheck = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
+                    self?.expireInput()
+                }
+            }
+            return
+        }
         dropDetachedInput(reason: reason)
     }
 
     /// Why keys held for a detached terminal (typed at `typedAt`) go now, or nil while
-    /// they wait for the attach: the reconnect gave up, the Mac was offline for
-    /// ``inputHoldLimit`` since the later of the key and the Mac going offline, or a key
-    /// is past ``inputHoldCeiling``.
+    /// they wait for the attach: the reconnect gave up, the Mac was offline and the link made
+    /// no progress for ``inputHoldLimit`` since the later of the key, the Mac going offline and
+    /// its last progress (`progressAge` seconds ago), or a key is past ``inputHoldCeiling``.
+    /// Rust decides (`held_keys_expiry`, `cmux_composer_send::progress`).
     nonisolated static func heldInputExpiry(typedAt: [TimeInterval], now: TimeInterval, gaveUp: Bool,
-                                            offlineSince: TimeInterval?) -> String? {
+                                            offlineSince: TimeInterval?, progressAge: TimeInterval? = nil) -> String? {
         guard !typedAt.isEmpty else { return nil }
+        #if canImport(CmuxMobileLinkFFI)
+        func ms(_ seconds: TimeInterval) -> UInt64 { UInt64(max(0, seconds * 1000).rounded()) }
+        let reason = CmuxMobileLinkFFI.heldKeysExpiry(
+            typedAgesMs: typedAt.map { ms(now - $0) }, gaveUp: gaveUp,
+            offlineAgeMs: offlineSince.map { ms(now - $0) }, progressAgeMs: progressAge.map(ms),
+            holdMs: ms(inputHoldLimit), ceilingMs: ms(inputHoldCeiling))
+        switch reason {
+        case nil: return nil
+        case .gaveUp?: return "the reattach gave up"
+        case .offline?: return "the Mac was offline and the link made no progress for \(inputHoldLimit) s"
+        case .ceiling?: return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
+        }
+        #else
         if gaveUp { return "the reattach gave up" }
         if let offlineSince, typedAt.contains(where: { now - max($0, offlineSince) >= inputHoldLimit }) {
             return "the Mac was offline for \(inputHoldLimit) s"
@@ -667,6 +710,7 @@ public final class DaemonTerminalSession: TerminalSession {
             return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
         }
         return nil
+        #endif
     }
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
@@ -1138,6 +1182,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             }
             let events = client.events
+            let linkProgress = linkProgress
             eventTask?.cancel()
             inbox?.close()
             // Event lines are decoded off the main actor and reach it in
@@ -1162,6 +1207,8 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = Task.detached { [weak self] in
                 var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate)
                 for await line in events {
+                    // Bytes heard from the Mac: the link is moving.
+                    linkProgress?.progressed()
                     await inbox.push(parser.parse(line))
                 }
                 // After the batches already queued (the main queue is FIFO).
@@ -1848,9 +1895,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 return
             }
             self.inputClient = lane
+            let progress = LinkProgress()
+            self.laneProgress = progress
             let events = lane.events
             Task { [weak self] in
-                for await _ in events {}
+                for await _ in events { progress.progressed() }
                 guard let self, self.inputClient === lane else { return }
                 self.inputClient = nil
             }
@@ -1950,6 +1999,7 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let surface = surface
         let onLane = target !== client
+        let laneProgress = laneProgress
         let deadline = inputRequestDeadline
         Task { [weak self] in
             guard let self else { return }
@@ -1969,15 +2019,17 @@ public final class DaemonTerminalSession: TerminalSession {
                     params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
-                // A lane request gets written and answered within seconds or
-                // the lane is given up.
+                // A lane request gets written and answered with no more than
+                // `inputLaneStall` of silence on the lane, or the lane is given
+                // up: a lane that keeps taking writes and answering goes on.
                 let id: String
                 if onLane {
-                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                    guard let submitted = try await Self.within(Self.inputLaneStall, extend: laneProgress.stallExtension(after: Self.inputLaneStall), submit) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: true)
                         return
                     }
                     id = submitted
+                    laneProgress.progressed()  // the lane took a write
                 } else {
                     id = try await submit()
                 }
@@ -1989,11 +2041,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 drainInput()
                 let reply: Data
                 if onLane {
-                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
+                    guard let answer = try await Self.within(Self.inputLaneStall, extend: laneProgress.stallExtension(after: Self.inputLaneStall),
+                                                             { try await target.reply(to: id) }) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: false)
                         return
                     }
                     reply = answer
+                    laneProgress.progressed()  // the lane answered
                 } else {
                     reply = try await target.reply(to: id)
                 }
@@ -2190,10 +2244,15 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// `operation`'s result, or nil when it takes longer than `limit`. Does
-    /// not wait for `operation` to notice cancellation (a request on a dead
-    /// channel never does).
-    private static func within<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
+    /// Silence on the input lane a lane write or answer may take before the lane is given up.
+    static let inputLaneStall: Duration = .seconds(10)
+
+    /// `operation`'s result, or nil when it takes longer than `limit` and then `extend` (asked
+    /// each time it passes: a progress verdict, `LinkProgress.stallExtension(after:)`) says
+    /// stop. Does not wait for `operation` to notice cancellation (a request on a dead channel
+    /// never does).
+    private static func within<T: Sendable>(_ limit: Duration, extend: (@Sendable () -> Duration?)? = nil,
+                                            _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = RaceOnce()
         let result: Result<T?, any Error> = await withCheckedContinuation { continuation in
             let timer = TaskBox()
@@ -2207,6 +2266,9 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             timer.set(Task {
                 try? await Task.sleep(for: limit)
+                while !Task.isCancelled, let left = extend?(), left > .zero {
+                    try? await Task.sleep(for: left)
+                }
                 if !Task.isCancelled, once.claim() {
                     work.cancel()
                     continuation.resume(returning: .success(nil))

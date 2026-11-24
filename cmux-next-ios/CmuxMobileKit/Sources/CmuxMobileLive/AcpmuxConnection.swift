@@ -25,6 +25,10 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
+    /// frame heard and every write taken tells it, and a ``submit(_:_:timeout:)``'s write is
+    /// bounded by silence on it, not by a fixed time.
+    nonisolated let progress: LinkProgress
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
@@ -45,8 +49,9 @@ public actor AcpmuxConnection {
     /// (the channel closes), so a peer that never passes the check cannot fill the phone's memory.
     /// The answers to this phone's own requests are kept whole, as on any connection: one each,
     /// at most ``MessageJoiner/maxMessage``, so an older Mac's whole chat list still arrives.
-    public init(channel: any LinkChannel, held: Bool = false) {
+    public init(channel: any LinkChannel, held: Bool = false, progress: LinkProgress = LinkProgress()) {
         self.channel = channel
+        self.progress = progress
         (notifications, continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
         if held { self.held = [] }
     }
@@ -173,8 +178,10 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
-    /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
+    /// The write is bounded by `timeout` of silence on the link (``progress``: nothing heard from
+    /// the Mac, no write taken), not by `timeout` in all: a write on a link that keeps moving
+    /// goes on (Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep
+    /// going?"). It is released when the caller is cancelled, as ``request(_:_:timeout:)``'s is.
     public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
@@ -190,7 +197,8 @@ public actor AcpmuxConnection {
         do {
             try await LinkDeadline.run(
                 timeout: timeout,
-                timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
+                timeoutError: LinkError(code: "timeout", message: "write of \(method) made no progress"),
+                extend: progress.stallExtension(after: timeout),
                 operation: { try await channel.send(data) },
                 onCancel: { await self.release(id) }
             )
@@ -198,6 +206,7 @@ public actor AcpmuxConnection {
             release(id)
             throw error
         }
+        progress.progressed()
         return id
     }
 
@@ -275,6 +284,8 @@ public actor AcpmuxConnection {
     /// full-size frames (PROTOCOL.md "Link"), so frames join until they parse
     /// as one JSON value: a transcript record carrying an image arrives whole.
     func route(_ data: Data) {
+        // Bytes heard from the Mac: the link is moving.
+        progress.progressed()
         guard cutOff == nil else { return }
         var joiner = frames
         // Before the check every message, plain or compressed, grows to at most what is left of

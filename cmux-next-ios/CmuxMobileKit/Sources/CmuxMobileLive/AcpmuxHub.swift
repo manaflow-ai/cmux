@@ -48,6 +48,9 @@ public final class AcpmuxHub {
     public private(set) var lastError: String?
     /// The link the channel rides on (artifact previews open `file` channels on it).
     @ObservationIgnored public var macLink: (any MacLink)?
+    /// The Mac link's last progress (``MacSession/progress``), told by every channel bound here;
+    /// nil: each channel keeps its own.
+    @ObservationIgnored public var linkProgress: LinkProgress?
 
     @ObservationIgnored var connection: AcpmuxConnection?
     /// Recovers this hub's channel when a read stalls on it (`AcpmuxHub+Steady.swift`): the live
@@ -197,7 +200,7 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
-        let connection = AcpmuxConnection(channel: channel, held: gate != nil)
+        let connection = AcpmuxConnection(channel: channel, held: gate != nil, progress: linkProgress ?? LinkProgress())
         self.connection = connection
         await connection.start()
         let notifications = connection.notifications

@@ -16,6 +16,11 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// This Mac link's last progress (Rust `LinkProgressClock`): bytes heard on any channel, a
+    /// write taken, the link reaching a step. Every send-path wait on this Mac is bounded by
+    /// silence on it, not by a fixed time (Leo, 2026-11-24: "if it's making good progress, it
+    /// shiukd be allowed to keep going?").
+    let progress = LinkProgress()
     /// Separate ACP clients: VM-local session ids never collide with this Mac's.
     var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
@@ -76,6 +81,7 @@ final class MacSession {
         needsYou = MacNeedsYouFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux
+        acpmux.linkProgress = progress
         feed.terminal = terminalFeed
         creation.attach(acpmux: acpmux)
     }

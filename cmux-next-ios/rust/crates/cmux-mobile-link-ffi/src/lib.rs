@@ -19,6 +19,7 @@ mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod link_progress;
 mod link_side;
 mod mac_screen;
 mod pair_requests;
@@ -39,6 +40,7 @@ pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
