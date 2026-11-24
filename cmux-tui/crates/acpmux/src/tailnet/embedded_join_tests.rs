@@ -26,6 +26,14 @@ fn contains(haystack: &[u8], needle: &str) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle.as_bytes())
 }
 
+/// A temporary root that is 0700 whatever the umask (a lane VM's 002 makes it group-writable,
+/// and the state folder checks refuse a writable ancestor).
+fn private_tempdir() -> tempfile::TempDir {
+    let temporary = tempfile::tempdir().unwrap();
+    private_dir(temporary.path());
+    temporary
+}
+
 fn private_dir(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path).unwrap();
@@ -125,7 +133,7 @@ fn join_params_and_profile_read_old_and_new_shapes_both_ways() {
 
 #[test]
 fn the_saved_profile_never_holds_the_key() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = private_tempdir();
     let dir = temporary.path().join("tailnet");
     let mut p = params(HS_KEY);
     p.control_url = Some("https://hs.example.com".into());
@@ -137,7 +145,7 @@ fn the_saved_profile_never_holds_the_key() {
 
 #[test]
 fn a_saved_login_is_a_current_profile_in_tsnets_store() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = private_tempdir();
     let dir = temporary.path();
     assert!(!has_saved_login(dir));
     std::fs::write(dir.join("tailscaled.state"), br#"{"_machinekey":"bWs="}"#).unwrap();
@@ -180,7 +188,7 @@ fn the_node_config_takes_the_profile_and_the_key_once() {
 
 #[tokio::test]
 async fn a_join_while_signed_in_is_refused_without_switch_and_changes_nothing() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = private_tempdir();
     let dir = temporary.path().join("tailnet");
     private_dir(&dir);
     let state = br#"{"_current-profile":"MWEyYg==","MWEyYg==":"e30="}"#;
@@ -197,7 +205,7 @@ async fn a_join_while_signed_in_is_refused_without_switch_and_changes_nothing() 
 
 #[tokio::test]
 async fn a_join_signs_in_with_the_key_once_and_never_writes_it() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = private_tempdir();
     let dir = temporary.path().join("tailnet");
     let controller = Controller::new(&dir, "test");
     *controller.node_factory.lock().unwrap() = Some(Box::new(|| Err("no network in tests".into())));
@@ -229,7 +237,7 @@ async fn a_join_signs_in_with_the_key_once_and_never_writes_it() {
 
 #[tokio::test]
 async fn leave_clears_the_identity_and_the_join() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = private_tempdir();
     let dir = temporary.path().join("tailnet");
     private_dir(&dir);
     std::fs::write(dir.join("tailscaled.state"), br#"{"_current-profile":"MWEyYg=="}"#).unwrap();
