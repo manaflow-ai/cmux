@@ -157,6 +157,15 @@ impl MessageNoticeBook {
     }
 }
 
+/// Only the local byte stream can switch from JSON-RPC to a pipe on its first line.
+enum Transport {
+    Messages,
+    LocalStream {
+        /// The verified root peer of a Cloud VM's non-root daemon (daemon/provision.rs).
+        provisioner: bool,
+    },
+}
+
 pub struct Conn {
     /// The owner of this connection's own tasks (each request it sent, a reply waiting for room),
     /// a child of the hub's scope. A request a client sent before it hung up still runs to its
@@ -226,10 +235,7 @@ pub struct Conn {
     /// own outbox: where a send's process chain is walked from and whose check is carried
     /// (`sender_harness::check_trust`), provenance only, never a proof.
     pub(super) socket_peer: crate::sender_harness::SocketPeer,
-    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
-    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
-    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
-    provisioner: bool,
+    transport: Transport,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -1661,7 +1667,7 @@ pub async fn serve_ws_until(
                 origin,
                 proof,
                 None,
-                false,
+                Transport::Messages,
                 SocketPeer::Unknown,
                 device,
                 Some(wire),
@@ -1826,7 +1832,7 @@ pub(super) async fn serve_outbox_connection(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Outbox,
         None,
         None,
@@ -1855,7 +1861,7 @@ pub async fn serve_connection_authed(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1882,7 +1888,7 @@ pub(crate) async fn serve_peer_link(
         Origin::Peer,
         ConnAuth::PeerToken,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1912,7 +1918,7 @@ pub(crate) async fn serve_device_link(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         Some(device.id),
         None,
@@ -1942,7 +1948,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
-    provisioner: bool,
+    transport: Transport,
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
@@ -2014,7 +2020,7 @@ async fn serve_connection_from(
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
-        provisioner,
+        transport,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
