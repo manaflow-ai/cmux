@@ -3114,10 +3114,14 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
     except (Exception, SystemExit):
         branch = None
     out = []
+    pusher = os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME")
     for area, (cell, doc, files, head) in hits.items():
-        who, how = live.holder(cell, rows, coordinator)
+        who, how = live.holder(cell, rows, coordinator, pusher)
         if not who:
-            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns=WORKSTREAM`.")
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.owns_key(cell)}`.")
+            continue
+        if how == live.WORKING:
+            out.append(f"owner: {area} is held by {who} ({how}); that is this push's own lane")
             continue
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
