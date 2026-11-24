@@ -68,7 +68,7 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
       expect(userPathAllowed(r.state, installPrincipal(k))).toBe(false)
     }
     expect(installActive(r.state, installPrincipal(4))).toBe(true)
-    expect(userDomain.authorize(r.state, "install.rename", { install: id("inst", 0), name: "x" }, installPrincipal(0))).toMatchObject({ code: "auth.forbidden" })
+    expect(userDomain.authorize?.(r.state, "install.rename", { install: id("inst", 0), name: "x" }, installPrincipal(0), undefined as never)).toMatchObject({ code: "auth.forbidden" })
   })
 
   it("nothing is evicted under the cap", () => {
