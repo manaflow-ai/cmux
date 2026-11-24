@@ -375,23 +375,26 @@ fn reload(path: &std::path::Path, table: &mut Table) {
     let lines = text.lines().skip(usize::from(from > 0));
     for line in lines {
         let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
-        let (Some(repo), Some(class), Some(wall)) =
-            (row["repo"].as_str(), row["class"].as_str(), row["wallS"].as_f64())
-        else {
+        let (Some(repo), Some(class), Some(wall)) = (
+            row.get("repo").and_then(Value::as_str),
+            row.get("class").and_then(Value::as_str),
+            row.get("wallS").and_then(Value::as_f64),
+        ) else {
             continue;
         };
-        if row["usage"].is_null() {
-            continue;
-        }
+        let Some(usage) = row.get("usage").filter(|u| !u.is_null()) else { continue };
         table.record(
             repo,
             class,
             shadow::Run {
                 wall_s: wall,
-                cpu_s: row["usage"]["cpuS"].as_f64(),
-                peak_mem_gib: row["usage"]["peakMemGiB"].as_f64(),
-                listened: row["usage"]["ports"].as_array().is_some_and(|p| !p.is_empty()),
-                outlived: row["usage"]["outlived"].as_bool().unwrap_or(false),
+                cpu_s: usage.get("cpuS").and_then(Value::as_f64),
+                peak_mem_gib: usage.get("peakMemGiB").and_then(Value::as_f64),
+                listened: usage
+                    .get("ports")
+                    .and_then(Value::as_array)
+                    .is_some_and(|p| !p.is_empty()),
+                outlived: usage.get("outlived").and_then(Value::as_bool).unwrap_or(false),
             },
         );
     }
@@ -599,7 +602,7 @@ fn boot_ticks_now() -> Option<u64> {
 /// One `/proc/<pid>/stat` line read: the fields after the command name (which may hold spaces
 /// and parentheses, so the last `)` ends it).
 pub fn parse_stat(text: &str, page: u64) -> Option<Proc> {
-    let rest = &text[text.rfind(')')? + 1..];
+    let rest = text.get(text.rfind(')')? + 1..)?;
     let f: Vec<&str> = rest.split_whitespace().collect();
     // f[0] is field 3 (state): field n is f[n - 3].
     let n = |i: usize| f.get(i - 3).and_then(|v| v.parse::<u64>().ok());
