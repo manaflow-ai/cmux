@@ -14,6 +14,10 @@ pub(super) fn handle(
     if m == method::MUX_ATTACHMENT {
         let id =
             str_param(params, "id").ok_or_else(|| RpcError::invalid_params("id is required"))?;
+        // An image a surface's unsent draft holds (`hub/composers.rs`), or one a prompt sent.
+        if let Some(image) = hub.composer_image(&s, id) {
+            return Ok(image);
+        }
         return hub.prompt_image(&s.id, id);
     }
     let pattern = str_param(params, "match");
