@@ -1056,6 +1056,55 @@ impl HybridUnderlay {
         self.sync_paths();
     }
 
+    /// The peer announced a new first endpoint: it moved onto a new socket
+    /// and closed the old one. Addresses learned from its datagrams that the
+    /// announcement does not list were the old socket's, even at the new
+    /// network's address (a socket bound to every interface keeps sending,
+    /// from the new address, until the peer notices the change). Their
+    /// paths may have answered a probe before it closed, and the selector
+    /// would move onto one when the old route's path goes away, and send
+    /// into a closed socket until the silence watch gives up on it (200 to
+    /// 650 ms, plus the tunnel's TCP waiting out its retransmit timer: the
+    /// wificell tail). The new socket's own learned address comes back with
+    /// its next datagram. A route to a dropped address ends too, so the
+    /// replay that follows goes where the peer's datagrams arrive now.
+    fn forget_moved_peer(&mut self) {
+        let candidates = &self.candidates;
+        let before = self.learned.len();
+        self.learned.retain(|addr| candidates.contains(addr));
+        if self.learned.len() != before {
+            tracing::debug!(dropped = before - self.learned.len(), "WireGuard forgets the moved peer's old addresses");
+        }
+        let gone = |addr: &SocketAddr, this: &Self| {
+            !this.candidates.contains(addr) && !this.learned.contains(addr) && !this.labels.peer_relayed.contains(addr)
+        };
+        let now = Instant::now();
+        if let Some(route) = self.direct
+            && route.carrier == Carrier::Udp
+            && gone(&route.addr, self)
+        {
+            // Where the peer's latest datagram came from, when the
+            // announcement lists it (the new socket); else no route until
+            // its next datagram (the replay waits for it).
+            let next = self
+                .last_udp_from
+                .filter(|addr| self.candidates.contains(addr) && !self.refused.contains(addr))
+                .map(|addr| Route { carrier: Carrier::Udp, addr });
+            self.direct = next;
+            self.route_since = now;
+            self.last_on_route = next.map(|_| now);
+            self.pinned_until = None;
+            self.confirmed = false;
+            self.last_fit = None;
+            self.last_marker = None;
+        }
+        if self.last_udp_from.is_some_and(|addr| gone(&addr, self)) {
+            self.last_udp_from = None;
+        }
+        // Before the replay: the selector must not hold a dropped path.
+        self.sync_paths();
+    }
+
     fn apply_one(&mut self, control: Control) {
         let now = Instant::now();
         match control {
@@ -1160,7 +1209,12 @@ impl HybridUnderlay {
                         self.pinned_until = None;
                         self.demote("the peer replaced the route's relayed address");
                     }
+                    // A new first endpoint: the peer moved onto a new socket.
+                    let moved = self.peer_endpoints.first() != endpoints.first();
                     self.set_peer_endpoints(endpoints);
+                    if moved {
+                        self.forget_moved_peer();
+                    }
                     // A roaming phone announces its new TURN address; an
                     // older peer lists none, and the old ones stay (a stale
                     // entry only matters for a datagram from it).
