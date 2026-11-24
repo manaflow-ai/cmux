@@ -378,6 +378,8 @@ fn notice_stats_count_reads_per_kind() {
 
     let listed = daemon.rpc(json!({"id": 9, "cmd": "list-notifications", "stats": true}));
     let stats = &listed["data"]["agent_notice_stats"];
+    // The reading, for a run with --nocapture.
+    eprintln!("agent_notice_stats: {stats}");
     let finished = &stats["kinds"]["finished"];
     assert_eq!(finished["posted"], 1, "{stats}");
     assert_eq!(finished["read_within_60s"], 1, "{stats}");
