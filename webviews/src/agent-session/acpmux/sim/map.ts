@@ -64,8 +64,7 @@ const landings = (run: SimResult): { label: string; id: string; kind: string; ab
     if (step.label.startsWith("reader ")) continue;
     const tail = (row: RowProbe) => row.live || row.kind === "plan";
     const pinnedIn = (rows: RowProbe[]) => {
-      const card = (row: RowProbe, at: number) =>
-        row.id.startsWith("nextStep-") && rows.slice(at + 1).every(tail);
+      const card = (row: RowProbe, at: number) => row.id.startsWith("nextStep-") && rows.slice(at + 1).every(tail);
       return (row: RowProbe, at: number) => tail(row) || card(row, at);
     };
     const pinnedWas = pinnedIn(was.rows);
@@ -357,8 +356,7 @@ export const MAP: MapEntry[] = [
   // ---- What comes in while a turn runs. ----
   {
     id: "command-leaves-line-under-note",
-    when:
-      "A command runs on the live line; an earlier task's end is noted under its run; Claude Code then moves the command to the background, and the turn wraps up with a reply streaming over the card.",
+    when: "A command runs on the live line; an earlier task's end is noted under its run; Claude Code then moves the command to the background, and the turn wraps up with a reply streaming over the card.",
     wrong:
       'The command went back into its run above the note, and the run grew a line: every row above the note moved 22 px (coord-tool-burst, +48 s). Leo, 2026-11-22: "the content within neeeds to be fucking settling fucking night instantly without extraneous movement".',
     expected:
@@ -371,7 +369,12 @@ export const MAP: MapEntry[] = [
       const above = (step: StepTrace) => {
         const rows = rowsOf(step);
         const note = rows.findIndex((row) => row.kind === "backgroundTask");
-        return note < 0 ? undefined : rows.slice(0, note).map((row) => `${row.id}:${row.calls ?? 0}`).join(" ");
+        return note < 0
+          ? undefined
+          : rows
+              .slice(0, note)
+              .map((row) => `${row.id}:${row.calls ?? 0}`)
+              .join(" ");
       };
       const first = above(run.traces[from]!);
       return run.traces
