@@ -4204,7 +4204,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   -webkit-line-clamp: 1;
   /* `overflow: hidden` clips at the padding edge, so centring the line with padding left the
      second line's top half showing under the first (Lawrence, 2026-11-24). Margins centre it
-     instead, and the line box is exactly one pitch tall, so the clip sits at its bottom. */
+     instead, and the line box is exactly one pitch tall, so the clip sits at its bottom (cmux#52930,
+     test/thought-row-one-line-browser.test.ts). */
   line-height: var(--cv-thought-pitch);
   margin-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
   color: var(--cv-text-muted);
