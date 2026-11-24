@@ -41,14 +41,18 @@ pane beside the terminal:
   pane_fit        (13) after a wheel scroll, innerWidth/innerHeight and visualViewport equal the page view's size
                   (debug.layers page_views) within 1 pt; a page click (debug.mouse target page) and a window click
                   (debug.mouse at the window point) at each target's centre hit it, inside its rect within 1 pt, with
-                  elementFromPoint == event.target
+                  elementFromPoint == event.target. pane_fit.paint.split and .resized: in a window capture (the window
+                  server's pixels) the page's magenta top band starts at the view's top and its cyan bottom band ends
+                  at the view's bottom, within 2 pt, after the split and after the window went 200 pt shorter and 100
+                  pt taller; pane_fit.layers.*: every layer above the page's CALayerHost is its view's size
   divider_resize  (11) a divider drag beside the page: at most 2 missed display frames, p95 within 1.5 refresh
                   intervals, the page follows during the drag (>= 10 widths) and fits the pane <= 100 ms after it settles
   window_resize   (11) the window's corner dragged out and back: the same frame budget and settle rule
   fullscreen      (12) enter and exit: no pinch scale or devicePixelRatio change in any frame, the page view never
                   larger than its start and end size or outside the window, the page fits the pane <= 100 ms after it
   pane_zoom       (14) Cmd-Shift-Return zoom and unzoom of the page's pane: area >= 1.3x, then back within 1 pt; one
-                  page view, no panel or page window, the page fits <= 100 ms after the pane
+                  page view, no panel or page window, the page fits <= 100 ms after the pane; pane_fit.paint.zoom and
+                  .unzoom: the page's real pixels fill its view after each
   popup_float     (10) a 520 x 420 window.open popup has inner 520 x 420 within 2 pt and a window smaller than the
                   screen, with the opener windowed and in full screen
   omnibar_narrow  (15) at pane widths 480/360/300/260 with a long URL, the omnibar text area ends before every icon
@@ -126,7 +130,9 @@ body{margin:0;background:#246;color:#fff;font:14px sans-serif} .t{position:fixed
 #tl{left:8px;top:8px} #tr{right:8px;top:8px} #bl{left:8px;bottom:8px} #br{right:8px;bottom:8px} #c{left:calc(50% - 12px);top:calc(50% - 12px)}
 .row{height:40px;border-bottom:1px solid #357;padding-left:48px;line-height:40px}
 #pop{position:fixed;left:48px;top:8px;font-size:14px}
+.band{position:fixed;left:0;right:0;height:4px;pointer-events:none;z-index:5} #topband{top:0;background:#f0f} #botband{bottom:0;background:#0ff}
 </style></head><body>
+<div class="band" id="topband"></div><div class="band" id="botband"></div>
 <button class="t" id="tl" data-t="tl"></button><button class="t" id="tr" data-t="tr"></button><button class="t" id="bl" data-t="bl"></button>
 <button class="t" id="br" data-t="br"></button><button class="t" id="c" data-t="c"></button>
 <button id="pop" onclick="window.__pop = window.open('/popup?float', 'floatpopup', 'width=520,height=420')">popup 520x420</button>
@@ -788,10 +794,98 @@ def open_layout(tab, query=""):
     return wait(lambda: page_eval("window.layoutReady === true", tab).get("value") is True, 30, 0.3)
 
 
+PAINT_PX = 2.0      # the page's painted top and bottom edges sit within this many points of its view's
+
+
+def band_rows(path, columns):
+    """Per image column (pixels), the first row of the layout page's magenta top band and the last row of its cyan
+    bottom band, or None where that band does not show."""
+    width, height, rows = png_rgb(path)
+    out = []
+    for x in columns:
+        x = max(0, min(width - 1, int(x)))
+        top = bottom = None
+        for y in range(height):
+            r, g, b = rows[y][3 * x], rows[y][3 * x + 1], rows[y][3 * x + 2]
+            if top is None and r > 200 and g < 90 and b > 200:
+                top = y
+            if r < 90 and g > 200 and b > 200:
+                bottom = y
+        out.append((top, bottom))
+    return width, height, out
+
+
+def check_paint(pane, label):
+    """pane_fit.paint.<label> (bug 13): the page's pixels sit in its view. A window capture (CuaDriver, the window
+    server's real pixels) must show the layout page's 4 pt magenta top band starting at the view's top edge and its cyan
+    bottom band ending at the view's bottom edge, within PAINT_PX, in three columns. The user's recordings showed the top
+    of the page above the pane (the band gone) and the bottom of the pane unpainted (the cyan band high).
+    pane_fit.layers.<label>: debug.layers' geometry of the page view: every layer holding the page's pixels covers its
+    view (`fits`)."""
+    layers = main_layers()
+    frame, window = page_view(pane, layers), layers.get("frame")
+    view = next((v for v in layers.get("page_views") or [] if not v.get("parked") and v.get("pane") == pane), {})
+    try:
+        geometry = json.loads(view.get("geometry") or "null")
+    except ValueError:
+        geometry = None
+    if geometry is None:
+        row("INFO", f"pane_fit.layers.{label}", {"note": "no geometry in debug.layers (an older app)"})
+    else:
+        row(geometry.get("fits") is True, f"pane_fit.layers.{label}",
+            {"bug": 13, "misfits": geometry.get("misfits"), "page_view": frame,
+             "pass_if": "every layer above the page's CALayerHost is its view's size at its origin"})
+    RAW[f"pane_fit_geometry_{label}"] = geometry
+    pid, wid = RAW.get("pid"), main_window_id(RAW.get("pid")) if CUA_DRIVER else None
+    shot = os.path.join(opts.out, f"pane-fit-{label}.png")
+    if not frame or not window or not wid:
+        row("INFO", f"pane_fit.paint.{label}", {"note": "no page view, window or capture", "frame": frame, "cua": bool(CUA_DRIVER)})
+        return
+    cua("get_window_state", {"pid": pid, "window_id": wid, "include_accessibility_tree": False,
+                             "screenshot_out_file": shot, "max_image_dimension": 4000})
+    if not os.path.exists(shot):
+        row("INFO", f"pane_fit.paint.{label}", {"note": "no capture"})
+        return
+    width, height, _ = band_rows(shot, [])
+    sx, sy = width / window[2], height / window[3]
+    x, y, w, h = frame
+    view_top, view_bottom = window[3] - (y + h), window[3] - y  # points from the window's top
+    columns = [(x + w * f) * sx for f in (0.3, 0.5, 0.7)]
+    _, _, found = band_rows(shot, columns)
+    edges = [{"top": None if t is None else round(t / sy, 1), "bottom": None if b is None else round((b + 1) / sy, 1)}
+             for t, b in found]
+    seen = [e for e in edges if e["top"] is not None or e["bottom"] is not None]
+    detail = {"bug": 13, "view_top": round(view_top, 1), "view_bottom": round(view_bottom, 1), "edges": edges,
+              "scale": [round(sx, 3), round(sy, 3)], "capture": os.path.basename(shot),
+              "pass_if": f"magenta top band starts and cyan bottom band ends within {PAINT_PX} pt of the view's edges"}
+    if not seen:
+        row("INFO", f"pane_fit.paint.{label}", dict(detail, note="neither band in the capture (no page pixels for this host)"))
+        return
+    ok = abs(sx - sy) < 0.02 and all(e["top"] is not None and e["bottom"] is not None and abs(e["top"] - view_top) <= PAINT_PX
+                                     and abs(e["bottom"] - view_bottom) <= PAINT_PX for e in edges)
+    row(ok, f"pane_fit.paint.{label}", detail)
+
+
+def set_window_height(delta):
+    """debug.window_frame: the window `delta` points taller (negative: shorter), its top edge kept."""
+    frame = main_layers().get("frame")
+    if not frame:
+        return None
+    reply = rpc("debug.window_frame", {"frame": [frame[0], frame[1] - delta, frame[2], frame[3] + delta]})
+    time.sleep(1.0)  # test harness: the page takes the new size and draws
+    return reply
+
+
 def check_pane_fit(tab, pane):
     """Bug 13: after the split and a scroll, the page's innerWidth/innerHeight and visualViewport equal its view's size
     within 1 pt, and a click at each of five targets' centres (a page click, then a window click at the same point)
-    hits that target: event.target is the target, the click is inside its rect within 1 pt, elementFromPoint agrees."""
+    hits that target: event.target is the target, the click is inside its rect within 1 pt, elementFromPoint agrees.
+    Its paint rows (check_paint) run after the split, and again after the window was made 200 pt shorter and then
+    100 pt taller (the person's recordings: the page's offset grew with every size it went through)."""
+    check_paint(pane, "split")
+    start = main_layers().get("frame")
+    RAW["pane_fit_resize"] = [set_window_height(-200), set_window_height(100)]
+    check_paint(pane, "resized")
     layers = main_layers()
     frame = page_view(pane, layers)
     if not frame:
@@ -834,6 +928,9 @@ def check_pane_fit(tab, pane):
         row(len(centres) == 5 and not misses and not stray, f"pane_fit.click.{route}",
             {"bug": 13, "misses": misses, "stray_clicks": stray[:5], "clicks": len(clicks),
              "pass_if": "each of 5 targets hit, inside its rect, within 1 pt, elementFromPoint == event.target"})
+    if start:
+        rpc("debug.window_frame", {"frame": start})
+        time.sleep(0.6)  # test harness: the window is back at its first frame for the rows after
 
 
 def check_divider_resize(tab, pane):
@@ -952,6 +1049,7 @@ def check_pane_zoom(tab, pane):
         else:
             sized = bool(final) and all(abs(a - b) <= FIT_PX for a, b in zip(final, before))
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"pane-{direction}.png")})
+        check_paint(pane, direction)
         row(sized and len(shown) == 1 and clean and fits(viewport, final) and result["lag_ms"] is not None
             and result["lag_ms"] <= LAG_MS and not zoom_glitch(result["vp"]), f"pane_zoom.{direction}",
             {"bug": 14, "before": before, "final": final, "shown_page_views": len(shown), "clean": clean,
