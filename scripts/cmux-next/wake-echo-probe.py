@@ -10,13 +10,17 @@
       on its own clock by an offset it measures).
 
 The sequence, from the first tick after the gap (resumed_wall):
-  net:    a thread loops a TCP connect (1 s timeout) to NETHOST:NETPORT until one succeeds -> net_up_at
+  net:    a thread loops a TCP connect (1 s timeout) to NETADDR:NETPORT until one succeeds -> net_up_at. NETADDR is
+          NETHOST resolved once at setup: a name resolved after the wake waited out the resolver's 5 s timeout on
+          a query sent before the network was back (run 45475656502: net_up +5.0 s on every cycle). The resolve is
+          timed apart in its own thread -> dns_at (a mark, not a phase).
   daemon: a NEW unix connection: identify, set-client-info {name: wake-probe, kind: tui}, attach-surface -> pty_attach_at
           at the attach's ok reply; then `send` one marker character -> input_at; the first `output` event carrying
           the marker -> echo_at (echo_any_at: the first output event of any kind after the send).
 Protocol client copied from split-latency-bench.py (Conn).
 """
 import base64
+import struct
 import json
 import os
 import socket
@@ -65,11 +69,42 @@ class Conn:
                     return m
                 self.stash[m.get("id")] = m
 
+    def peer_pid(self):
+        try:
+            return struct.unpack("3i", self.s.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))[0]
+        except Exception:
+            return None
+
     def close(self):
         try:
             self.s.close()
         except Exception:
             pass
+
+
+def proc_start(pid):
+    """The process's start time in clock ticks after boot (/proc/PID/stat field 22): same pid and start, same process."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return int(f.read().rsplit(")", 1)[1].split()[19])
+    except Exception:
+        return None
+
+
+def daemon_id(c):
+    pid = c.peer_pid()
+    return {"pid": pid, "start": proc_start(pid) if pid else None}
+
+
+def make_terminal(c):
+    """A new workspace with one `cat` terminal in it; returns its surface id."""
+    ws = c.reply(c.send({"cmd": "create-workspace", "name": "wake-echo"}), 15)
+    if not ws.get("ok"):
+        raise RuntimeError("create-workspace: %s" % json.dumps(ws)[:300])
+    term = c.reply(c.send({"cmd": "create-terminal", "key": ws["data"]["key"], "argv": ["/bin/cat"], "cols": 80, "rows": 24}), 15)
+    if not term.get("ok"):
+        raise RuntimeError("create-terminal: %s" % json.dumps(term)[:300])
+    return term["data"]["surface"]
 
 
 def payload_has(m, marker):
@@ -91,10 +126,19 @@ def sequence(cfg, marker, deadline_s=60.0):
     marks = {"marker": marker}
     deadline = time.monotonic() + deadline_s
 
+    def dns():
+        try:
+            socket.getaddrinfo(cfg["nethost"], cfg["netport"], proto=socket.IPPROTO_TCP)
+            marks["dns_at"] = now_ms()
+        except Exception as e:  # noqa: BLE001
+            marks["dns_error"] = type(e).__name__ + ": " + str(e)[:80]
+
+    threading.Thread(target=dns, daemon=True).start()
+
     def net():
         while time.monotonic() < deadline:
             try:
-                c = socket.create_connection((cfg["nethost"], cfg["netport"]), timeout=1.0)
+                c = socket.create_connection((cfg.get("netaddr") or cfg["nethost"], cfg["netport"]), timeout=1.0)
                 c.close()
                 marks["net_up_at"] = now_ms()
                 return
@@ -117,6 +161,7 @@ def sequence(cfg, marker, deadline_s=60.0):
                     raise RuntimeError("daemon socket: %s" % e)
                 time.sleep(0.02)
         marks["conn_at"] = now_ms()
+        marks["daemon"] = daemon_id(c)
         stage = "handshake"
         i1 = c.send({"cmd": "identify"})
         i2 = c.send({"cmd": "set-client-info", "name": "wake-probe", "kind": "tui"})
@@ -131,6 +176,8 @@ def sequence(cfg, marker, deadline_s=60.0):
             m = c.line(max(0.1, deadline - time.monotonic()))
             if m.get("id") == aid and ("ok" in m or "error" in m):
                 if not m.get("ok"):
+                    if "unknown surface" in str(m.get("error")):
+                        marks["surface_lost"] = surface_lost(c, cfg)
                     raise RuntimeError("attach refused: %s" % json.dumps(m)[:300])
                 marks["pty_attach_at"] = now_ms()
                 break
@@ -165,6 +212,28 @@ def sequence(cfg, marker, deadline_s=60.0):
     if "net_up_at" not in marks and "net_error" in marks:
         marks.setdefault("error", marks["net_error"])
     return marks
+
+
+def surface_lost(c, cfg):
+    """Evidence when the daemon no longer knows the probe's terminal: whether it is the same daemon process as at
+    setup, what workspaces it lists now, and a new terminal (config.json updated) so later cycles still measure."""
+    ev = {"surface": cfg["surface"], "setup_daemon": cfg.get("daemon"), "daemon_now": daemon_id(c)}
+    ev["same_daemon"] = ev["setup_daemon"] == ev["daemon_now"]
+    try:
+        r = c.reply(c.send({"cmd": "list-workspaces"}), 10)
+        ev["workspaces"] = json.dumps(r.get("data"))[:1500]
+    except Exception as e:  # noqa: BLE001
+        ev["workspaces"] = "unread: %s" % e
+    try:
+        ev["new_surface"] = make_terminal(c)
+        cfg2 = dict(cfg, surface=ev["new_surface"], daemon=ev["daemon_now"])
+        tmp = os.path.join(cfg["dir"], "config.json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(cfg2, f)
+        os.rename(tmp, os.path.join(cfg["dir"], "config.json"))
+    except Exception as e:  # noqa: BLE001
+        ev["new_surface_error"] = "%s: %s" % (type(e).__name__, str(e)[:200])
+    return ev
 
 
 def daemon_ok(path):
@@ -234,24 +303,23 @@ def setup(directory, binary, nethost, netport):
     c = Conn(path)
     try:
         ident = c.reply(c.send({"cmd": "identify"}), 10).get("data") or {}
-        ws = c.reply(c.send({"cmd": "create-workspace", "name": "wake-echo"}), 15)
-        if not ws.get("ok"):
-            raise RuntimeError("create-workspace: %s" % json.dumps(ws)[:300])
-        key = ws["data"]["key"]
-        term = c.reply(c.send({"cmd": "create-terminal", "key": key, "argv": ["/bin/cat"], "cols": 80, "rows": 24}), 15)
-        if not term.get("ok"):
-            raise RuntimeError("create-terminal: %s" % json.dumps(term)[:300])
-        surface = term["data"]["surface"]
+        daemon_proc = daemon_id(c)
+        surface = make_terminal(c)
     except Exception as e:  # noqa: BLE001
         print("@@setup " + json.dumps({"ok": False, "error": "%s: %s" % (type(e).__name__, e), "socket": path, "diag": diag}))
         return 1
     finally:
         c.close()
-    cfg = {"socket": path, "surface": surface, "nethost": nethost, "netport": netport}
+    try:
+        netaddr = socket.getaddrinfo(nethost, netport, proto=socket.IPPROTO_TCP)[0][4][0]
+    except Exception as e:  # noqa: BLE001
+        print("@@setup " + json.dumps({"ok": False, "error": "resolve %s: %s" % (nethost, e), "diag": diag}))
+        return 1
+    cfg = {"dir": directory, "socket": path, "surface": surface, "daemon": daemon_proc, "nethost": nethost, "netaddr": netaddr, "netport": netport}
     with open(os.path.join(directory, "config.json"), "w") as f:
         json.dump(cfg, f)
     dry = sequence(cfg, "0", 20.0)
-    print("@@setup " + json.dumps({"ok": "error" not in dry, "daemon": daemon, "socket": path, "surface": surface, "version": ident.get("version"), "protocol": ident.get("protocol"), "capabilities": sorted(ident.get("capabilities") or [])[:60], "dry_run": dry, "diag": diag}))
+    print("@@setup " + json.dumps({"ok": "error" not in dry, "daemon": daemon, "socket": path, "surface": surface, "daemon_proc": daemon_proc, "netaddr": netaddr, "version": ident.get("version"), "protocol": ident.get("protocol"), "capabilities": sorted(ident.get("capabilities") or [])[:60], "dry_run": dry, "diag": diag}))
     return 0 if "error" not in dry else 1
 
 
@@ -276,6 +344,8 @@ def run(directory):
                 arm = None
             log.write(json.dumps(dict(gap, armed=arm is not None)) + "\n")
             if arm:
+                with open(os.path.join(directory, "config.json")) as f:
+                    cfg = json.load(f)
                 res = dict(gap, seq=arm["seq"])
                 res.update(sequence(cfg, arm["marker"], 90.0))
                 tmp = os.path.join(directory, "result.%s.json.tmp" % arm["seq"])

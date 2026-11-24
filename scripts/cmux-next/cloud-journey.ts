@@ -4751,7 +4751,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const row = async () => (await api.read("cloud.machine.get", { machine: created.id }, 30_000).catch(() => null)) as Record<string, any> | null;
       const log = (line: string) => console.log(scrub(line, J.secrets));
       let cycles: WakeCycle[] = [];
-      const meta: Record<string, unknown> = { backend: backend.name, machine: created.id };
+      const meta: Record<string, unknown> = { backend: backend.name, machine: created.id, asked: wakeEchoN };
       const write = () => {
         if (!outDir) return;
         writeFileSync(path.join(outDir, "wake-echo.json"), `${scrub(JSON.stringify({ ...meta, summary: wakeEchoSummary(cycles), cycles }, null, 2), J.secrets)}\n`);
@@ -4765,6 +4765,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           meta.size = { platform: m?.size ?? null, guest: g.stdout.trim() };
           log(`wake-echo size: ${JSON.stringify(meta.size)}`);
           return { value: null, detail: JSON.stringify(meta.size) };
+        });
+        // No idle pause: the platform's own pause raced a cycle's (run 45475656502 #10: start refused, machine pausing).
+        await J.step("wake-echo idle policy off", async () => {
+          await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: 0 }, `${tag}-we-idle`);
+          return { value: null, detail: "idle_seconds 0" };
         });
         const netHost = new URL(backend.api).hostname;
         const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
@@ -4783,6 +4788,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
           },
           onCycle: (all) => { cycles = all; write(); },
+          onStop: (why) => { meta.stopped = why; },
         }, wakeEchoN);
       } catch (e) {
         J.record({ step: "wake-echo", status: "fail", ms: 0, detail: String((e as Error).message ?? e) });
@@ -4793,9 +4799,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const table = wakeEchoMarkdown(cycles, meta);
       console.log(table);
       if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Wake to first echo (${backend.name}, ${created.id})\n\n${table}${meta.setup_error ? `\nSetup failed: ${meta.setup_error}\n` : ""}`);
-      if (sum.echoed) J.record({ step: "wake-echo", status: "pass", ms: 0, detail: `${sum.echoed} of ${sum.cycles} echoed` });
-      else if (!meta.setup_error) J.record({ step: "wake-echo", status: "fail", ms: 0, detail: `no cycle echoed (${cycles[0]?.error ?? "no cycle ran"})` });
-      return sum.echoed ? 0 : 1;
+      // Green only when every asked cycle ran and echoed: a stop (failure streak, deadline) or any failure is red.
+      const whole = !meta.setup_error && !meta.stopped && sum.cycles === wakeEchoN && sum.echoed === wakeEchoN;
+      if (!meta.setup_error) J.record({ step: "wake-echo", status: whole ? "pass" : "fail", ms: 0, detail: `${sum.echoed} of ${wakeEchoN} asked echoed (${sum.cycles} ran)${meta.stopped ? `; stopped: ${meta.stopped}` : ""}${sum.failed ? `; failures ${JSON.stringify(sum.causes)}` : ""}` });
+      return whole ? 0 : 1;
     }
     if (reuse) {
       // A kept machine still has the last run's model stub and its endpoint in Claude Code's settings, which the

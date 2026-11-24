@@ -8,12 +8,16 @@
  *
  *   wake_at       the cloud.machine.start call sent
  *   restore       resumed_at - wake_at              (resumed_at: the probe's first tick after the pause's gap)
- *   net_up        net_up_at - resumed_at            (first successful TCP connect to the platform host)
- *   pty_attach    pty_attach_at - max(resumed_at, net_up_at)
+ *   net_up        net_up_at - resumed_at            (first successful TCP connect to the platform host's address,
+ *                                                    resolved at setup; the name's own resolve is the dns mark)
+ *   pty_attach    pty_attach_at - resumed_at        (the daemon is a local unix socket: it runs beside net_up, not
+ *                                                    after it, so both count from resumed_at)
  *   echo          echo_at - max(input_at, pty_attach_at)
  *   total         echo_at - wake_at
  *
- * A cycle that fails counts apart (with its cause); percentiles are over the cycles that echoed, with n.
+ * A cycle that fails counts apart (with its cause, causeOf); percentiles are over the cycles that echoed, with n.
+ * Before each pause the machine settles out of a transition (pausing, starting) by a deadline, so a cycle never
+ * pauses a machine still in flight; the run sets idle_seconds 0 so the platform's own idle pause does not race it.
  */
 import { readFileSync } from "node:fs";
 import { awaitPaused, percentile } from "./cloud-resume-matrix.ts";
@@ -28,8 +32,10 @@ export type Exec = (command: string, timeoutMs?: number) => Promise<{ code: numb
 
 export type GuestMarks = {
   prev_wall?: number; resumed_wall?: number; wall_gap?: number; mono_gap?: number;
-  net_up_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
+  net_up_at?: number; dns_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
   error?: string; marker?: string;
+  daemon?: { pid: number | null; start: number | null };
+  surface_lost?: Record<string, unknown>;
 };
 
 export type WakeCycle = {
@@ -44,7 +50,7 @@ export type WakeCycle = {
   offset_rtt_ms: number | null;
   offset_pre_ms: number | null;
   /** Runner-clock ms from wake_at to each guest mark. */
-  marks_ms: Partial<Record<"resumed" | "net_up" | "pty_attach" | "input" | "echo" | "echo_any", number>>;
+  marks_ms: Partial<Record<"resumed" | "net_up" | "dns" | "pty_attach" | "input" | "echo" | "echo_any", number>>;
   phases: Partial<Record<Phase, number>>;
   warnings: string[];
   guest: GuestMarks | null;
@@ -59,11 +65,23 @@ export function phasesOf(m: WakeCycle["marks_ms"]): { phases: Partial<Record<Pha
   const { resumed, net_up, pty_attach, input, echo } = m;
   if (resumed !== undefined) phases.restore = resumed;
   if (resumed !== undefined && net_up !== undefined) phases.net_up = net_up - resumed;
-  if (resumed !== undefined && pty_attach !== undefined) phases.pty_attach = pty_attach - Math.max(resumed, net_up ?? resumed);
+  if (resumed !== undefined && pty_attach !== undefined) phases.pty_attach = pty_attach - resumed;
   if (pty_attach !== undefined && echo !== undefined) phases.echo = echo - Math.max(input ?? pty_attach, pty_attach);
   if (echo !== undefined) phases.total = echo;
   for (const [k, v] of Object.entries(phases)) if (v < 0) warnings.push(`${k} ${Math.round(v)} ms is negative (clock offset error)`);
   return { phases, warnings };
+}
+
+/** A failed cycle's cause, so failures group by it: a lost terminal is the daemon's (product), the rest the run's. */
+export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
+  const e = c.error;
+  if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
+  if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
+  if (/no probe result|clock offset/.test(e)) return "guest unreachable after wake";
+  if (/guest probe: net|no TCP connect/.test(e)) return "guest network";
+  if (/guest probe/.test(e)) return "guest probe";
+  if (/cloud\.machine\.start|cloud\.machine\.pause/.test(e)) return "platform op";
+  return "other";
 }
 
 export function summarize(cycles: WakeCycle[]) {
@@ -75,14 +93,17 @@ export function summarize(cycles: WakeCycle[]) {
   const rows = PHASES.map(row);
   const parts = rows.filter((r) => r.phase !== "total" && r.p95 !== null);
   const biggest = parts.length ? parts.reduce((a, b) => ((b.p95 ?? 0) > (a.p95 ?? 0) ? b : a)).phase : null;
-  return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest };
+  const causes: Record<string, number> = {};
+  for (const c of cycles) if (!c.ok) causes[causeOf(c)] = (causes[causeOf(c)] ?? 0) + 1;
+  return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes };
 }
 
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
   const s = summarize(cycles);
+  const asked = typeof meta.asked === "number" ? meta.asked : null;
   const f = (x: number | null) => (x === null ? "-" : (x / 1000).toFixed(2));
   const lines = [
-    `Machine ${meta.machine ?? "?"}, size ${JSON.stringify(meta.size ?? "?")}. ${s.cycles} cycles: ${s.echoed} echoed, ${s.failed} failed (counted apart). Seconds, runner clock; percentiles over the ${s.echoed} that echoed.`,
+    `Machine ${meta.machine ?? "?"}, size ${JSON.stringify(meta.size ?? "?")}. ${s.cycles}${asked !== null && asked !== s.cycles ? ` of ${asked} asked` : ""} cycles: ${s.echoed} echoed, ${s.failed} failed (counted apart). Seconds, runner clock; percentiles over the ${s.echoed} that echoed.`,
     "",
     "| phase | n | p50 | p95 | max |",
     "|---|---|---|---|---|",
@@ -90,8 +111,12 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
+  if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
-  if (bad.length) lines.push("", "Failed cycles:", ...bad.map((c) => `- #${c.i}: ${c.error}`));
+  if (bad.length) {
+    lines.push("", "Failures by cause:", ...Object.entries(s.causes).map(([k, v]) => `- ${k}: ${v}`));
+    lines.push("", "Failed cycles:", ...bad.map((c) => `- #${c.i} (${causeOf(c)}): ${c.error}${c.guest?.surface_lost ? ` — evidence ${JSON.stringify(c.guest.surface_lost).slice(0, 600)}` : ""}`));
+  }
   const warn = cycles.filter((c) => c.warnings.length);
   if (warn.length) lines.push("", "Warnings:", ...warn.map((c) => `- #${c.i}: ${c.warnings.join("; ")}`));
   return `${lines.join("\n")}\n`;
@@ -127,6 +152,9 @@ export type WakeEchoDeps = {
   failStreak?: number;
   log: (line: string) => void;
   onCycle: (all: WakeCycle[]) => void;
+  /** Why the run stopped before n cycles (failure streak, deadline). */
+  onStop?: (why: string) => void;
+  settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -149,6 +177,28 @@ export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHo
 
 const ENSURE_PROBE = `if ! [ -s ${WAKE_DIR}/pid ] || ! kill -0 "$(cat ${WAKE_DIR}/pid)" 2>/dev/null; then nohup setsid python3 ${WAKE_DIR}/probe.py run ${WAKE_DIR} >> ${WAKE_DIR}/probe.log 2>&1 < /dev/null & echo $! > ${WAKE_DIR}/pid; echo @@started; sleep 1; fi; echo "@@probe $(cat ${WAKE_DIR}/pid)"`;
 
+const STEADY = new Set(["running", "paused"]);
+
+/** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
+export async function settle(status: () => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
+  const end = now() + deadlineMs;
+  let last = "unread";
+  for (;;) {
+    last = await status().catch((e: Error) => `unread (${e.message})`);
+    if (STEADY.has(last)) return last;
+    if (now() >= end) throw new Error(`machine did not settle: read ${last} ${Math.round(deadlineMs / 1000)} s on`);
+    await sleep(500);
+  }
+}
+
+/** Settles the machine, wakes it when it settled paused, and waits for running. */
+async function ensureRunning(d: WakeEchoDeps, sleep: (ms: number) => Promise<void>): Promise<void> {
+  const ms = d.settleMs ?? 180_000;
+  if ((await settle(d.status, ms, sleep)) === "running") return;
+  await d.wake();
+  if ((await settle(d.status, ms, sleep)) !== "running") throw new Error("machine read paused after a start");
+}
+
 const marker = (i: number) => "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"[i % 62]!;
 
 export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle[]> {
@@ -156,12 +206,12 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
   const cycles: WakeCycle[] = [];
   const streakMax = d.failStreak ?? 3;
   for (let i = 0; i < n; i++) {
-    if (d.deadlineAt && Date.now() > d.deadlineAt - 150_000) { d.log(`wake-echo: deadline near, stopping after ${i} cycles`); break; }
+    if (d.deadlineAt && Date.now() > d.deadlineAt - 150_000) { d.log(`wake-echo: deadline near, stopping after ${i} cycles`); d.onStop?.(`deadline near after ${i} of ${n} cycles`); break; }
     const c: WakeCycle = { i, ok: false, error: "", at: new Date().toISOString(), paused_ms: null, answered_ms: null, first_exec_ms: null, offset_ms: null, offset_rtt_ms: null, offset_pre_ms: null, marks_ms: {}, phases: {}, warnings: [], guest: null, state_json: false, state_wake: null };
     cycles.push(c);
     try {
-      const status = await d.status();
-      if (status !== "running") throw new Error(`machine read ${status} before the cycle`);
+      // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
+      await ensureRunning(d, sleep);
       const arm = await d.exec(`${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}"}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 60_000);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
@@ -193,7 +243,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       if (c.offset_pre_ms !== null && Math.abs(c.offset_pre_ms - off.offset) > 100) c.warnings.push(`guest clock moved ${Math.round(off.offset - c.offset_pre_ms)} ms between pre-pause and post-wake offsets`);
       const rel = (x: number | undefined) => (x === undefined ? undefined : Math.round(x - off.offset - wakeAt));
       const mm = c.marks_ms;
-      for (const [k, v] of [["resumed", g.resumed_wall], ["net_up", g.net_up_at], ["pty_attach", g.pty_attach_at], ["input", g.input_at], ["echo", g.echo_at], ["echo_any", g.echo_any_at]] as const) {
+      for (const [k, v] of [["resumed", g.resumed_wall], ["net_up", g.net_up_at], ["dns", g.dns_at], ["pty_attach", g.pty_attach_at], ["input", g.input_at], ["echo", g.echo_at], ["echo_any", g.echo_any_at]] as const) {
         const r = rel(v);
         if (r !== undefined) mm[k] = r;
       }
@@ -215,13 +265,12 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       d.log(`wake-echo #${i} failed: ${c.error}`);
       // The next cycle needs a running machine: bring it back before anything else.
       try {
-        if ((await d.status()) !== "running") await d.wake();
-        for (let k = 0; k < 120 && (await d.status()) !== "running"; k++) await sleep(1000);
-      } catch { /* the next cycle's status read names it */ }
+        await ensureRunning(d, sleep);
+      } catch (e2) { d.log(`wake-echo #${i} recovery: ${short((e2 as Error).message ?? String(e2))}`); }
     }
     d.log(`wake-echo #${i}: ${c.ok ? "ok" : "FAIL"} ${JSON.stringify(c.phases)}${c.warnings.length ? ` warnings ${c.warnings.join("; ")}` : ""}`);
     d.onCycle(cycles);
-    if (cycles.length >= streakMax && cycles.slice(-streakMax).every((x) => !x.ok)) { d.log(`wake-echo: ${streakMax} failed cycles in a row, stopping`); break; }
+    if (cycles.length >= streakMax && cycles.slice(-streakMax).every((x) => !x.ok)) { d.log(`wake-echo: ${streakMax} failed cycles in a row, stopping`); d.onStop?.(`${streakMax} failed cycles in a row after ${cycles.length} of ${n}`); break; }
   }
   return cycles;
 }
