@@ -49,14 +49,18 @@ pub(super) struct KnownTree {
 ///
 /// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
 /// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
-/// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
+/// order and `total`, up to a byte budget, from `after` with `next` (`list-workspaces-page-v1`).
+/// Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
     client: u64,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
     limit: Option<usize>,
+    after: Option<usize>,
 ) -> anyhow::Result<Value> {
+    // `after` pages only with `limit` (`list-workspaces-page-v1`).
+    let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
     // A client that sends no `known` holds no tree and asks no second time: its reply reads each
     // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
     if known.is_none() {
@@ -67,10 +71,10 @@ pub(super) fn list_workspaces(
     // the others, all read with one view of them.
     let mut reply = match (known, limit) {
         (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            list_workspaces_reply_since(mux, known, limit, view)
+            list_workspaces_reply_since(mux, known, limit, after, view)
         })?,
         (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            Ok(list_workspaces_reply_first(mux, limit, view)?.0)
+            Ok(list_workspaces_reply_first(mux, limit, after, view)?.0)
         })?,
         (None, None) => list_workspaces_reply(mux)?,
     };
