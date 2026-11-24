@@ -417,9 +417,6 @@
   "thunderdome-label.yml": {
    "label": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.labels, github.event.pull_request.number, github.event.pull_request.title), not only the tree"
   },
-  "web-complexity-trusted.yml": {
-   "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ env.TRUSTED_SHA }}, not the run's commit"
-  },
   "web-complexity.yml": {
    "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree"
   },

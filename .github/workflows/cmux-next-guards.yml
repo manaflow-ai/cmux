@@ -143,9 +143,13 @@ jobs:
   # other finding, and everything already on the base, is a warning. The CI guard group runs the same two steps on
   # pushes (ci-guards.yml), but it skips feat-cmux-next pull requests not labeled full-ci, so this job is what
   # judges them. Offline after the pinned, checksummed tool download; about 30 s on a 2 vCPU runner.
+  # A feat-cmux-next pull request runs these commands as the ci/steps.toml step `security-holes` (pr-pipeline.yml),
+  # which every change the router starts the pipeline for routes: this job skips there. The base is matched
+  # exactly. docs-only-fallback.yml's call still runs it (a docs-only change the pipeline does not start for, labeled
+  # full-ci or over 300 files). Nothing requires this job, so no rollup counts its skip.
   security-holes:
     name: workflow security holes and secrets this change adds
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Two 5-minute checkout attempts plus about a minute of guards.
     timeout-minutes: 16
@@ -1105,16 +1109,44 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
+  # Leo, 2026-11-23: "we're drowning in our own workflow". While tooling-tests is red on feat-cmux-next, a pull
+  # request's run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
+  # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
+  # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
+  tooling-tests-base-red:
+    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 6
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      base_red: ${{ steps.decide.outputs.base_red }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
+          # 45305463226), and sparse settings in the workspace's own .git would leak into the next job on a reused
+          # pool VM; the next job's checkout removes this folder as untracked.
+          path: .base-red-src
+          sparse-checkout: scripts/ci
+      - name: Red on the base right now?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
+
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
-    needs: coalesce
+    needs: [coalesce, tooling-tests-base-red]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
-    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') }}
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
