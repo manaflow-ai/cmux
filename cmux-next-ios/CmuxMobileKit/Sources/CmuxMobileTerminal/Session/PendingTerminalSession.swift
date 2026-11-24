@@ -56,7 +56,14 @@ public enum TerminalSessionChoice {
         macName: String?,
         programName: String
     ) -> any TerminalSession {
-        if let live { return live }
+        if let live {
+            #if os(iOS)
+            // The phone re-wraps the Mac's terminal at its own width; the Mac
+            // keeps its size (Fit to Phone, per program or in Settings → Terminal, resizes it).
+            if TerminalProjectingSession.isEnabled(for: live.programName) { return TerminalProjectingSession(inner: live) }
+            #endif
+            return live
+        }
         // The review demo account: the terminal opens on its last commands, ready for typing.
         if reviewDemo { return MockTerminalSession(instantIntro: true) }
         if mockDataEnabled {

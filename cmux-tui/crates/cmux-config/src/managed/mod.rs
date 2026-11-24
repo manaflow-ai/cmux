@@ -23,7 +23,7 @@ pub use cf::CfManagedReader;
 pub use policy::{POLICY_KEYS, Policy, PolicyKey, PolicyType, SECRET_POLICY_KEYS};
 pub use reader::{
     FixedManagedReader, JsonFileManagedReader, ManagedReader, PlistFileManagedReader,
-    default_reader, json_from_plist,
+    default_reader, json_from_plist, read_keys,
 };
 pub use team::TeamPolicyLayer;
 
@@ -37,6 +37,15 @@ pub const FILE_OVERRIDE_KEY: &str = "CMUX_NEXT_MANAGED_PREFS_FILE";
 /// The managed file on Linux: forced keys at the top level, recommended
 /// keys under `Recommended`.
 pub const LINUX_MANAGED_FILE: &str = "/etc/cmux/managed.json";
+
+/// The value an administrator set for one settings key, applied over
+/// `file` (the value in the person's settings file) as the settings owner
+/// applies it: a forced value wins, a recommended one replaces only a
+/// missing value. For launch paths that read the file directly.
+pub fn applied_to(key: &str, file: Option<Value>) -> Option<Value> {
+    let mut values = read_keys(&[key], |name| std::env::var(name).ok());
+    values.forced.remove(key).or(file).or_else(|| values.recommended.remove(key))
+}
 
 /// Who manages a settings key: the device's MDM profile, or the policy of
 /// the device's managing team (named).

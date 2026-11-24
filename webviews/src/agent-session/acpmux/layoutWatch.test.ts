@@ -123,7 +123,6 @@ function defaultPage() {
         </div>
         <div class="nt-foot"><button data-menu="Model">Model</button></div>
       </div>
-      <section class="nt-starters">Starters</section>
     </div>`;
   const part = (selector: string, index = 0) => doc.querySelectorAll(selector)[index]!;
   place(part(".nt-screen"), 0, 0, 800, 600);
@@ -143,7 +142,6 @@ function defaultPage() {
   place(part(".nt-pickers"), 108, 476, 584, 28);
   place(part(".nt-foot"), 100, 512, 600, 28);
   place(part("button[data-menu=Model]"), 100, 512, 80, 28);
-  place(part(".nt-starters"), 100, 548, 600, 40);
   return {
     part,
     card: () => place(part(".nt-box"), 100, 428, 600, 80),
@@ -283,8 +281,8 @@ test("the default New Tab page drawn at the first frame is its first paint, with
   expect(report.first_content_ms).toBe(0);
   expect(report.new_tab_page).toBe("default");
   // The root, the stage with its 2 cards, the player, the open tabs, the chats with 2 cards, the composer with
-  // its strip, its card, its input, the field's slot, the field and the pickers, the foot with 1 chip, the starters.
-  expect(report.elements).toBe(22);
+  // its strip, its card, its input, the field's slot, the field and the pickers, the foot with 1 chip.
+  expect(report.elements).toBe(21);
   expect(Object.keys(report.new_tab ?? {}).sort()).toEqual([
     "chip:Model",
     "nt-above",
@@ -307,7 +305,6 @@ test("the default New Tab page drawn at the first frame is its first paint, with
     "nt-stage-card",
     "nt-stage-card:1",
     "nt-stage-cards",
-    "nt-starters",
   ]);
   expect(report.new_tab?.["nt-box"]).toEqual({ x: 100, y: 428, w: 600, h: 80 });
   expect(report.new_tab?.["nt-field"]).toEqual({ x: 112, y: 436, w: 576, h: 40 });
@@ -377,10 +374,10 @@ test("a part of the default page that comes after the first paint is named, also
   const page = defaultPage();
   page.card();
   page.field();
-  const starters = page.part(".nt-starters");
-  starters.remove();
+  const player = page.part(".nt-player");
+  player.remove();
   before = (index) => {
-    if (index === 3) page.part(".nt-screen").append(starters);
+    if (index === 3) page.part(".nt-screen").append(player);
     if (index === 5) {
       // The list of suggestions is drawn in a layer of the document, not inside the page's root (ui/Popover.tsx).
       const list = doc.createElement("div");
@@ -390,9 +387,9 @@ test("a part of the default page that comes after the first paint is named, also
     }
   };
   const report = await watch();
-  expect(report.elements).toBe(21);
+  expect(report.elements).toBe(20);
   expect(report.appeared).toEqual([
-    { element: "nt-starters", at_ms: 30, box: { x: 100, y: 548, w: 600, h: 40 } },
+    { element: "nt-player", at_ms: 30, box: { x: 100, y: 150, w: 600, h: 40 } },
     { element: "nt-rows", at_ms: 50, box: { x: 100, y: 300, w: 600, h: 120 } },
   ]);
 });
@@ -419,7 +416,7 @@ test("each part that the watch reads on the default page is a class in that page
   const parts = ((watcher as Record<string, unknown>).NEW_TAB_SCREEN_PARTS as string[] | undefined) ?? [];
   expect(parts).toContain("nt-box");
   expect(parts).toContain("nt-field");
-  const blocks = ["NewTabScreen", "StageCards", "FirstRunStarters", "NowPlayingPlayer", "OpenTabsList", "ChatCards"];
+  const blocks = ["NewTabScreen", "StageCards", "NowPlayingPlayer", "OpenTabsList", "ChatCards"];
   const markup = [...blocks, "AllChatsList"]
     .map((file) => readFileSync(new URL(`./newtab/${file}.tsx`, import.meta.url), "utf8"))
     .join("\n");
@@ -429,7 +426,7 @@ test("each part that the watch reads on the default page is a class in that page
   defaultPage();
   const placed = ["nt-stage", "nt-stage-cards", "nt-stage-card", "nt-player", "nt-open-tabs", "nt-chats", "nt-cards"];
   const composer = ["nt-card", "nt-composer", "nt-above", "nt-location", "nt-input", "nt-field-slot", "nt-pickers"];
-  for (const name of [...placed, ...composer, "nt-foot", "nt-starters", "nt-rows"]) expect(parts).toContain(name);
+  for (const name of [...placed, ...composer, "nt-foot", "nt-rows"]) expect(parts).toContain(name);
 });
 
 test("each class of this test's page is a class in the New Tab page's markup", () => {

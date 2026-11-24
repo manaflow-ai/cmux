@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import Observation
 
@@ -224,6 +225,15 @@ extension WindowManager {
         }
         // A workspace of another room: the window enters that room first, so the selection repair
         // after the move finds it shown there and picks it (Home took a second click otherwise).
+        // Spaces off (#48355): this window keeps its view. A workspace of another space shows in its open window, else
+        // opens in a window of its own on its space.
+        if shows, !spacesOn, let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) {
+            if let owner = openOwner(of: workspaceID), let target = controller(for: owner) { return select(workspaceID, in: target.state) }
+            let windowID = UUID().uuidString.lowercased()
+            self.state(for: windowID).enterProfile(room)
+            openWindow(id: windowID, workspaces: [workspaceID])
+            return
+        }
         if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:], gesture: true) { $0.move([workspaceID], to: state.id) }
         fileOpenedMachine(of: workspaceID, into: state.id)
@@ -295,7 +305,10 @@ extension WindowManager {
         // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
         // The first that another space shows decides (one still unreported, or already shown here, switches nothing).
         // A window on its own incognito space never leaves it (`switchProfile`).
-        if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+        // Spaces off (#48355): the window keeps its view, and workspaces of another space join it (a pin, as Move to Space).
+        if !spacesOn, incognitoSpaces[windowID] == nil, let state = states[windowID] {
+            pin(ids, to: state.profileID, selectIn: select ? windowID : nil)
+        } else if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
         }
@@ -520,8 +533,11 @@ extension WindowManager {
             restoreClosed.keepClosed(&registry)
             return changes
         }
-        // A workspace that changed profile leaves no trace in membership.
-        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
+        // A workspace that changed profile leaves no trace in membership; one moved in while Spaces is off is selected once its pin lands.
+        if registry.value == before, preferred.isEmpty {
+            let pinned = pinSelections.isEmpty ? [:] : landedPins()
+            repairSelections(previous: [:], preferred: pinned, gesture: !pinned.isEmpty)
+        }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         settleRestoreClosed()
         rememberIncognitoTabs()

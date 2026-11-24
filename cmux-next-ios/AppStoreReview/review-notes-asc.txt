@@ -10,25 +10,25 @@ Prior review resolutions:
 - Guideline 1.5: the Support URL is https://cmux.com/support.
 
 Sign in (there is no password):
-1. Launch cmux and tap "Continue with email". On "What's your email?", enter {{DEMO_ACCOUNT_EMAIL}} (also in the demo account field) and tap "Continue".
-2. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no account or password needed). The newest email holds the code.
+1. Launch cmux and tap "Continue with email". On "What's your email?", enter {{DEMO_ACCOUNT_EMAIL}} and tap "Continue".
+2. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no sign-in needed). The newest email holds the code.
 3. Type the code on "Check your email". It submits on the last character. If no code arrives within two minutes, tap "Resend code".
 
 First launch:
 - If "Choose a space" appears, tap "Personal".
-- "Connect your Mac" is for people who also run cmux on a Mac. Tap "Not now".
-- On "Know when an agent needs you", tap "Turn on notifications" or "Not now".
+- "Connect your Mac" is for people with cmux on a Mac. Tap "Not now".
+- On "Know when an agent needs you", tap "Turn on notifications" or "Not now". Either works.
 
 ## REVIEW DEMO STEPS: START. The review path: the demo account's simulated Mac (terminals and
 ## browser tabs on the iPhone), with no Mac and no Cloud credits.
 Review path (no Mac needed):
 The demo account has a simulated Mac named MacBook Pro, run on the iPhone. It is not a real computer, and no other account has it.
 1. Open the Workspaces tab. It lists the MacBook Pro's three workspaces: website, api-server and notes.
-2. Tap website. Its terminal opens and shows recent commands. Type a command in the message box, for example ls -la, git status, echo hello or htop, and tap send; the terminal runs it and answers. q quits htop.
+2. Tap website. Its terminal opens and shows recent commands. Type a command in the message box (ls -la, git status, echo hi or htop) and tap send; the terminal answers. q quits htop.
 3. Tap Tabs (bottom right), then the cmux tab. The page opens in the app.
 ## REVIEW DEMO STEPS: END
 
-Chief (optional): Home lists Chief, labeled Main · Cloud, a cmux Cloud agent. If Home shows "Chief Is Off", tap "Turn On". Chief answers only while the account has Cloud credits; otherwise it says so in the conversation.
+Chief (optional): Home lists Chief, labeled Main · Cloud, a cmux Cloud agent. The first message asks "Chief Uses AI": its replies come from third-party AI models (Anthropic and OpenAI), so the app asks before anything is shared (Guideline 5.1.2(i)); tap "Agree and Send". Chief's info page turns sharing off again and has "Report a Response…" (Guideline 1.2). If Home shows "Chief Is Off", tap "Turn On". Without Cloud credits Chief says so in the conversation.
 
 Other screens:
 - Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read". "New Message" (top right): pick a Chief or teammate under "To:" and send.
