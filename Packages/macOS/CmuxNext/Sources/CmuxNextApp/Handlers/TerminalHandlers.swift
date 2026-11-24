@@ -15,6 +15,7 @@ enum TerminalHandlers {
         TerminalHandlers.bindFind(into: registry, context: ctx)
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
+        bindPinTail(registry, ctx)
         bindCopyMode(registry, ctx)
         TextBoxHandlers.bind(into: registry, context: ctx)
     }
@@ -121,6 +122,21 @@ enum TerminalHandlers {
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface
             ctx.send("set-terminal-keep") { _ = try await $0.setTerminalKeep(.surface(surface), keep: keep) }
+        })
+    }
+
+    /// Show Last Line in Sidebar, `terminal pin-tail on|off`: the tab's terminal's last output line
+    /// under its workspace in the sidebar (`terminal-tail-pin-v1`); off clears it.
+    private static func bindPinTail(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bindEffect("terminal.pinTail", unavailable: ctx.needs(DaemonCapability.terminalTailPin.rawValue), effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
+            guard let connection = ctx.connection() else { return .done }
+            let pinned = invocation["on"]?.boolValue ?? true, surface = tab.surface
+            // action-wait-allow: the pin lives only in the daemon's terminal, which draws the line; the app keeps no copy to show first
+            return .waiting(.daemonEcho) {
+                do { _ = try await connection.setTerminalTailPin(.surface(surface), pinned: pinned); return nil } catch { return ActionWorkFailure("set-terminal-tail-pin", error) }
+            }
         })
     }
 

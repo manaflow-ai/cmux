@@ -103,6 +103,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
+    var peerScope: String { handle.peerScope() }
+
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
 
     var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
@@ -131,6 +133,20 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     func close() async {
         handle.close()
+    }
+}
+
+extension FFIMacLink: ParkableMacLink {
+    func park(hold: Duration, timeout: Duration) async -> Bool {
+        (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
+    }
+
+    func resumeParked() -> Bool {
+        handle.resume()
+    }
+
+    private static func millis(_ duration: Duration) -> UInt32 {
+        UInt32(clamping: duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
     }
 }
 

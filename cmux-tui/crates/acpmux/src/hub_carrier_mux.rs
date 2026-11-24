@@ -367,7 +367,26 @@ impl Mux {
                 }
                 Err(refusal) => refuse(refusal).await,
             },
-            // The acpmux listener keeps its own circuits (it sends no hello).
+            // The acpmux listener, reached as a plain circuit with no hello reaches it: the
+            // peer link and its hub probe ride the pair's one kept circuit.
+            Ok(CircuitService::Acpmux)
+                if incoming.carrier.acpmux_streams.load(Ordering::SeqCst) =>
+            {
+                match tokio::net::TcpStream::connect(incoming.websocket).await {
+                    Ok(local) => {
+                        let _ = local.set_nodelay(true);
+                        self.carry_admitted(id, local, events, credit).await
+                    }
+                    Err(e) => {
+                        refuse(ServiceRefusal::new(
+                            "service.unreachable",
+                            format!("this machine's acpmux listener is not reachable: {e}"),
+                        ))
+                        .await
+                    }
+                }
+            }
+            // A daemon from before acpmux streams answered this way; its dialers go plain.
             Ok(CircuitService::Acpmux) => {
                 refuse(ServiceRefusal::new("service.unknown", "no such service")).await
             }
@@ -486,8 +505,10 @@ impl Mux {
         tokio::pin!(answer);
         let answered = match tokio::time::timeout(ANSWER_SUSPECT, &mut answer).await {
             Ok(answered) => answered,
-            Err(_) if self.heard() > sent_at => {
-                // Alive but slow to admit (a loaded machine reading its consent): wait it out.
+            // Alive but slow to admit (a loaded machine reading its consent), or this machine
+            // did not run for a whole suspect window (its timer fired that late, so its reader
+            // had no turn to hear the far side either, cmux#52200): wait it out.
+            Err(_) if self.heard() > sent_at || sent_at.elapsed() >= ANSWER_SUSPECT * 2 => {
                 match tokio::time::timeout(answer_wait.saturating_sub(ANSWER_SUSPECT), answer).await
                 {
                     Ok(answered) => answered,
@@ -582,6 +603,9 @@ pub(crate) struct Kept {
     pub(crate) live: Option<Arc<Mux>>,
     /// Set when the machine answered the `mux` hello `service.unknown`.
     pub(crate) no_mux_until: Option<Instant>,
+    /// Set when the machine's kept circuit refused an acpmux stream `service.unknown` (it
+    /// predates them): acpmux dials go plain to it until then.
+    pub(crate) no_acpmux_until: Option<Instant>,
 }
 
 /// Every kept circuit of a carrier, by machine (`daemonId`) and [`Lane`](super::CircuitLane).
