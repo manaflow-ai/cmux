@@ -284,6 +284,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
+#[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]

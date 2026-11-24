@@ -15,6 +15,9 @@ mod access;
 // A second connection to a rig's daemon.
 #[path = "auto_session/client.rs"]
 mod client;
+// An import that is still under way when the store has moved on.
+#[path = "auto_session/stale_import.rs"]
+mod stale_import;
 // The kept changes: Apply, Discard, and two requests for one chat.
 #[path = "auto_session/leftover.rs"]
 mod leftover;
@@ -162,6 +165,21 @@ impl Rig {
 
     /// The laptop daemon of the device named `device`, as it says its name to the store.
     async fn as_device(device: &str) -> Rig {
+        Rig::build(device, None).await
+    }
+
+    /// A rig whose holder loop imports with the importer `make` builds from the daemon, the
+    /// laptop's transport and a folder for chats that are new here.
+    async fn with_importer(
+        make: impl FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter> + 'static,
+    ) -> Rig {
+        Rig::build(DEVICE, Some(Box::new(make))).await
+    }
+
+    async fn build(
+        device: &str,
+        make: Option<Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>>,
+    ) -> Rig {
         let root = tempfile::tempdir().unwrap();
         let work = checkout(root.path());
         let wire_log = root.path().join("wire.log");
@@ -184,13 +202,12 @@ impl Rig {
         let importer = Arc::new(StubImporter::default());
         let me = Holder::device(device);
         let options = HolderOptions { clock: clock.clone(), network: None, new_chats: None };
-        let holder = spawn_holder_with(
-            hub.clone(),
-            Arc::new(cloud.clone()),
-            me.clone(),
-            importer.clone(),
-            options,
-        );
+        let chosen: Arc<dyn SessionImporter> = match make {
+            Some(make) => make(hub.clone(), cloud.clone(), root.path().join("imports")),
+            None => importer.clone(),
+        };
+        let holder =
+            spawn_holder_with(hub.clone(), Arc::new(cloud.clone()), me.clone(), chosen, options);
 
         let (tx, in_rx) = mpsc::channel(64);
         let (out_tx, rx) = mpsc::channel(4096);
