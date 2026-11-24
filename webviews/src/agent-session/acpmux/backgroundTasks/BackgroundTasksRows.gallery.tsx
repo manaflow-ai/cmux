@@ -103,8 +103,8 @@ const reader: BackgroundTaskOutputReader = {
         harness: "claude",
       })),
     }),
-    tailProcess: async (params: { processId?: string }) => ({
-      data: params.processId === "proc-a" ? encode(OUTPUT + "\n") : "",
+    tailProcess: async (processId: string) => ({
+      data: processId === "proc-a" ? encode(OUTPUT + "\n") : "",
       fromByte: 0,
     }),
   },
