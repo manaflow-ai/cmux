@@ -132,7 +132,7 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
             "remote connection has no route candidates".into(),
         )));
     }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
+    if upgrade && routes.first().is_none_or(|route| route.endpoint.scheme() != "ssh") {
         return Err(InitialRouteSelectionError::terminal(E::terminal(
             "--upgrade requires SSH to be the initial route".into(),
         )));
@@ -155,17 +155,20 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
         {
             let position = cursor;
             cursor += 1;
-            let index = sequence[position];
-            let candidate = &routes[index];
+            let Some((index, candidate)) = route_at(routes, &sequence, position) else { continue };
             let display = sanitized_route(&candidate.endpoint);
             if !candidate.supports_client_auth(auth) {
-                failures[position] = Some(format!(
-                    "{display}: {}",
-                    ProviderError::UnsupportedClientAuth {
-                        scheme: candidate.endpoint.scheme().into(),
-                        auth,
-                    }
-                ));
+                record(
+                    &mut failures,
+                    position,
+                    format!(
+                        "{display}: {}",
+                        ProviderError::UnsupportedClientAuth {
+                            scheme: candidate.endpoint.scheme().into(),
+                            auth,
+                        }
+                    ),
+                );
                 continue;
             }
             let request = connect_request(candidate, session, lane_policy).map_err(|error| {
@@ -201,12 +204,16 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
                     return Err(InitialRouteSelectionError::terminal(E::terminal(message)));
                 }
                 retryable |= route_retryable;
-                failures[position] = Some(match stage {
-                    Stage::Bootstrap => {
-                        format!("{display}: SSH bootstrap failed: {}", error.summary())
-                    }
-                    Stage::Connect => format!("{display}: {}", error.summary()),
-                });
+                record(
+                    &mut failures,
+                    position,
+                    match stage {
+                        Stage::Bootstrap => {
+                            format!("{display}: SSH bootstrap failed: {}", error.summary())
+                        }
+                        Stage::Connect => format!("{display}: {}", error.summary()),
+                    },
+                );
                 if last.as_ref().is_none_or(|(at, _)| *at < position) {
                     last = Some((position, error));
                 }
@@ -224,6 +231,23 @@ pub(crate) async fn select_routes<T: Send, E: RouteFailure>(
         error: E::all_failed(failures.into_iter().flatten().collect(), last.map(|(_, e)| e)),
         retryable,
     })
+}
+
+/// The route at `position` in a pass's order, with its index in `routes`.
+fn route_at<'a>(
+    routes: &'a [ResolvedRouteCandidate],
+    sequence: &[usize],
+    position: usize,
+) -> Option<(usize, &'a ResolvedRouteCandidate)> {
+    let index = *sequence.get(position)?;
+    Some((index, routes.get(index)?))
+}
+
+/// Records the failure of the route at `position` in a pass's order.
+fn record(failures: &mut [Option<String>], position: usize, failure: String) {
+    if let Some(slot) = failures.get_mut(position) {
+        *slot = Some(failure);
+    }
 }
 
 /// Waits until `at`, or forever without one.
@@ -262,17 +286,20 @@ pub(crate) async fn select_reconnect_routes<T: Send>(
         {
             let position = cursor;
             cursor += 1;
-            let index = sequence[position];
-            let candidate = &routes[index];
+            let Some((index, candidate)) = route_at(routes, &sequence, position) else { continue };
             if !candidate.supports_client_auth(auth) {
-                failures[position] = Some(format!(
-                    "{}: {}",
-                    sanitized_route(&candidate.endpoint),
-                    ProviderError::UnsupportedClientAuth {
-                        scheme: candidate.endpoint.scheme().into(),
-                        auth,
-                    }
-                ));
+                record(
+                    &mut failures,
+                    position,
+                    format!(
+                        "{}: {}",
+                        sanitized_route(&candidate.endpoint),
+                        ProviderError::UnsupportedClientAuth {
+                            scheme: candidate.endpoint.scheme().into(),
+                            auth,
+                        }
+                    ),
+                );
                 continue;
             }
             let request = connect_request(candidate, session, lane_policy)
@@ -293,7 +320,7 @@ pub(crate) async fn select_reconnect_routes<T: Send>(
         match result {
             Ok(group) => return Ok((index, group)),
             Err(error) => {
-                failures[position] = Some(format!("{display}: {error}"));
+                record(&mut failures, position, format!("{display}: {error}"));
                 if race.is_some() {
                     next_at = Some(Instant::now());
                 }

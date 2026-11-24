@@ -99,14 +99,14 @@ async fn select_stalled_then_unix(
     // other fixed deadline below the Unix route's hang guard.
     let failures = attempt.failures.into_inner().unwrap();
     let (index, error) = failures.first().expect("the stalled route did not fail");
-    assert_eq!(*index, 0, "the first failure is not the stalled route's: {:?}", failures);
+    assert_eq!(*index, 0, "the first failure is not the stalled route's: {failures:?}");
     // #40976 gave the lane open its own bound inside the attempt timer: "opening lane … did not
     // finish within 20 ms" is the same 20 ms timer, worded where the open stalled.
     assert!(
         error.contains("did not finish within 20 ms") || error.contains("timed out after 20ms"),
         "the stalled route did not fail on its 20 ms attempt timer: {error}"
     );
-    assert!(failures.iter().all(|(index, _)| *index == 0), "the Unix route failed: {:?}", failures);
+    assert!(failures.iter().all(|(index, _)| *index == 0), "the Unix route failed: {failures:?}");
     selected
 }
 
