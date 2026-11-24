@@ -320,6 +320,8 @@ keyed! {
     SubagentStopParams: ["sessionId", "subagentSessionId"];
     /// `_acpmux/subagent_transcript`.
     SubagentTranscriptParams: ["sessionId", "runId", "agentId", "before", "after", "limit"];
+    /// `_acpmux/subagents`.
+    SubagentListParams: ["sessionId", "ended"];
     /// `_acpmux/subsession/limits`.
     SubsessionLimitsParams: ["sessionId", "maxRunning", "workspaceId"];
     /// `acp.trust.get`.
