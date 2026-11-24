@@ -29,6 +29,3 @@ export function readHostOverload(value: unknown): HostOverload | undefined {
 
 /// How often the pane asks. acpmux reuses a reading for 15 s, so this costs one small request.
 export const OVERLOAD_POLL_MS = 30_000;
-
-/// A dismissal holds until the machine has been back within its limits.
-export const OVERLOAD_DISMISS_KEY = "overload";

@@ -1,7 +1,7 @@
 import type { AcpmuxTurnRetry } from "../model";
 import type { SessionEvent } from "../protocol/generated/types";
 
-/** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+/// The connection failures acpmux classifies (hub/outage.rs).
 const OUTAGE_CAUSES = ["dns", "refused", "timeout", "unreachable"] as const;
 
 /// What a `turn_retrying` record says the live line shows (acpmux hub/turn_retry.rs).
