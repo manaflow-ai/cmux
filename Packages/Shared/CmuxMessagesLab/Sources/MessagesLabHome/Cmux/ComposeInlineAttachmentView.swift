@@ -106,7 +106,7 @@ final class ComposeInlineAttachmentView: NSView {
     @discardableResult
     func openPreview() -> Bool {
         guard let attachment, attachment.isImage, let field else { return false }
-        return field.onOpenDraftPicture(attachment.attachmentID, self)
+        return field.onOpenDraftPicture(attachment.attachmentID, convert(bounds, to: field), thumbnail)
     }
 
     override func mouseEntered(with event: NSEvent) { showsRemove = true }

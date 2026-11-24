@@ -54,22 +54,12 @@ import UniformTypeIdentifiers
         #expect(!ComposeInlineAttachmentView.isClick(from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 10)))
     }
 
-    @Test func aClickedPictureAsksItsFieldToOpenIt() {
-        let field = FieldTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
-        var opened: [ID] = []
-        field.onOpenDraftPicture = { id, _ in opened.append(id); return true }
-        let picture = ComposeInlineAttachment(Self.picture("p1"), scale: 2)
-        let view = picture.makeView()
-        field.addSubview(view)
-        #expect(view.openPreview())
-        #expect(opened == ["p1"])
-
-        let pill = ComposeInlineAttachment(Self.file("doc"), scale: 2)
-        let pillView = pill.makeView()
-        field.addSubview(pillView)
-        #expect(!pillView.openPreview(), "a file pill does not open the picture viewer")
-        #expect(opened == ["p1"])
-        withExtendedLifetime((picture, pill)) {}
+    /// A left-button event at `point` in `field`'s window.
+    static func mouse(_ type: NSEvent.EventType, at point: CGPoint, in field: NSView, clicks: Int = 1,
+                      flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: field.convert(point, to: nil), modifierFlags: flags, timestamp: 0,
+                                        windowNumber: field.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                        clickCount: clicks, pressure: 1))
     }
 
     // MARK: The real box
@@ -83,6 +73,10 @@ import UniformTypeIdentifiers
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                 bytesPerRow: 0, bitsPerPixel: 0))
         return try #require(rep.representation(using: .png, properties: [:]))
+    }
+
+    private func fields(in view: NSView) -> [FieldTextView] {
+        view.subviews.flatMap { v in (v as? FieldTextView).map { [$0] } ?? fields(in: v) }
     }
 
     private func inlineViews(in view: NSView) -> [ComposeInlineAttachmentView] {
@@ -123,13 +117,30 @@ import UniformTypeIdentifiers
         #expect(ids.count == 2)
         let clicked = try #require(ids.last)
         view.layoutSubtreeIfNeeded()
-        // The click: the field's own view of that picture when it placed one (a window on screen), else the
-        // controller's entry that view calls.
-        if let placed = inlineViews(in: view).first(where: { $0.attachmentID == clicked }) {
-            #expect(placed.openPreview())
-        } else {
-            #expect(view.controller.openDraftPicture(clicked))
-        }
+        // The real field: TextKit 1 draws its attachments itself and places no attachment view (why the old click
+        // handler on ComposeInlineAttachmentView never ran), so the field finds the picture from its glyph boxes.
+        let field = try #require(fields(in: view).first, "no message box field")
+        #expect(field.textLayoutManager == nil, "the composer field is TextKit 1")
+        #expect(inlineViews(in: view).isEmpty, "TextKit 1 placed no attachment view")
+        await until { ComposeInlineRemoveHover.attachmentRects(in: field).count == 2 }
+        let boxes = ComposeInlineRemoveHover.attachmentRects(in: field)
+        let box = try #require(boxes.first { $0.attachment.attachmentID == clicked }?.rect, "no box for the clicked picture: \(boxes)")
+        let centre = CGPoint(x: box.midX, y: box.midY)
+        #expect(field.picture(at: centre)?.attachment.attachmentID == clicked)
+
+        // A drag that starts on the picture, a double click and a click beside it open nothing.
+        let beside = CGPoint(x: box.maxX + 40, y: box.midY)
+        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field),
+                                          up: try Self.mouse(.leftMouseUp, at: CGPoint(x: centre.x + 30, y: centre.y), in: field)))
+        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field, clicks: 2),
+                                          up: try Self.mouse(.leftMouseUp, at: centre, in: field, clicks: 2)))
+        #expect(!field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: beside, in: field),
+                                          up: try Self.mouse(.leftMouseUp, at: beside, in: field)))
+        #expect(view.controller.pictureViewer == nil)
+
+        // The click on it.
+        #expect(field.openPictureClicked(down: try Self.mouse(.leftMouseDown, at: centre, in: field),
+                                         up: try Self.mouse(.leftMouseUp, at: centre, in: field)))
         let viewer = try #require(view.controller.pictureViewer, "the click opened no viewer")
         #expect(viewer.gallery.items.count == 2, "the box's two pictures")
         #expect(viewer.gallery.index == 1, "open on the one clicked")
