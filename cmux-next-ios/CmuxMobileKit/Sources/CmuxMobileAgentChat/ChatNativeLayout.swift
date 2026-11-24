@@ -497,6 +497,10 @@ final class ChatNativeLayouts {
     private var generation = 0
     /// Rows laid out on the main thread / off it (tests and the rig's log).
     private(set) var madeNow = 0
+    #if DEBUG
+    /// Layouts made on the main thread, by why (tests: which path made them).
+    private(set) var madeNowBy: [String: Int] = [:]
+    #endif
     private(set) var madeOffMain = 0
 
     func reset() {
@@ -522,10 +526,13 @@ final class ChatNativeLayouts {
 
     /// The row's layout, made here if missing (nil: SwiftUI, or no environment yet).
     @discardableResult
-    func makeNow(_ row: ChatRow, revision: Int, expanded: Bool) -> ChatNativeLayout? {
+    func makeNow(_ row: ChatRow, revision: Int, expanded: Bool, why: String = "other") -> ChatNativeLayout? {
         if let entry = entries[row.id], entry.revision == revision, entry.expanded == expanded { return entry.layout }
         guard let environment else { return nil }
         madeNow += 1
+        #if DEBUG
+        madeNowBy[why, default: 0] += 1
+        #endif
         #if DEBUG
         let start = CACurrentMediaTime()
         defer { ChatRowCost.add(row.costKind, "sync", CACurrentMediaTime() - start) }

@@ -101,7 +101,7 @@ import UIKit
         let visible = host.list.collectionView.indexPathsForVisibleItems.count
         #expect(visible > 0)
         #expect(host.list.layoutsMadeNow <= visible + 4,
-                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen")
+                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen, by path: \(host.list.layoutsMadeNowBy.sorted { $0.key < $1.key })")
     }
 
     /// Older rows put in above a running end move nothing the reader sees (0.5 pt), frame after
@@ -170,11 +170,14 @@ import UIKit
     func eachChunkFitsAFrame(_ running: Bool) async {
         let store = running ? Self.runningLongStore(2000) : ListWorkCountersTests.finishedLongStore()
         let (host, window) = Self.openNow(store)
+        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
         var times: [Double] = []
         var weighed: [Int] = []
+        var parts: [String] = []
         var chunks = host.chunks
         var time = host.list.reloadTime
         var rows = host.list.rowsWeighed
+        var sections = host.list.sectionTimes
         let deadline = Date().addingTimeInterval(30)
         while !host.filled, Date() < deadline {
             await Self.frame(window)
@@ -183,12 +186,15 @@ import UIKit
             let spent = host.list.reloadTime - time
             times.append(Double(spent.components.attoseconds) / 1e15 + Double(spent.components.seconds) * 1000)
             weighed.append(host.list.rowsWeighed - rows)
+            let now = host.list.sectionTimes
+            parts.append(now.keys.sorted().map { "\($0)=\(String(format: "%.1f", ms(now[$0]! - (sections[$0] ?? .zero))))" }.joined(separator: ","))
+            sections = now
             time = host.list.reloadTime
             rows = host.list.rowsWeighed
         }
         let worst = times.max() ?? 0
         let perRow = zip(times, weighed).map { $1 > 0 ? $0 / Double($1) : 0 }.max() ?? 0
-        let summary = "running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(times.count) worst_ms=\(String(format: "%.2f", worst)) worst_ms_per_row=\(String(format: "%.3f", perRow)) ms=\(times.map { String(format: "%.1f", $0) }) weighed=\(weighed)"
+        let summary = "running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(times.count) worst_ms=\(String(format: "%.2f", worst)) worst_ms_per_row=\(String(format: "%.3f", perRow)) ms=\(times.map { String(format: "%.1f", $0) }) weighed=\(weighed) parts=\(parts)"
         Attachment.record(summary, named: "subagent-chunk-\(running ? "running" : "finished")")
         window.isHidden = true
         #expect(host.filled, "every chunk came in: \(summary)")

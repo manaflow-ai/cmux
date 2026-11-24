@@ -176,11 +176,24 @@ final class ChatTranscriptBuilder {
         assignSenderTones(turns)
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
-            let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
+            var context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
                                           senderTones: turnTones(turn), foldsWork: foldsWork)
+            if mode == .subagent {
+                // A subagent transcript's turns are its chunks (SubagentRowWindow). A chunk's place
+                // among them changes as the window grows, and nothing a subagent turn draws reads it
+                // (isLast, askOpen and nextPrompt feed only chat rows; isFirst only the prompt's gap,
+                // and only the first chunk has the prompt), so it is not part of the chunk's key, and a
+                // growth leaves the chunks it did not add as they were. A permission's choices show
+                // on its row in whichever chunk holds it, as in the whole transcript's one turn.
+                context.isFirst = !turn.prompt.isEmpty && index == 0
+                context.isLast = false
+                context.askOpen = false
+                context.nextPrompt = nil
+                context.choicesFor = choicesFor
+            }
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {

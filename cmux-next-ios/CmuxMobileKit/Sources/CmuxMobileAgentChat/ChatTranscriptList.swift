@@ -135,6 +135,20 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         markDirty(first)
     }
 
+    /// `new` put in at `row`, every other row as it was (a subagent window's chunk): the rows
+    /// from `row` on take their places again; none is compared.
+    func insertItems(_ new: [Item], at row: Int) {
+        guard !new.isEmpty else { return }
+        let row = min(max(row, 0), items.count)
+        items.insert(contentsOf: new, at: row)
+        heights.insert(contentsOf: new.map(height(for:)), at: min(row, heights.count))
+        // The rows after the new ones move down: only theirs change (a chunk before the footer moves
+        // the footer; one after the pill moves every row, as a prepend must).
+        for moved in (row + new.count)..<items.count { index[items[moved].id] = moved }
+        for (offset, item) in new.enumerated() where index[item.id] == nil { index[item.id] = row + offset }
+        markDirty(row)
+    }
+
     private func height(for item: Item) -> CGFloat {
         guard !item.exact, let known = measured[item.id]?.height(fold: item.fold) else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
@@ -252,6 +266,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     override func prepare() {
         super.prepare()
         prepareIfNeeded()
+    }
+
+    /// The content's height now (the rows' places worked out first, as the next layout pass will).
+    func preparedContentHeight() -> CGFloat {
+        prepareIfNeeded()
+        return contentHeight
     }
 
     override class var layoutAttributesClass: AnyClass { ChatRowAttributes.self }
@@ -540,6 +560,18 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         set { lookup.revisions = newValue }
     }
     private var shownIDs: [String] = []
+    /// `shownIDs` as a set (a chunk's growth checks its rows against it).
+    private var shownIDSet: Set<String> = []
+    /// The turns as last shown, in order (a growth is these and one new chunk turn).
+    private struct TurnKey: Equatable {
+        var id: String
+        var generation: Int
+    }
+    private var shownTurnOrder: [TurnKey] = []
+    #if DEBUG
+    /// The main thread's time in each part of `reload` (tests: what a growth costs, by part).
+    private(set) var sectionTimes: [String: Duration] = [:]
+    #endif
     /// Rows to reconfigure on the next reload although their content is the same (a code
     /// card shown in full).
     private var forced: Set<String> = []
@@ -591,6 +623,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var snapshotApplies = 0
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
+    #if DEBUG
+    /// The same, by the path that made them (prime, running, dequeue, other).
+    var layoutsMadeNowBy: [String: Int] { lookup.layouts.madeNowBy }
+    #endif
     /// Native layouts made off the main thread.
     var layoutsMadeOffMain: Int { lookup.layouts.madeOffMain }
 
@@ -655,6 +691,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         lookup.shownPool = [:]
         primed = false
         shownIDs = []
+        shownIDSet = []
+        shownTurnOrder = []
         shownTurns = [:]
         fadeIn = []
         heldOnce = []
@@ -872,6 +910,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The turn running at the last reload.
     private var runningShown: String?
 
+    /// The reload is a subagent window's growth: the turns as last shown, unchanged and in order,
+    /// with one new turn before or after them, and nothing else to redo.
+    private func chunkAddition(_ built: [ChatTurnRows]) -> (index: Int, offset: Int)? {
+        guard source.window != nil, loaded, !shownTurnOrder.isEmpty, built.count == shownTurnOrder.count + 1,
+              forced.isEmpty, reweigh.isEmpty, reweighTurns.isEmpty else { return nil }
+        let keys = built.map { TurnKey(id: $0.turnID, generation: $0.generation) }
+        // The pill is the first turn and the footer the last: a chunk goes in after the pill (above a
+        // running end) or before the footer (below a finished top).
+        for index in [1, keys.count - 2] where index > 0 && index < keys.count - 1 && shownTurns[keys[index].id] == nil {
+            var rest = keys
+            rest.remove(at: index)
+            guard rest == shownTurnOrder, rest.allSatisfy({ shownTurns[$0.id]?.generation == $0.generation }) else { continue }
+            let offset = keys[..<index].reduce(0) { $0 + (shownTurns[$1.id]?.ids.count ?? 0) }
+            return (index, offset)
+        }
+        return nil
+    }
+
     /// Lays out on the spot the newest rows one screen holds, by their real heights (a native row's
     /// layout gives it; a SwiftUI row counts its estimate), and gives their items those heights.
     /// Counting estimates instead laid out about twice a screen (#47189 r4: 40 rows for 21 shown).
@@ -882,7 +938,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         while index >= 0, budget > 0 {
             let id = ids[index]
             if let row = rows[id], lookup.eligible(row),
-               let native = lookup.layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: lookup.expanded(id)) {
+               let native = lookup.layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: lookup.expanded(id), why: "prime") {
                 items[index].estimate = native.height
                 items[index].exact = true
                 made.insert(id)
@@ -942,6 +998,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             guard let row = rows[id], case .editedFiles(let changes) = row.kind else { continue }
             if lookup.viewedShown[id] != ChatNativeRowActions.viewed(changes) { forced.insert(id) }
         }
+        #if DEBUG
+        let buildStart = ContinuousClock.now
+        #endif
         let turns = source.turns()
         var built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
@@ -955,6 +1014,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             built.insert(ChatTurnRows(turnID: pill.turnID, rows: [pill], generation: Self.frameGeneration(pill)), at: 0)
             built.append(ChatTurnRows(turnID: footer.turnID, rows: [footer], generation: Self.frameGeneration(footer)))
         }
+        #if DEBUG
+        sectionTimes["build", default: .zero] += buildStart.duration(to: .now)
+        #endif
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -1001,14 +1063,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             primed = true
             primeAtEnd = opensOnNewest()
         }
-        for turn in built {
-            if !reweighTurns.contains(turn.turnID), let shown = shownTurns[turn.turnID], shown.generation == turn.generation,
-               !shown.ids.contains(where: seen.contains) {
-                seen.formUnion(shown.ids)
-                ids += shown.ids
-                items += shown.items
-                continue
-            }
+        #if DEBUG
+        let loopStart = ContinuousClock.now
+        #endif
+        // A subagent window's growth: every turn as last shown, in the same order, and one new chunk
+        // turn before or after them. The new chunk alone is weighed, and the rows and items shown
+        // stay as they are around it (rebuilding them, and the snapshot, from every turn cost a
+        // frame per growth: #47189 r5, eachChunkFitsAFrame).
+        let chunkAdd = chunkAddition(built)
+        /// Weighs `turn`'s rows into its ids and items (nil: the turn is held this reload).
+        func weigh(_ turn: ChatTurnRows) -> (ids: [String], items: [ChatTranscriptLayout.Item])? {
             var turnIDs: [String] = []
             var turnItems: [ChatTranscriptLayout.Item] = []
             var turnRows: [ChatRow] = []
@@ -1051,7 +1115,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     rows[row.id] = row
                     if loaded, isNew, !store.isReplayed(Self.storeID(row)) { fadeIn.insert(row.id) }
                     if loaded, row.turnID == runningTurn, lookup.eligible(row), !streamsOffScreen(row) {
-                        lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id))
+                        lookup.layouts.makeNow(row, revision: revisions[row.id] ?? 0, expanded: lookup.expanded(row.id), why: "running")
                     }
                 }
                 if prime.contains(row.id) {
@@ -1083,13 +1147,44 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 if !unlaid.isEmpty {
                     heldRows += turnIDs
                     heldMissing += unlaid
-                    continue
+                    return nil
                 }
             }
             shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems, rows: turnRows)
-            ids += turnIDs
-            items += turnItems
+            return (turnIDs, turnItems)
         }
+        var addedIDs: [String] = []
+        if let chunkAdd {
+            seen = shownIDSet
+            if let made = weigh(built[chunkAdd.index]) {
+                addedIDs = made.ids
+                ids = shownIDs
+                ids.insert(contentsOf: made.ids, at: chunkAdd.offset)
+                items = layout.items
+                items.insert(contentsOf: made.items, at: chunkAdd.offset)
+            } else {
+                ids = shownIDs
+                items = layout.items
+            }
+        } else {
+            for turn in built {
+                if !reweighTurns.contains(turn.turnID), let shown = shownTurns[turn.turnID], shown.generation == turn.generation,
+                   !shown.ids.contains(where: seen.contains) {
+                    seen.formUnion(shown.ids)
+                    ids += shown.ids
+                    items += shown.items
+                    continue
+                }
+                if let made = weigh(turn) {
+                    ids += made.ids
+                    items += made.items
+                }
+            }
+        }
+        shownTurnOrder = built.map { TurnKey(id: $0.turnID, generation: $0.generation) }
+        #if DEBUG
+        sectionTimes["loop", default: .zero] += loopStart.duration(to: .now)
+        #endif
         reweigh = []
         reweighTurns = []
         if primeAtEnd { primeNewest(ids: ids, items: &items, missing: &missing) }
@@ -1110,7 +1205,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         applies += 1
         lastReconfigured = changed.count
         let anchor = surface.following || !loaded ? nil : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
-        layout.setItems(items)
+        #if DEBUG
+        let setStart = ContinuousClock.now
+        #endif
+        if let chunkAdd, changed.isEmpty, forced.isEmpty, ids.count == layout.items.count + addedIDs.count {
+            layout.insertItems(Array(items[chunkAdd.offset..<(chunkAdd.offset + addedIDs.count)]), at: chunkAdd.offset)
+        } else {
+            layout.setItems(items)
+        }
+        #if DEBUG
+        sectionTimes["setItems", default: .zero] += setStart.duration(to: .now)
+        #endif
         // A row whose cell type changes (native and SwiftUI) is reloaded; reconfiguring one
         // must dequeue the same cell type.
         var reconfigure: [String] = []
@@ -1126,7 +1231,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             // and SwiftUI, or a streaming block that became a list) is reloaded.
             if let was = lookup.shownPool[id], was != lookup.pool(for: id) { reloadIDs.append(id) } else { reconfigure.append(id) }
         }
-        if ids != shownIDs {
+        #if DEBUG
+        let snapshotStart = ContinuousClock.now
+        defer { sectionTimes["snapshot", default: .zero] += snapshotStart.duration(to: .now) }
+        #endif
+        if let chunkAdd, reconfigure.isEmpty, reloadIDs.isEmpty, !addedIDs.isEmpty, ids.count == shownIDs.count + addedIDs.count {
+            // The chunk's rows into the snapshot shown, before or after its rows: no snapshot of every
+            // row made again.
+            var snapshot = dataSource.snapshot()
+            if chunkAdd.offset < shownIDs.count {
+                snapshot.insertItems(addedIDs, beforeItem: shownIDs[chunkAdd.offset])
+            } else {
+                snapshot.appendItems(addedIDs, toSection: 0)
+            }
+            shownIDs = ids
+            shownIDSet.formUnion(addedIDs)
+            snapshotApplies += 1
+            dataSource.apply(snapshot, animatingDifferences: false)
+        } else if ids != shownIDs {
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
             snapshot.appendItems(ids)
@@ -1138,6 +1260,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             snapshot.reconfigureItems(reconfigure.filter { both.contains($0) })
             snapshot.reloadItems(reloadIDs.filter { both.contains($0) })
             shownIDs = ids
+            shownIDSet = Set(ids)
             snapshotApplies += 1
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty, reloadIDs.isEmpty, reconfigure.allSatisfy(redrawsInPlace) {
@@ -1530,7 +1653,7 @@ final class ChatRowLookup {
     /// A native row has a layout (made now if it has none; math stays SwiftUI).
     func isNative(_ id: String) -> Bool {
         guard let row = rows[id], eligible(row), layouts.environment != nil else { return false }
-        return layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id)) != nil
+        return layouts.makeNow(row, revision: revisions[id] ?? 0, expanded: expanded(id), why: "dequeue") != nil
     }
 
     func job(for id: String) -> ChatNativeLayouts.Job? {
