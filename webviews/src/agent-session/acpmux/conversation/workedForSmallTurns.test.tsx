@@ -114,3 +114,54 @@ test("a header and a footer that disagree fail", () => {
     expect(workedLabel(t, footer!)).toBe(workedLabel(t, header!));
   }
 });
+
+// Leo, 07:36Z, on three wakes in a row, each a "Worked for 0s" over a "Report from Subagent": "see
+// here's another weirdo case that we need to un-weirdofy".
+const report = (index: number, ms: number): AcpmuxRow[] => {
+  const id = `r${index}`;
+  const at = 20_000 + index * 10_000;
+  return [
+    row(`backgroundTurn-${id}`, "backgroundTurn", at, {
+      background: {
+        id,
+        trigger: "task_notification",
+        running: false,
+        hasRows: true,
+        cause: { kind: "subagent", status: "completed", weight: "result", summary: `helper-${index} finished` },
+      },
+    }),
+    row(`bt-act-${index}`, "activity", at + 100, {
+      inBackground: id,
+      toolCount: 1,
+      items: [{ kind: "thought", text: "The helper landed.\nNothing to add.\nNote it." }, ...call(`bc-${index}`)!],
+    }),
+    row(`bt-sum-${index}`, "turnSummary", at + ms, {
+      inBackground: id,
+      status: "completed",
+      durationMs: ms,
+      toolCount: 1,
+    }),
+  ];
+};
+
+test("three subagent-report wakes in a row draw flat: no Worked for, no 0s, no dividers", () => {
+  const rows = [
+    row("ask", "user", 0, { text: "Land the lanes" }),
+    row("reply", "assistant", 5_000, { text: "The land monitor is running, so I'll wait." }),
+    row("sum", "turnSummary", 6_000, { status: "completed", durationMs: 6_000, toolCount: 0 }),
+    ...[0, 1, 2].flatMap((index) => report(index, 300)),
+  ];
+  const shown = view(rows);
+  expect(shown.some((r) => r.kind === WORKED)).toBe(false);
+  expect(shown.some((r) => r.kind === "turnSummary" && r.id.startsWith("bt-") && footerLabel(t, r))).toBe(false);
+});
+
+test("the same wakes that took a real while still fold", () => {
+  const rows = [
+    row("ask", "user", 0, { text: "Land the lanes" }),
+    row("reply", "assistant", 5_000, { text: "Waiting." }),
+    row("sum", "turnSummary", 6_000, { status: "completed", durationMs: 6_000, toolCount: 0 }),
+    ...report(0, 30_000),
+  ];
+  expect(view(rows).some((r) => r.kind === WORKED)).toBe(true);
+});
