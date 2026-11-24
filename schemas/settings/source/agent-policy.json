@@ -1687,7 +1687,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
