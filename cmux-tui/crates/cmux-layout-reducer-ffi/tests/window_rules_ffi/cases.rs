@@ -997,3 +997,13 @@ fn launch_fresh_landing_answers_home_new_tab_or_wait() {
     );
     assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
 }
+
+/// Review F1 of #46087: once the person left the restored place, coming back before Home is listed lands nothing.
+#[test]
+fn launch_pending_home_stays_dropped_once_the_person_left() {
+    let back = json!({
+        "window": "front", "active": "front", "windowOpen": true, "homeReady": true,
+        "moved": false, "movedSinceRestore": true
+    });
+    assert_eq!(call_json(c"window_launch_pending_home", &back), (OK, json!({"step": "stop"})));
+}

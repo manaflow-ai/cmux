@@ -215,8 +215,11 @@ pub struct PendingHome {
     pub window_open: bool,
     /// Home's workspace is listed.
     pub home_ready: bool,
-    /// The person picked another workspace or page in `window` since the restore.
+    /// `window` shows another workspace or page than the restore did, now.
     pub moved: bool,
+    /// `window` showed another workspace or page at any time since the restore, latched by the app: leaving and
+    /// coming back before Home is listed still drops the landing (review F1 of #46087).
+    pub moved_since_restore: bool,
 }
 
 /// The pending landing's next step.
@@ -231,10 +234,11 @@ pub enum HomeStep {
     Stop,
 }
 
-/// The next step of a pending Home landing: it stops once the window closed or the person moved, lands in the
-/// saved front window (never the active one) once Home is listed, and waits otherwise.
+/// The next step of a pending Home landing: it stops once the window closed or the person moved (now or at any time
+/// since the restore: once they left, the landing is dropped for good), lands in the saved front window (never the
+/// active one) once Home is listed, and waits otherwise.
 pub fn pending_home(facts: &PendingHome) -> HomeStep {
-    if !facts.window_open || facts.moved {
+    if !facts.window_open || facts.moved || facts.moved_since_restore {
         HomeStep::Stop
     } else if facts.home_ready {
         HomeStep::Land { window: facts.window.clone() }
