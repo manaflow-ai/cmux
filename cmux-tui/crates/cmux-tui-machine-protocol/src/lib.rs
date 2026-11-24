@@ -19,6 +19,12 @@ mod machine_metadata;
 pub use machine_metadata::{
     MACHINE_METADATA_CLIENT_CAPABILITY, MachineDescriptor, MachinePlatform,
 };
+pub mod operations;
+pub use operations::{
+    CreateMachineSpec, ExecOutput, ExecRequest, ExposedPort, ForkLatencyClass,
+    InMemoryMachineProvider, MachineHandle, MachineOperation, MachineOperationCapabilities,
+    MachineProvider, MachineProviderError, MachineRunState, PortProtocol, SnapshotHandle,
+};
 
 pub const PROTOCOL_NAME: &str = "cmux.machine-provider";
 pub const PROTOCOL_VERSION: u16 = 1;
