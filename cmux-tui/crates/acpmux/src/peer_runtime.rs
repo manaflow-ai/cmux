@@ -746,6 +746,7 @@ impl Peer {
             "cause": observed.cause,
             "reason": observed.reason,
             "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
+            "downReason": observed.down_reason,
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
