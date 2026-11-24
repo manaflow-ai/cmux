@@ -611,6 +611,26 @@ class WorkflowShape(unittest.TestCase):
         gates = step_named(steps, "Fast gates on the merge")
         self.assertLess(steps.index(drop), steps.index(gates))
 
+    def test_every_step_before_the_gates_is_bounded(self):
+        # 2026-11-23: 255 fast gates jobs sat to the 25-minute limit (about 6.3k runner minutes), each in one setup
+        # step with no bound of its own: a checkout fetch, the base deepen, a cache restore or setup-node's download
+        # from GitHub at Freestyle's ~0.9 MB/s. Each step before the gates ends on its own bound, so the job fails
+        # then, naming the step, and the bounds together leave the gates room inside the job limit.
+        gates_job = job(workflow())
+        steps = gates_job["steps"]
+        gates = steps.index(step_named(steps, "Fast gates on the merge"))
+        total = 0
+        for step in steps[:gates]:
+            with self.subTest(step=step["name"]):
+                self.assertIn("timeout-minutes", step)
+                total += int(step["timeout-minutes"])
+        self.assertLessEqual(total, 40)
+        # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
+        node = step_named(steps, "Setup Node")
+        self.assertNotIn("uses", node)
+        self.assertEqual(node["run"], "scripts/ci/ensure-setup-node.sh 24.22.1")
+        self.assertLessEqual(int(node["timeout-minutes"]), 3)
+
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
@@ -1894,6 +1914,14 @@ class WebviewsChecksGate(unittest.TestCase):
         known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:

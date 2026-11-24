@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileArtifacts
 public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
@@ -300,6 +301,35 @@ public final class AgentChatStore {
         let cwd: String
     }
     @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
+
+    /// The composer's `@` candidates, read without observing the transcript. `artifacts`
+    /// observes `turns`, so the composer re-rendered, and rescanned the whole transcript, on
+    /// every streamed frame while a mention was typed: typing felt the Mac's output. This
+    /// reads the backing storage, untracked, and rescans at most once per
+    /// `mentionRefresh` while the transcript changes; the picker shows the new candidates
+    /// on the next key. `generation` changes whenever `artifacts` does.
+    func mentionArtifacts(now: ContinuousClock.Instant = .now) -> (generation: Int, artifacts: [TerminalArtifact]) {
+        let key = MentionKey(revision: _revision, turns: _turns.count, subagents: _subagents.count, cwd: _summary.cwd)
+        if let cache = mentionCache, cache.key == key || now - cache.at < Self.mentionRefresh {
+            return (cache.generation, cache.artifacts)
+        }
+        #if DEBUG && os(iOS)
+        InputLatencyTrace.shared?.note("mention_scan")
+        #endif
+        let artifacts = SessionArtifacts.collect(turns: _turns, subagents: _subagents, cwd: _summary.cwd).artifacts
+        let generation = (mentionCache?.generation ?? 0) &+ 1
+        mentionCache = (key, now, generation, artifacts)
+        return (generation, artifacts)
+    }
+    /// The longest the `@` candidates lag a changing transcript.
+    static let mentionRefresh: Duration = .seconds(1)
+    private struct MentionKey: Equatable {
+        let revision: Int
+        let turns: Int
+        let subagents: Int
+        let cwd: String
+    }
+    @ObservationIgnored private var mentionCache: (key: MentionKey, at: ContinuousClock.Instant, generation: Int, artifacts: [TerminalArtifact])?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
@@ -384,18 +414,18 @@ public final class AgentChatStore {
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first
-    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
-    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
-    /// instead (``AgentChatLoadingState``).
+    /// ``QuietStatusGate/threshold`` of an outage (the kept rows show meanwhile), then what it
+    /// waits for. A catch-up says nothing: the kept rows show and the new ones arrive. A chat
+    /// with nothing kept shows its loading state instead (``AgentChatLoadingState``).
     public var connectionLine: String? {
-        guard quietStatus.isShown, hasTurns else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        guard quietStatus.isShown, hasTurns, summary.status == .disconnected else { return nil }
+        return "Connecting to \(summary.macName)…"
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -404,7 +434,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -1899,6 +1929,12 @@ extension AgentChatStore {
         }
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }
+
+    /// The loading state's words show. A start says so at once (the person just asked for
+    /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
+    /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
+    /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
+    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
 
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
