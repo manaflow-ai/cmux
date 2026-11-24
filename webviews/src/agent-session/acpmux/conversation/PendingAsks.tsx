@@ -55,13 +55,17 @@ export const PendingAsks = memo(function PendingAsks({
         if (!step) return null;
         return (
           <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
-            <div className="acpmux-pending-ask__head" data-dock-clear="">
-              <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
-              <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
-                {t("message.dismiss")}
-              </button>
-            </div>
             <NextStepCard
+              // The header row is the card's own first row, on its fill: a row of its own over the
+              // transcript drew its words on top of the chat's (https://github.com/manaflow-ai/cmux/issues/52766).
+              head={
+                <div className="acpmux-pending-ask__head">
+                  <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
+                  <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
+                    {t("message.dismiss")}
+                  </button>
+                </div>
+              }
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}

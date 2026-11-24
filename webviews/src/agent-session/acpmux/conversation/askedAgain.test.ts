@@ -2,8 +2,9 @@
 // One question renders once however often the agent asks it
 // (https://github.com/manaflow-ai/cmux/issues/52766): a coordinator woken by other agents' messages
 // ended five turns on the same question, and the chat drew it as four stacked "Needs your input"
-// cards plus the composer hat's copy. Each asking is its own card under its own key (its turn's
-// time), so only the newest asking of a question may show, and answering or dismissing it clears it.
+// cards plus the composer hat's copy; another chat stacked six rewordings of one merge question.
+// Each asking is its own card under its own key (its turn's time), so only the chat's newest
+// question may show, once, and answering or dismissing it clears the stack.
 import { beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { hatQuestions } from "../question/hatModel";
@@ -105,7 +106,7 @@ test("answering the newest asking clears the older askings too", () => {
   expect(drawn(later)).toEqual([]);
 });
 
-test("different questions each still pin, oldest first", () => {
+test("a reworded or different newer question takes the older's place: one card, never a stack", () => {
   clock = 0;
   const other = "Built it.\n\n[taste] Is 32 px right for the live line?\n- Yes\n- No";
   const rows = [
@@ -119,6 +120,36 @@ test("different questions each still pin, oldest first", () => {
     line("a3", "assistant", { text: ASK }),
     line("s3", "turnSummary", { status: "completed" }),
   ];
-  // The taste question pins; the screenshot question is the hat's, once.
-  expect(drawn(rows)).toEqual(["Is 32 px right for the live line?", QUESTION]);
+  // The newest question is the hat's; the older one stays answerable in the transcript, unpinned.
+  expect(drawn(rows)).toEqual([QUESTION]);
+  // Once another turn follows, the newest pins alone.
+  const later = [...rows, peer("m4", "Pushed 4."), line("a4", "assistant", { text: "Noted." })];
+  expect(drawn(later)).toEqual([QUESTION]);
+});
+
+test("six reworded askings of one merge decision pin as one card, the newest", () => {
+  clock = 0;
+  const asks = [
+    "Should I merge on the gallery renders, or wait for the dev build?\n- Yes\n- Not now",
+    "Merge now that the gallery renders are green?\n- Merge on green\n- Wait",
+    "Should I merge once web is green?\n- Merge when web is green\n- Hold",
+    "Merge now, or wait for the base fix?\n- Wait for base fix\n- Merge now",
+    "Should I retry the dev build once the build fleet is answering again, or skip it?\n- Yes\n- Not now",
+    "Should I retry the dev build once the build fleet answers again, or skip it?\n- Yes\n- Not now",
+  ];
+  const rows = [line("p1", "user", { text: "Ship it." })];
+  asks.forEach((text, index) => {
+    if (index > 0) rows.push(peer(`m${index}`, `Background task finished ${index}.`));
+    rows.push(line(`a${index}`, "assistant", { text: `Status.\n\n[outward] ${text}` }));
+    rows.push(line(`s${index}`, "turnSummary", { status: "completed" }));
+  });
+  const newest = "Should I retry the dev build once the build fleet answers again, or skip it?";
+  // The chat's last word: the hat holds it, nothing pins.
+  expect(pinned(rows)).toEqual([]);
+  expect(drawn(rows)).toEqual([newest]);
+  // Another turn later: it pins, alone; its Dismiss clears the stack.
+  const later = [...rows, peer("m9", "Background task finished."), line("a9", "assistant", { text: "Waiting." })];
+  const stack = pinned(later);
+  expect(stack.map((row) => row.nextStep!.ask.question)).toEqual([newest]);
+  expect(drawn(later, dismissAsk("chat", askKey(stack[0]!)))).toEqual([]);
 });

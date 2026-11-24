@@ -44,6 +44,7 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey,
   asker,
   className,
+  head,
 }: {
   ask: NextStepAsk;
   className?: string;
@@ -60,6 +61,9 @@ export const NextStepCard = memo(function NextStepCard({
   answerKey?: string;
   /// Who asked (the chat's agent, `agentName`): the sent answer quotes the ask under this name.
   asker?: string;
+  /// A row drawn first inside the card while it waits (the pinned copy's "Needs your input" and
+  /// Dismiss, PendingAsks.tsx), so it sits on the card's own fill, never over the transcript.
+  head?: React.ReactNode;
 }) {
   const t = useT();
   // The answer on its way and whether the last one failed: the card says so and keeps its
@@ -129,6 +133,7 @@ export const NextStepCard = memo(function NextStepCard({
   };
   return (
     <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+      {head}
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
         <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>

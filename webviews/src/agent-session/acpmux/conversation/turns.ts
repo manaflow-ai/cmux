@@ -1068,45 +1068,36 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
   return changed;
 }
 
-/// The cards still waiting on the person, oldest first: a question neither answered nor spoken after,
-/// with another turn after it, so it is no
-/// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
-/// person sent after a newer card answers that card, not an older one still waiting before it. Walks
-/// back from the newest card until one was taken over: every card before that one has the person's
-/// words after it too, so it costs the waiting cards, never the chat's length.
-/// One question pins once (https://github.com/manaflow-ai/cmux/issues/52766): an agent woken again
-/// and again by other agents' messages asks the same question at the end of each turn, and each
-/// asking is its own card under its own key (its turn's time). Only the newest asking of a question
-/// counts: an older one leaves the pin whether the newest still waits, is the hat's (the chat's last
-/// row), was answered, or the person spoke after it, so answering or dismissing it clears them all.
+/// The card pinned above the composer (PendingAsks.tsx), as a list of at most one: the agent's
+/// newest question, while it is neither answered nor spoken after and another turn came after it, so
+/// it is no longer the chat's last word (before that the composer hat holds it).
+///
+/// One pending question at a time (https://github.com/manaflow-ai/cmux/issues/52766): an agent woken
+/// again and again by other agents' messages ends each turn on a question, the same one or a reworded
+/// one ("Should I retry the dev build once the build fleet is answering again?", then "...answers
+/// again?"), and each asking was its own card under its own key, so they stacked. The agent's newest
+/// question stands for its older ones: they stay answerable cards in the transcript, never pinned, so
+/// answering or dismissing the one card clears the stack. Reads back only to the newest card with a
+/// question, so it costs the cards after it, never the chat's length.
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
-  const waiting: AcpmuxRow[] = [];
-  const asked = new Set<string>();
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
-    if (step.superseded) break;
+    if (step.superseded) return NO_ASKS;
+    // A recap with nothing to decide asks nothing: the newest question is before it.
     if (!step.ask.question) continue;
-    const question = sameQuestion(step.ask.question);
-    if (asked.has(question)) continue;
-    asked.add(question);
-    // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
-    if (step.answer !== undefined || spoke) continue;
-    waiting.push(card);
+    // Answered, or the person said something after it: nothing pins, its card stays answerable.
+    if (step.answer !== undefined || spoke) return NO_ASKS;
+    // The newest card counts only once a turn came after it: before that it is the chat's last row.
+    if (index === nextSteps.length - 1 && !rows.slice(at + 1).some((row) => row.kind === "user")) return NO_ASKS;
+    return [card];
   }
-  if (!waiting.length) return NO_ASKS;
-  // The newest card counts only once a turn came after it: before that it is the chat's last row.
-  const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
-  return waiting.length ? waiting.reverse() : NO_ASKS;
+  return NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
-
-/// A question as two askings of it compare: case and runs of space aside.
-const sameQuestion = (question: string) => question.trim().replace(/\s+/g, " ").toLowerCase();
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
