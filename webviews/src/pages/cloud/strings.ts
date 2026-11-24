@@ -249,6 +249,7 @@ export const L = {
   usageGaps: "usage.gaps",
   usageTestMode: "usage.testMode",
   usageFailed: "usage.failed",
+  paymentOff: "payment.off",
   paymentAdd: "payment.add",
   paymentCard: "payment.card",
   paymentChange: "payment.change",

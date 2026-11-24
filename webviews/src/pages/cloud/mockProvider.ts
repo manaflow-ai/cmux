@@ -170,6 +170,8 @@ export class MockCloudProvider implements PageClient {
    * never answers (the loading state). Unset: a server that does not serve it.
    */
   usage?: CloudUsage | "fail" | "hold";
+  /** Checkout answers `cloud.billing.off` (payments not open yet). */
+  billingOff = false;
   /** How many times Manage Billing (`billing.openPortal`) ran. */
   billingPortalOpens = 0;
   holdTransfers: boolean;
@@ -221,7 +223,8 @@ export class MockCloudProvider implements PageClient {
     if (op === ACTION_RUN) return this.runAction(p) as R;
     if (op === CloudOps.usageCurrent) {
       if (this.usage === undefined) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
-      if (this.usage === "fail") throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
+      if (this.usage === "fail")
+        throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
       if (this.usage === "hold") return new Promise<R>(() => {});
       return structuredClone(this.usage) as R;
     }
@@ -691,7 +694,8 @@ export class MockCloudProvider implements PageClient {
         return this.plan;
       case CloudOps.billingCheckout:
         only(p, ["plan"]);
-        return { url: `https://checkout.example.test/c/${String(p.plan)}` };
+        if (this.billingOff) throw pageError("cmux.cloud.billing_off", "payments are not open yet");
+        return { url: `https://checkout.example.test/c/${p.plan === undefined ? "card" : String(p.plan)}` };
       case CloudOps.migrationStatus:
         only(p, []);
         return { ...a.migration };

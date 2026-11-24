@@ -23,6 +23,9 @@ import {
   type MigrationStatus,
 } from "./ops";
 
+/** `cloud.billing.off` as the Cloud app server names it. */
+const BILLING_OFF = "cmux.cloud.billing_off";
+
 export interface AccountHost {
   get(): CloudState;
   set(patch: Partial<CloudState>): void;
@@ -218,16 +221,19 @@ export class AccountReader {
     }
   }
 
-  /** "See plans": the host confirms, then opens the checkout URL in the browser (D-MONEY). */
-  async checkout(plan: string): Promise<void> {
+  /** "See plans" (a plan) or Add payment method (none): the host confirms, then opens the checkout URL in
+   * the browser (D-MONEY). Payments not open yet (`cloud.billing.off`) hides the button instead of failing. */
+  async checkout(plan?: string): Promise<void> {
     if (!this.client || !this.host.canChange()) return;
+    const key = this.host.key();
     try {
       await this.client.call<ActionRunResult | null>(ACTION_RUN, {
         action: CloudOps.billingCheckout,
-        args: { plan, idempotency_key: this.host.key() },
+        args: plan ? { plan, idempotency_key: key } : { idempotency_key: key },
       });
     } catch (error) {
-      this.host.fail(CloudOps.billingCheckout, error);
+      if ((error as { code?: unknown } | null)?.code === BILLING_OFF) this.host.set({ paymentOff: true });
+      else this.host.fail(CloudOps.billingCheckout, error);
     }
   }
 

@@ -198,7 +198,7 @@ const monthUsage: CloudUsage = {
 };
 const gapUsage: CloudUsage = {
   ...monthUsage,
-  gaps: [{ machine: "vm_a1", from: USAGE_AS_OF - 40 * 60_000, to: null }],
+  gaps: ["untracked_run"],
   payment_method: { attached: false },
 };
 

@@ -15,7 +15,7 @@ import { percent } from "./model";
 import { AccountOps, CloudOps, type CloudRetention, type RetentionOverrides } from "./ops";
 import { RETENTION_FIELDS, retentionLimit, type RetentionField } from "./retention";
 import { clockTime, usd } from "./spendCap";
-import { cardBrand, hasGaps, meterAmount, quantity, testMode, type UsageMeter } from "./usage";
+import { cardBrand, hasGaps, meterAmount, monthTotal, quantity, testMode, type UsageMeter } from "./usage";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 import { intl } from "../../ui/intl";
@@ -73,7 +73,11 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
         {state.usageFailed ? (
           <div className="cloud-month-failed" role="alert">
             <span className="cloud-muted">{t(L.usageFailed)}</span>
-            <button type="button" className="cloud-link-button cloud-month-retry" onClick={() => void store.retryUsage()}>
+            <button
+              type="button"
+              className="cloud-link-button cloud-month-retry"
+              onClick={() => void store.retryUsage()}
+            >
               {t(L.retry)}
             </button>
           </div>
@@ -90,7 +94,7 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
       <div className="cloud-month-head">
         <span className="cloud-month-title">{t(L.usageMonth)}</span>
         {testMode(usage) && <span className="cloud-month-test">{t(L.usageTestMode)}</span>}
-        <span className="cloud-month-total">{usd(usage.usd.total, language)}</span>
+        <span className="cloud-month-total">{usd(monthTotal(usage), language)}</span>
       </div>
       <dl className="cloud-month-lines">
         {METERS.map(({ meter, label, unit }) => {
@@ -112,7 +116,7 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
         {usage.payment_method.attached ? (
           <>
             <span className="cloud-month-card">
-              {brand && digits ? format(t(L.paymentCard), { brand, digits }) : brand ?? ""}
+              {brand && digits ? format(t(L.paymentCard), { brand, digits }) : (brand ?? "")}
             </span>
             {(brand || digits) && <span className="cloud-muted"> · </span>}
             <button
@@ -123,6 +127,8 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
               {t(L.paymentChange)}
             </button>
           </>
+        ) : state.paymentOff ? (
+          <span className="cloud-muted">{t(L.paymentOff)}</span>
         ) : (
           <button type="button" className="cloud-button cloud-month-add" onClick={() => void store.addPaymentMethod()}>
             {t(L.paymentAdd)}

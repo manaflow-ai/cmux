@@ -55,7 +55,8 @@ pub(super) fn run<C: ControlPlane>(
         }
         "cloud.billing.checkout" => {
             let map = args::object(raw, &["plan"])?;
-            args::id(map, "plan")?;
+            // No plan: attach a payment method.
+            args::opt_id(map, "plan")?;
             let checkout: Checkout =
                 decode_answer(name, ctx.wire(name, args::params(map, &["plan"]))?.value)?;
             // The host opens it in the browser: only an https URL.
