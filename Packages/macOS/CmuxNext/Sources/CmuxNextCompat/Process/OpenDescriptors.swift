@@ -8,7 +8,7 @@ import os
 /// NIGHTLY held about 2,000 open pipes, 452 of them full at 64 KB, when its main thread waited
 /// 391 s in a pipe write (2026-11-09, cmuxterm-hq#8747): the kernel's pipe memory was used up and
 /// nothing had watched the count. Hang and stall reports carry it now, and ``noteBudget(_:)`` logs
-/// a fault each time the pipe count crosses ``pipeBudget`` (never refusing anything).
+/// a fault while the pipe count is over ``pipeBudget`` (never refusing anything).
 package struct OpenDescriptors: Sendable, Equatable {
     /// Every open descriptor.
     package var total: Int
@@ -47,27 +47,24 @@ package struct OpenDescriptors: Sendable, Equatable {
     package static let totalBudget = 4_000
 
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "descriptors")
-    /// Whether the last check was over budget: one fault per crossing, not one per check.
-    private static let over = Mutex(false)
 
-    /// Logs a fault when `count` (``current()`` by default) passes a budget, once per crossing.
-    /// Returns whether it is over. Never refuses anything: the count is what a leak hunt needs.
+    /// Logs a fault when `count` (``current()`` by default) passes a budget. Returns whether it is
+    /// over. Never refuses anything: the count is what a leak hunt needs. No state of its own (no
+    /// process-wide lock or flag): a leaking app logs one fault per child launch, which is the trail
+    /// a leak hunt reads.
     @discardableResult
     package static func noteBudget(_ count: OpenDescriptors? = current()) -> Bool {
         guard let count else { return false }
         let isOver = count.pipes > pipeBudget || count.total > totalBudget
-        let crossed = over.withLock { was in defer { was = isOver }; return isOver && !was }
-        if crossed {
+        if isOver {
             log.fault("open descriptors over budget: \(count.total) open, \(count.pipes) pipes (budget \(totalBudget) and \(pipeBudget) pipes)")
         }
         return isOver
     }
 
-    private static let checks = DispatchQueue(label: "com.cmuxterm.next.descriptors", qos: .utility)
-
-    /// ``noteBudget(_:)`` on a utility queue of its own, never the caller's thread: each child
-    /// launch calls this, so a leak shows up in the log the moment it passes the bound.
+    /// ``noteBudget(_:)`` on the shared utility queue, never the caller's thread: each child launch
+    /// calls this, so a leak shows up in the log the moment it passes the bound.
     package static func noteBudgetSoon() {
-        checks.async { noteBudget() }
+        DispatchQueue.global(qos: .utility).async { noteBudget() }
     }
 }
