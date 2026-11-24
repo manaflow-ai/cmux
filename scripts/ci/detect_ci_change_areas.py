@@ -1220,7 +1220,9 @@ def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
         return ()
     try:
         root = Path(__file__).resolve().parents[2]
-        return tuple(select.select(root, list(packages), candidates))
+        # A package the lane lists ahead of the pull request that adds it is left out (--skip-absent).
+        present = select.package_dirs(root)
+        return tuple(select.select(root, [name for name in packages if name in present], candidates))
     except (Exception, SystemExit) as error:
         print(f"Could not select package tests: {error}", file=sys.stderr)
         return ()

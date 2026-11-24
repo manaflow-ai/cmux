@@ -881,6 +881,8 @@ jobs:
       swift_filter: ${{ steps.route.outputs.swift_filter }}
       swift_priority_filter: ${{ steps.route.outputs.swift_priority_filter }}
       swift_targets: ${{ steps.route.outputs.swift_targets }}
+      # package-test-lane.sh's packages the pull request reaches (cmux_next_route.lane_packages): the fast tier runs the lane on them.
+      swift_packages: ${{ steps.route.outputs.swift_packages }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-92
       tree_state: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
       tree_key: ${{ steps.tree.outputs.tree_key }}
@@ -3086,6 +3088,7 @@ jobs:
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
           CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests,HandlerCoverageTests,AcpmuxClientTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
+          SWIFT_PACKAGES: ${{ needs.path_route.outputs.swift_packages }}
         run: |
           set -uo pipefail
           verdict=pass
@@ -3126,6 +3129,19 @@ jobs:
               --timeout 1500 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
             echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
           }
+          # The package lane on the packages path_route selected (ci.yml's macos job skips these pull requests).
+          lane=false
+          if [[ "$FFI_REPIN" != true && -n "${SWIFT_PACKAGES:-}" ]]; then
+            lane=true
+            (
+              status=0
+              "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
+                --arg=run --arg=--event=pull_request --no-supersede \
+                --timeout 3000 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-fleet-3.log" 2>&1 || status=$?
+              echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-3.exit"
+            ) &
+            lane_pid=$!
+          fi
           if [[ "$FFI_REPIN" == true ]]; then
             submit 2 Packages/macOS/CmuxNext HandlerCoverageTests
           else
@@ -3194,6 +3210,10 @@ jobs:
           }
           if [[ "$FFI_REPIN" != true ]]; then judge 1 Packages/Shared/CmuxHomeRender; fi
           judge 2 Packages/macOS/CmuxNext
+          if [[ "$lane" == true ]]; then
+            wait "$lane_pid"
+            judge 3 "package-test-lane.sh (${SWIFT_PACKAGES:-})"
+          fi
           finish "$verdict"
 
   # The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
@@ -3528,10 +3548,17 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
+          SWIFT_PACKAGES: ${{ needs.path_route.outputs.swift_packages }}
         run: |
           selected=()
           if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
-          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+          status=0
+          python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json" || status=$?
+          # The package lane on the packages path_route selected (ci.yml's macos job skips these pull requests).
+          if [[ "$FFI_REPIN" != true && -n "${SWIFT_PACKAGES:-}" ]]; then
+            bash scripts/ci/package-test-lane.sh run --event pull_request || status=1
+          fi
+          exit "$status"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home

@@ -604,6 +604,9 @@ class Route:
     # (hot_only_layers): the app build and test tiers are off, the daemon tier stays.
     hot_only: bool = False
     hot_layers: dict[str, list[str]] = field(default_factory=dict)
+    # package-test-lane.sh's packages this pull request reaches (lane_packages): the fast tier runs the lane on them.
+    # Only real package names: an empty or unreadable selection is (), never a placeholder (#49163, cd2c93ec F1).
+    lane_packages: tuple[str, ...] = ()
 
     def everything(self, reason: str) -> None:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
@@ -621,7 +624,7 @@ class Route:
         suites' test targets read, a package it builds, its registry, runner or job action, an input only
         the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
         return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
-                or self.swift_canary or self.fast_registry)
+                or self.swift_canary or self.fast_registry or bool(self.lane_packages))
 
 
 @dataclass
@@ -1551,9 +1554,41 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         # The dogfood artifact a dev-build PR publishes is the scheme compile's app.
         result.scheme = True
         result.reasons.append("labeled dev-build: the scheme compile builds the dogfood app")
+    result.lane_packages = lane_packages(root, changed)
+    if result.lane_packages:
+        result.reasons.append(f"{' '.join(result.lane_packages)}: package-test-lane.sh packages this change reaches; "
+                              "the fast tier runs the lane on them")
     if result.macos() and not result.fast_tier():
         result.reasons.append(f"the Mac fast tier's package build reads none of these files {NO_FAST_TIER_REASON}")
     return result
+
+
+PACKAGE_LANE = "scripts/ci/package-test-lane.sh"
+
+
+def lane_packages(root: Path, changed: list[str]) -> tuple[str, ...]:
+    """The PACKAGES of package-test-lane.sh that `changed` reaches, by the lane's own selection
+    (select_package_tests.py --routed-inputs-only --skip-absent). ci.yml's macos job skips feat-cmux-next pull
+    requests (static-preflight's next-line split), so the fast tier is where their package tests run. () when no
+    routed input changed, and () with a warning when the selection cannot be read: a placeholder such as "unknown"
+    would read as a package and run the lane on nothing (the cd2c93ec review's F1)."""
+    try:
+        name = "_cmux_next_route_select_package_tests"
+        spec = importlib.util.spec_from_file_location(name, root / "scripts/ci/select_package_tests.py")
+        select = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(select)
+        candidates = [path for path in changed if select.is_routed_input(path, root)]
+        if not candidates:
+            return ()
+        body = re.search(r"^\s*PACKAGES=\(\n(.*?)\n\s*\)", (root / PACKAGE_LANE).read_text(encoding="utf-8"), re.S | re.M)
+        listed = [line.split("#")[0].strip() for line in body.group(1).splitlines() if line.split("#")[0].strip()]
+        present = select.package_dirs(root)
+        picked = select.select(root, [package for package in listed if package in present], candidates)
+        return tuple(package for package in picked if package in present)
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - an unreadable selection selects no package
+        print(f"::warning title=package-test-lane.sh selection::could not be read ({error}): no package selected",
+              file=sys.stderr)
+        return ()
 
 
 def swift_filter(result: Route) -> str:
@@ -1615,6 +1650,7 @@ def outputs(result: Route) -> dict[str, str]:
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
         "hot_only": flag(result.hot_only),
         "hot_layers": " ".join(sorted(result.hot_layers)),
+        "swift_packages": " ".join(result.lane_packages),
     }
 
 

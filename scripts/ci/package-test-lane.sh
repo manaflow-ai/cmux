@@ -305,6 +305,7 @@ select_packages() {
     CmuxDeviceHub
     CmuxHomeCore
     CmuxHomeRender
+    CmuxLiveCode
     CmuxMobileBilling
     CmuxMobileSupport
     CmuxMobileTunnel
@@ -327,15 +328,16 @@ select_packages() {
       # A package edit plus a workflow edit must not become a full sweep.
       selection_args+=(--routed-inputs-only)
     fi
-    python3 scripts/ci/select_package_tests.py "${selection_args[@]}" "${PACKAGES[@]}" > "$selected"
   else
     if [ "$full_suite" != "true" ]; then
       echo "::error::Diff unavailable for targeted package tests; refusing a full sweep."
       exit 1
     fi
     echo "Diff unavailable; running every package."
-    printf '%s\n' "${PACKAGES[@]}" > "$selected"
+    selection_args=()
   fi
+  # --skip-absent: a package listed here ahead of the pull request that adds it is left out until it lands.
+  python3 scripts/ci/select_package_tests.py --skip-absent ${selection_args[@]+"${selection_args[@]}"} "${PACKAGES[@]}" > "$selected"
   reuse_package_results
   count="$(wc -l < "$selected" | tr -d ' ')"
   output "selected_packages=$selected"

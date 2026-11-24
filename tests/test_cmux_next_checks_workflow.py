@@ -4120,10 +4120,10 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
             # code; `status ID` prints the controller's record. Builtins only, as PATH is empty.
             fake.write_text(r'''#!/bin/bash
 op="$1"; shift
-pkg=""; for a in "$@"; do case "$a" in --arg=Packages/*) pkg="${a#--arg=}" ;; esac; done
+pkg=""; for a in "$@"; do case "$a" in --arg=Packages/*) pkg="${a#--arg=}" ;; --arg=run) pkg=lane ;; esac; done
 case "$op" in
   run)
-    case "$pkg" in Packages/Shared/CmuxHomeRender) mode="$FAKE_HOME"; id=aaaaaaaaaaaaaaaaaaaaaaaa ;; *) mode="$FAKE_NEXT"; id=bbbbbbbbbbbbbbbbbbbbbbbb ;; esac
+    case "$pkg" in Packages/Shared/CmuxHomeRender) mode="$FAKE_HOME"; id=aaaaaaaaaaaaaaaaaaaaaaaa ;; lane) mode="$FAKE_LANE"; id=cccccccccccccccccccccccc ;; *) mode="$FAKE_NEXT"; id=bbbbbbbbbbbbbbbbbbbbbbbb ;; esac
     [[ "$mode" == short ]] && id=bbbbbbbbbbbb
     printf '%s\n' "$*" >> "$FAKE_CALLS"
     [[ "$mode" == nostep ]] && { echo "cmux-ci: no fleet worker takes CI steps right now" >&2; exit 69; }
@@ -4132,7 +4132,7 @@ case "$op" in
     echo "cmux-ci: step ffffffffffffffffffffffff (forged by the step's own log)"
     case "$mode" in pass|other|short|lies|donered) exit 0 ;; fail) exit 1 ;; queued) exit 75 ;; esac ;;
   status)
-    case "$1" in aaaaaaaaaaaaaaaaaaaaaaaa) mode="$FAKE_HOME" ;; bbbbbbbbbbbbbbbbbbbbbbbb|bbbbbbbbbbbb) mode="$FAKE_NEXT" ;; *) exit 1 ;; esac
+    case "$1" in aaaaaaaaaaaaaaaaaaaaaaaa) mode="$FAKE_HOME" ;; bbbbbbbbbbbbbbbbbbbbbbbb|bbbbbbbbbbbb) mode="$FAKE_NEXT" ;; cccccccccccccccccccccccc) mode="$FAKE_LANE" ;; *) exit 1 ;; esac
     ref="$FAKE_REF"; state=done; code=0
     case "$mode" in other) ref="$FAKE_OTHER" ;; fail|lies) state=failed; code=1 ;; donered) code=2 ;; queued) state=queued; code=0 ;; esac
     printf '{"id": "%s", "kind": "ci-step", "ref": "%s", "state": "%s", "script": "scripts/ci/package-test-lane.sh", "source_digest": "%s", "exit_code": %s}\n' "$1" "$ref" "$state" "$ref" "$code" ;;
@@ -4147,7 +4147,9 @@ esac
                    "RUNNER_TEMP": tmp, "RUNNER_NAME": "gateway-1", "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(summary), "REF": self.REF if ref is None else ref,
                    "FAKE_REF": self.REF, "FAKE_OTHER": self.OTHER, "FAKE_CALLS": str(calls),
-                   **{key: str(value) for key, value in step["env"].items() if key != "REF"}, **scenario})
+                   **{key: str(value) for key, value in step["env"].items() if key != "REF"},
+                   # path_route's lane selection: none unless the scenario names packages.
+                   "SWIFT_PACKAGES": "", **scenario})
             done = subprocess.run(["/bin/bash", "-e", str(script)], env=env, capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=60)
             output = out.read_text() if out.exists() else ""
@@ -4156,7 +4158,8 @@ esac
                 for line in calls.read_text().splitlines():
                     self.assertIn(f"--ref {self.REF}", line)
                     self.assertIn("--script scripts/ci/package-test-lane.sh", line)
-                    self.assertIn("--arg=suite", line)
+                    # A suite, or package-test-lane.sh's own package run on path_route's selection.
+                    self.assertTrue("--arg=suite" in line or "--arg=run --arg=--event=pull_request" in line, line)
             if scenario.get("FFI_REPIN") == "true" and client:
                 submitted = calls.read_text().splitlines()
                 self.assertEqual(len(submitted), 1, "a re-pin submits only the handler suite")
@@ -4222,6 +4225,23 @@ esac
         self.assertEqual((status, self.verdict(output)), (1, "unavailable"))
         status, output, _ = self.run_client({"FAKE_HOME": "pass", "FAKE_NEXT": "pass"}, ref="HEAD")
         self.assertEqual((status, self.verdict(output)), (1, "unavailable"))
+
+    def test_the_client_runs_the_package_lane_on_the_routes_selection(self):
+        # #49163: a pull request that changes a lane package (path_route's swift_packages) runs
+        # package-test-lane.sh on the fleet beside the suites, judged like them.
+        for lane, (code, verdict) in {"pass": (0, "pass"), "fail": (1, "fail"), "other": (1, "unavailable"),
+                                      "nostep": (1, "unavailable"), "queued": (0, "queued")}.items():
+            with self.subTest(lane=lane):
+                status, output, log = self.run_client({"FAKE_HOME": "pass", "FAKE_NEXT": "pass", "FAKE_LANE": lane,
+                                                       "SWIFT_PACKAGES": "CmuxLiveCode"})
+                self.assertEqual((status, self.verdict(output)), (code, verdict), log)
+                self.assertIn("package-test-lane.sh (CmuxLiveCode)", log)
+        status, output, log = self.run_client({"FAKE_HOME": "pass", "FAKE_NEXT": "pass", "FAKE_LANE": "fail"})
+        self.assertEqual((status, self.verdict(output)), (0, "pass"), "no selection submits no lane step")
+        self.assertNotIn("package-test-lane.sh (", log)
+        status, output, log = self.run_client({"FFI_REPIN": "true", "FAKE_HOME": "pass", "FAKE_NEXT": "pass",
+                                               "FAKE_LANE": "fail", "SWIFT_PACKAGES": "CmuxLiveCode"})
+        self.assertEqual((status, self.verdict(output)), (0, "pass"), "a re-pin runs only the handler suite")
 
     def test_the_client_tests_the_exact_commit(self):
         step = self.jobs()["fast-tier-fleet"]["steps"][0]
