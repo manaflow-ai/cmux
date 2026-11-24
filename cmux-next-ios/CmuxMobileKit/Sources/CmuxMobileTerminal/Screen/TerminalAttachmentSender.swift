@@ -97,8 +97,11 @@ enum VideoCompressor {
         let output = folder.appendingPathComponent(source.deletingPathExtension().lastPathComponent)
             .appendingPathExtension(type == .mp4 ? "mp4" : "mov")
         session.shouldOptimizeForNetworkUse = true
+        // The session is not Sendable; the watcher only reads its states, which
+        // AVFoundation publishes for exactly this concurrent observation.
+        nonisolated(unsafe) let observed = session
         let watcher = Task {
-            for await state in session.states(updateInterval: 0.25) {
+            for await state in observed.states(updateInterval: 0.25) {
                 if case .exporting(let fraction) = state { await progress(fraction.fractionCompleted) }
             }
         }
