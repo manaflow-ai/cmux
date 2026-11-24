@@ -9,19 +9,19 @@
 // 300 ms after the return (#46511's run 44383856146), while following.
 //
 // The load goes in as the host's push does, through the client's transport socket, as
-// agent-pane-older-paging-return-keeps-rows.test.ts does. The distance to the end is sampled every frame.
+// agent-pane-older-paging-return-keeps-rows.test.ts does. The distance to the end is read after every painted frame.
 /// <reference types="bun" />
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// How soon after the return the view must sit at the end, and how long it must stay there.
-const SETTLE_MS = 500;
-const WATCH_MS = 1_500;
-
 await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () => {
+  /// How soon after the return the view must sit at the end, and how long it must stay there.
+  const SETTLE_MS = 500;
+  const WATCH_MS = 1_500;
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
@@ -48,6 +48,7 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
     const page = await browser!.newPage({ viewport: { width: 1100, height: 1000 } });
     // A notched wheel glides through the motion clock; the reader's scroll here is the browser's own.
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
@@ -183,17 +184,23 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
           const back = performance.now();
           w.__settleBack = { distance: distance() };
           w.__settlePush([w.__settleChunk(), w.__settleLine(), w.__settleCallDone()]);
+          // Each painted frame's distance is read after that frame paints (test/support/paintedFrames.ts); the
+          // reply's last words go in the first frame's callbacks and the turn's end in the second's.
           let frame = 0;
-          const sample = () => {
-            const at = performance.now() - back;
-            samples.push({ at: Math.round(at), distance: distance(), following: client.following as boolean });
-            frame += 1;
-            if (frame === 1) w.__settlePush([w.__settleChunk(), w.__settleChunk()]);
-            if (frame === 2) w.__settlePush([w.__settleEnd()]);
-            if (at < watchMs) requestAnimationFrame(sample);
-            else w.__settleDone = true;
-          };
-          requestAnimationFrame(sample);
+          window.cmuxAfterPaint(
+            () => {
+              const at = performance.now() - back;
+              samples.push({ at: Math.round(at), distance: distance(), following: client.following as boolean });
+              if (at < watchMs) return true;
+              w.__settleDone = true;
+              return false;
+            },
+            () => {
+              frame += 1;
+              if (frame === 1) w.__settlePush([w.__settleChunk(), w.__settleChunk()]);
+              if (frame === 2) w.__settlePush([w.__settleEnd()]);
+            },
+          );
         };
         scroller.addEventListener("scroll", onScroll);
       },
