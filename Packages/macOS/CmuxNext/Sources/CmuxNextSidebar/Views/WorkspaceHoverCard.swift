@@ -179,6 +179,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
             guard let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
             list.model.send(.closeTab(workspace: ws, tab: tabID))
         }
+        // A port's row opens it in a browser tab of this workspace, on its machine's localhost (`SidebarIntent.openPort`).
+        body.onOpenPort = { [weak self, weak list] url, label in
+            guard let self else { return }
+            list?.model.send(.openPort(workspace: ws, url: url, label: label))
+            self.coordinator.dismiss(.action)
+        }
         body.setResources(resources.report)
         bodyID = id
         if openedByRequest { startSampling(id) }
@@ -281,6 +287,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
         body?.tabList.onClose = nil
+        body?.onOpenPort = nil
         body?.onDetailsChanged = nil
         bodyID = nil
         releaseCustom()
@@ -436,6 +443,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let statsRow = NSStackView()
     /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
     let detailsToggle = WorkspaceHoverCardDisclosure()
+    /// The ports the workspace's terminals serve, one button each, under the tab list with details open or not.
+    private let portsStack = NSStackView()
+    private(set) var portViews: [WorkspaceHoverCardPortRow] = []
+    /// A port row was clicked: its URL and label (the controller opens it in a browser tab of the workspace).
+    var onOpenPort: ((_ url: String, _ label: String) -> Void)?
     /// The summary header's line under the name: tab count, running and unread (`style.header`).
     private let summaryLabel = ChromeLabel(labelWithString: "")
     private let summaryRow = NSStackView()
@@ -570,7 +582,12 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         var rows: [NSView] = [customSlot, titleRow, paneShape, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
         let tabIndex = tabPlacement == .afterTitle ? 4 : (tabPlacement == .afterStatus ? 6 : 10)
         rows.insert(tabList, at: tabIndex)
-        rows.insert(detailsToggle, at: tabIndex + 1)
+        rows.insert(portsStack, at: tabIndex + 1)
+        rows.insert(detailsToggle, at: tabIndex + 2)
+        portsStack.orientation = .vertical
+        portsStack.alignment = .leading
+        portsStack.spacing = 0
+        portsStack.isHidden = true
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -599,6 +616,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            portsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             paneShape.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -665,7 +683,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
-        return lines + tabList.reportedLines
+        return lines + tabList.reportedLines + portViews.filter { !$0.isHidden }.map(\.row.shownText)
     }
 
     /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
@@ -751,6 +769,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
+        configurePorts(content.ports)
         pendingTimelineAt = now
         applyColors()
         updateDetailsVisibility()
@@ -896,7 +915,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
-            if view === detailsToggle { return true }
+            if view === detailsToggle || view is WorkspaceHoverCardPortRow { return true }
             if view === customSlot, detailsExpanded { return true }
             hit = view.superview
         }
@@ -1013,6 +1032,27 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         lastSampled = nil
     }
 
+    /// One button per port (`WorkspaceHoverCardContent.ports`), reused card to card; none hides the stack.
+    private func configurePorts(_ ports: [WorkspaceHoverCardContent.Fact]) {
+        while portViews.count < ports.count {
+            let row = WorkspaceHoverCardPortRow()
+            portsStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: portsStack.widthAnchor).isActive = true
+            portViews.append(row)
+        }
+        for (index, row) in portViews.enumerated() {
+            let fact = index < ports.count ? ports[index] : nil
+            row.isHidden = fact == nil
+            guard let fact else { continue }
+            row.configure(fact, image: NSImage.icon(fact.icon, size: Self.iconSize), font: Self.bodyFont, iconSide: Self.iconSize)
+            row.onPress = { [weak self] in
+                guard let url = fact.link else { return }
+                self?.onOpenPort?(url, fact.text)
+            }
+        }
+        portsStack.isHidden = ports.isEmpty
+    }
+
     private func addFactRow() {
         let row = HoverCardRowView()
         // The card takes its width from its content (cx-k9mc).
@@ -1103,6 +1143,7 @@ extension WorkspaceHoverCardView {
         // Claude desktop's session card), each row in its own theme tokens; no fill of its own,
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
+        for row in portViews { row.applyColors() }
         resourceRow.applyColors()
         hostDot.applyColors()
     }
