@@ -907,6 +907,11 @@ async fn pair_matrix_desktop_row() {
 #[ignore = "bench: run with --ignored --nocapture (pm/DESIGN.md)"]
 async fn pair_matrix_desktop_long() {
     let _ = HERMETIC;
+    // `--ignored` runs this test with the row test; hold only when `long` was asked for
+    // (run 45440984721: conditions without `long` sat 38 min in this hold and timed out).
+    if !env_list("PAIRMATRIX_CONDITIONS", &["long"]).iter().any(|c| c == "long") {
+        return;
+    }
     let minutes = env_u64("PAIRMATRIX_LONG_MINUTES", 60);
     let seed_base = env_u64("PAIRMATRIX_SEED_BASE", 0);
     let loads = env_list("PAIRMATRIX_LOADS", &["idle", "duress"]);
