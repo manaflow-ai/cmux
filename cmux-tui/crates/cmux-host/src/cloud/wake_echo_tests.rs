@@ -81,19 +81,21 @@ fn an_old_daemon_ends_the_wake_as_a_timeout_with_the_roles_own_marks() {
     assert_eq!(reqs.len(), 1);
     assert!(reqs[0].params.get("wake").is_none(), "the resume report carries no wake yet");
     let (_, _) = s.answered(&reqs[0], &ok(), 10_300, 0.5);
-    assert!(
-        s.daemon_activity(&old_daemon(Some(WALL + 2_000)), 10_500)
-            .iter()
-            .all(|r| r.params.get("wake").is_none())
-    );
-    let due = s.next_deadline().unwrap();
-    assert!(due <= 10_000 + WAKE_ECHO_DEADLINE_MS);
-    let mut reqs = Vec::new();
-    let mut now = 10_600;
-    while reqs.iter().all(|r: &super::sender::OpRequest| r.params.get("wake").is_none()) {
-        now = s.next_deadline().unwrap().max(now);
-        reqs.extend(s.fire(now));
+    let mut now = 10_500;
+    let mut sent = s.daemon_activity(&old_daemon(Some(WALL + 2_000)), now);
+    assert!(s.next_deadline().unwrap() <= 10_000 + WAKE_ECHO_DEADLINE_MS);
+    let mut reqs: Vec<super::sender::OpRequest> = Vec::new();
+    while reqs.iter().all(|r| r.params.get("wake").is_none()) {
         assert!(now <= 10_000 + WAKE_ECHO_DEADLINE_MS + 20_000, "the timeout block never went");
+        for r in std::mem::take(&mut sent) {
+            let (next, _) = s.answered(&r, &ok(), now, 0.5);
+            reqs.push(r);
+            sent.extend(next);
+        }
+        if sent.is_empty() {
+            now = s.next_deadline().unwrap().max(now);
+            sent.extend(s.fire(now));
+        }
     }
     let wake = &reqs.iter().find(|r| r.params.get("wake").is_some()).unwrap().params["wake"];
     assert_eq!(wake["outcome"], "timeout");
