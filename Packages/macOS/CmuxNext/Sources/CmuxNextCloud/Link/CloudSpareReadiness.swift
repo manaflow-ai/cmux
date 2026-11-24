@@ -103,6 +103,8 @@ public final class CloudSpareReadiness {
         var dial = Dial.notAsked
     }
 
+    /// The warms this spare comes from: one at a time, none within Rust's gap, so a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public let warmGate = CloudSpareWarmGate()
     private let dependencies: Dependencies
     private var keyed: [String: Keyed] = [:]
     private var routes: [String: Routed] = [:]
