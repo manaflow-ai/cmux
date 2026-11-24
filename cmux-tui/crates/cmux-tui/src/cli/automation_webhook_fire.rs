@@ -186,8 +186,11 @@ mod tests {
     fn a_shot_takes_the_event_into_the_body_and_the_secret_from_env() {
         let none = |_: &str| None;
         let env = |key: &str| (key == SECRET_ENV).then(|| "from-env".to_owned());
-        let s = shot(&words(&[ID, "--event", "deploy", "--body", r#"{"level":"error"}"#]), &env)
-            .expect("shot");
+        let Ok(s) =
+            shot(&words(&[ID, "--event", "deploy", "--body", r#"{"level":"error"}"#]), &env)
+        else {
+            panic!("shot");
+        };
         assert_eq!(s.secret, "from-env");
         let body: Value = serde_json::from_slice(&s.body).unwrap();
         assert_eq!(body, json!({"level": "error", "event": "deploy"}));
@@ -195,7 +198,7 @@ mod tests {
         assert!(shot(&words(&["nope", "--secret", "s"]), &none).is_err(), "bad trigger");
         assert!(shot(&words(&[ID, "--secret", "s", "--body", "[1]"]), &none).is_err());
         assert!(shot(&words(&[ID, "--secret", "s", "--event", "has space"]), &none).is_err());
-        let plain = shot(&words(&[ID, "--secret", "s"]), &none).expect("plain");
+        let Ok(plain) = shot(&words(&[ID, "--secret", "s"]), &none) else { panic!("plain") };
         assert_eq!(plain.body, b"{}");
     }
 
