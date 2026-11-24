@@ -4,6 +4,8 @@
 //! test names, feature gates, helper paths, and nested fixtures are preserved while Cargo links
 //! acpmux once.
 
+#![recursion_limit = "256"]
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 
