@@ -20,6 +20,15 @@
       "shot": false
     },
     {
+      "title": "An agent chat first, so the agent daemon (acpmux) is up before the live agent starts",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 5,
+      "shot": false
+    },
+    {
       "title": "New workspace Release",
       "cmux": [
         "workspace",
@@ -114,11 +123,14 @@
     },
     {
       "title": "New Tab: All Chats with the setting off (today's row: a plain state word)",
-      "cmux": [
-        "tab",
-        "new-page"
-      ],
-      "wait": 3
+      "wait": 3,
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "open_and_type",
+          "text": ""
+        }
+      }
     },
     {
       "title": "Turn on Status Pills in All Chats",
@@ -132,11 +144,14 @@
     },
     {
       "title": "Running: the live chat's row ends with a Running pill",
-      "cmux": [
-        "tab",
-        "new-page"
-      ],
-      "wait": 3
+      "wait": 3,
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "open_and_type",
+          "text": ""
+        }
+      }
     },
     {
       "title": "The checks pass; the agent asks to deploy",
