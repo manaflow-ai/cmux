@@ -5002,3 +5002,22 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
+
+Both jobs used to take a gateway runner and hold it while the build fleet compiled the head: the client
+submitted the Debug `--app` compile and waited up to 25 minutes for it. 2026-11-23..24, app-compile-fleet held
+gateway runners for about 22,900 runner-min a day (1,791 jobs) doing nothing but wait.
+
+Now the compile check posts its result back instead of holding a runner. The controller (cmuxterm-hq
+cmux_next_app_debug_check.go) submits the Debug `--app` compile of a same-repository pull request head when
+it sees either job queued, or when the job's read names the pull request, and serves the record at
+`compile-checks/v1/<sha>?phase=app-debug` (configuration `debug`, recipe 2). That record never stands for the
+land Release. The job runs on cmux-linux and reads only that record with the trusted base copy of
+scripts/ci/fleet_compile_result.py (`--phase app-debug`). The check name, its `if`, its placement and its
+verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes (no record after 5 minutes,
+the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
+other than 0 or 1 did. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
+canary run, and a push keeps its tip-check read and gateway compile.
