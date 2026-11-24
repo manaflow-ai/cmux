@@ -8,7 +8,8 @@ public import Foundation
 /// asks it the priority of a class of work. The table and the decay (300-500 ms after the last input) live in
 /// Rust; this file only notes events and converts the answer. Where the app FFI does not carry the header yet,
 /// notes do nothing and every class keeps ``WorkPriority/bestEffort``.
-public enum Interactivity {
+public struct Interactivity {
+    public init() {}
     /// What the person is doing (`cmux_interactivity_note`'s kinds).
     public enum Kind: UInt32, Sendable { case drag = 0, typing, scroll, focus }
 
