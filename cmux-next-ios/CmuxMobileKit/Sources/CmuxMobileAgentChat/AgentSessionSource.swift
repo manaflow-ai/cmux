@@ -497,8 +497,8 @@ public struct AgentSecretText: Hashable, Sendable, CustomStringConvertible, Cust
 }
 
 /// How far a sent message's attachment upload is: shown on the message while it goes.
-public struct AgentUploadProgress: Equatable, Sendable {
-    public enum Phase: String, Equatable, Sendable {
+public struct AgentUploadProgress: Hashable, Sendable {
+    public enum Phase: String, Hashable, Sendable {
         /// Opening the upload (or, after a drop, asking the Mac how far its copy is).
         case opening
         /// Streaming bytes.

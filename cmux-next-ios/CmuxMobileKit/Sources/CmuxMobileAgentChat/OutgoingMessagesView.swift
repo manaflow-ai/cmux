@@ -1,3 +1,5 @@
+#if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 
 /// Messages with files on their way to the Mac (``AgentChatStore/outgoing``): each shows the
@@ -55,3 +57,4 @@ private struct OutgoingMessageRow: View {
         return "Sending \(names.count == 1 ? names[0] : "\(names.count) files")…"
     }
 }
+#endif
