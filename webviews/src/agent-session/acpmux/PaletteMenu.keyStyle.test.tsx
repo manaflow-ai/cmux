@@ -84,7 +84,7 @@ async function drive(style: string, keys: StyleKey[]) {
     pressStyleKeys(dom!.window, doc.activeElement ?? doc.body, [key], (dispatch) => act(dispatch));
   return {
     open: trigger.getAttribute("aria-expanded") === "true",
-    active: container.querySelector('[role="option"][aria-selected="true"]')?.textContent,
+    active: container.querySelector('[role="option"][aria-selected="true"]')?.getAttribute("data-value"),
     focus: doc.activeElement?.getAttribute("role"),
     picks,
   };
