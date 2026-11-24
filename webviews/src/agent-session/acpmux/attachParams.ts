@@ -33,8 +33,15 @@ export const SUBSESSION_KIND = "subsession";
 /// missed rather than the newest 400 records again (cmuxterm-hq#14027).
 export function plainAttach(
   sessionId: string,
-  options: { settled: boolean; visible: boolean; local: boolean; maxBytes: number; afterSeq?: number },
-): AttachParams {
+  options: {
+    settled: boolean;
+    visible: boolean;
+    attending?: boolean;
+    local: boolean;
+    maxBytes: number;
+    afterSeq?: number;
+  },
+): AttachParams & { attending: boolean } {
   const forward = options.afterSeq !== undefined && options.afterSeq > 0;
   return {
     sessionId,
@@ -67,6 +74,7 @@ export function plainAttach(
     ],
     eventStream: true,
     visible: options.visible,
+    attending: options.attending ?? true,
   };
 }
 
