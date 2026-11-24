@@ -45,6 +45,8 @@ use zeroize::Zeroizing;
 
 use crate::localization::catalog;
 #[cfg(test)]
+use crate::remote_runtime::client_provider_registry;
+#[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,

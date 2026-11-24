@@ -53,6 +53,30 @@ fn direct_tailnet_address_is_added_before_the_existing_route() {
 }
 
 #[test]
+fn direct_candidates_keep_the_explicit_dial_port_and_preserve_hint_order() {
+    let existing = [address("[2001:db8::10]:7319")];
+    let hints = Hints {
+        own: vec!["100.64.0.2".parse().unwrap(), "100.64.0.4".parse().unwrap()],
+        peer: vec!["100.64.0.3".parse().unwrap(), "100.64.0.5".parse().unwrap()],
+        path: Some(PeerPath::Direct { endpoint: address("198.51.100.3:41641") }),
+    };
+    assert_eq!(
+        super::direct_candidates("peer", 8443, TailnetCarrierMode::DirectOnly, &hints),
+        [address("100.64.0.3:8443"), address("100.64.0.5:8443")]
+    );
+    assert_eq!(
+        add_candidates_on_port(&existing, "peer", 8443, TailnetCarrierMode::DirectOnly, &hints),
+        [address("100.64.0.3:8443"), address("100.64.0.5:8443"), existing[0]]
+    );
+}
+
+#[test]
+fn direct_tailnet_prefix_beats_an_ordinary_ipv6_result() {
+    let addresses = [address("100.64.0.3:7319"), address("[2001:db8::10]:7319")];
+    assert_eq!(super::super::hedge::v6_first_after_prefix(&addresses, 1), addresses);
+}
+
+#[test]
 fn derp_tailnet_address_is_skipped_even_when_on_is_requested() {
     let existing = [address("192.0.2.10:7319")];
     let hints = Hints {

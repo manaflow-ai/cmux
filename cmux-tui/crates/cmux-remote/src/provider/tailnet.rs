@@ -101,14 +101,51 @@ pub fn add_candidates(
     mode: TailnetCarrierMode,
     hints: &dyn TailnetHints,
 ) -> Vec<SocketAddr> {
+    let port = addresses.first().map_or(0, SocketAddr::port);
+    add_candidates_on_port(addresses, host, port, mode, hints)
+}
+
+/// Append direct tailnet candidates using the dialer's explicit port.
+pub fn add_candidates_on_port(
+    addresses: &[SocketAddr],
+    host: &str,
+    port: u16,
+    mode: TailnetCarrierMode,
+    hints: &dyn TailnetHints,
+) -> Vec<SocketAddr> {
+    let direct = direct_candidates(host, port, mode, hints);
+    merge_direct_candidates(&direct, addresses)
+}
+
+pub(crate) fn merge_direct_candidates(
+    direct: &[SocketAddr],
+    addresses: &[SocketAddr],
+) -> Vec<SocketAddr> {
+    let mut out = Vec::with_capacity(direct.len() + addresses.len());
+    out.extend_from_slice(direct);
+    for address in addresses {
+        if !out.contains(address) {
+            out.push(*address);
+        }
+    }
+    out
+}
+
+/// The direct candidates known before resolving the ordinary route.
+pub fn direct_candidates(
+    host: &str,
+    port: u16,
+    mode: TailnetCarrierMode,
+    hints: &dyn TailnetHints,
+) -> Vec<SocketAddr> {
     if mode == TailnetCarrierMode::Off {
-        return addresses.to_vec();
+        return Vec::new();
     }
     let self_ips = hints.self_ips();
     if self_ips.is_empty() {
-        return addresses.to_vec();
+        return Vec::new();
     }
-    let mut out = Vec::with_capacity(addresses.len());
+    let mut out = Vec::new();
     for ip in hints.peer_ips(host) {
         if !tailnet_ip(ip)
             || !self_ips.iter().any(|own| own.is_ipv4() == ip.is_ipv4())
@@ -116,21 +153,13 @@ pub fn add_candidates(
         {
             continue;
         }
-        for address in addresses.iter().filter(|address| address.ip() == ip) {
-            if !out.contains(address) {
-                out.push(*address);
-            }
-        }
-        if !out.iter().any(|address| address.ip() == ip) {
-            let port = addresses.first().map_or(0, SocketAddr::port);
-            if port != 0 {
-                out.push(SocketAddr::new(ip, port));
+        if port != 0 {
+            let address = SocketAddr::new(ip, port);
+            if !out.contains(&address) {
+                out.push(address);
             }
         }
     }
-    let remaining =
-        addresses.iter().copied().filter(|address| !out.contains(address)).collect::<Vec<_>>();
-    out.extend(remaining);
     out
 }
 

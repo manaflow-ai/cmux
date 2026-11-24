@@ -25,7 +25,9 @@ use zeroize::Zeroizing;
 
 use crate::link::LinkError;
 use crate::provider::socks;
-use crate::provider::tailnet::{TailnetCarrierMode, TailnetHints, add_candidates};
+use crate::provider::tailnet::{
+    TailnetCarrierMode, TailnetHints, direct_candidates, merge_direct_candidates,
+};
 
 /// The bounds a dialed carrier must satisfy. Blanket-implemented, so any
 /// Tokio stream qualifies; the trait exists only because a trait object can
@@ -145,10 +147,16 @@ impl Dialer for TailnetDialer {
     }
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
-        let resolved = resolve_dial_target(host, port).await?;
-        let addresses = add_candidates(&resolved, host, self.mode, self.hints.as_ref());
+        let hinted = direct_candidates(host, port, self.mode, self.hints.as_ref());
+        let resolved = match resolve_dial_target(host, port).await {
+            Ok(addresses) => addresses,
+            Err(error) if !hinted.is_empty() => Vec::new(),
+            Err(error) => return Err(error),
+        };
+        let addresses = merge_direct_candidates(&hinted, &resolved);
+        let addresses = super::hedge::v6_first_after_prefix(&addresses, hinted.len());
         let stream = super::hedge::connect(
-            &super::hedge::v6_first(&addresses),
+            &addresses,
             super::hedge::HedgePolicy::INTERNET,
             TcpStream::connect,
         )

@@ -74,6 +74,17 @@ pub fn v6_first(addresses: &[std::net::SocketAddr]) -> Vec<std::net::SocketAddr>
     out
 }
 
+/// Keep a caller's preferred prefix ahead of RFC 8305 family ordering.
+pub fn v6_first_after_prefix(
+    addresses: &[std::net::SocketAddr],
+    preferred_len: usize,
+) -> Vec<std::net::SocketAddr> {
+    let preferred_len = preferred_len.min(addresses.len());
+    let mut out = addresses[..preferred_len].to_vec();
+    out.extend(v6_first(&addresses[preferred_len..]));
+    out
+}
+
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
 /// is the last attempt's (an attempt that ran out of time is `TimedOut`). The
