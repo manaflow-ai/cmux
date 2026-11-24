@@ -92,6 +92,13 @@ def marker_comment(node: dict | None) -> dict | None:
     return None
 
 
+def repository_data(query: str) -> dict:
+    response = gh("graphql", "-f", f"query={query}")
+    if not isinstance(response, dict):
+        raise TypeError("graphql: unexpected response")
+    return response["data"]["repository"]
+
+
 def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[dict[int, dict], set[int]]:
     """The marker comment on each PR, and the numbers that could not be read.
 
@@ -108,12 +115,21 @@ def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[d
     for start in range(0, len(numbers), batch):
         chunk = numbers[start:start + batch]
         try:
-            data = gh("graphql", "-f", f"query={comments_query(owner, name, chunk)}")["data"]["repository"]
-        except (subprocess.CalledProcessError, KeyError, TypeError):
+            data = repository_data(comments_query(owner, name, chunk))
+        except subprocess.CalledProcessError as error:
+            if rate_limited(error):
+                raise  # the quota is spent for the whole run: no per-PR retries
             data = {}
             for n in chunk:
                 try:
-                    data.update(gh("graphql", "-f", f"query={comments_query(owner, name, [n])}")["data"]["repository"])
+                    data.update(repository_data(comments_query(owner, name, [n])))
+                except (subprocess.CalledProcessError, KeyError, TypeError):
+                    unreadable.add(n)
+        except (KeyError, TypeError):
+            data = {}
+            for n in chunk:
+                try:
+                    data.update(repository_data(comments_query(owner, name, [n])))
                 except (subprocess.CalledProcessError, KeyError, TypeError):
                     unreadable.add(n)
         for n in chunk:
@@ -148,7 +164,13 @@ def main() -> int:
         print(f"published-in: {len(numbers)} PRs in the span, over --max {args.max}; commenting on none", file=sys.stderr)
         return 0
     line = build_line(args.name, args.url, args.head)
-    existing, unreadable = ({}, set()) if args.dry_run else existing_comments(args.repo, numbers)
+    try:
+        existing, unreadable = ({}, set()) if args.dry_run else existing_comments(args.repo, numbers)
+    except subprocess.CalledProcessError as error:
+        if not rate_limited(error):
+            raise
+        print(f"published-in: rate limited while reading comments; {len(numbers)} PRs left, rerun to finish", file=sys.stderr)
+        return 0
     numbers = [n for n in numbers if n not in unreadable]
     posted = skipped = failed = 0
     for index, number in enumerate(numbers):
