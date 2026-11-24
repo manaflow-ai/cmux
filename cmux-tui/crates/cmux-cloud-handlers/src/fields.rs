@@ -255,6 +255,9 @@ pub struct Status {
     pub disk_system_mb: Option<f64>,
     pub disk_project_mb: Option<f64>,
     pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (its `disk_health`, cmux-cloud-machine `Machine.disk`);
+    /// read before the MiB facts above.
+    pub disk: Option<DiskReport>,
     pub ipv4: Option<String>,
     pub desktop: bool,
     pub cost: Option<Cost>,
@@ -418,8 +421,10 @@ pub fn describe(status: &Status) -> String {
 impl Status {
     /// The disk bar: used over the disk's size, split when the guest splits it.
     pub fn disk(&self) -> Option<DiskView> {
-        let report = DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
-            .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb);
+        let report = self.disk.unwrap_or_else(|| {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
         disk::view(None, &report)
     }
 }
@@ -478,6 +483,8 @@ pub struct Listed {
     pub disk_system_mb: Option<f64>,
     pub disk_project_mb: Option<f64>,
     pub disk_caches_mb: Option<f64>,
+    /// The machine record's disk report (`Machine.disk`); read before the MiB facts above.
+    pub disk: Option<DiskReport>,
 }
 
 impl Listed {
@@ -489,8 +496,10 @@ impl Listed {
 
     /// The row's disk bar ([`disk::view`]), none when nothing says how big the disk is.
     pub fn disk(&self) -> Option<DiskView> {
-        let report = DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
-            .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb);
+        let report = self.disk.unwrap_or_else(|| {
+            DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
+                .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
+        });
         disk::view(disk::mib(self.disk_allocated_mb), &report)
     }
 }

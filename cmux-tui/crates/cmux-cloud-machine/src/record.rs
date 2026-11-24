@@ -334,6 +334,10 @@ pub struct Machine {
     /// epoch ms); nil when the record does not say (an older server, or one not deleting yet).
     #[serde(default)]
     pub evict_at: Option<f64>,
+    /// The guest's root disk (cmux-platform's last `acpmux machine load` sample, the record's
+    /// `disk_health`): used, free and the system / project / caches split; nil when not reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<cmux_cloud_disk::DiskReport>,
     /// The auto-size pick a create with `autosize` answered (`{vcpus, memoryGb, pick, reason}`).
     #[serde(default)]
     pub size_pick: Option<Value>,
@@ -398,6 +402,7 @@ impl Machine {
             server_revision: None,
             running_since: None,
             evict_at: None,
+            disk: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,
@@ -617,6 +622,9 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.evict_at = first(fields, &["evict_at", "evictAt"])
         .and_then(Value::as_f64)
         .filter(|at| at.is_finite() && *at > 0.0);
+    // The guest's disk use (cmux-platform `disk_health`); absent before the first sample.
+    machine.disk = first(fields, &["disk_health", "diskHealth"])
+        .and_then(cmux_cloud_disk::DiskReport::from_health);
     Some(machine)
 }
 

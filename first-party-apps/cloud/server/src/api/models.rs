@@ -117,13 +117,16 @@ fn disk_health_state(value: &Value) -> &'static str {
 /// it as it is). A report the state calls `unknown` gives a bar of the
 /// allocation alone, as a guest that reports nothing would.
 ///
-/// The split's names are assumed until the guest reports them (RFD 0068
-/// "What to build next" 2 and 3): `system_mb`, `project_mb`, `caches_mb`, in
-/// MiB as the report's other fields; `*_bytes` names win when present.
+/// cmux-platform writes the report from the guest's `acpmux machine load` (`total_mb`,
+/// `used_mb`, `free_mb`, `system_mb`, `project_mb`, `caches_mb`); [`DiskReport::from_health`]
+/// reads those and the guest's own names.
 fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
     let state = disk_health_state(&value);
+    let report = match state {
+        "unknown" => DiskReport::default(),
+        _ => DiskReport::from_health(&value).unwrap_or_default(),
+    };
     if let Value::Object(object) = &mut value {
-        let report = if state == "unknown" { DiskReport::default() } else { disk_report(object) };
         let allocated = allocated_mb.and_then(|mb| disk::mib(Some(mb as f64)));
         if let Some(bar) =
             disk::view(allocated, &report).and_then(|bar| serde_json::to_value(bar).ok())
@@ -133,37 +136,6 @@ fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
         object.insert("state".into(), Value::String(state.into()));
     }
     value
-}
-
-/// The guest's report as cmux-cloud-disk reads it: each field in bytes (the guest's own `rootTotalBytes`
-/// and `diskSplit` first, then `total_bytes`), else in MiB (`total_mb`).
-fn disk_report(object: &serde_json::Map<String, Value>) -> DiskReport {
-    // The guest's own names (acpmux `peer load`: `rootTotalBytes`, `diskSplit.systemBytes`, in
-    // either case) come first, then the relay's `{name}_bytes` and `{name}_mb`.
-    let bytes = |object: &serde_json::Map<String, Value>, snake: &str, camel: &str| {
-        object.get(camel).or_else(|| object.get(snake)).and_then(Value::as_u64)
-    };
-    let field = |name: &str| {
-        let camel = format!("root{}{}Bytes", name[..1].to_uppercase(), &name[1..]);
-        bytes(object, &format!("root_{name}_bytes"), &camel)
-            .or_else(|| object.get(&format!("{name}_bytes")).and_then(Value::as_u64))
-            .or_else(|| disk::mib(object.get(&format!("{name}_mb")).and_then(Value::as_f64)))
-    };
-    let split =
-        object.get("diskSplit").or_else(|| object.get("disk_split")).and_then(Value::as_object);
-    let part = |name: &str| {
-        split
-            .and_then(|split| bytes(split, &format!("{name}_bytes"), &format!("{name}Bytes")))
-            .or_else(|| field(name))
-    };
-    DiskReport {
-        total_bytes: field("total"),
-        used_bytes: field("used"),
-        free_bytes: field("free"),
-        system_bytes: part("system"),
-        project_bytes: part("project"),
-        caches_bytes: part("caches"),
-    }
 }
 
 /// Non-secret host metadata that an owner may attach to a machine record.

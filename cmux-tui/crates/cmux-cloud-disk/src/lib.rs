@@ -77,6 +77,42 @@ impl DiskReport {
     }
 }
 
+impl DiskReport {
+    /// A machine record's `disk_health` (cmux-platform's last guest sample, `publicMachine`) as a
+    /// report: each field in bytes (the guest's own `rootTotalBytes` and `diskSplit.systemBytes`
+    /// from acpmux `machine load` first, then `total_bytes`), else in MiB (`total_mb`, the relay's
+    /// unit). None when the value is not an object or names none of the six.
+    pub fn from_health(value: &serde_json::Value) -> Option<Self> {
+        use serde_json::{Map, Value};
+        let object = value.as_object()?;
+        let bytes = |object: &Map<String, Value>, snake: &str, camel: &str| {
+            object.get(camel).or_else(|| object.get(snake)).and_then(Value::as_u64)
+        };
+        let field = |name: &str| {
+            let camel = format!("root{}{}Bytes", name[..1].to_uppercase(), &name[1..]);
+            bytes(object, &format!("root_{name}_bytes"), &camel)
+                .or_else(|| object.get(&format!("{name}_bytes")).and_then(Value::as_u64))
+                .or_else(|| mib(object.get(&format!("{name}_mb")).and_then(Value::as_f64)))
+        };
+        let split =
+            object.get("diskSplit").or_else(|| object.get("disk_split")).and_then(Value::as_object);
+        let part = |name: &str| {
+            split
+                .and_then(|split| bytes(split, &format!("{name}_bytes"), &format!("{name}Bytes")))
+                .or_else(|| field(name))
+        };
+        let report = Self {
+            total_bytes: field("total"),
+            used_bytes: field("used"),
+            free_bytes: field("free"),
+            system_bytes: part("system"),
+            project_bytes: part("project"),
+            caches_bytes: part("caches"),
+        };
+        (report != Self::default()).then_some(report)
+    }
+}
+
 /// MiB as bytes; none for a value that is not a finite, non-negative number.
 pub fn mib(value: Option<f64>) -> Option<u64> {
     value.filter(|v| v.is_finite() && *v >= 0.0).map(|v| (v * MIB as f64).round() as u64)

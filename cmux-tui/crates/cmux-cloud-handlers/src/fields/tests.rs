@@ -368,6 +368,22 @@ fn a_listed_machine_carries_its_disk_bar_when_the_app_knows_its_disk() {
     assert!(fields["machines"][2].get("disk").is_none());
 }
 
+#[test]
+fn a_listed_machine_reads_its_records_disk_report_first() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "running", "diskAllocatedMb": 20480.0,
+                      "diskUsedMb": 1.0,
+                      "disk": {"total_bytes": 21_474_836_480_u64, "used_bytes": 10_737_418_240_u64,
+                               "free_bytes": 10_737_418_240_u64, "system_bytes": 4_294_967_296_u64,
+                               "project_bytes": 5_368_709_120_u64, "caches_bytes": 1_073_741_824_u64}}],
+    }))
+    .unwrap();
+    let disk = &machine_list(&list)["machines"][0]["disk"];
+    assert_eq!(disk["label"], json!("10 / 20 GB"));
+    assert_eq!(disk["segments"][2]["kind"], json!("caches"));
+}
+
 /// `cmux chat --on cloud` picks the person's most recently used running chat VM: the list says
 /// who is signed in and when each machine was last used.
 #[test]

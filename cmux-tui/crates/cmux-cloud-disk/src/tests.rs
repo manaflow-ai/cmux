@@ -195,3 +195,27 @@ fn the_view_serializes_in_snake_case() {
     assert_eq!(json["segments"][0]["kind"], "used");
     assert_eq!(json["label"], "18.6 / 20 GB");
 }
+
+#[test]
+fn a_platform_disk_health_reads_as_a_report() {
+    // cmux-platform's names (MiB) and the guest's own (`acpmux machine load`, bytes) read alike.
+    let platform = serde_json::json!({"total_mb": 20480, "used_mb": 13516.8, "free_mb": 6963.2,
+        "system_mb": 5427.2, "project_mb": 6348.8, "caches_mb": 1740.8, "floor_mb": 2048,
+        "observed_at": 1, "top_users": []});
+    let guest = serde_json::json!({"rootTotalBytes": gib(20.0), "rootUsedBytes": gib(13.2),
+        "rootFreeBytes": gib(6.8), "diskSplit": {"systemBytes": gib(5.3), "projectBytes": gib(6.2),
+        "cachesBytes": gib(1.7)}});
+    for value in [platform, guest] {
+        let report = DiskReport::from_health(&value).unwrap();
+        let view = view(Some(gib(20.0)), &report).unwrap();
+        assert_eq!(view.label, "13.2 / 20 GB", "{value}");
+        let kinds: Vec<SegmentKind> = view.segments.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [SegmentKind::System, SegmentKind::Project, SegmentKind::Caches, SegmentKind::Free]
+        );
+    }
+    // Nothing it knows: no report.
+    assert_eq!(DiskReport::from_health(&serde_json::json!({"state": "unknown"})), None);
+    assert_eq!(DiskReport::from_health(&serde_json::json!(null)), None);
+}

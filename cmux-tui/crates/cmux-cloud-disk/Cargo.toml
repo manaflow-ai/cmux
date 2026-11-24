@@ -9,8 +9,6 @@ description = "A Cloud machine's disk bar (used over allocated, split system / p
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-
-[dev-dependencies]
 serde_json = { workspace = true }
 
 [lints]
