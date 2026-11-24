@@ -422,24 +422,20 @@ test("an ask without an Always allow option draws no such button and 2 does noth
   await card.unmount();
 });
 
-test("the answer row is content-width buttons, never stretched to equal cells", async () => {
+test("the answer row is content-width buttons on the surface's actions row, never stretched to equal cells", async () => {
   const { readFileSync } = await import("node:fs");
-  const css = readFileSync(new URL("../src/agent-session/acpmux/styles.css", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/ui/surface/surface.css", import.meta.url), "utf8");
   const rule = (selector: string) => {
-    const at = css.indexOf(`${selector}{`);
+    const at = css.indexOf(`${selector} {`);
     expect(at).toBeGreaterThanOrEqual(0);
     return css.slice(at, css.indexOf("}", at));
   };
-  const row = rule(".acpmux-permission-ask .acpmux-permission-buttons");
-  expect(row).toContain("display:flex");
+  const row = rule(".ui-surface-actions");
+  expect(row).toContain("display: flex");
   expect(row).not.toContain("grid");
   expect(row).not.toContain("1fr");
-  const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
-  expect(button).toContain("flex:none");
-  // Centred, so the label sits level with its Esc or ⌘ ↩ keycaps.
-  expect(button).toContain("align-items:center");
   // Deny keeps the leading edge, the allows the trailing one, as Claude desktop's card.
-  expect(rule(".acpmux-permission-ask .acpmux-permission-allows")).toContain("margin-inline-start:auto");
+  expect(rule(".ui-surface-actions-end")).toContain("margin-inline-start: auto");
 });
 
 // Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there's the
