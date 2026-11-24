@@ -272,6 +272,22 @@ def fetch_state(repo: str, out_dir: str, token: str) -> bool:
     return False
 
 
+def fetch_state_retrying(repo: str, out_dir: str, token: str, tries: int = 3, sleep=time.sleep, fetch=None):
+    """fetch_state, retried; None when every try failed. An unread state is not "no state": planning from nothing
+    would publish a state with every earlier number gone (run 45207965116: one 403 dropped 8 interactions' last
+    rows), so the job stops instead and the next nightly reads the last state that was published."""
+    fetch = fetch or fetch_state
+    for attempt in range(tries):
+        try:
+            return fetch(repo, out_dir, token)
+        except (OSError, ValueError, zipfile.BadZipFile) as e:
+            print(f"nightly-interaction-latency: state not read, try {attempt + 1} of {tries} ({e})", flush=True)
+            if attempt + 1 < tries:
+                sleep(10 * (attempt + 1))
+    print("nightly-interaction-latency: state not read; publishing nothing, so the last state stays the newest")
+    return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -296,11 +312,7 @@ def main(argv=None) -> int:
     rep.add_argument("--runner")
     o = ap.parse_args(argv)
     if o.cmd == "fetch-state":
-        try:
-            fetch_state(o.repo, o.dir, os.environ.get("GH_TOKEN", ""))
-        except (OSError, ValueError, zipfile.BadZipFile) as e:
-            print(f"nightly-interaction-latency: state not read ({e}); every interaction is touched")
-        return 0
+        return 0 if fetch_state_retrying(o.repo, o.dir, os.environ.get("GH_TOKEN", "")) is not None else 1
     if o.cmd == "plan":
         state = load_state(o.state)
         base = state.get("head") or o.before

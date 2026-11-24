@@ -325,6 +325,11 @@ PARTS = [
     # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
     # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
     {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
+    # What 10 open agent chats cost one shared renderer beside an empty one (webviews/bench/chat-pages-memory.bench.ts,
+    # goal memory-per-chat in cmuxterm-hq's NOW): renderer PSS empty and at 10, MB per chat and the ratio to empty
+    # (chat_pages_memory.n10.ratio_vs_empty), a Linux reading that does not wait for the one Mac measure host. Its own
+    # part: the suite's default benches already fill its 30-minute cap (about 1 minute).
+    {"name": "web-ui-memory", "where": "linux", "kind": "webui", "needs": "web-ui-memory"},
     # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
@@ -409,6 +414,7 @@ ROW_PARTS = [
     (r"^webui\.chat_open_paired\.", "web-ui-god"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
     (r"^webui\.million_event_chat\.", "web-ui-million"),
+    (r"^webui\.chat_pages_memory\.", "web-ui-memory"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.sim_ladder\.", "web-ui-ladder"),
@@ -1234,6 +1240,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-memory":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll-up":
@@ -2436,6 +2444,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
+        elif need == "web-ui-memory":
+            ok = has_path(sha, f"{CHAT_PAGES_MEMORY_BENCH}")
         elif need == "infinite-items":
             ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
@@ -2528,6 +2538,7 @@ WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
+CHAT_PAGES_MEMORY_BENCH = "webviews/bench/chat-pages-memory.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
@@ -3438,7 +3449,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         streak = [v for v in prev.get("recovering") or [] if isinstance(v, dict)]
         streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url})
         if len(streak) < RECOVER_RUNS:
-            regressions.append({**prev, "recovering": streak})
+            # Its newest reading, so the probe and NOW read this run's value, not the one it was detected at.
+            regressions.append({**prev, "recovering": streak, "last_p95": p95, "last_at": iso(t)})
         else:
             closing[name] = streak[:-1]
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -3453,6 +3465,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
+        # The newest reading of an open regression (this run's value), as a recovering one keeps above.
+        r["last_p95"], r["last_at"] = r["p95"], iso(t)
         regressions.append(r)
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
@@ -4127,6 +4141,14 @@ def prepare_ghostty(root, env, run=run_capped, timeout=900):
     return env, tail
 
 
+WAKEUP_LINE_RE = re.compile(r"(left alone for|at rest for) [0-9.]+ s: [0-9]+ wakeups \(")
+
+
+def webui_wakeup_lines(stdout, limit=40):
+    """The web UI suite's bench lines that count and name an idle page's wakeups (pure), at most LIMIT."""
+    return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4156,6 +4178,11 @@ def cmd_run_linux_part(o):
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
+            # The benches' own lines naming what woke an idle page (chat-switch's "left alone for 10 s: N wakeups
+            # (...); <sources>"): the report keeps only the counts, so the job log carries the callbacks behind a
+            # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
+            for line in webui_wakeup_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
