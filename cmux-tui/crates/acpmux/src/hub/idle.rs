@@ -176,7 +176,6 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// A child was published: make sure the reaper runs and sees it.
     /// The agent of `session` restarts once nothing runs in it (`Session::respawn_when_quiet`):
     /// its host moves as a host below this build's level does (`host_level.rs` `host_moves`),
     /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
@@ -186,6 +185,7 @@ impl Hub {
         self.wake_idle_reaper();
     }
 
+    /// A child was published: make sure the reaper runs and sees it.
     pub(super) fn wake_idle_reaper(self: &Arc<Self>) {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
@@ -347,6 +347,8 @@ impl Hub {
         // every gate read again. An exit the drain handles is no hibernation's (the mark is
         // set after it).
         let seen = session.last_active.load(Ordering::SeqCst);
+        // Read before the agent ends: its end clears the mark (`settle_profile_respawn`).
+        let quiet = session.respawn_when_quiet.load(Ordering::SeqCst);
         Self::drain_inbound(&session).await;
         if session.last_active.load(Ordering::SeqCst) != seen
             || seen.saturating_add(idle) > self.clock_now()
@@ -366,7 +368,7 @@ impl Hub {
             session = %session.id,
             cause = if !moving {
                 "idle"
-            } else if session.respawn_when_quiet.load(Ordering::SeqCst) {
+            } else if quiet {
                 "restart-when-quiet"
             } else {
                 "host-level"
