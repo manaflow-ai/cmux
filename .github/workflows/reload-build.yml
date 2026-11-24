@@ -853,7 +853,7 @@ jobs:
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Save SPM SourcePackages cache
-        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
+        if: ${{ (success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true')) && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         id: save_spm
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
