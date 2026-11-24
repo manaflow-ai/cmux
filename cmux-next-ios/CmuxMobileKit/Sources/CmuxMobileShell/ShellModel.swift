@@ -1088,12 +1088,17 @@ extension ShellModel {
         let stackHub: URL? = nil
         #endif
         let auth = auth
+        // The build's cloud data space, as every other cloud client of this build sends it: a tagged Debug build is a
+        // device of its tag's space on the hub; one with no usable tag makes no hub calls.
+        let space = auth.buildSpace
+        let hubSpace: DeviceHubBuildSpace = space.refusal != nil ? .unusable : space.space.map { .dev($0.headerValue) } ?? .nightly
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
             deviceName: UIDevice.current.name,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },
-            accountID: auth.user?.id
+            accountID: auth.user?.id,
+            buildSpace: hubSpace
         )
         let service = ScreenSharingService(configuration: configuration)
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.

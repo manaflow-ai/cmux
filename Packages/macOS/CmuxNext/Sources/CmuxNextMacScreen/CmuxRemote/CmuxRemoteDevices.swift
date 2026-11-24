@@ -78,8 +78,8 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     /// the channel, and the channel's pushes are the hub's socket. Used for the cmux Remote worker
     /// and the acpmux daemon's share host (ShareHostDevice.swift) alike.
     @MainActor func makeHub(url: URL, identity: DeviceIdentity, bundleID: String, loginKeychain: LoginKeychain,
-                            tokens: @escaping @Sendable () async throws -> String) -> DeviceHub {
-        let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
+                            buildSpace: DeviceHubBuildSpace, tokens: @escaping @Sendable () async throws -> String) -> DeviceHub {
+        let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens), buildSpace: buildSpace)
         return DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: self)),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName,
                          renewIdentity: { [self] in try blockingIdentity(renew: true) })
@@ -96,8 +96,12 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         return DeviceIdentity(deviceID: id, keys: keys)
     }
 
-    func anchored(userID: String, hubURL: URL) async {
-        _ = try? await channel().call("hub.anchored", ["user_id": userID, "hub_url": hubURL.absoluteString])
+    /// `buildSpace`: the dev build's `dev:<slug>` the device was anchored in, nil for the default space. A worker
+    /// from before build spaces ignores it and renews in the default space, where the hub refuses it (fails closed).
+    func anchored(userID: String, hubURL: URL, buildSpace: String? = nil) async {
+        var params: [String: Any] = ["user_id": userID, "hub_url": hubURL.absoluteString]
+        if let buildSpace { params["build_space"] = buildSpace }
+        _ = try? await channel().call("hub.anchored", params)
     }
 
     func signedOut() async {

@@ -7,27 +7,41 @@ import IOKit
 /// The Mac this app runs on, as the device hub's `machine` (docs/device-hub/PROTOCOL.md,
 /// "Permissions are per Mac"): the lowercase hex HMAC-SHA256 of `cmux.device-hub.machine\n` and the
 /// Mac's hardware UUID, keyed by a random secret kept in a file on this Mac. Every build of the
-/// app (each tagged build has its own device id) and cmux Remote read the same file, so they send
-/// the same value and the host's Always answer about this Mac covers all of them. The hardware
-/// UUID alone is no secret (any app on the Mac can read it), so the key is what stops a device
-/// elsewhere from naming this Mac; nil where there is no hardware UUID (not a Mac) or no secret.
+/// app in one build space (each tagged build has its own device id) and its cmux Remote read the
+/// same file, so they send the same value and the host's Always answer about this Mac covers all
+/// of them. A tagged dev build's value also names its build space (`\n` and `dev:<slug>` after the
+/// UUID, ``DeviceHubBuildSpace``), so it is its own machine, never NIGHTLY's or another tag's; the
+/// default space (NIGHTLY, release) keeps the value it always had. The hardware UUID alone is no
+/// secret (any app on the Mac can read it), so the key is what stops a device elsewhere from naming
+/// this Mac; nil where there is no hardware UUID (not a Mac) or no secret.
 struct DeviceMachine: Sendable, Equatable {
     let id: String?
 
-    /// This Mac's, read once.
+    /// This Mac's in the default build space, read once.
     /// Only a Mac names one: elsewhere there is no hardware UUID, so no secret is made either.
-    static let current: DeviceMachine = {
-        guard let uuid = platformUUID() else { return DeviceMachine(hardwareUUID: nil, secret: nil) }
-        return DeviceMachine(hardwareUUID: uuid, secret: DeviceMachineSecret.load(at: DeviceMachineSecret.defaultURL))
+    static let current: DeviceMachine = DeviceMachine(hardwareUUID: platform.uuid, secret: platform.secret)
+
+    /// This Mac's in `buildSpace`: ``current`` for the default space.
+    static func current(in buildSpace: DeviceHubBuildSpace) -> DeviceMachine {
+        guard let space = buildSpace.headerValue else { return current }
+        return DeviceMachine(hardwareUUID: platform.uuid, secret: platform.secret, buildSpace: space)
+    }
+
+    /// The hardware UUID and the secret, read once; no secret is made where there is no UUID.
+    private static let platform: (uuid: String?, secret: Data?) = {
+        guard let uuid = platformUUID() else { return (nil, nil) }
+        return (uuid, DeviceMachineSecret.load(at: DeviceMachineSecret.defaultURL))
     }()
 
-    init(hardwareUUID: String?, secret: Data?) {
+    /// `buildSpace`: a dev build's `dev:<slug>`, nil for the default space.
+    init(hardwareUUID: String?, secret: Data?, buildSpace: String? = nil) {
         guard let uuid = hardwareUUID?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(), !uuid.isEmpty,
               let secret, secret.count >= 32 else {
             id = nil
             return
         }
-        let mac = HMAC<SHA256>.authenticationCode(for: Data("cmux.device-hub.machine\n\(uuid)".utf8), using: SymmetricKey(data: secret))
+        let message = buildSpace.map { "cmux.device-hub.machine\n\(uuid)\n\($0)" } ?? "cmux.device-hub.machine\n\(uuid)"
+        let mac = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: secret))
         id = mac.map { String(format: "%02x", $0) }.joined()
     }
 

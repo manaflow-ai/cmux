@@ -53,6 +53,9 @@ public final class DeviceHubService {
     private let account: Account
     private let bundleIdentifier: String
     private let selectedBaseURL: URL?
+    /// The build space every hub this service makes carries (``DeviceHubBuildSpace``): a tagged dev build's Mac
+    /// is a device of its own space only, never of NIGHTLY's or another tag's.
+    public let buildSpace: DeviceHubBuildSpace
     /// The app's one guard of the Keychain UI switch (the hub's identity and relay secrets).
     private let loginKeychain: LoginKeychain
     /// Settings > Devices (the React page's `devices` card).
@@ -98,11 +101,12 @@ public final class DeviceHubService {
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
     public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil,
-                retryClock: any Clock<Duration> = ContinuousClock(), makeAppHub: AppHubFactory? = nil) {
+                buildSpace: DeviceHubBuildSpace = .nightly, retryClock: any Clock<Duration> = ContinuousClock(), makeAppHub: AppHubFactory? = nil) {
         self.retryClock = retryClock
+        self.buildSpace = buildSpace
         self.makeAppHub = makeAppHub ?? { url, bundle, name, tokens, keychain in
             try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundle, deviceName: name,
-                                      tokens: tokens, loginKeychain: keychain)
+                                      tokens: tokens, loginKeychain: keychain, buildSpace: buildSpace)
         }
         self.selectedBaseURL = selectedBaseURL
         self.pages = pages

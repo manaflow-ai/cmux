@@ -29,7 +29,8 @@ extension CmuxRemoteService {
             guard try await configuredAvailability() else { return nil }
             do {
                 let identity = try await devices.identity()
-                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, tokens: tokens)
+                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain,
+                                          buildSpace: deviceHub.buildSpace, tokens: tokens)
                 remoteHub = hub
                 return hub
             } catch {

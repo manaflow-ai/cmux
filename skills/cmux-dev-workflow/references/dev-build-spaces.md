@@ -4,7 +4,8 @@ Moved here from the root CLAUDE.md on 2026-11-20 (docs audit); the root keeps a 
 
 A tagged dev build (Mac and iPhone) never sees or changes another build's backend data, nor nightly's or stable's,
 even when the same person is signed in to all of them. Every dev build sends `X-Cmux-Build-Space: dev:<slug>` (its
-tag's slug) to the cloud API and to cmux-mobile-api; nightly and stable send nothing. So anything a dev build stores
+tag's slug) to the cloud API, to cmux-mobile-api and to the device hub (Screen Sharing: one set of devices per space,
+docs/device-hub/PROTOCOL.md "Build spaces"); nightly and stable send nothing. So anything a dev build stores
 in a backend is keyed by its build space: a per-build Durable Object is named `dev:<slug>|<name>` (only through
 `spacedEnv` and `envForObject` in `backend/apps/api/src/build-space.ts`), and a per-build Postgres or MySQL row
 carries the space and is read filtered by it. Production ignores the header (cloud API) or refuses it (cmux-mobile-api).
