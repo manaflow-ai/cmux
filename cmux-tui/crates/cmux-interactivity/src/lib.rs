@@ -372,7 +372,17 @@ fn set_idle_io(tid: libc::id_t) {
 /// For a thread that lives its whole life as maintenance: [`Qos::Background`] and, on Linux, idle IO. Never put
 /// back (the thread is the pass).
 pub fn lower_current_thread_for_life() {
+    #[cfg(target_vendor = "apple")]
     apply_current_thread(Qos::Background);
+    // One way on Linux: the thread is never put back, so it needs no permission to restore and gets nice 19
+    // even unprivileged (apply_current_thread skips a demotion it could not undo).
+    #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
+    {
+        let tid = thread_id();
+        if get_nice(tid).is_none_or(|nice| nice < Qos::Background.nice()) {
+            set_nice(tid, Qos::Background.nice());
+        }
+    }
     #[cfg(target_os = "linux")]
     set_idle_io(thread_id());
 }

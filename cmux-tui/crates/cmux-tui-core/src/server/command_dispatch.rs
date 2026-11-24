@@ -977,6 +977,7 @@ fn dispatch_command(
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
         Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+            super::input_qos::note_view_resize();
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )

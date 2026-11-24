@@ -59,6 +59,13 @@ pub(super) fn note_drag(writer: &super::MessageWriter, in_drag_transaction: bool
     }
 }
 
+/// An app view's terminal took a new size (`resize-attached-view`): a window live resize or a divider drag moves
+/// the view every frame and sends it, with no layout command until the release. Notes a drag, so lower classes
+/// yield while the pointer moves. The connection is not marked: the view's size alone is not the person's keys.
+pub(super) fn note_view_resize() {
+    cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+}
+
 /// Raises the calling thread to user-interactive QoS, once per thread: a thread that carries the person's keys (the
 /// connection threads above, and a terminal's input port writer once it takes a person's key,
 /// `surface::input_port`). Off macOS this sets nothing.

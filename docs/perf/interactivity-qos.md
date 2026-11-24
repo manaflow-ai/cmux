@@ -24,7 +24,10 @@ One policy, in Rust: `cmux-tui/crates/cmux-interactivity`.
 | Maintenance | background | background |
 
 - `apply_current_thread` / `Scoped`: macOS `pthread_set_qos_class_self_np`; Linux the thread's nice (lowered only when
-  the thread can be put back: root or RLIMIT_NICE), restored on drop.
+  the thread can be put back: root or RLIMIT_NICE), restored on drop. `lower_current_thread_for_life` (output cleanup,
+  premigration) is one way: nice 19 even unprivileged, never put back.
+- A terminal view's `resize-attached-view` (window live resize, divider drag) notes a drag without marking the
+  connection, so lower classes yield while the pointer moves.
 - C ABI (`cmux-app-ffi`, `include/cmux_interactivity.h`): `cmux_interactivity_note(kind)`,
   `cmux_interactivity_is_interacting()`, `cmux_interactivity_qos(class) -> int` (macOS `qos_class_t` raw value, -1 for
   an unknown class). The daemon and the app are separate processes with separate states: the daemon learns of a drag
@@ -40,8 +43,8 @@ One policy, in Rust: `cmux-tui/crates/cmux-interactivity`.
 | Place | Before | After | Number |
 |---|---|---|---|
 | `server/cmd_panes.rs` `set-split-ratio` / `set-viewport-pane-width` in a drag transaction, `set-layout-sizes` (always a transaction), via `server/input_qos.rs::note_drag` | connection threads stayed default QoS; resize did not mark person input | marks the connection like a key (3 threads to user-interactive), notes Drag (400 ms) | unmeasured |
-| `mux/journal_maintenance.rs` maintenance tick (journal compaction, retention, ledgers) | default QoS | `Sync`: utility idle, background while interacting, restored after the tick | unmeasured |
-| `mux/journal_maintenance.rs` index backfill slice | default QoS (rate limited to a fifth of a core) | `Index`: utility idle, background while interacting | unmeasured |
+| `mux/journal_maintenance.rs` maintenance tick (journal compaction, retention, ledgers) | default QoS | kept at default: the tick holds the workspace registry lock (a full VACUUM in the auto-vacuum migration) that layout commits take, and a demoted holder delays the resize reply under load (priority inversion). Demote only off-lock work once it is split out | not changed |
+| `mux/journal_maintenance.rs` index backfill slice | default QoS (rate limited to a fifth of a core) | kept at default, as the tick: a slice holds the same registry lock | not changed |
 | `mux/output_cleanup.rs`, `workspace_registry/premigrate.rs` | each had its own copy of "background + idle IO" | one shared `lower_current_thread_for_life` (`Maintenance`) | none (same behaviour) |
 
 ### Rust, set today and left as is
