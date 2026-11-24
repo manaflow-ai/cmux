@@ -77,8 +77,13 @@ public struct LiveSnapshot: Equatable, Sendable {
 /// A launch reads only what the first screen shows: each Mac's first rows in list order live in
 /// one small head file, the rest of each Mac's rows in a tail file of its own that is read after
 /// the first frame (`loadRest`). So a Mac with 5,000 workspaces paints as fast as one with 20.
-/// The format is versioned: a head of another version, or one that does not decode, deletes the
-/// account's cache and the launch starts as with none; a tail that does not decode or belongs
+/// Each team the phone has shown keeps its own head and tails (`team-<id>/`), and `last-team` names
+/// the one the launch draws, so switching to a team seen before draws its rows at once, as a
+/// launch does (Leo, 2026-11-24: "holy shit this is a huge problem in ios... wer need to chase all
+/// these placeholders doen and prevent them"). A head saved before teams had folders (the
+/// account's own `head.json`) moves into its team's folder when read.
+/// The format is versioned: a head of another version, or one that does not decode, deletes that
+/// team's cache and the launch starts as with none; a tail that does not decode or belongs
 /// to another head is dropped and the head's rows stay. Each Mac keeps at most `maxRowsPerMac`
 /// rows, the last in list order go first.
 public final class LiveSnapshotStore: @unchecked Sendable {
@@ -142,24 +147,71 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         directory.appending(path: "account-\(Self.safe(accountID))", directoryHint: .isDirectory)
     }
 
-    private func headFile(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "head.json") }
+    private func teamDirectory(_ accountID: String, teamID: String) -> URL {
+        accountDirectory(accountID).appending(path: "team-\(Self.safe(teamID))", directoryHint: .isDirectory)
+    }
 
-    private func tailFile(_ accountID: String, macID: String) -> URL {
-        accountDirectory(accountID).appending(path: "tail-\(Self.safe(macID)).json")
+    private func headFile(_ accountID: String, teamID: String) -> URL {
+        teamDirectory(accountID, teamID: teamID).appending(path: "head.json")
+    }
+
+    private func tailFile(_ accountID: String, teamID: String, macID: String) -> URL {
+        teamDirectory(accountID, teamID: teamID).appending(path: "tail-\(Self.safe(macID)).json")
+    }
+
+    /// The team the last save was for: the one a launch draws.
+    private func lastTeamFile(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "last-team") }
+
+    /// Before teams had folders: the one team's head and tails in the account's folder.
+    private func unfolderedHead(_ accountID: String) -> URL { accountDirectory(accountID).appending(path: "head.json") }
+
+    /// The team a launch draws: the last one saved. A cache from before teams had folders moves into
+    /// its team's folder here (its files are renamed, not rewritten). Nil when there is no cache.
+    private func lastTeamID(_ accountID: String) -> String? {
+        let fileManager = FileManager.default
+        let account = accountDirectory(accountID)
+        let old = unfolderedHead(accountID)
+        if fileManager.fileExists(atPath: old.path) {
+            guard let data = try? Data(contentsOf: old), let head = try? JSONDecoder().decode(Head.self, from: data),
+                  head.format == Self.formatVersion else {
+                try? fileManager.removeItem(at: account)
+                return nil
+            }
+            let folder = teamDirectory(accountID, teamID: head.teamID)
+            try? fileManager.removeItem(at: folder)
+            try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            for name in (try? fileManager.contentsOfDirectory(atPath: account.path)) ?? []
+            where name == "head.json" || name.hasPrefix("tail-") {
+                try? fileManager.moveItem(at: account.appending(path: name), to: folder.appending(path: name))
+            }
+            try? Data(head.teamID.utf8).write(to: lastTeamFile(accountID), options: .atomic)
+            return head.teamID
+        }
+        guard let data = try? Data(contentsOf: lastTeamFile(accountID)), let id = String(data: data, encoding: .utf8),
+              !id.isEmpty else { return nil }
+        return id
     }
 
     /// Format 1: the whole snapshot in one file. Not read; deleted when found.
     private func legacyFile(_ accountID: String) -> URL { directory.appending(path: "snapshot-\(Self.safe(accountID)).json") }
 
-    /// The cache as the first screen needs it: the space, its Macs and each Mac's first rows in
-    /// list order (`MacWorkspaces.total` says how many the Mac has). Reads one small file.
-    /// Nil when there is no cache, or it is of another version or unreadable (it is then deleted).
+    /// The cache as the first screen needs it, for the team the phone showed last: the space, its
+    /// Macs and each Mac's first rows in list order (`MacWorkspaces.total` says how many the Mac
+    /// has). Reads one small file. Nil when there is no cache, or it is of another version or
+    /// unreadable (it is then deleted).
     public func loadFirstScreen(accountID: String) -> LiveSnapshot? {
         let legacy = legacyFile(accountID)
         if FileManager.default.fileExists(atPath: legacy.path) { try? FileManager.default.removeItem(at: legacy) }
-        guard let data = try? Data(contentsOf: headFile(accountID)) else { return nil }
-        guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion else {
-            try? FileManager.default.removeItem(at: accountDirectory(accountID))
+        guard let teamID = lastTeamID(accountID) else { return nil }
+        return loadFirstScreen(accountID: accountID, teamID: teamID)
+    }
+
+    /// `loadFirstScreen` for one team the phone has shown before (a switch to it draws these rows).
+    public func loadFirstScreen(accountID: String, teamID: String) -> LiveSnapshot? {
+        guard let data = try? Data(contentsOf: headFile(accountID, teamID: teamID)) else { return nil }
+        guard let head = try? JSONDecoder().decode(Head.self, from: data), head.format == Self.formatVersion,
+              head.teamID == teamID else {
+            try? FileManager.default.removeItem(at: teamDirectory(accountID, teamID: teamID))
             return nil
         }
         let lists = head.lists.mapValues {
@@ -183,7 +235,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     private func readRest(_ snapshot: LiveSnapshot, accountID: String) -> [String: LiveSnapshot.MacWorkspaces] {
         var result: [String: LiveSnapshot.MacWorkspaces] = [:]
         for (macID, list) in snapshot.workspaces where !list.isComplete {
-            let url = tailFile(accountID, macID: macID)
+            let url = tailFile(accountID, teamID: snapshot.teamID, macID: macID)
             var rows = list.workspaces
             if let data = try? Data(contentsOf: url) {
                 if let tail = try? JSONDecoder().decode(Tail.self, from: data), tail.format == Self.formatVersion {
@@ -215,7 +267,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
     }
 
     private func write(_ snapshot: LiveSnapshot, accountID: String) {
-        let folder = accountDirectory(accountID)
+        let folder = teamDirectory(accountID, teamID: snapshot.teamID)
         let fileManager = FileManager.default
         try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
@@ -223,7 +275,7 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         var lists: [String: Head.List] = [:]
         var tails: Set<String> = []
         for (macID, list) in snapshot.workspaces {
-            let tailURL = tailFile(accountID, macID: macID)
+            let tailURL = tailFile(accountID, teamID: snapshot.teamID, macID: macID)
             guard list.isComplete else {
                 lists[macID] = Head.List(rows: list.workspaces, total: list.total, savedAt: list.savedAt, tail: list.tailToken)
                 tails.insert(tailURL.lastPathComponent)
@@ -247,7 +299,11 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         let head = Head(format: Self.formatVersion, teamID: snapshot.teamID, teamName: snapshot.teamName, macs: snapshot.macs,
                         linkedMacID: snapshot.linkedMacID, lists: lists)
         guard let data = try? encoder.encode(head) else { return }
-        try? data.write(to: headFile(accountID), options: options)
+        try? data.write(to: headFile(accountID, teamID: snapshot.teamID), options: options)
+        let lastTeam = lastTeamFile(accountID)
+        if (try? Data(contentsOf: lastTeam)) != Data(snapshot.teamID.utf8) {
+            try? Data(snapshot.teamID.utf8).write(to: lastTeam, options: options)
+        }
         // Tails of Macs no longer listed, and of lists saved again without one.
         for name in (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
         where name.hasPrefix("tail-") && !tails.contains(name) {
