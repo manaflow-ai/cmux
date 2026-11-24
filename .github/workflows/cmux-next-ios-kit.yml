@@ -63,6 +63,15 @@ on:
       - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
+      # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
+      # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
+      - "!cmux-next-ios/scripts/**"
+      - "!cmux-next-ios/backend/**"
+      - "cmux-next-ios/scripts/instant_perf_table.py"
+      - "cmux-next-ios/scripts/generate-launch-mark.swift"
+      - "cmux-next-ios/scripts/check-notification-extension.sh"
+      - "cmux-next-ios/scripts/check-production-binary.sh"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
       - "Packages/Shared/**/Resources/**"
       - "Packages/iOS/**/Resources/**"
@@ -103,6 +112,15 @@ on:
       - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
+      # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
+      # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
+      - "!cmux-next-ios/scripts/**"
+      - "!cmux-next-ios/backend/**"
+      - "cmux-next-ios/scripts/instant_perf_table.py"
+      - "cmux-next-ios/scripts/generate-launch-mark.swift"
+      - "cmux-next-ios/scripts/check-notification-extension.sh"
+      - "cmux-next-ios/scripts/check-production-binary.sh"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
       - "Packages/Shared/**/Resources/**"
       - "Packages/iOS/**/Resources/**"
@@ -293,14 +311,22 @@ jobs:
       - name: Connection notices
         run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
 
+      # These four steps are what the Instant list bench below builds with, so they run after a red
+      # step too, as the bench does: a red Connection notices skipped them, and the bench then printed
+      # no INSTANTPERF line for over a day on base (run 45149422676; three findings in files the bench
+      # never reads). The job stays red from the step that failed
+      # (tests/test_ios_kit_bench_runs_after_red_step.py).
       - name: Select Xcode
+        if: ${{ !cancelled() }}
         run: ./scripts/select-ci-xcode.sh
 
       # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.95.0).
       - name: Set up pinned Rust
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo
+        if: ${{ !cancelled() }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
@@ -310,6 +336,7 @@ jobs:
           key: cmux-next-ios-kit
 
       - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ !cancelled() }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
