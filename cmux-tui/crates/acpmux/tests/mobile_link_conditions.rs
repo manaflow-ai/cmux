@@ -39,6 +39,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_AWAY",
     "NETCOND_LOADS",
     "NETCOND_CHAT_MAX_TURNS",
+    "NETCOND_DEBUG",
 ]);
 
 #[path = "support/app_ws.rs"]
