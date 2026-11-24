@@ -22,6 +22,7 @@ base64.workspace = true
 bytes.workspace = true
 cmux-braid-carrier.workspace = true
 cmux-build-space.workspace = true
+cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 cmux-transport.workspace = true
@@ -52,6 +53,8 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# The seeded-secret tests (tests/seeded_secret.rs) send through the capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true

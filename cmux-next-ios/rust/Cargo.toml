@@ -47,6 +47,8 @@ cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
 # Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
 cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
+# The egress gate (docs/privacy.md): every HTTP client and WebSocket connect the phone and the Mac bridge make.
+cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -54,7 +56,8 @@ flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
 libc = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+# Matches cmux-tui (cmux-egress builds its clients): ring through crate::install_crypto_provider, platform roots.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
