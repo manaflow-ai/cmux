@@ -52,6 +52,16 @@ class Holder(unittest.TestCase):
                 row("h3/tabs-refine", "ready", updated=5), row("h4/sidebar-x", updated=99)]
         self.assertEqual(live.holder(cell, rows, ""), ("h3/tabs-refine", "a lane of tabs-refine,tab-strip-*"))
 
+    def test_a_pr_finisher_named_for_the_area_never_holds_the_role(self):
+        # 2026-11-23: `lanes *sidebar*` sent every sidebar push to finish-cmux-52161-sidebar, a one-PR finisher.
+        cell = "sidebar lanes: lanes *sidebar* (coordinator rule 2026-11-23)"
+        rows = [row("g9/finish-cmux-52161-sidebar", "running", updated=99), row("g12/sidebar-running-tree", updated=3)]
+        self.assertEqual(live.holder(cell, rows, ""), ("g12/sidebar-running-tree", "a lane of *sidebar*"))
+        only = [row("g9/finish-cmux-52161-sidebar", "running"), row("c/coord", owns="coordinator")]
+        self.assertEqual(live.holder(cell, only, "")[0], "c/coord")
+        self.assertFalse(live.FINISHER.match("sidebar-finish-pass"))
+        self.assertTrue(live.FINISHER.match("finish-cmux-52161"))
+
     def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
         rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
         merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])
