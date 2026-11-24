@@ -425,3 +425,16 @@ fn the_frame_that_enters_the_screen_places_keys_typed_ahead_of_their_echo() {
     assert_eq!(engine.status(ms(400)), Status::Predicting, "every key confirmed in its cell");
     assert_eq!(engine.glyphs().len(), 1);
 }
+
+#[test]
+fn turning_the_setting_off_takes_what_is_drawn_and_on_starts_unarmed() {
+    let mut tui = Tui::new();
+    tui.arm();
+    tui.key(b'x');
+    assert_eq!(tui.drawn(), "x");
+    assert!(tui.engine.set_predicts_in_full_screen_apps(false), "a drawn glyph went");
+    assert_eq!(tui.drawn(), "");
+    assert_eq!(tui.status(), Status::AlternateScreen);
+    assert!(!tui.engine.set_predicts_in_full_screen_apps(true));
+    assert_eq!(tui.status(), Status::Listening, "two fresh echoes before drawing again");
+}

@@ -448,6 +448,19 @@ impl TerminalPredictionEngine {
         }
     }
 
+    /// Turns prediction inside full-screen applications on or off (the
+    /// setting). Either way the cursor model starts over, unarmed: answers
+    /// whether something drawn went.
+    pub fn set_predicts_in_full_screen_apps(&mut self, on: bool) -> bool {
+        if self.configuration.predict_in_full_screen_apps == on {
+            return false;
+        }
+        let drew = self.is_full_screen() && !self.full_screen.glyphs().is_empty();
+        self.configuration.predict_in_full_screen_apps = on;
+        self.full_screen = FullScreenEcho::new();
+        drew
+    }
+
     /// Seeds whether a full-screen application already owns the screen (the
     /// host reads the terminal's mode before the first keystroke). Ignored once
     /// a switch was seen in output, which may be newer than the read.

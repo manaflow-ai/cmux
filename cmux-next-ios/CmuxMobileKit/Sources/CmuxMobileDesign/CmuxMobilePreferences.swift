@@ -10,6 +10,10 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
+        /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default): typing
+        /// into Claude Code, Codex or vim's insert mode is predicted too, each key confirmed
+        /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
+        public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
         /// the phone (as before); off, the phone re-wraps it at its own width.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
@@ -49,6 +53,7 @@ public enum CmuxMobilePreferences {
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
+    public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
@@ -90,6 +95,12 @@ public enum CmuxMobilePreferences {
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
+    }
+
+    /// Predictive echo inside full-screen apps (an agent's TUI), off by default.
+    public static func predictiveEchoFullScreen(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.predictiveEchoFullScreen) == nil
+            ? defaultPredictiveEchoFullScreen : defaults.bool(forKey: Key.predictiveEchoFullScreen)
     }
 
     /// The Mac's terminal resizes to the phone (on), or keeps its size while
