@@ -255,14 +255,19 @@ fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usi
     if before.len() != n || n < SHIFT_MATCH_ROWS + 1 {
         return None;
     }
-    let top = (0..n).find(|&i| before[i] != now[i])?;
+    let top = before.iter().zip(now).position(|(was, row)| was != row)?;
     for k in 1..n - top {
         let mut run = 0;
         let mut text = 0;
-        while top + k + run < n && before[top + k + run] == now[top + run] {
-            if has_text(&now[top + run]) && (run == 0 || now[top + run] != now[top + run - 1]) {
+        let mut above: Option<&Vec<Cell>> = None;
+        for (was, row) in before.iter().skip(top + k).zip(now.iter().skip(top)) {
+            if was != row {
+                break;
+            }
+            if has_text(row) && above != Some(row) {
                 text += 1;
             }
+            above = Some(row);
             run += 1;
         }
         // The run starts at the band's top: the rows the move brought there
@@ -276,10 +281,10 @@ fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usi
             // highest row the move also explains, or the rows held would be
             // one rule out of step with the entries.
             let mut start = top;
-            while start > 0 && before[start - 1 + k] == now[start - 1] {
+            while start > 0 && before.get(start - 1 + k) == now.get(start - 1) {
                 start -= 1;
             }
-            let left = &before[start..start + k];
+            let left = before.get(start..start + k)?;
             if now.windows(k).any(|block| block == left) {
                 return None;
             }
@@ -346,7 +351,7 @@ fn paint_rows(term: &Terminal, rows: &[&Row], out: &mut Vec<u8>) {
             .iter()
             .rposition(|c| !(c.is_empty_or_space() && c.style == 0 && c.kind == 0))
             .map_or(0, |i| i + 1);
-        for cell in &cells[..keep] {
+        for cell in cells.get(..keep).unwrap_or_default() {
             if cell.kind == WIDE_TAIL {
                 x += 1;
                 continue;
