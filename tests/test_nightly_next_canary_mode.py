@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,9 @@ spec = importlib.util.spec_from_file_location("canary_mode", SCRIPT)
 mode = importlib.util.module_from_spec(spec)
 sys.modules["canary_mode"] = mode
 spec.loader.exec_module(mode)
+
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_canary_latency as latency  # noqa: E402
 
 UTC = dt.timezone.utc
 AFTER = "2026-10-27T16:00:00Z"
@@ -114,6 +118,117 @@ class CliTests(unittest.TestCase):
 
     def test_typo_exits_2(self):
         self.assertEqual(self.run_cli("--value", "on").returncode, 2)
+
+
+class FeltLatencyTests(unittest.TestCase):
+    # The five measured (prime excluded) first-frame marks in the cmux14 launch-ready fixture.
+    def setUp(self):
+        log = ROOT / "scripts/bench/tests/fixtures/launch/launch-ready-nightly.log"
+        launches = [json.loads(line.split(" ", 2)[2]) for line in log.read_text().splitlines()
+                    if line.startswith("LR-RUN head ")]
+        frames = [r["marks"]["first_window_frame_committed"] for r in launches if r["label"] != "prime"]
+        self.rounds = [{"kind": "warm", "front": "terminal", "input": "in_app", "failures": [], "first_frame_ms": frame,
+                        "marks": {"terminal.probe_key_typed": frame + 2, "terminal_input_accepted": frame + 6,
+                                  "terminal_echo": frame + 2 + echo}} for frame, echo in zip(frames, (18, 20, 21, 19, 22))]
+        self.run_url = "https://github.com/manaflow-ai/cmux/actions/runs/555"
+        self.previous = {"build": "100", "commit": "a" * 40, "canaryRun": self.run_url, "canaryAttempt": 1,
+                         "latency": self.receipt(self.rounds, "100")}
+
+    def receipt(self, rounds, build="101", outcome="success", verdict="pass", workspaces=3, smoke_failures=()):
+        data = {"rounds": rounds, "verdict": verdict, "seed": {"workspaces": workspaces, "chats": 1}}
+        readings, error = latency.samples(data, outcome, smoke_failures)
+        return {"profile": latency.PROFILE, "build": build, "source_commit": "b" * 40, "machine": "fixture",
+                "canaryRun": self.run_url, "canaryAttempt": 1, "samples": readings, "measurement_error": error}
+
+    def test_same_build_and_independent_positive_controls(self):
+        self.assertEqual(latency.judge(self.receipt(self.rounds), self.previous)["verdict"], "pass")
+        for metric in latency.FLOORS_MS:
+            with self.subTest(metric=metric):
+                rounds = json.loads(json.dumps(self.rounds))
+                for row in rounds:
+                    if metric == "first_frame_ms":
+                        row["first_frame_ms"] += 500
+                        row["marks"] = {name: timestamp + 500 for name, timestamp in row["marks"].items()}
+                    else:
+                        row["marks"]["terminal_echo"] += 500
+                result = latency.judge(self.receipt(rounds), self.previous)
+                self.assertEqual(result["verdict"], "fail")
+                self.assertEqual(result["metrics"][metric]["delta_ms"], 500)
+                other = next(name for name in latency.FLOORS_MS if name != metric)
+                self.assertEqual(result["metrics"][other]["verdict"], "pass")
+
+    def test_echo_is_key_to_echo_and_a_missing_key_never_means_zero(self):
+        self.assertEqual(self.receipt(self.rounds)["samples"]["typing_echo_ms"], [18, 20, 21, 19, 22])
+        self.rounds[0]["marks"].pop("terminal.probe_key_typed")
+        result = latency.judge(self.receipt(self.rounds), self.previous)
+        self.assertEqual(result["verdict"], "unavailable")
+        self.assertEqual(result["metrics"]["first_frame_ms"]["verdict"], "pass")
+
+    def test_floor_relative_noise_and_strict_boundary(self):
+        def compare(base, current):
+            self.previous["latency"]["samples"]["first_frame_ms"] = base
+            reading = self.receipt(self.rounds)
+            reading["samples"]["first_frame_ms"] = current
+            return latency.judge(reading, self.previous)["metrics"]["first_frame_ms"]
+
+        self.assertEqual(compare([100] * 5, [250] * 5)["verdict"], "pass")
+        self.assertEqual(compare([1000] * 5, [1251] * 5)["verdict"], "fail")
+        row = compare([600, 800, 1000, 1200, 1400], [1300] * 5)
+        self.assertEqual((row["threshold_ms"], row["verdict"]), (600, "pass"))
+        self.assertEqual(compare([100] * 5, [100, 100, 100, 100, 3000])["verdict"], "pass")
+
+    def test_first_good_without_samples_and_incomparable_machine(self):
+        current = self.receipt(self.rounds)
+        for base in (None, {"build": "100", "commit": "a" * 40}):
+            self.assertEqual(latency.judge(current, base)["verdict"], "unavailable")
+        self.previous["latency"]["machine"] = "other"
+        self.assertEqual(latency.judge(current, self.previous)["verdict"], "unavailable")
+
+    def test_round_failure_and_bad_input(self):
+        def compare(**kwargs):
+            report = self.receipt(self.rounds, **kwargs)
+            return latency.judge(report, self.previous)
+
+        self.assertEqual(compare(outcome="failure")["verdict"], "unavailable")
+        self.assertEqual(compare(workspaces=1)["verdict"], "unavailable")
+        self.rounds[0]["failures"] = ["the app typed no key: no window"]
+        input_failure = ["round 1: the app typed no key: no window"]
+        self.assertEqual(compare(outcome="failure", smoke_failures=input_failure + ["crash report"])["verdict"], "unavailable")
+        mixed = compare(outcome="failure", verdict="fail", smoke_failures=input_failure)["metrics"]
+        self.assertEqual(mixed["first_frame_ms"]["verdict"], "pass")
+        self.assertEqual(mixed["typing_echo_ms"]["verdict"], "unavailable")
+        self.rounds[0]["failures"] = ["the app exited (status 1)"]
+        failed = compare()["metrics"]
+        self.assertTrue(all(row["verdict"] == "unavailable" for row in failed.values()))
+        self.rounds[0] = None
+        self.assertEqual(compare()["verdict"], "unavailable")
+
+    def test_only_matching_measurements_reach_the_durable_verdict(self):
+        current = self.receipt(self.rounds)
+        doc = {"verdict": "pass", "build": current["build"], "commit": "a" * 40,
+               "canaryRun": self.run_url, "canaryAttempt": 1}
+        with tempfile.TemporaryDirectory() as tmp:
+            verdict, report = Path(tmp) / "verdict.json", Path(tmp) / "report.json"
+            for change in ({}, {"source_commit": "bad-sha"}, {"build": "999"}, {"canaryRun": "another"}, {"canaryAttempt": 2}):
+                with self.subTest(change=change):
+                    verdict.write_text(json.dumps(doc))
+                    report.write_text(json.dumps({**latency.judge(current, self.previous), **change}))
+                    latency.attach(verdict, report)
+                    saved = json.loads(verdict.read_text())
+                    self.assertEqual(saved["verdict"], "pass")
+                    self.assertEqual(saved["latency"]["verdict"], "unavailable" if change else "pass")
+
+    def test_unreadable_harness_output_still_produces_an_advisory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tti, output = Path(tmp) / "tti.json", Path(tmp) / "latency.json"
+            tti.write_text("{")
+            run = subprocess.run(
+                [sys.executable, "-I", str(ROOT / "scripts/ci/nightly_next_canary_latency.py"), "report",
+                 "--build", "101", "--source-commit", "b" * 40, "--run-url", self.run_url, "--attempt", "2",
+                 "--machine", "fixture", "--harness-outcome", "failure", "--tti", str(tti), "--out", str(output)],
+                capture_output=True, text=True, check=True)
+            self.assertIn("::warning", run.stdout)
+            self.assertEqual(json.loads(output.read_text())["verdict"], "unavailable")
 
 
 class WiringTests(unittest.TestCase):
