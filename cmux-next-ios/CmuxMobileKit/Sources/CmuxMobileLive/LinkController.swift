@@ -276,9 +276,9 @@ public final class LinkController {
         // Before the effects: a background probe still out is cancelled first, so a probe an
         // effect starts now (a short resume's quick probe) is the one that runs.
         if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
-            // A resumed park's probe is the one that ends the park: keep it. A probe out as
-            // the app leaves is kept too when the link parks now: `park` waits for it, so the
-            // park never goes out under a ping the Mac would read as the park's end.
+            // A resumed park's probe is the one that ends the park: keep it. A park
+            // waits for the probe already out (its ping ignores cancellation; see `park`):
+            // keep that one too, or the park goes out while its ping is unanswered.
             let keepsProbe = effects.contains {
                 switch $0 {
                 case .resumeParked, .park: true

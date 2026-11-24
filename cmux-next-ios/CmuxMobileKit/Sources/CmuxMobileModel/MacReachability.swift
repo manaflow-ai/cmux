@@ -123,7 +123,7 @@ public enum MacReachability: Equatable, Sendable {
         case .notConnected: "\(macName) isn't connected"
         case .slow: "\(macName) isn't responding"
         case .offline: "\(macName) is offline"
-        case .noAnswer(let online, _): online ? "\(macName) is online but isn't replying" : "\(macName) isn't replying"
+        case .noAnswer(let online, _): online ? "\(macName) is online but sent no reply" : "No reply from \(macName)"
         case .serviceDown: "cmux on \(macName) isn't answering"
         case .authRequired: "Sign in again"
         case .notAllowed: "\(macName) didn't allow this iPhone"
@@ -147,9 +147,9 @@ public enum MacReachability: Equatable, Sendable {
         case .offline(let date):
             "The cmux service lost touch with \(macName).\(seen(date)) Retry to try reaching it directly; if it doesn't answer, make sure the Mac is awake and cmux is open."
         case .noAnswer(true, _):
-            "The cmux service sees \(macName), but it didn't reply to this iPhone. It may be busy or overloaded. Retry, or quit and reopen cmux on the Mac."
+            "The cmux service sees \(macName), but no reply reached this iPhone. It may be busy or overloaded. Retry, or quit and reopen cmux on the Mac."
         case .noAnswer(false, let date):
-            "This iPhone reached the cmux service, but \(macName) didn't reply.\(seen(date)) The Mac may be asleep, overloaded, or cmux may have quit. Check it, then retry."
+            "This iPhone reached the cmux service, but no reply came from \(macName).\(seen(date)) The Mac may be asleep, overloaded, or cmux may have quit. Check it, then retry."
         case .serviceDown:
             "This iPhone reached \(macName), but cmux on it didn't respond. Your sessions stay on the Mac. Retry, or quit and reopen cmux on the Mac."
         case .authRequired: "The cmux service refused this iPhone's session. Sign in again to reach \(macName)."
