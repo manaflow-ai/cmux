@@ -158,11 +158,14 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
+            try requirePerson(context, for: descriptor)
             return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset":
             let descriptor = try descriptor(params)
+            try requirePerson(context, for: descriptor)
             return try await mutation(params) { try await self.write(descriptor, nil, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset_all":
+            try requirePerson(context) // Reset All rewrites computerUse.* too
             return try await mutation(params) {
                 let before = self.settings.snapshot.root
                 do {
@@ -310,6 +313,7 @@ final class SettingsPageProvider: PageProvider {
             // the gesture's end writes it with cmux.settings.set, or preview.end restores.
             let descriptor = try descriptor(params)
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            try requirePerson(context, for: descriptor)
             if let source = settings.managedSource(for: descriptor) {
                 throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
@@ -468,6 +472,12 @@ final class SettingsPageProvider: PageProvider {
     /// their origin and are refused. Any other page writes as a page.
     static func writer(_ context: PageCallContext) -> SettingWriter {
         context.page == PageDescriptor.settings.id ? .user : .caller("page")
+    }
+
+    /// The person's own click or key here backs `context`: for any row, or for a person-only `descriptor` (``ComputerUseSettings/isPersonOnly(_:)``).
+    func requirePerson(_ context: PageCallContext, for descriptor: SettingDescriptor? = nil) throws {
+        guard descriptor.map({ ComputerUseSettings.isPersonOnly($0.path) }) ?? true else { return }
+        try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly)
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
