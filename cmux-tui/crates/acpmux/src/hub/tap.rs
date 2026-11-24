@@ -14,6 +14,14 @@ const RAW_STREAM_EVENT: &str = "claude.stream_event";
 /// A raw Claude `control_response` line.
 const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
 
+/// The most hook callbacks a tap remembers until their answers (`unread_records.rs`): Claude Code
+/// answers each before its tool runs, so a few are open at once.
+const MAX_HOOK_CALLS: usize = 256;
+
+/// The most tool calls a session remembers as left open by the live log
+/// (`Session::unclosed_tools`).
+const MAX_UNCLOSED_TOOLS: usize = 1024;
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -112,12 +120,16 @@ impl Hub {
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        // Claude Code's hook callbacks left out of the log, until their answers are
+        // (`unread_records.rs`).
+        let hook_calls = StdMutex::new(std::collections::HashSet::<String>::new());
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
-        // The last stderr line of this agent that says why it would die, for its `exited` record
-        // (`exit_reason.rs`). Kept here, in entry order: the hub's stderr tail may not have
-        // taken the host's last lines yet when its exit entry comes through.
-        let last_stderr: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+        // The last stderr line of this agent process that says why it would die, for its `exited`
+        // record (`exit_reason::ExitLine`): a turn it ended well clears it, and a new process has
+        // a new tap. Kept here, in entry order: the hub's stderr tail may not have taken the
+        // host's last lines yet when its exit entry comes through.
+        let last_stderr = std::sync::Mutex::new(super::exit_reason::ExitLine::default());
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
@@ -148,6 +160,9 @@ impl Hub {
                     }
                 }
             }
+            if matches!(dir, Direction::In) && super::exit_reason::ends_a_turn_well(msg) {
+                last_stderr.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
@@ -155,11 +170,8 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    if let Some(line) = text.as_ref().and_then(Value::as_str).map(str::trim)
-                        && super::exit_reason::explains_exit(line)
-                    {
-                        *last_stderr.lock().unwrap_or_else(|e| e.into_inner()) =
-                            Some(line.to_owned());
+                    if let Some(line) = text.as_ref().and_then(Value::as_str) {
+                        last_stderr.lock().unwrap_or_else(|e| e.into_inner()).heard(line);
                     }
                     return tap_hub
                         .append_logged(
@@ -197,7 +209,8 @@ impl Hub {
                             } else if intentional {
                                 json!({"code": code})
                             } else {
-                                let last = last_stderr.lock().unwrap_or_else(|e| e.into_inner());
+                                let last =
+                                    last_stderr.lock().unwrap_or_else(|e| e.into_inner()).take();
                                 super::exit_reason::exited_data(code, last.as_deref())
                             },
                             host_seq,
@@ -244,11 +257,32 @@ impl Hub {
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }
+                                "claude.system.task_started" => {
+                                    tap_hub.subagent_task_started(&tap_session, line)
+                                }
                                 "claude.system.background_tasks_changed" => {
                                     tap_hub.subagent_tasks_changed(&tap_session, line)
                                 }
                                 _ => {}
                             }
+                        }
+                        // Kept nowhere either: a thinking tick, and a hook callback, whose
+                        // answer goes too (`unread_records.rs`).
+                        let hook_call =
+                            params.as_ref().and_then(crate::unread_records::hook_callback_id);
+                        if let Some(id) = hook_call {
+                            let mut calls = hook_calls
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            // Answers that never came are not kept forever.
+                            if calls.len() >= MAX_HOOK_CALLS {
+                                calls.clear();
+                            }
+                            calls.insert(id.to_owned());
+                        }
+                        if method == crate::unread_records::THINKING_TICK || hook_call.is_some() {
+                            tap_hub.touch(&tap_session);
+                            return true;
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
                         // prompt (`--replay-user-messages`) carries its model-sized copies, and
@@ -321,6 +355,17 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    // The answer to a hook callback left out is left out too, unless it denies.
+                    if let Some(id) =
+                        params.as_ref().and_then(crate::unread_records::plain_answer_id)
+                        && hook_calls
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(id)
+                    {
+                        tap_hub.touch(&tap_session);
+                        return true;
+                    }
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
                     // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
@@ -461,6 +506,35 @@ impl Hub {
             } else {
                 None
             };
+            // A load's replay of the chat's history is kept nowhere, but for the modes and options
+            // it reports and the end of a tool call the live log left open (`unread_records.rs`).
+            if d == "in" && crate::unread_records::unread_replay(&kind) {
+                let closes = crate::unread_records::replayed_tool_end(&value).filter(|(id, _)| {
+                    tap_session
+                        .unclosed_tools
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(id)
+                });
+                let Some((_, kept)) = closes else {
+                    tap_hub.touch(&tap_session);
+                    if background_changed {
+                        tap_hub.refresh_work_below(&tap_session);
+                    }
+                    if running_changed {
+                        let count = tap_session
+                            .subagents
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .running_count();
+                        tap_hub.subagents_running(&tap_session, count);
+                    }
+                    return true;
+                };
+                value = kept;
+            } else if live_update {
+                note_live_tool(&tap_session, value.pointer("/params/update"));
+            }
             // A state update that repeats what the log last kept is not logged again; the
             // session's meta took it already (`update_repeats.rs`).
             let repeats = if live_update
@@ -565,6 +639,31 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
     }
 }
 
+/// A live update of the session's own tool call: open until its end (`Session::unclosed_tools`).
+fn note_live_tool(session: &Session, update: Option<&Value>) {
+    let Some(update) = update else { return };
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    let status = update.get("status").and_then(Value::as_str);
+    let mut open = session.unclosed_tools.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match (kind, status) {
+        (Some("tool_call" | "tool_call_update"), Some("completed" | "failed")) => {
+            open.remove(id);
+        }
+        (Some("tool_call"), _) | (Some("tool_call_update"), Some(_)) => {
+            if open.len() >= MAX_UNCLOSED_TOOLS && !open.contains(id) {
+                open.clear();
+            }
+            open.insert(id.to_owned());
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 #[path = "tap_bodies_tests.rs"]
 mod bodies_tests;
+
+#[cfg(test)]
+#[path = "tap_unread_tests.rs"]
+mod unread_tests;
