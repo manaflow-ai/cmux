@@ -876,6 +876,15 @@
         "suggested_inputs": []
       }
     },
+    ".github/workflows/language-boundaries.yml": {
+      "language-boundaries": {
+        "why": "judges every changed path against its list, so any path can be an input",
+        "suggested_inputs": [
+          ".github/language-boundaries.toml",
+          "scripts/ci/language_boundaries.py"
+        ]
+      }
+    },
     ".github/workflows/merge-freeze.yml": {
       "check": {
         "why": "reads the pull request's metadata (title, body, labels, size, base), not a fixed set of paths",

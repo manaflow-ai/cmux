@@ -340,6 +340,9 @@
    "backend": "needed by deploy-development: a skip would skip them or read as no verdict",
    "deploy-development": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
   },
+  "language-boundaries.yml": {
+   "language-boundaries": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
   "measure-swift-typecheck.yml": {
    "typecheck": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
   },

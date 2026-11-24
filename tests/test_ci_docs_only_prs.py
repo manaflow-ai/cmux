@@ -56,6 +56,7 @@ ALLOWED: dict[str, str] = {
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
     "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
+    "language-boundaries.yml": "policy over every changed path; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "

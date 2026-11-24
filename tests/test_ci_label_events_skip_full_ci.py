@@ -62,6 +62,8 @@ UNGUARDED_JOBS: dict[tuple[str, str], str] = {
 REACTS: dict[str, str] = {
     "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
     "passing, and only the classic-migration label it judges may let a frozen change through",
+    "language-boundaries.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
+    "passing, and only the leo-approved-port label it judges may let a port through",
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",

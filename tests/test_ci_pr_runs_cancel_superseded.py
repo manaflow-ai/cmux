@@ -501,7 +501,10 @@ READS_DESCRIPTION: dict[str, str] = {}
 
 # Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
 # already passes the edit rule fails the test, so it is removed when that pull request lands.
-EDIT_SKIP_PENDING: dict[str, str] = {}
+EDIT_SKIP_PENDING = {
+    "language-boundaries.yml": "changing the language-boundaries check itself merges only with Leo's "
+    "leo-approved-port label, so its edit skip is split out (branch lane/pr-edit-fanout-language-boundaries)",
+}
 
 
 def edit_context(workflow: dict, event: str, changes: dict) -> dict[str, Any]:
