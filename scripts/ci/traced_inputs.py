@@ -492,8 +492,9 @@ def export_rows(man: dict, pinned: list[str]) -> list[str]:
     rows = []
     for path, kind in man["entries"].items():
         if not path:
-            rows.append(f"* {'names' if kind == 'N' else 'blob'} .")  # the root: `REV:.` is its tree
-            continue
+            if kind == "N":  # the root listed: `REV:` is its tree, keyed on its names
+                rows.append("* names .")
+            continue  # the root stat'ed or opened: it always exists, so it keys nothing
         if any(c in path for c in " #") or not path.isprintable() or not path.isascii():
             # receipt_input_key splits on whitespace and the controller takes printable ASCII only: such a path
             # cannot be listed, so the check is keyed on its parent directory's whole tree instead.
@@ -545,7 +546,7 @@ def cmd_audit(a: argparse.Namespace) -> int:
 
     missed = []
     for path, kind in man["entries"].items():
-        if under_tree(path):
+        if under_tree(path) or (not path and kind != "N"):  # the root always exists: only its listing keys
             continue
         have = covered.get(path)
         # names covers a listing, blob covers a file read or an absent probe; a blob row on a directory is its tree.
