@@ -1878,6 +1878,7 @@ version = "1.0.0"
 dependencies = [
  "bytes",
  "cmux-egress",
+ "cmux-scope",
  "http-body-util",
  "hyper",
  "hyper-util",

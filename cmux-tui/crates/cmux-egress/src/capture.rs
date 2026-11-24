@@ -286,10 +286,12 @@ async fn serve(
     seen: Arc<Mutex<Vec<Captured>>>,
 ) {
     let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+    // One task per connection, owned by the server loop (it lives as long as the test process).
+    let connections = cmux_scope::Scope::new("egress-capture");
     while let Ok((stream, _)) = listener.accept().await {
         let acceptor = acceptor.clone();
         let seen = seen.clone();
-        tokio::spawn(async move {
+        connections.spawn_named("egress-capture-connection", async move {
             let Ok(tls) = acceptor.accept(stream).await else { return };
             let host = tls.get_ref().1.server_name().unwrap_or_default().to_owned();
             let service = hyper::service::service_fn(move |request: Request<Incoming>| {
