@@ -239,6 +239,11 @@
       "message": "このマシンは起動中、一時停止中、または停止しているため、今はこの操作を実行できません。",
       "action": "少し待ってからもう一度お試しください。cmux vm ls でマシンの状態を確認し、一時停止している場合は先に再開してください。"
     },
+    "hostRecovery": {
+      "title": "マシンのホストを復旧中です",
+      "message": "このマシンのディスクは復旧中の Cloud ホスト上にあるため、まだ起動できません。ファイルは保持されています。",
+      "action": "数分後にもう一度お試しください。マシンを削除したり作り直したりしないでください。ディスクは保持されており、マシンと一緒に戻ります。1 時間経っても起動しない場合は、トレース ID を添えてサポートにお問い合わせください。"
+    },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",
       "message": "ネットワークポリシーは保存されましたが、適用されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
@@ -517,7 +522,10 @@
           "failed": "失敗",
           "paused": "一時停止中",
           "destroyed": "削除済み"
-        }
+        },
+        "wake": "再開",
+        "waking": "再開中…",
+        "wakeError": "このマシンを再開できませんでした。もう一度お試しください。"
       },
       "network": {
         "open": "ネットワーク",
@@ -757,7 +765,8 @@
         "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
         "team_not_found": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
         "authorization_unavailable": "チームの権限を確認できませんでした。しばらくしてからもう一度お試しください。",
-        "personal_team_not_upgradable_to_team": "個人アカウントでは Pro または Max を利用できます。Team を購入するにはチームを作成してください。"
+        "personal_team_not_upgradable_to_team": "個人アカウントでは Pro または Max を利用できます。Team を購入するにはチームを作成してください。",
+        "plan_unavailable": "このプランはまだご利用いただけません。"
       },
       "free": {
         "name": "Free",
@@ -963,6 +972,32 @@
         "title": "App Store で請求されています",
         "body": "このプランは cmux の iPhone アプリで購入され、Apple から請求されています。変更や解約は App Store のサブスクリプションから行ってください。",
         "manage": "App Store で管理"
+      },
+      "nextCloud": {
+        "heading": "cmux NEXT Cloud",
+        "currentPlan": "現在の cmux NEXT プラン: {plan}",
+        "granted": "（cmux により付与）",
+        "none": "なし",
+        "current": "現在のプラン",
+        "perMonth": "/月",
+        "names": {
+          "next_plus": "cmux NEXT Plus",
+          "next_pro": "cmux NEXT Pro",
+          "next_max": "cmux NEXT Max"
+        },
+        "features": {
+          "includedMinutes": "毎月 {minutes, number} マシン分を含む",
+          "running": "同時に最大 {count} 台のマシンを実行",
+          "kept": "実行中と一時停止中を合わせて最大 {count} 台のマシンを保持",
+          "snapshots": "最大 {count} 個のスナップショットを保存",
+          "largest": "最大 {vcpus} vCPU・{memory} GiB RAM のマシン",
+          "disk": "マシンあたり最大 {disk} GiB のディスク"
+        },
+        "subscribe": "{plan} に登録",
+        "upgrade": "{plan} にアップグレード",
+        "comingSoon": "近日公開",
+        "usageNote": "含まれるマシン分は毎月リセットされ、繰り越されません。使い切るとマシンは一時停止し、一時停止中のマシンはディスク分のみ課金されます。",
+        "machineMinuteNote": "1 マシン分は、起動中のマシンの 1 vCPU を 1 分間使う量です。2 vCPU のマシンは 1 分に 2、8 vCPU のマシンは 8 を使います。一時停止中のマシンは使いません。"
       }
     },
     "testflight": {
@@ -1331,7 +1366,12 @@
         "deleteConfirmBody": "この操作は元に戻せず、アカウントに関連するすべてのデータが削除されます。",
         "deleteAcknowledge": "アカウントとそのデータが完全に削除されることを理解しました。",
         "deleteConfirm": "アカウントを削除",
-        "deleteError": "アカウントを削除できませんでした。もう一度お試しください。"
+        "deleteError": "アカウントを削除できませんでした。もう一度お試しください。",
+        "deleteErrorPending": "アカウントはすでに削除処理中です。しばらくしてからもう一度お試しください。",
+        "deleteErrorRetryable": "アカウントの削除を完了できませんでした。接続を確認して、もう一度お試しください。",
+        "deleteAppStoreTitle": "App Store のサブスクリプションは引き続き更新されます",
+        "deleteAppStoreBody": "cmux アカウントを削除しても App Store のサブスクリプションは解約されません。App Store で解約するまで Apple からの請求は続きます。",
+        "deleteAppStoreManage": "App Store でサブスクリプションを管理"
       }
     },
     "teams": {
@@ -2165,6 +2205,7 @@
     "typingProgrammability": "プログラマビリティ",
     "taglineStatic": "マルチタスク、整理、プログラマビリティのために作られたターミナル。",
     "subtitle": "無料・オープンソースのGhosttyベースのネイティブmacOSターミナル。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
+    "nextCallout": "新登場: 次期cmuxのプレビュー版、<link>cmux NEXT</link>をお試しください。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",

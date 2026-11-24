@@ -1,0 +1,53 @@
+name: cmux NEXT post-merge batch tick
+
+# The post-merge batch tier (RFD 0023 in cmuxterm-hq; Leo 2026-11-21: "everything else runs once
+# post-merge, batched") lives on feat-cmux-next as cmux-next-post-merge.yml. Scheduled workflows run
+# only from the default branch, hence this file on main. Every 30 minutes it asks one question in two
+# GitHub API calls: is the newest feat-cmux-next tip untested, with no batch run in flight and the
+# window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) passed since the last one? If so it starts
+# one batch run there; if not it exits. Nothing waits, and no runner is held between ticks. The logic
+# is feat-cmux-next's scripts/ci/post_merge_batch.py (tick).
+on:
+  schedule:
+    - cron: "11,41 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-post-merge-dispatch
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  tick:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the tick logic from feat-cmux-next
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Fully qualified: a tag named feat-cmux-next must never be picked.
+          ref: refs/heads/feat-cmux-next
+          sparse-checkout: |
+            scripts/ci/post_merge_batch.py
+            .github/post-merge-batch.json
+          sparse-checkout-cone-mode: false
+      - name: Start one batch run when the tip is untested
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
+        run: |
+          if [ ! -f scripts/ci/post_merge_batch.py ]; then
+            echo "::notice::feat-cmux-next has no scripts/ci/post_merge_batch.py yet; nothing to tick"
+            exit 0
+          fi
+          python3 scripts/ci/post_merge_batch.py tick --repo "$GITHUB_REPOSITORY" --branch feat-cmux-next

@@ -80,6 +80,11 @@
       "message": "这台机器正在启动、暂停或未运行，因此现在无法执行此操作。",
       "action": "请稍候再试。用 cmux vm ls 查看机器状态；如果已暂停，请先继续运行它。"
     },
+    "hostRecovery": {
+      "title": "正在恢复机器所在的主机",
+      "message": "这台机器的磁盘位于一台正在恢复的 Cloud 主机上，因此暂时无法启动。它的文件会被保留。",
+      "action": "请过几分钟再试。不要删除或重新创建这台机器：它的磁盘会被保留，并随机器一起恢复。如果一小时后仍无法启动，请携带追踪 ID 联系支持团队。"
+    },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
       "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "编程 agent",
     "typingMultitasking": "多任务",
     "subtitle": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持垂直标签页、agent 需要关注时的通知环、分割面板，以及用于可编程性的 <cliLink>CLI</cliLink>。",
+    "nextCallout": "新功能：试用 <link>cmux NEXT</link>，下一代 cmux 的预览版。",
     "features": "功能特性",
     "faq": "常见问题",
     "communitySection": "社区",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "此操作不可撤销，将删除与你的账户相关的所有数据。",
         "deleteAcknowledge": "我了解我的账户及其数据将被永久删除。",
         "deleteConfirm": "删除账户",
-        "deleteError": "无法删除账户，请重试。"
+        "deleteError": "无法删除账户，请重试。",
+        "deleteErrorPending": "你的账户正在删除中。请稍后再试。",
+        "deleteErrorRetryable": "无法完成账户删除。请检查网络连接后重试。",
+        "deleteAppStoreTitle": "你的 App Store 订阅将继续续订",
+        "deleteAppStoreBody": "删除 cmux 账户不会取消你的 App Store 订阅。在你于 App Store 中取消之前，Apple 会继续向你收费。",
+        "deleteAppStoreManage": "在 App Store 中管理订阅"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "失败",
           "paused": "已暂停",
           "destroyed": "已删除"
-        }
+        },
+        "wake": "唤醒",
+        "waking": "正在唤醒…",
+        "wakeError": "无法唤醒这台机器。请重试。"
       },
       "network": {
         "open": "网络",

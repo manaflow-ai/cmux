@@ -239,6 +239,11 @@
       "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
       "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
     },
+    "hostRecovery": {
+      "title": "Machine's host is being recovered",
+      "message": "This machine's disk is on a Cloud host that is being recovered, so it can't start yet. Its files are kept.",
+      "action": "Try again in a few minutes. Don't delete or recreate the machine: its disk is kept and comes back with it. If it still won't start after an hour, contact support with the trace ID."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
@@ -517,7 +522,10 @@
           "failed": "Failed",
           "paused": "Paused",
           "destroyed": "Deleted"
-        }
+        },
+        "wake": "Wake",
+        "waking": "Waking…",
+        "wakeError": "Could not wake this machine. Try again."
       },
       "network": {
         "open": "Network",
@@ -757,7 +765,8 @@
         "team_admin_required": "Only team admins can manage this team's billing.",
         "team_not_found": "That team is not available. You may have left it, or it was deleted.",
         "authorization_unavailable": "Team permissions could not be checked. Try again shortly.",
-        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team."
+        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team.",
+        "plan_unavailable": "That plan is not available yet."
       },
       "free": {
         "name": "Free",
@@ -963,6 +972,32 @@
         "title": "Billed through the App Store",
         "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
         "manage": "Manage in the App Store"
+      },
+      "nextCloud": {
+        "heading": "cmux NEXT Cloud",
+        "currentPlan": "Current cmux NEXT plan: {plan}",
+        "granted": "(granted by cmux)",
+        "none": "None",
+        "current": "Current plan",
+        "perMonth": "per month",
+        "names": {
+          "next_plus": "cmux NEXT Plus",
+          "next_pro": "cmux NEXT Pro",
+          "next_max": "cmux NEXT Max"
+        },
+        "features": {
+          "includedMinutes": "{minutes, number} machine minutes included each month",
+          "running": "Up to {count} machines running at once",
+          "kept": "Up to {count} machines kept, running or paused",
+          "snapshots": "Up to {count} saved snapshots",
+          "largest": "Machines up to {vcpus} vCPU and {memory} GiB RAM",
+          "disk": "Disks up to {disk} GiB per machine"
+        },
+        "subscribe": "Subscribe to {plan}",
+        "upgrade": "Upgrade to {plan}",
+        "comingSoon": "Coming soon",
+        "usageNote": "Included machine minutes reset each month and do not roll over. Machines pause when they run out; a paused machine costs only its disk.",
+        "machineMinuteNote": "A machine minute is one vCPU for one minute while a machine is awake: a 2 vCPU machine uses 2 a minute, an 8 vCPU machine 8. A paused machine uses none."
       }
     },
     "testflight": {
@@ -1331,7 +1366,12 @@
         "deleteConfirmBody": "This is irreversible and deletes all data associated with your account.",
         "deleteAcknowledge": "I understand my account and its data will be deleted permanently.",
         "deleteConfirm": "Delete account",
-        "deleteError": "Could not delete the account. Try again."
+        "deleteError": "Could not delete the account. Try again.",
+        "deleteErrorPending": "Your account is already being deleted. Try again in a moment.",
+        "deleteErrorRetryable": "Account deletion couldn't finish. Check your connection and try again.",
+        "deleteAppStoreTitle": "Your App Store subscription will keep renewing",
+        "deleteAppStoreBody": "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store.",
+        "deleteAppStoreManage": "Manage subscription in the App Store"
       }
     },
     "teams": {
@@ -2165,6 +2205,7 @@
     "typingProgrammability": "programmability",
     "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
+    "nextCallout": "New: try <link>cmux NEXT</link>, a preview of the next cmux.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -5097,8 +5138,7 @@
       "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
       "nameLabel": "Name: {value}",
       "hostLabel": "Host: {value}",
-      "harnessLabel": "Harness: {value}",
-      "reference": "This link names an agent session by a private reference, not by its machine or session. It does not open from this page; team members look the reference up with their own tools."
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
@@ -7408,6 +7448,11 @@
       "sessionsTitle": "Headless sessions and attach",
       "sessionsIntro": "Headless mode keeps the mux backend and its terminals running without a local interface. Attach from another terminal when you need the UI.",
       "sessionsBody": "The default session is main. Named sessions use separate Unix sockets. Detaching leaves a headless server running, so a later attach restores the same tree and terminal state.",
+      "serverTitle": "Keep a session running as a service",
+      "serverIntro": "cmux server install keeps the main session running as a service, so it starts again after a reboot, with no one logged in. On Linux it writes a systemd user unit and turns on lingering; on macOS it writes a LaunchAgent. It needs no sudo, and the session listens only on a Unix socket that only your account can open.",
+      "serverSsh": "To set up another machine that you reach with SSH, give it as ssh://[user@]host[:port]. cmux installs itself there with the install script, starts the service, checks that the session answers, and adds the machine to the cmux app here. It shows each command and asks before it runs it; --yes runs every step without asking. Host-key checking stays as your SSH config has it, and agent, X11 and port forwarding are off.",
+      "serverOptions": "--user starts the service when you log in and stops it when you log out, and leaves lingering as it is. --channel stable or --channel nightly picks the build that goes on the other machine. On a machine where you already are, the install script does the same with --server:",
+      "serverNote": "The service commands ship in cmux NIGHTLY builds. install stops when a cmux-server unit or LaunchAgent that cmux did not write is in the way, and uninstall leaves such a unit as it is.",
       "remoteTitle": "Remote machines",
       "remoteIntro": "Enable the machine rail to switch between the current session and configured Unix-socket or SSH targets.",
       "remoteBody": "The remote machine must already run a headless cmux session, and noninteractive SSH must find the cmux binary. cmux uses strict host-key checking and disables agent forwarding and port forwarding.",
@@ -7678,5 +7723,82 @@
     "dbUpdated": "Database: {time}",
     "noOwner": "No cmux owner",
     "none": "None."
+  },
+  "extensions": {
+    "section": "Extensions",
+    "setupsSection": "Setups",
+    "metaTitle": "cmux extensions: plugins, themes and snippets for cmux",
+    "metaDescription": "Browse community plugins, themes, snippets and setups for cmux, the macOS app for AI coding agents. Each lives in its creator's git repo and installs in one click.",
+    "setupsMetaTitle": "cmux setups: whole cmux customizations from git",
+    "setupsMetaDescription": "Browse cmux setups: a theme, sidebar, keymap, widgets and extensions from one git repo, reviewed and installed into the cmux Mac app in one step.",
+    "title": "Extensions",
+    "intro": "Plugins, themes, snippets and whole setups for cmux, built in the open. Each one lives in its creator's git repo, is listed by a reviewed pull request, and installs at a pinned release.",
+    "setupsTitle": "Setups",
+    "setupsIntro": "A whole cmux customization in one git repo: theme, sidebar, keymap, widgets and extensions. Reviewed, pinned to a release, and installed in one step.",
+    "tierAll": "All",
+    "tierPlugin": "Plugins",
+    "tierTheme": "Themes",
+    "tierSnippet": "Snippets",
+    "tierSetup": "Setups",
+    "tierPluginOne": "Plugin",
+    "tierThemeOne": "Theme",
+    "tierSnippetOne": "Snippet",
+    "tierSetupOne": "Setup",
+    "searchPlaceholder": "Search",
+    "sortLabel": "Sort",
+    "sortPopular": "Most downloaded",
+    "sortUpdated": "Recently updated",
+    "sortName": "Name",
+    "noMatches": "Nothing matches that search.",
+    "emptyTitle": "No listings yet",
+    "emptyBody": "Be the first: list your repo below.",
+    "unavailableTitle": "The listings could not be loaded right now",
+    "unavailableBody": "Try again in a minute. You can still list your own repo below.",
+    "listTitle": "List your extension",
+    "listSetupTitle": "List your setup",
+    "listStep1": "Put <code>cmux-app.v2.json</code> (a plugin), a theme file or a snippet in a public git repo, with a README.",
+    "listSetupStep1": "Put <code>cmux-setup.json</code> at the root of a public git repo, with a README.",
+    "scaffoldHint": "Start one with <code>{command}</code>.",
+    "listStep2": "Publish a release: <code>cmux ext publish</code> prints the command that attaches the package.",
+    "listStep3": "Open a pull request adding an entry to <code>{file}</code> in <code>{repo}</code>. Once it is merged, the listing shows here and in the app.",
+    "listOpenPr": "Add to {file}",
+    "by": "by {publisher}",
+    "install": "Install",
+    "downloads": "{count, plural, one {# download} other {{display} downloads}}",
+    "stars": "{count, plural, one {# star} other {{display} stars}}",
+    "updatedOn": "updated {date}",
+    "requires": "Requires cmux {version} or later",
+    "viewSourceOn": "View source on {host}",
+    "forkAndCustomize": "Fork and customize",
+    "license": "License",
+    "publisher": "Publisher",
+    "categories": "Categories",
+    "type": "Type",
+    "latestRelease": "Latest release",
+    "downloadsLabel": "Downloads",
+    "version": "Commit",
+    "updated": "Last updated",
+    "readme": "README",
+    "details": "Details",
+    "setupContents": "What this setup installs",
+    "badgeTitle": "Get the badge",
+    "badgeBody": "Add this to your README so people can find and install it from cmux.com.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "moreBy": "More by {owner}",
+    "authorTitle": "{owner} on cmux",
+    "authorIntro": "Plugins, themes, snippets and setups by {owner}, installable in one click.",
+    "installTitle": "Install {name}",
+    "installIntro": "Opening cmux to install {name}. cmux shows what it can access before anything runs.",
+    "installOpen": "Open in cmux",
+    "installNoCmux": "Don't have cmux yet?",
+    "installDownload": "Download cmux",
+    "installDownloadBody": "Download cmux for macOS and open it, then come back to this page: it hands {name} to cmux, which asks before installing.",
+    "installBack": "Back to {name}",
+    "installCommand": "Or install it from the command line:",
+    "pinned": "Pinned to the reviewed release.",
+    "remixTitle": "Fork and customize {name}",
+    "remixIntro": "Opening cmux with an agent ready to copy {name} into a repo of your own and change it the way you want.",
+    "notListed": "{name} is not listed on cmux.com, so the cmux team has not reviewed it. cmux shows what it can access before you install it."
   }
 }

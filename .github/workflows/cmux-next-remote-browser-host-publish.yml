@@ -15,8 +15,8 @@ name: cmux NEXT remote browser host publish
 # build    on a macOS runner, holding no secret: unpacks that archive (its
 #          digest checked again) and runs `cargo build --release --locked` with
 #          a job-local Rust toolchain (the one cmux-tui/rust-toolchain.toml names).
-# publish  in the cef-publish environment, which waits for one of its required
-#          reviewers and alone holds the cmux-cef-write token. Only main code
+# publish  in the cef-publish environment, which admits main only (branch
+#          policy) and alone holds the cmux-cef-write token. Only main code
 #          runs here: the binary is data. It checks the binary's digest and
 #          Mach-O arm64 header, uploads it write-once to
 #          remote-browser-host/<sha256>/cmux-remote-browser-host-macos-arm64
@@ -34,20 +34,25 @@ on:
 
 permissions: {}
 
-# No workflow-level concurrency group: the publish job waits for a cef-publish
-# reviewer, and a run waiting there never times out, so a workflow group let
+# No workflow-level concurrency group: while cef-publish required a reviewer the
+# publish job waited there, and a run waiting there never times out, so a workflow group let
 # one unanswered approval hold every later dispatch (cmux-next-cua-helper-dev-sign.yml,
 # run 42677635673, 2026-11-09). The macOS build
 # serializes per branch in its own job group; publish has none (its upload is
 # content-addressed and write-once, and the source tag names one commit).
 # scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   resolve:
     name: Resolve the branch and its CEF
     if: github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # 5 minutes of work plus up to an hour waiting out the API budget.
+    timeout-minutes: 65
     permissions:
       contents: read
     outputs:
@@ -57,6 +62,21 @@ jobs:
       cef_r2_key: ${{ steps.cef.outputs.r2_key }}
       crate_tree: ${{ steps.cef.outputs.crate_tree }}
     steps:
+      # Every workflow shares one installation API budget an hour; run 43888568476
+      # (2026-11-16) died on its first gh read with "API rate limit exceeded for
+      # installation". The wrapper waits for the reset instead, bounded by an hour.
+      - name: Checkout the gh rate-limit wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/gh_budget_wait.sh
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Resolve the branch
         id: resolve
         env:
@@ -143,7 +163,7 @@ jobs:
     # rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job to
     # Blacksmith macOS, the last resort a re-run takes directly. RUNNER_POOLS.macos_26 is a
     # Blacksmith label, so reading it first queued run 43645667029 on Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'workflow_dispatch' && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -233,13 +253,29 @@ jobs:
   publish:
     name: Publish the host and write its pin
     needs: [resolve, build]
-    # Waits for a reviewer, so it holds no concurrency group.
+    # Holds no concurrency group: an environment wait never times out.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # 15 minutes of work plus up to an hour waiting out the API budget.
+    timeout-minutes: 75
     permissions:
-      contents: write # the source tag only
+      contents: read # the source tag is pushed with the app token below
     steps:
+      # Every workflow shares one installation API budget an hour; run 43888568476
+      # (2026-11-16) died on its first gh read with "API rate limit exceeded for
+      # installation". The wrapper waits for the reset instead, bounded by an hour.
+      - name: Checkout the gh rate-limit wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/gh_budget_wait.sh
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       # Only whether the token is set reaches this step, never its value.
       - name: Require the cmux-cef-write token
         env:
@@ -332,10 +368,27 @@ jobs:
           done
           echo "Published cmux-cef/$KEY" >> "$GITHUB_STEP_SUMMARY"
 
+      # github.token cannot create a ref to a commit that changes a workflow file (HTTP 403 "Resource not
+      # accessible by integration"), and a CEF pin branch's merges of feat-cmux-next do: runs 42541124658,
+      # 43590942942 and 43683204232 all failed here. The manaflow-glaeda-route App is not granted
+      # workflows write either (run 43773051580: HTTP 422 "The permissions requested are not granted to
+      # this installation"), so the tag is pushed with the cmux-bot App, whose installation has contents
+      # and workflows write here (cmuxterm-hq fleet-reconciler-glaeda-signing-hooks.yml mints both).
+      - name: Mint the source tag token
+        id: tag-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       # generate-third-party-notices.sh names the host's source by this tag.
       - name: Push the source tag
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.tag-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           SHA: ${{ needs.resolve.outputs.sha }}
         run: |

@@ -80,6 +80,11 @@
       "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
       "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
     },
+    "hostRecovery": {
+      "title": "Host der Maschine wird wiederhergestellt",
+      "message": "Die Festplatte dieser Maschine liegt auf einem Cloud-Host, der gerade wiederhergestellt wird, daher kann sie noch nicht starten. Ihre Dateien bleiben erhalten.",
+      "action": "Versuche es in ein paar Minuten erneut. Lösche die Maschine nicht und erstelle sie nicht neu: Ihre Festplatte bleibt erhalten und kommt mit ihr zurück. Wenn sie nach einer Stunde immer noch nicht startet, wende dich mit der Trace-ID an den Support."
+    },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
       "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
     "subtitle": "Kostenloser, quelloffener nativer macOS-Terminal auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
+    "nextCallout": "Neu: Probieren Sie <link>cmux NEXT</link> aus, eine Vorschau auf das nächste cmux.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden und löscht alle Daten, die mit deinem Konto verknüpft sind.",
         "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
         "deleteConfirm": "Konto löschen",
-        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut."
+        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut.",
+        "deleteErrorPending": "Dein Konto wird bereits gelöscht. Versuche es gleich noch einmal.",
+        "deleteErrorRetryable": "Das Konto konnte nicht vollständig gelöscht werden. Prüfe deine Verbindung und versuche es erneut.",
+        "deleteAppStoreTitle": "Dein App Store-Abo verlängert sich weiter",
+        "deleteAppStoreBody": "Wenn du dein cmux-Konto löschst, wird dein App Store-Abo nicht gekündigt. Apple berechnet es weiter, bis du es im App Store kündigst.",
+        "deleteAppStoreManage": "Abo im App Store verwalten"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "fehlgeschlagen",
           "paused": "pausiert",
           "destroyed": "gelöscht"
-        }
+        },
+        "wake": "Aufwecken",
+        "waking": "Wird aufgeweckt…",
+        "wakeError": "Diese Maschine konnte nicht aufgeweckt werden. Versuche es erneut."
       },
       "network": {
         "open": "Netzwerk",

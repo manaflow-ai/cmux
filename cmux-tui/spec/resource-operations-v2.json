@@ -11723,7 +11723,7 @@
               "kind": "primitive",
               "name": "decimal"
             },
-            "description": "Resume cursor: the terminal.output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
+            "description": "Resume cursor: the terminal output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
           },
           "max_bytes": {
             "required": false,
@@ -11734,7 +11734,7 @@
               "maximum": 4194304
             },
             "default": 262144,
-            "description": "Bound on raw stream bytes rendered into one window. A window never splits a journal record, so the first record of a window is always included whole even when it alone exceeds this bound."
+            "description": "Bound on raw stream bytes rendered into one window (at least one byte when any is retained). The window is a raw byte range: it may start or end inside a UTF-8 sequence or an escape sequence."
           }
         },
         "extra": false
@@ -11754,9 +11754,11 @@
       "constraints": [
         "Text is the plain-text projection of the selected stream window replayed through a fresh terminal emulator; escape sequences never appear in it.",
         "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
-        "start_offset may exceed the requested cursor when earlier bytes are no longer retained, and a cursor that lands mid-record starts the window at that record's boundary (start_offset below the cursor).",
-        "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw records: start_offset is 0 and next_offset is the snapshot coverage end.",
-        "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot."
+        "start_offset may exceed the requested cursor when earlier bytes are no longer retained. The daemon keeps a bounded recent tail of each terminal's output; a terminal re-adopted after a daemon restart continues its stream at the offset the daemon last recorded (each journal checkpoint and quit records it in the terminal's snapshot file). The offset is lost, and the stream restarts at 0, when that file is gone: memory persistence mode, or the snapshot storage cap evicted it.",
+        "A cursor past the end of the stream (from a daemon that stopped without recording its end, or from before the terminal restarted) starts the window at the oldest retained byte: start_offset below the cursor tells the client to reset its cursor and screen. Offsets of a re-adopted terminal can also restart below cursors served before an unclean daemon stop.",
+        "Output an older daemon journaled (served while the terminal has no newer stream and no exit snapshot) follows the same window rules.",
+        "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw output: start_offset is 0 and next_offset is the snapshot coverage end.",
+        "Each window is rendered on its own through a fresh terminal, so a window that starts or ends mid-sequence may show replacement characters or lose styling at that edge; a snapshot window cannot."
       ]
     },
     "terminal.process.get": {

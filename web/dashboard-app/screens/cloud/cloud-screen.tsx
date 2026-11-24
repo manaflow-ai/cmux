@@ -7,6 +7,7 @@ import { EmptyState, SectionError } from "../../components/page-states";
 import { cloudDevicesQuery, cloudMachinesQuery, type CloudDevice, type CloudMachine } from "../../queries/cloud";
 import { CloudPageFrame } from "./cloud-frame";
 import { CloudDeviceActions } from "./device-actions";
+import { MachineWakeButton } from "./machine-resume";
 import { MachineNetworkControl } from "./network-policy-editor";
 
 export function CloudScreen() {
@@ -49,7 +50,10 @@ export function CloudMachinesSection({ machines }: { readonly machines: readonly
               {[t(machine.teamId ? "team" : "personal"), t(`status.${machine.status}`), machine.id].join(" · ")}
             </p>
           </div>
-          <MachineNetworkControl vmId={machine.id} teamId={machine.teamId} name={machine.name} />
+          <div className="flex flex-wrap items-start gap-2">
+            <MachineWakeButton machine={machine} />
+            <MachineNetworkControl vmId={machine.id} teamId={machine.teamId} name={machine.name} />
+          </div>
         </div>
       ))}
     </div>

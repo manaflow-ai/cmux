@@ -7,12 +7,16 @@ import dataclasses
 import datetime as dt
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from unittest import mock
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = ROOT / ".github" / "workflows"
 spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
 assert spec and spec.loader
 picker = importlib.util.module_from_spec(spec)
@@ -835,6 +839,155 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         state = picker.State(jobs=1, blacksmith=(dead, pool(small, 10, running=10, queued=2, reserved=1),
                                                  pool(mac15, 10, running=10, queued=5, reserved=1)))
         self.assertEqual(picker.pick(state).label, small)
+
+
+class BlacksmithSwitchTests(unittest.TestCase):
+    """vars.CI_BLACKSMITH_MACOS off: an owned pick names no Blacksmith label (run 43990120167, 2026-11-17).
+
+    Compile admission waited on the owned light pool; the shards it did not own took the Blacksmith
+    retry_runner, blacksmith-12vcpu-macos-26, and sat queued five hours with the switch off.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    FREE = (pool(picker.BLACKSMITH[0], 5), pool(picker.BLACKSMITH[1], 10), pool(picker.BLACKSMITH[2], 10))
+
+    def state(self, *, switch: str | None, **kwargs):
+        env = {} if switch is None else {"CI_BLACKSMITH_MACOS": switch}
+        defaults = dict(jobs=8, owned=(pool(self.LIGHT_POOL, 4, running=3, free=1, queued=0),),
+                        blacksmith=self.FULL_OR_FREE, owned_enabled=True, wait_on_owned=True,
+                        blacksmith_on=picker.blacksmith_allowed(env))
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    FULL_OR_FREE = (pool(picker.BLACKSMITH[0], 5, 5, 3), pool(picker.BLACKSMITH[1], 10, 10, 4),
+                    pool(picker.BLACKSMITH[2], 10, 10, 2))
+
+    def test_only_on_allows_blacksmith(self):
+        self.assertTrue(picker.blacksmith_allowed({}))  # a caller that passes no switch keeps today's route
+        self.assertTrue(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": "on"}))
+        for value in ("", "off", "pr-rescue", "1"):
+            self.assertFalse(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
+
+    @staticmethod
+    def owned_job_keys() -> set[str]:
+        """Every owned_jobs key a ci.yml or ci-macos.yml job tests, its matrix shards expanded."""
+        keys = set()
+        literal = re.compile(r"contains\((?:inputs\.pr_owned_jobs|needs\.changes\.outputs\.macos_pr_owned_jobs), '\s*([a-z0-9-]+)\s*'\)")
+        shard = re.compile(r"contains\(inputs\.pr_owned_jobs, format\('\s*([a-z0-9-]+)\{0\}\s*', matrix\.shard\)\)")
+        for name in ("ci.yml", "ci-macos.yml"):
+            for job in (yaml.safe_load((WORKFLOWS / name).read_text()).get("jobs") or {}).values():
+                runs_on = str(job.get("runs-on", ""))
+                keys.update(literal.findall(runs_on))
+                for prefix in shard.findall(runs_on):
+                    # A list (`shard: [1, 2, 3]`) or JSON include rows (`{"shard": 1, ...}`).
+                    matrix = json.dumps(job["strategy"]["matrix"])
+                    listed = job["strategy"]["matrix"].get("shard")
+                    shards = listed if isinstance(listed, list) else re.findall(r'\\?"shard\\?": ?([0-9]+)', matrix)
+                    keys.update(f"{prefix}{index}" for index in shards)
+        return keys
+
+    def test_the_owned_wait_owns_every_job_and_keeps_the_paid_escape_while_off(self):
+        """Off, every job the run has takes the owned labels on attempts 1 and 2 (none reads retry_runner through
+        `!contains(owned_jobs, key)`, run 43990120167's shards), and retry_runner stays the paid label: the bot's
+        attempt 3 (owned_pool_rescue's OWNED_WAIT_BOUND_SECONDS move) escapes to it, so no owned wait is unbounded."""
+        choice = picker.pick(self.state(switch=""))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        env = {"RUN_MACOS": "true", "RUN_UNIT_SUITE": "true", "RUN_CLI": "true", "RUN_CLAUDE_WRAPPER": "true",
+               "CI_BLACKSMITH_MACOS": ""}
+        values = picker.write_outputs(choice, 8, env=env)
+        for key in ("runner", "shard_runner", "side_runner"):
+            self.assertFalse(values[key].startswith("blacksmith-"), (key, values[key]))
+        self.assertTrue(values["retry_runner"].startswith("blacksmith-"), values["retry_runner"])
+        keys = self.owned_job_keys()
+        self.assertTrue({"admission", "shard-1", "cli-regressions-1", "claude-wrapper"} <= keys, keys)
+        self.assertEqual(keys - set(values["owned_jobs"].split()), set())
+        # On: today's owned_jobs, by the run's lanes.
+        values = picker.write_outputs(picker.pick(self.state(switch="on")), 8, env={**env, "CI_BLACKSMITH_MACOS": "on"})
+        self.assertNotIn("cli-regressions-1", values["owned_jobs"].split())
+
+    def test_a_helper_build_keeps_swift_package_on_the_paid_label_while_off(self):
+        # The SDK 15 helper build runs only on the Blacksmith macOS 15 image, whatever the switch.
+        env = {"RUN_FULL_SUITE": "true", "RUN_RELEASE_BUILD": "true", "RUN_SWIFT_PACKAGES": "true",
+               "CI_BLACKSMITH_MACOS": ""}
+        values = picker.write_outputs(picker.pick(self.state(switch="")), 8, env=env)
+        self.assertNotIn("swift-package", values["owned_jobs"].split())
+
+    def test_a_free_blacksmith_slot_takes_nothing_while_off(self):
+        choice = picker.pick(self.state(switch="", blacksmith=self.FREE, wait_on_owned=False))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(choice.owned)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
+
+    def test_on_keeps_the_blacksmith_retry_runner(self):
+        choice = picker.pick(self.state(switch="on"))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
+
+    def test_a_fork_still_takes_blacksmith_while_off(self):
+        choice = picker.pick(self.state(switch="", fork=True, blacksmith=self.FREE))
+        self.assertTrue(choice.label.startswith("blacksmith-"))
+
+    def test_state_from_reads_the_switch(self):
+        state = picker.state_from(jobs=1, env={"CI_BLACKSMITH_MACOS": ""}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertFalse(state.blacksmith_on)
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertTrue(state.blacksmith_on)
+
+
+class GuiPoolTests(unittest.TestCase):
+    """A full or unit suite (gui_required) never waits on an owned pool with no GUI runner.
+
+    Run 44150654568 (main, 2026-11-17): with vars.CI_BLACKSMITH_MACOS off, #45231's owned wait picked
+    glaeda-light-xcode-26.6 for a full suite. Light has no gui label, so gui_runner was empty and
+    tests-build-and-lag took glaeda-root-light-xcode-26.6 on cmux21, where XCTest timed out enabling
+    automation mode and the display UI regressions failed.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    STD_POOL = "glaeda-std-xcode-26.6"
+
+    def owned(self):
+        # Light starts the run sooner by expected wait; only std has a GUI runner.
+        return (pool(self.STD_POOL, 8, running=8, free=0, queued=20),
+                dataclasses.replace(pool(self.LIGHT_POOL, 4, running=3, free=1), gui=False))
+
+    def test_a_gui_suite_waits_on_the_gui_pool_while_blacksmith_is_off(self):
+        state = picker.State(jobs=15, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=True, blacksmith_on=False)
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, self.STD_POOL)
+        self.assertTrue(choice.owned)
+
+    def test_a_run_without_gui_work_may_still_take_light(self):
+        state = picker.State(jobs=3, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=False, blacksmith_on=False)
+        self.assertEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_a_gui_suite_never_takes_a_free_light_pool(self):
+        light = dataclasses.replace(pool(self.LIGHT_POOL, 4, free=4), gui=False)
+        state = picker.State(jobs=2, owned=(light,), blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+                             owned_enabled=True, gui_required=True)
+        self.assertNotEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_state_from_reads_gui_runners_and_configured_gui_labels(self):
+        runners = [light_runner(0, busy=False), std_runner(0, busy=True)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        state = observed(runners, {}, env=env)
+        self.assertEqual({item.label: item.gui for item in state.owned},
+                         {self.STD_POOL: True, self.LIGHT_POOL: False})
+        slots = json.loads(OWNED_ENV["CI_OWNED_POOL_SLOTS"])
+        slots["glaeda-gui-light-xcode-26.6"] = 4
+        state = observed(runners, {}, env=dict(env, CI_OWNED_POOL_SLOTS=json.dumps(slots)))
+        self.assertTrue({item.label: item.gui for item in state.owned}[self.LIGHT_POOL])
+
+    def test_run_44150654568_full_suite_skips_light(self):
+        # Std busy with a long queue, three of four light runners idle: the switch-off wait took light.
+        runners = [std_runner(index, busy=True) for index in range(8)] + [light_runner(index, busy=index == 0) for index in range(4)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        choice = picker.pick(observed(runners, {STD: {"queued": 60, "running": 8}}, jobs=15, env=env))
+        self.assertEqual(choice.label, self.STD_POOL)
 
 
 if __name__ == "__main__":

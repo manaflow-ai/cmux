@@ -253,6 +253,10 @@ path = "tests/test_cmux_cua_drag_cursor_harness.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_cua_helper_run_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_cua_drag_cursor.py"
 lane = "manual"
 reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
@@ -703,6 +707,14 @@ path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_dispatch_targets_on_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_blacksmith_macos_switch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
@@ -791,6 +803,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_mac_grants.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -815,6 +831,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_side_lane_capability_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
@@ -828,6 +848,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_drift.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_quota_reads_bot_token.py"
 lane = "linux-guard"
 
 [[test]]
@@ -960,6 +984,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_asc_ops.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 
@@ -972,15 +1000,7 @@ path = "tests/test_ios_testflight_external_distribution.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_main_push_filter.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ios_testflight_notes.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1252,6 +1272,10 @@ path = "tests/test_nightly_next_canary_feed_origin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_harness_worktree.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_runs_installed_app.py"
 lane = "linux-guard"
 
@@ -1437,14 +1461,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_archive_log.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_assignment_after_upload.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1653,6 +1669,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_docs_localization.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workflow_catalog_translation.py"
 lane = "macos-cli-no-socket"
 
@@ -1749,6 +1770,11 @@ path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_install_axe_ci.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's and iroh-release-gate.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing any of them (under a second, no build)."
+
+[[test]]
 path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
@@ -1786,6 +1812,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_scheduled_workflow_gh_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1833,11 +1863,19 @@ path = "tests/test_ci_runner_pools.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_spend_mark.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2012,6 +2050,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cron_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2222,6 +2264,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fix_cause_labels_start_no_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
@@ -2236,6 +2282,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_cargo_workspace.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2308,9 +2358,69 @@ path = "tests/test_ci_resource_lifetimes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_billing_lane.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_billing_nightly.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_paid_queue_pin.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_upload_artifact_requires_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_language_boundaries_spends_no_rest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_takeback_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_blind_spots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"

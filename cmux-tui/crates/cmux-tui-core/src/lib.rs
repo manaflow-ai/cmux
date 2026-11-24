@@ -33,6 +33,7 @@ mod journal_plugin;
 mod journal_reducers;
 mod model;
 mod mux;
+mod output_store;
 mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
@@ -120,8 +121,11 @@ pub use workspace_registry::{
     JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
     JournalSensitivity, JournalSubject, PersistentSessionStateReset,
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
-    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    RegistryCommit, RegistryEvent, RegistryIntegrityFailure, RegistryRecovery, RegistrySnapshot,
+    RegistryStartupDamage, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnrecoverableInterruptedCreations, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry, quarantine_session_registry, recover_registry_after_failed_open,
+    registry_startup_damage,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

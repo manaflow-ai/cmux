@@ -24,7 +24,13 @@ export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
   CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
 ] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
-export type CheckoutPlan = "go" | "pro" | "max" | "team";
+/** `next_plus` / `next_pro` / `next_max` are the cmux NEXT Cloud plans (services/billing/nextPlans.ts). */
+export const CHECKOUT_PLANS = ["go", "pro", "max", "team", "next_plus", "next_pro", "next_max"] as const;
+export type CheckoutPlan = (typeof CHECKOUT_PLANS)[number];
+
+export function isCheckoutPlan(value: unknown): value is CheckoutPlan {
+  return typeof value === "string" && (CHECKOUT_PLANS as readonly string[]).includes(value);
+}
 export type CheckoutInterval = "month" | "year";
 export type AppPricingCheckoutRelayParameters = {
   plan: CheckoutPlan | null;
@@ -38,6 +44,9 @@ export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const GO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "go");
 export const MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "max");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
+export const NEXT_PLUS_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_plus");
+export const NEXT_PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_pro");
+export const NEXT_MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "next_max");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
 export const GO_CHECKOUT_URL = withExternalBrowserIntent(GO_CHECKOUT_PATH);
 export const MAX_CHECKOUT_URL = withExternalBrowserIntent(MAX_CHECKOUT_PATH);
@@ -134,7 +143,7 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   const signature = requestURL.searchParams.get(CHECKOUT_RELAY_SIGNATURE_PARAM);
   const secret = appPricingRelaySecret();
   if (
-    (plan !== "go" && plan !== "pro" && plan !== "max" && plan !== "team") ||
+    !isCheckoutPlan(plan) ||
     (interval !== "month" && interval !== "year") ||
     !expires ||
     !signature ||

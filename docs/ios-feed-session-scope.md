@@ -220,7 +220,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 - [Full-text reader](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedFullTextView.swift), [retained content and paging](../Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamFullText.swift).
 - [Timeline, filtering, and swipe actions](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedView.swift).
 - [Row controls and reply states](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedRow.swift), [composer](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedReplyComposer.swift).
-- [Multi-question answer composition](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedQuestionAnswerComposer.swift), [pager tests](../Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/AgentFeedQuestionAnswerComposerTests.swift).
+- [Multi-question answer composition](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedQuestionAnswerBuilder.swift), [its tests](../Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/AgentFeedQuestionAnswerBuilderTests.swift).
 - [Feed synchronization, routing, submission, and stop matching](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+AgentFeed.swift).
 - [Item identity, reply eligibility, and triage semantics](../Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileAgentFeedItem.swift).
 - [Mac terminal submission](../Sources/TerminalController.swift), [active-provider submit-key selection](../Sources/TextBoxAgentDetection.swift).

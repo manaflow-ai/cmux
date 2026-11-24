@@ -17,6 +17,7 @@ const CODE_BY_STATUS: Readonly<Record<number, DashboardErrorCode>> = {
   501: "NOT_IMPLEMENTED",
   502: "BAD_GATEWAY",
   503: "UNAVAILABLE",
+  504: "GATEWAY_TIMEOUT",
 };
 
 /**

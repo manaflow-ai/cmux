@@ -2,13 +2,13 @@
   "metadataTitle": "Privacy Policy — cmux",
   "metadataDescription": "Privacy policy for cmux",
   "title": "Privacy Policy",
-  "lastUpdated": "Last updated: September 1, 2026",
+  "lastUpdated": "Last updated: November 24, 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (the \"Company\") is committed to maintaining robust privacy protections for its users. This Privacy Policy explains how we collect, use, and safeguard information you provide to us.",
+        "Manaflow, Inc. (the \"Company\") is committed to maintaining robust privacy protections for its users. This Privacy Policy explains how we collect, use, and safeguard information you provide to us.",
         "In this policy, \"Site\" means the Company website at [cmux.com](https://cmux.com). \"Application\" means the cmux desktop application for macOS and the cmux mobile application for iPhone and iPad. \"Service\" means the Site and Application together. \"We,\" \"us,\" and \"our\" mean the Company. \"You\" means a user of our Service.",
-        "By using our Service, you accept this Privacy Policy and our [Terms of Service](https://cmux.com/terms-of-service), and consent to the collection, storage, use, and disclosure described here."
+        "This Privacy Policy tells you how we collect, use, and disclose information. It is a notice: it does not ask for your consent unless it says so. Our [Terms of Service](https://cmux.com/terms-of-service) apply to your use of the Service."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: private internal notifications. If you join a platform waitlist, the email and platforms you submit are sent to our private Slack workspace."
       ],
       "afterBullets": [
-        "Each service has its own privacy policy. When a third party processes Personal Information for cmux, we require safeguards at least as protective as this policy and limit use to providing services to cmux."
+        "Each service has its own privacy policy. Except as the cmux Cloud section says, when a third party processes Personal Information for cmux, we require safeguards at least as protective as this policy and limit use to providing services to cmux."
       ]
     },
     {
