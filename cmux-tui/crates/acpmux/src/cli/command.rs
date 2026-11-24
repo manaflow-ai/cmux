@@ -815,6 +815,8 @@ pub enum Command {
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     #[command(hide = true)]
     RestartAgent { session: String },
@@ -995,6 +997,9 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// `daemon felt`: the felt-latency histograms (the net graph).
+    #[command(hide = true)]
+    DaemonFelt,
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1309,8 +1314,10 @@ pub enum SessionCmd {
     },
     /// Cancel the running turn.
     Cancel { session: String },
-    /// Stop the agent process. The session stays resumable.
-    #[command(alias = "kill")]
+    /// Stop the agent process. The session stays resumable. The stop is recorded with who asked,
+    /// `--reason` and `--outcome` (`ls --closed --json` rows' `close`); a lane with work stopped
+    /// with no `--outcome` is recorded `unfinished`.
+    #[command(alias = "kill", alias = "close")]
     Stop {
         session: String,
         #[command(flatten)]
@@ -1320,6 +1327,8 @@ pub enum SessionCmd {
         purge: bool,
         #[command(flatten)]
         condition: StopIf,
+        #[command(flatten)]
+        close: CloseArgs,
     },
     /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
     /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
@@ -1790,6 +1799,10 @@ pub enum DaemonCmd {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// The felt-latency histograms of the running daemon (the net graph): p50, p90 and p99 of what a
+    /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
+    /// start. Numbers and names only.
+    Felt,
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -1891,14 +1904,26 @@ pub struct StopIf {
     pub expect_revision: Option<u64>,
 }
 
+/// Why `session stop` closes the session (`close_why.rs`): recorded, never a condition.
+#[derive(Args, Clone, Debug, Default, PartialEq, Eq)]
+pub struct CloseArgs {
+    /// How the session's work ended: `done` or `dropped`. Left out on a lane with work (a
+    /// `lane.reportsTo` or `goal` tag), the close is recorded `unfinished`.
+    #[arg(long, value_parser = ["done", "dropped"])]
+    pub outcome: Option<String>,
+    /// Why it is closed, in a few words; kept with the close.
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+}
+
 /// Map the grouped spellings onto the flat handlers.
 pub fn flatten(c: Command) -> Command {
     match c {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
-                Command::Kill { session, purge, condition }
+            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, condition, close }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
@@ -2013,6 +2038,7 @@ pub fn flatten(c: Command) -> Command {
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
+            DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
