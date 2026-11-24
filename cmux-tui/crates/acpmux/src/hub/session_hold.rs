@@ -48,7 +48,8 @@ pub(crate) const FEATURE: &str = "sessionHold";
 #[serde(rename_all = "camelCase")]
 pub struct FleetHold {
     pub on: bool,
-    /// Chat names (or ids) it lets run; a trailing `*` matches a prefix.
+    /// Chat names (or ids) it lets run: `NAME` exactly, `PREFIX*` a prefix, `*TERM*` any name
+    /// containing TERM, in any case (the coordinators' KEEP list is such terms).
     #[serde(default)]
     pub allow: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,8 +61,12 @@ pub struct FleetHold {
 impl FleetHold {
     /// Whether the allowlist lets chat `name` (id `id`) run.
     pub fn allows(&self, name: &str, id: &str) -> bool {
+        let lower = name.to_lowercase();
         self.allow.iter().any(|a| match a.strip_suffix('*') {
-            Some(prefix) => name.starts_with(prefix) || id.starts_with(prefix),
+            Some(rest) => match rest.strip_prefix('*') {
+                Some(term) => !term.is_empty() && lower.contains(&term.to_lowercase()),
+                None => name.starts_with(rest) || id.starts_with(rest),
+            },
             None => a == name || a == id,
         })
     }
