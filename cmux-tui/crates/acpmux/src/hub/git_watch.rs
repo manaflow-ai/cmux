@@ -27,14 +27,14 @@ use std::time::Instant;
 
 use notify::Watcher as _;
 
-use super::harness_watch::{MAX_BURST, QUIET};
+use super::harness_watch::{MAX_BURST, QUIET, WakeTx, wake, wake_slot};
 use crate::git_state::{GitState, head_dir};
 
 /// The hub's git watch: the task's wake-up, the task, and the branch each
 /// session's folder had at its last read.
 #[derive(Default)]
 pub(crate) struct GitWatchState {
-    signal: StdMutex<Option<tokio::sync::mpsc::UnboundedSender<()>>>,
+    signal: StdMutex<Option<WakeTx>>,
     task: StdMutex<Option<tokio::task::JoinHandle<()>>>,
     /// By session id; `None` inside is a detached HEAD or no repository.
     now: StdMutex<HashMap<String, Option<String>>>,
@@ -73,12 +73,12 @@ impl Hub {
             }
         };
         let watched = Arc::new(StdMutex::new(Watched { watcher, dirs: HashSet::new() }));
-        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (signal, mut wakes) = wake_slot();
         *self.git_watch.signal.lock().unwrap_or_else(|p| p.into_inner()) = Some(signal.clone());
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
-            while wake.recv().await.is_some() {
-                while wake.try_recv().is_ok() {}
+            while wakes.recv().await.is_some() {
+                while wakes.try_recv().is_ok() {}
                 let Some(hub) = hub.upgrade() else { break };
                 let held = hub.held_sessions();
                 let cwds: Vec<PathBuf> = held.iter().map(|(_, cwd)| cwd.clone()).collect();
@@ -121,7 +121,7 @@ impl Hub {
     /// Wakes the git watch: a client attached or detached.
     pub(super) fn git_watch_wake(&self) {
         if let Some(signal) = &*self.git_watch.signal.lock().unwrap_or_else(|p| p.into_inner()) {
-            let _ = signal.send(());
+            wake(signal);
         }
     }
 
@@ -240,10 +240,7 @@ fn is_head(path: &Path) -> bool {
 
 /// Ends when the watcher is dropped (the channel closes), or when the task
 /// is gone (the runtime stopped or the hub dropped).
-fn run(
-    rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
-    signal: &tokio::sync::mpsc::UnboundedSender<()>,
-) {
+fn run(rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>, signal: &WakeTx) {
     let matters = |event: notify::Result<notify::Event>| match event {
         // A watcher error may have dropped events: read again.
         Err(_) => true,
@@ -270,7 +267,7 @@ fn run(
             }
         }
         // Only a signal: the read runs on the runtime, never here.
-        if changed && signal.send(()).is_err() {
+        if changed && !wake(signal) {
             return;
         }
         if closed {
