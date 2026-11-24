@@ -8,6 +8,7 @@
 // an ancestor's own motion, read it again on the next frame (one read per frame at most).
 import { useLayoutEffect, type RefObject } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { experimentSwitchOn, subscribeExperimentSwitches } from "../../../experiments/switches";
 import { dockBand } from "../dockBand.experiment";
 import { DOCK_NOTICE } from "../noticeSlotModel";
 // The asks stack has no surface of its own: a "Needs your input" line and a card. The rows stay in
@@ -17,6 +18,10 @@ import { bandMask, besideMask, joinMasks, type BandHole } from "./besideStack";
 const VARIABLES = ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"] as const;
 const SURFACE = ".acpmux-running-tray, .acpmux-composer-box, .acpmux-asks-stack > *";
 const ASKS = ":scope > .acpmux-asks-stack";
+/// Settings > Advanced > Experiments > See-Through Dock (`experiments.seeThroughDock`, off by default):
+/// the asks stack and the dock notices hide only what they draw. Off keeps today's mask, which ends
+/// the rows at the stack's top.
+export const SEE_THROUGH_DOCK = "seeThroughDock";
 /// What a pending ask draws (PendingAsks.tsx): its label, its Dismiss and its card. Any other part of
 /// the asks stack (a permission card, the folder trust bar) is drawn whole.
 const PENDING_PARTS =
@@ -101,7 +106,10 @@ export function useBesideStack(
               };
             })
         : [];
-      const asks = over ? dock.querySelector<HTMLElement>(ASKS) : null;
+      const seeThrough = experimentSwitchOn(SEE_THROUGH_DOCK);
+      // bottomStack.css passes the pointer through the asks stack's room only while its rows show.
+      dock.toggleAttribute("data-see-through", seeThrough);
+      const asks = over && seeThrough ? dock.querySelector<HTMLElement>(ASKS) : null;
       let band: ReturnType<typeof bandMask>;
       if (asks) {
         const area = asks.getBoundingClientRect();
@@ -127,7 +135,7 @@ export function useBesideStack(
           box.width,
         );
       }
-      const notices = over ? [...dock.querySelectorAll<HTMLElement>(DOCK_NOTICE)] : [];
+      const notices = over && seeThrough ? [...dock.querySelectorAll<HTMLElement>(DOCK_NOTICE)] : [];
       let noticeMask: ReturnType<typeof bandMask>;
       for (const notice of notices) {
         const area = notice.getBoundingClientRect();
@@ -200,6 +208,8 @@ export function useBesideStack(
     dock.addEventListener("transitionend", settled);
     // The asks stack scrolls inside its own height in a short pane: its parts move with no size changing.
     dock.addEventListener("scroll", nextFrame, true);
+    // The person flips See-Through Dock in Settings: the mask follows at once.
+    const unsubscribeSwitches = subscribeExperimentSwitches(nextFrame);
     // The stack's ancestors (the scroller writes its own mask variables, so it is never one here).
     const moved = new MutationObserver(nextFrame);
     for (let node = dock.parentElement; node; node = node.parentElement)
@@ -219,6 +229,8 @@ export function useBesideStack(
       dock.removeEventListener("animationend", settled);
       dock.removeEventListener("transitionend", settled);
       dock.removeEventListener("scroll", nextFrame, true);
+      unsubscribeSwitches();
+      dock.removeAttribute("data-see-through");
       document.removeEventListener("animationend", ancestorSettled);
       document.removeEventListener("transitionend", ancestorSettled);
       for (const name of VARIABLES) view.style.removeProperty(name);
