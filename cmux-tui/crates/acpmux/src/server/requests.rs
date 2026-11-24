@@ -1117,7 +1117,9 @@ pub(super) async fn handle_request(
             crate::sender_token::stamp(prompt, matched, carried);
             // Who sent it, as the `Sent-by:` line the daemon appends to its text (`sent_by.rs`):
             // only a local connection that proved its session, before the outbox or a peer
-            // takes it, so every route carries the sender's own line.
+            // takes it, so every route carries the sender's own line. Its `_meta` copy is the
+            // daemon's alone: one a client sent is dropped.
+            crate::sent_by::drop_claimed(prompt, carried);
             if conn.origin == super::Origin::Local
                 && let Some(caller) = conn.caller()
             {
