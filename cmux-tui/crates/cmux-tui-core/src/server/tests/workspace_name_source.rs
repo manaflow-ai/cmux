@@ -214,3 +214,40 @@ fn workspace_name_source_v1_release_returns_a_pinned_name_to_auto() {
     .unwrap();
     assert_eq!(listed(&mux, &key)["name"], "Fix Login");
 }
+
+/// `release-workspace-names` hands every pinned name back to the automatic namer in one call;
+/// a later explicit rename pins again; a second call releases nothing.
+#[test]
+fn workspace_name_source_release_all_names_then_repin_and_idempotent() {
+    let mux = test_mux();
+    let first = mux.create_empty_workspace(Some("Billing".into()), None, None).unwrap().key;
+    let second = mux.create_empty_workspace(Some("Payments".into()), None, None).unwrap().key;
+    let rename = |key: &str, name: &str| {
+        run_json_command(&mux, json!({"cmd":"rename-workspace","key":key,"name":name})).unwrap()
+    };
+    rename(&first, "Billing v2");
+    rename(&second, "Payments v2");
+    assert_eq!(listed(&mux, &first)["name_source"], "user");
+    assert_eq!(listed(&mux, &second)["name_source"], "user");
+
+    let report = run_json_command(&mux, json!({"cmd":"release-workspace-names"})).unwrap();
+    assert_eq!(report["released"], 2, "{report}");
+    assert_eq!(report["still_pinned"], 0, "{report}");
+    for (key, name) in [(&first, "Billing v2"), (&second, "Payments v2")] {
+        let row = listed(&mux, key);
+        assert_eq!(row["name"], name, "{row}");
+        assert_eq!(row["name_source"], "auto", "{row}");
+        assert_eq!(row["name_revision"], "2", "{row}");
+    }
+
+    let again = run_json_command(&mux, json!({"cmd":"release-workspace-names"})).unwrap();
+    assert_eq!(again["released"], 0, "{again}");
+    assert_eq!(listed(&mux, &first)["name_revision"], "2");
+
+    rename(&first, "Billing v3");
+    let repinned = listed(&mux, &first);
+    assert_eq!(repinned["name_source"], "user", "{repinned}");
+    assert_eq!(listed(&mux, &second)["name_source"], "auto");
+    let third = run_json_command(&mux, json!({"cmd":"release-workspace-names"})).unwrap();
+    assert_eq!(third["released"], 1, "{third}");
+}
