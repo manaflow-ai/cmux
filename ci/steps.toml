@@ -212,9 +212,11 @@ about = "cache restore receipts classify a restore, and their test is determinis
 inputs = [
   ".github/actions/cache-restore/action.yml",
   ".github/actions/cache-save/action.yml",
-  ".github/workflows/ci.yml",
-  ".github/workflows/ci-macos.yml",
-  ".github/workflows/nightly.yml",
+  # The read-only guard reads every workflow (who holds the R2 cache-writer credentials), so a PR to any
+  # one runs it: platform-billing-test-secrets.yml (#53839) and cmux-tui-artifacts.yml (#54343) broke
+  # base on 2026-11-24 because only these three named files reached it.
+  ".github/workflows/**",
+  "tests/workflow_jobs.py",
   "scripts/ci/cache_restore_receipt.py",
   "scripts/check-test-determinism.py",
   "tests/test_ci_cache_restore_receipt.py",
@@ -798,6 +800,35 @@ python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body
   --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
   --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
   || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
+'''
+
+# Capture: a pull request that changes native app UI shows a real capture of it in its description (what
+# `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line). It was the one description lint
+# that could turn its job red (exit 2 on bad input); as a step of the `advisory` job it warns, like the rest
+# ("Advisory checks never block", CI v2). Leo, 2026-10-31: "WE DONT NEED F***ING SCREENSHOTS JUST LET ME TRY
+# THE STUFF OUT". A media-tour label event re-runs it. When git could not list the paths it reads the files API.
+[step.capture]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 180
+title = "Capture"
+about = "a pull request that changes native app UI shows a real capture in its description, or a No capture line"
+labels = ["media-tour", "media-tour-mac"]
+run = '''
+if [ ! -f scripts/ci/pr_capture_check.py ]; then
+  # The pull request that adds the check: its base has no check to run yet.
+  echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/capture-body.md"
+paths="$RUNNER_TEMP/capture-paths.txt"
+if [ "${CAPTURE_LISTED:-}" != true ]; then
+  paths="$RUNNER_TEMP/capture-api-paths.txt"
+  gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+fi
+python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$paths" \
+  --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
