@@ -21,6 +21,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create with no room here starts on the peer placement picks.
+pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
 mod adopted_fences;
@@ -68,6 +70,7 @@ pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
+pub(crate) mod session_budget_watch;
 pub(crate) mod settled_view;
 mod subagent_expiry;
 pub(crate) mod subagent_resume;
@@ -512,6 +515,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
+mod turn_cost;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -1266,6 +1270,9 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// How long a start that waits on its harness lets it do no work (`start_watch.rs`
+    /// `START_HUNG`; tests shorten it).
+    pub(super) start_hung: StdMutex<std::time::Duration>,
     /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
@@ -1747,6 +1754,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            start_hung: StdMutex::new(start_watch::START_HUNG),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
@@ -1931,6 +1939,12 @@ impl Hub {
     pub fn set_clock(&self, clock: Arc<dyn crate::clock::Clock>) {
         *self.clock.lock().unwrap() = clock;
         self.idle_wake.notify_one();
+    }
+
+    /// How long a start that waits on its harness (the person's, or one with `waitStart`) lets
+    /// the harness do no work before it ends the start (`start_watch.rs`; tests shorten it).
+    pub fn set_start_hung(&self, hung: std::time::Duration) {
+        *self.start_hung.lock().unwrap_or_else(|e| e.into_inner()) = hung;
     }
 
     /// How long an unused session harness lives; None keeps it forever.
