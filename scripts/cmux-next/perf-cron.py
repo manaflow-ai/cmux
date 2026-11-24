@@ -1464,8 +1464,32 @@ def part_order(state, todo, t):
             | set(state.get("part_rows") or {})
         seen = {part_for_row(n) for n in names}
         never = [n for n in never if n not in seen] + [n for n in never if n in seen]
-    first = never + [n for _, _, n in sorted(stale)]
+    # A part with no stored rows that ran and failed in the newest tip measurement goes after the stale ones: it would
+    # otherwise stay first in every measurement, since a failure stores nothing. On 2026-11-24 seven such Linux parts
+    # (coord-sim with no shapes file, web-ui-flat timing out, ...) were ahead of web-ui-god, whose rows were 2.6 days
+    # old and which two measurements in a row ended at their bound before reaching.
+    failing = ran_failed(state)
+    stale_names = [n for _, _, n in sorted(stale)]
+    first = [n for n in never if n not in failing] + stale_names + [n for n in never if n in failing]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+# A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
+# out after N s"), not a part that never ran.
+RAN_FAILED_WHY = re.compile(r"^[a-z0-9-]+( gen)?: (exit -?\d+|timed out after |.*No such file)")
+
+
+def ran_failed(state):
+    """The parts that ran and failed in the newest tip measurement (pure): its history entry's ran_failed, else for an
+    older entry the failed_why reasons that are a run's own failure (RAN_FAILED_WHY)."""
+    for entry in reversed(state.get("history") or []):
+        if not isinstance(entry, dict) or entry.get("kind") != "tip" or "failed_parts" not in entry:
+            continue
+        if isinstance(entry.get("ran_failed"), list):
+            return set(entry["ran_failed"])
+        why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+        return {n for n, w in why.items() if RAN_FAILED_WHY.match(str(w))}
+    return set()
 
 
 def measurement_id(cur):
@@ -3327,6 +3351,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
                   for n in failed}
     if failed_why:
         entry["failed_why"] = failed_why
+    # The parts that ran and failed (not those never run): part_order puts them after the stale parts next time.
+    entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -4740,6 +4766,10 @@ LINUX_REQUESTS_MAX = 2
 # Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
 # reaches the state through a result run or replay-results.
 LINUX_ANSWER_SLACK_MINUTES = 60
+# The Linux parts the controller never runs: cloud-claim reads the production Cloud journey's artifacts with the run's
+# own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
+# windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
+LINUX_RUNNER_ONLY = frozenset({"cloud-claim"})
 
 
 def linux_answer_minutes(part):
@@ -4751,7 +4781,7 @@ def linux_route(cur, part, t, controller, has_script):
     """Where this tick runs Linux part PART: 'request' (ask the build controller), 'wait' (a request is in its answer
     window: nothing else runs it) or 'runner' (the linux job). Keeps cur['linux_requests'][part]; record_part clears
     it. Without the controller route, or at a commit without LINUX_SCRIPT, always 'runner'."""
-    if not controller or not has_script:
+    if not controller or not has_script or part in LINUX_RUNNER_ONLY:
         return "runner"
     asks = cur.setdefault("linux_requests", {})
     ask = asks.get(part) if isinstance(asks.get(part), dict) else None
