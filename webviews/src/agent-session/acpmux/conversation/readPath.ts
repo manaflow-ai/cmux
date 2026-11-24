@@ -21,7 +21,19 @@ const failed = (tool: Tool) =>
 /// The one file `tool` read, as the call named it; undefined for any other call and for a failed read.
 /// A shell counts only once it finished without failing (until then it reads as the line that runs,
 /// #36940), and only a line whose named step is the whole of it (no `… &&` after the read).
+/// A call's snapshot never changes (an update makes a new one, as toolNames.ts `canonicalCall` reads it),
+/// and the transcript's layout and its tool rows both group a live turn's calls on every record that
+/// adds one (toolGroups.ts): each call's shell line is parsed once, not again per record.
 export function readPath(tool: Tool): string | undefined {
+  if (READ_PATH.has(tool)) return READ_PATH.get(tool);
+  const path = readPathOf(tool);
+  READ_PATH.set(tool, path);
+  return path;
+}
+
+const READ_PATH = new WeakMap<Tool, string | undefined>();
+
+function readPathOf(tool: Tool): string | undefined {
   if (tool.kind === "execute" && tool.command) return shellRead(tool, tool.command);
   const path = harnessRead(tool);
   // A harness's parse of a shell line that kept its variable (Codex's "Read $f" at `$f`, for `for f in

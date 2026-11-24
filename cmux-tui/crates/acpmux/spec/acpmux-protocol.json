@@ -223,6 +223,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/felt_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -553,6 +565,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/native_history",
       "params": {
         "$ref": "#/types/NativeHistoryParams"
@@ -651,9 +671,89 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompts_list",
+      "params": {
+        "$ref": "#/types/PromptsListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_save",
+      "params": {
+        "$ref": "#/types/PromptsSaveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_delete",
+      "params": {
+        "$ref": "#/types/PromptsDeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_list",
+      "params": {
+        "$ref": "#/types/StashListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_push",
+      "params": {
+        "$ref": "#/types/StashPushParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_get",
+      "params": {
+        "$ref": "#/types/StashGetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_drop",
+      "params": {
+        "$ref": "#/types/StashDropParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_move",
+      "params": {
+        "$ref": "#/types/StashMoveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_home",
+      "params": {
+        "$ref": "#/types/AgentHomeParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_home_resolve",
+      "params": {
+        "$ref": "#/types/AgentHomeResolveParams"
       },
       "result": true
     },
@@ -765,6 +865,12 @@
       "params": {
         "$ref": "#/types/ProcessKillParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/process/census",
+      "params": true,
       "result": true
     },
     {
@@ -925,6 +1031,18 @@
     {
       "kind": "request",
       "name": "_acpmux/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
       "params": true,
       "result": true
     },
@@ -1518,6 +1636,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_files_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/keys_mint",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true
@@ -1676,6 +1806,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_warm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -1721,6 +1857,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_base",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_begin",
       "params": true,
       "result": true
@@ -1728,6 +1870,18 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_commit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_end_stale",
       "params": true,
       "result": true
     },
@@ -1745,6 +1899,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_export",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_have",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_progress",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_read",
       "params": true,
       "result": true
@@ -1752,6 +1942,18 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_receive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_stage_finish",
       "params": true,
       "result": true
     },
@@ -2249,6 +2451,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/place_chat",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/move_targets",
       "params": {
         "$ref": "#/types/MoveTargetsParams"
@@ -2387,6 +2595,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_leave_if_auto",
       "params": true,
       "result": true
@@ -2478,6 +2698,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/chunk",
+      "params": {
+        "$ref": "#/types/ChunkDelta"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/message",
       "params": {
         "$ref": "#/types/MessageEvent"
@@ -2488,6 +2715,13 @@
       "name": "_acpmux/session_changed",
       "params": {
         "$ref": "#/types/SessionChanged"
+      }
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/session_patch",
+      "params": {
+        "$ref": "#/types/SessionPatch"
       }
     },
     {
@@ -2559,6 +2793,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2581,7 +2820,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2592,7 +2832,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "code": true,
-        "loginId": true
+        "loginId": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2604,7 +2845,8 @@
         },
         "account": true,
         "family": true,
-        "name": true
+        "name": true,
+        "sessionId": true
       },
       "type": "object"
     },
@@ -2623,6 +2865,7 @@
         "callerProtocol": true,
         "callerSession": true,
         "cancelToken": true,
+        "chunkDeltas": true,
         "class": true,
         "cliHost": true,
         "compression": true,
@@ -2644,6 +2887,7 @@
         "harness": true,
         "harnessFrom": true,
         "host": true,
+        "ifNameTaken": true,
         "inlineParts": true,
         "interrupt": true,
         "localAppToken": true,
@@ -2678,6 +2922,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionChangedDelta": true,
         "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
@@ -2707,6 +2952,28 @@
           "$ref": "#/types/RequestMeta"
         },
         "held": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
+    "AgentHomeResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "drop": true,
         "sessionId": true
       },
       "type": "object"
@@ -2862,6 +3129,43 @@
       },
       "type": "object"
     },
+    "ApprovedPlan": {
+      "description": "The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude\nCode's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The\npane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: \"plan pane\nthat stays during the build\"); a newer approval replaces it.",
+      "properties": {
+        "at": {
+          "description": "When it was approved, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edited": {
+          "description": "The person edited the plan before approving it.",
+          "type": "boolean"
+        },
+        "markdown": {
+          "description": "The plan as approved, Markdown: the person's edit when they made one.",
+          "type": "string"
+        },
+        "permissionId": {
+          "description": "The plan approval it answered.",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The chat's turn count when it was approved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "markdown",
+        "edited",
+        "permissionId",
+        "turn",
+        "at"
+      ],
+      "type": "object"
+    },
     "ApproverDecision": {
       "additionalProperties": false,
       "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
@@ -2959,6 +3263,13 @@
             "null"
           ]
         },
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -2966,6 +3277,13 @@
           "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "timeBreakdownVersion": {
+          "description": "The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier\nattach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`\nout (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3028,6 +3346,13 @@
         "session": {
           "$ref": "#/types/SessionDetail"
         },
+        "timeBreakdownVersion": {
+          "description": "The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.\nSent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy\nout of `session`. An older acpmux leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "turnOpener": {
           "anyOf": [
             {
@@ -3048,6 +3373,7 @@
         "presence",
         "readThrough",
         "session",
+        "timeBreakdownVersion",
         "turnOpener"
       ],
       "type": "object"
@@ -3259,6 +3585,37 @@
         "sessionId": true,
         "when": true
       },
+      "type": "object"
+    },
+    "ChunkDelta": {
+      "description": "`_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`\nrecord, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the\nlast `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's\nparams with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same\n`ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the\nclient does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).",
+      "properties": {
+        "dt": {
+          "description": "Unix ms since the frame before it of this `ref`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ref": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dt",
+        "ref",
+        "seq",
+        "text"
+      ],
       "type": "object"
     },
     "CoverageLabel": {
@@ -3659,8 +4016,15 @@
             "null"
           ]
         },
+        "mode": {
+          "description": "With `live`: the permission mode the fork starts in, one of the modes the chat's harness\nlists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
-          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "description": "The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the\nchat's own harness's (set before the reply, or the fork is refused and removed).",
           "type": [
             "string",
             "null"
@@ -3675,6 +4039,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagentId": {
+          "description": "With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's\nown conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`\nnames it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).\nA Claude Code or Codex chat only; a running subagent forks through its last settled step.\nCapability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "throughSeq": {
           "format": "uint64",
@@ -4568,6 +4939,13 @@
     },
     "MessageSender": {
       "properties": {
+        "displayName": {
+          "description": "The sender's given name (`session_handle.rs`), shown first: \"Mango · HOST/NAME\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "host": {
           "type": [
             "string",
@@ -5079,6 +5457,13 @@
     },
     "PermissionGroupItem": {
       "properties": {
+        "command": {
+          "description": "A shell call's command as the agent wrote it, without the line acpmux put before a\nsubagent's command to name its caller (`bg_hook::without_subagent_mark`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "permissionId": {
           "type": "string"
         },
@@ -5089,6 +5474,13 @@
         },
         "state": {
           "$ref": "#/types/PermissionItemState"
+        },
+        "summary": {
+          "description": "What the call does, in the agent's plain words (a shell call's `description`), for the\nrow in place of the command (Leo 2026-11-23: \"i also dont know why you asked me this\").",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5488,6 +5880,36 @@
         },
         "coachId": true,
         "sessionId": true
+      },
+      "type": "object"
+    },
+    "PromptsDeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true
+      },
+      "type": "object"
+    },
+    "PromptsListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "PromptsSaveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true,
+        "text": true
       },
       "type": "object"
     },
@@ -6299,6 +6721,15 @@
         "recordKind": {
           "type": "string"
         },
+        "rowSeq": {
+          "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):\nthis row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the\nchat applies to it (`server/session_patch.rs`). Absent for every other connection.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "seq": {
           "format": "uint64",
           "minimum": 0,
@@ -6331,6 +6762,17 @@
             "string",
             "null"
           ]
+        },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
         },
         "attached": {
           "description": "Attached clients.",
@@ -6366,6 +6808,10 @@
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -6381,6 +6827,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
@@ -6454,6 +6907,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -6935,7 +7399,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -7034,6 +7498,110 @@
       ],
       "type": "object"
     },
+    "SessionIcon": {
+      "description": "The icon clients draw for one chat.",
+      "oneOf": [
+        {
+          "description": "An agent mark id from design/agent-icons (`claude`, `gemini`, ...).",
+          "properties": {
+            "brand": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "brand",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "brand"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One emoji.",
+          "properties": {
+            "kind": {
+              "const": "emoji",
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SF Symbol; `text` and `hue` are the monogram a client that cannot draw it shows.",
+          "properties": {
+            "hue": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "symbol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "text",
+            "hue"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An SVG, PNG, ICO or JPEG, base64, so a page draws it with no file or network access.",
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "mime": {
+              "type": "string"
+            },
+            "source": {
+              "default": "session",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "mime",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SessionNewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7044,6 +7612,67 @@
         "cwd": true,
         "mcpServers": true
       },
+      "type": "object"
+    },
+    "SessionPatch": {
+      "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in\nplace of a `_acpmux/session_changed` once it holds the chat's row: only what changed\n(`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)\nof the row it holds at `baseRowSeq`, in which `{\"$splice\": [from, keep, items]}` stands for\nan array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.",
+      "properties": {
+        "baseRowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "As `session_changed`'s.",
+          "type": "string"
+        },
+        "listSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patch": true,
+        "peer": {
+          "description": "The peer a remote session runs on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qualifiedSessionId": {
+          "description": "A peer's chat: the id its row has here.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recordKind": {
+          "type": "string"
+        },
+        "rowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "patch",
+        "rowSeq",
+        "baseRowSeq",
+        "kind",
+        "recordKind",
+        "seq",
+        "listSeq"
+      ],
       "type": "object"
     },
     "SessionPromptParams": {
@@ -7113,6 +7742,17 @@
             "null"
           ]
         },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
+        },
         "attached": {
           "description": "Attached clients.",
           "format": "uint64",
@@ -7146,6 +7786,10 @@
           "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
+        "credentialOnlyHere": {
+          "description": "It holds its owner's launch credential (`agent_credentials.rs`) while its agent is\nhibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart\nnow loses it, and the chat's next start runs without it. `acpmux session wake` starts the\nagent, whose env then carries the credential across the restart; a machine update does that\nbefore it restarts this daemon. Says only that one is held, never its name or value. Absent\notherwise, and from an older acpmux.",
+          "type": "boolean"
+        },
         "currentModeId": {
           "type": [
             "string",
@@ -7161,6 +7805,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "displayName": {
+          "description": "The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,\nnotices, a message's sender): its handle when one was given (`acpmux rename @ Mango\n--handle`), absent otherwise (a derived handle is no name a person chose; show `name`).\nIts former names and handles are `formerNames` (\"Mango (fka claude-sr2-coord-old)\").",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "effort": {
           "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
@@ -7234,6 +7885,17 @@
         "hasDraft": {
           "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionIcon"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the\nharness mark."
         },
         "indicator": {
           "anyOf": [
@@ -7702,7 +8364,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -7947,6 +8609,62 @@
       },
       "type": "object"
     },
+    "StashDropParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true
+      },
+      "type": "object"
+    },
+    "StashMoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "to": true
+      },
+      "type": "object"
+    },
+    "StashPushParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "attachments": true,
+        "chat": true,
+        "replaces": true,
+        "text": true
+      },
+      "type": "object"
+    },
     "StatusParams": {
       "additionalProperties": false,
       "properties": {
@@ -7964,6 +8682,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,
@@ -8179,6 +8908,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "promptId": {
+          "description": "The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn\nby its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "startAt": {
           "format": "uint64",
@@ -8545,6 +9281,29 @@
             "null"
           ]
         },
+        "tokensByModel1h": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tokensByModelPreviousUtcHour": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tokens per call model in the completed UTC hour preceding the hour of updatedAt.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "updatedAt": {
           "description": "Unix ms of the read these come from.",
           "format": "uint64",
@@ -8567,6 +9326,8 @@
         "subagents24h",
         "subagentsLive",
         "tokens24h",
+        "tokensByModel1h",
+        "tokensByModelPreviousUtcHour",
         "updatedAt"
       ],
       "type": "object"

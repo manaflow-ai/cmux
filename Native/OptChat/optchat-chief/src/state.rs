@@ -652,6 +652,11 @@ pub struct PendingPermission {
     /// A disabled rollout retired this card; the same request must not reopen it.
     #[serde(default)]
     pub home_closed: bool,
+    /// The asking subagent's task as it read when the request came (its
+    /// title): the Home card says who asked. Kept with the request, so a
+    /// later rename never changes the card the owner acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_by: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {

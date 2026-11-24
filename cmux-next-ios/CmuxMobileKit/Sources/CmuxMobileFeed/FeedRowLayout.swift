@@ -37,6 +37,17 @@ struct FeedRowLayout: @unchecked Sendable {
     /// Reply is in the footer (`FeedItem.takesReply`), and whether it is disabled (a terminal reply on its way).
     let footerHasReply: Bool
     let footerReplyEnabled: Bool
+    /// The row is a stack's fold line: nothing above is drawn (`FeedFoldCell`).
+    var fold: Fold?
+
+    struct Fold {
+        var title: NSAttributedString
+        var titleFrame: CGRect
+        /// The disclosure chevron, centered under the avatars.
+        var chevron: CGRect
+        var expanded: Bool
+        var spoken: String
+    }
 
     struct Quote {
         var frame: CGRect
@@ -165,8 +176,36 @@ struct FeedRowLayout: @unchecked Sendable {
 
 extension FeedRowLayout {
     static func make(_ key: FeedRowKey, styles: NativeTextStyles, scale: CGFloat) -> FeedRowLayout {
+        if let fold = key.state.fold { return foldLine(key, fold, styles: styles, scale: scale) }
         var builder = FeedRowBuilder(key: key, styles: styles, scale: scale)
         return builder.build()
+    }
+
+    /// A stack's fold line: one line of secondary text in the rows' text column with a chevron under
+    /// the avatars, a 44 pt target (taller at the accessibility text sizes), then the rows' divider.
+    static func foldLine(_ key: FeedRowKey, _ fold: FeedFold, styles: NativeTextStyles, scale: CGFloat) -> FeedRowLayout {
+        let width = CGFloat(key.width), columnX: CGFloat = 16 + 40 + 12
+        let columnWidth = columnWidth(rowWidth: width)
+        let font = styles.font(.subheadline)
+        let line = ceil(font.lineHeight)
+        let height = max(44, line + 20)
+        let title = NSAttributedString(string: fold.title, attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+        let divider = 1 / max(scale, 1)
+        let agent = key.item.agentName
+        var layout = FeedRowLayout(
+            key: key, height: height + divider, dividerY: height,
+            column: CGRect(x: columnX, y: 0, width: columnWidth, height: height),
+            avatar: .zero, header: .zero, menuButton: .zero, quote: nil, chip: nil,
+            body: Body(content: .inline(NSAttributedString()), frame: .zero, fullHeight: 0, overflowing: false, showMore: nil),
+            answer: .none, error: nil, replies: nil, replySending: nil, replyFailure: nil, composer: nil, footer: .zero,
+            footerHasReply: false, footerReplyEnabled: false
+        )
+        layout.fold = Fold(
+            title: title, titleFrame: CGRect(x: columnX, y: (height - line) / 2, width: columnWidth, height: line),
+            chevron: CGRect(x: 16 + 20 - 10, y: height / 2 - 10, width: 20, height: 20), expanded: fold.expanded,
+            spoken: agent.isEmpty ? fold.title : "\(fold.title) from \(agent)"
+        )
+        return layout
     }
 
     /// The column's width for a row `width` points wide.

@@ -322,6 +322,15 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
                     row["entry"], _, row["variant"] = row["state"].partition("/")
                     out.append(row)
                     continue
+                if at_parent and row.get("commit") and (at_commit := text_at(row["commit"], f"webviews/{source}")) \
+                        and not _key(variant).search(at_commit):
+                    # The file names the variant nowhere, at its commit either: a generated name (settings.gallery.ts
+                    # makes one per Settings category in a loop), so its text cannot say the state is new. Render it
+                    # at the parent, where manifest() names it missing if that checkout has no such state
+                    # (personalization-sidebar, 2026-11-20, shipped with no before).
+                    row["entry"], _, row["variant"] = row["state"].partition("/")
+                    out.append(row)
+                    continue
                 missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
                                f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
                                "opens \"Before:\"")

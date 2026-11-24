@@ -238,6 +238,7 @@ pub(super) fn attach_surface(
             })?;
             let terminal = TerminalPublicId::parse(terminal)
                 .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+            mux.wake_lazy_terminal(&terminal);
             mux.resource_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
         }

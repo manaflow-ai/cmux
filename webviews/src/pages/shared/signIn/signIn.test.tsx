@@ -193,3 +193,12 @@ test("the adapter maps the daemon's reasons", () => {
     builtin: false,
   });
 });
+
+test("a finished sign-in is titled by its provider, and the paste field says what goes in it", async () => {
+  await draw(
+    <DeviceSignInCard family="codex" view={{ state: "signedIn", account: "you@example.com" }} {...handlers} />,
+  );
+  expect(document.body.querySelector(".signin-title")!.textContent).toBe("ChatGPT");
+  await draw(<DeviceSignInCard family="claude" view={SIGN_IN_STATES.paste} {...handlers} />);
+  expect(document.body.querySelector(".signin-paste-field")!.getAttribute("placeholder")).toBe("One-time code");
+});

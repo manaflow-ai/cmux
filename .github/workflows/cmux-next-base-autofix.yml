@@ -610,7 +610,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -715,7 +715,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
     timeout-minutes: 65
     permissions:
@@ -855,6 +855,8 @@ jobs:
         if: steps.areas.outputs.clippy == 'true' && steps.warm.outputs.linked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
@@ -1076,7 +1078,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs
@@ -1181,8 +1183,9 @@ jobs:
             fi
             echo "feat-cmux-next moved (attempt $attempt); re-applying on the new tip."
           done
-          echo "::error::feat-cmux-next kept moving; the next run pins it."
-          exit 1
+          # No red: each of those pushes started a run, and the newest pins it.
+          echo "::warning title=GhosttyKit pin::feat-cmux-next kept moving; the next run pins it."
+          exit 0
 
       # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
       # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;

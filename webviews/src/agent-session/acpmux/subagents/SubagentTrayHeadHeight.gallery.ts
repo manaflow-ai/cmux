@@ -7,6 +7,7 @@
 // baseline", with the kinds' icons, as before, to hover across. Compare the heights (28, 34, 40px)
 // with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -82,59 +83,61 @@ async function hoverNames(ctx: PlayContext, kind: string, name: string): Promise
   await ctx.waitFor(() => ctx.document.querySelector(selector)?.getAttribute("title")?.includes(name));
 }
 
-export default agentPaneEntry({
-  id: "agent-pane.subagent-tray-head-height",
-  title: "Running tray header kinds and height",
-  area: "Agent pane",
-  height: 360,
-  widths: { narrow: 360 },
-  anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
-  covers: [
-    "agent-session/acpmux/subagents/SubagentTray.tsx",
-    "agent-session/acpmux/subagents/trayHeadKinds.ts",
-    "agent-session/acpmux/subagents/trayHeadHeight.experiment.ts",
-  ],
-  experiment: {
-    definition: trayHeadHeightLook,
-    script: [{ name: "the folded header", run: folded }],
-  },
-  variants: {
-    before: {
-      note: "Before: the folded header named what runs at 28px, the look Leo found too short; the open header's counts showed only once opened.",
-      experiments: { "subagent-tray-fold-head": "one", "subagent-tray-head-height": "row" },
-      play: async (ctx) => {
-        await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__title"));
-        if (head(ctx)!.querySelector(".acpmux-running-tray__kind")) throw new Error("the before look drew kinds");
-      },
-      snapshot: leoTray,
+export default pinKindsHead(
+  agentPaneEntry({
+    id: "agent-pane.subagent-tray-head-height",
+    title: "Running tray header kinds and height",
+    area: "Agent pane",
+    height: 360,
+    widths: { narrow: 360 },
+    anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
+    covers: [
+      "agent-session/acpmux/subagents/SubagentTray.tsx",
+      "agent-session/acpmux/subagents/trayHeadKinds.ts",
+      "agent-session/acpmux/subagents/trayHeadHeight.experiment.ts",
+    ],
+    experiment: {
+      definition: trayHeadHeightLook,
+      script: [{ name: "the folded header", run: folded }],
     },
-    "leo-tray": {
-      note: "Leo's coordinator tray, folded: \"1 message · 1 wait\", each count after its kind's mark (the message's chat bubble, the wait's clock), then the time and the chevron. Hovering the wait names it.",
-      play: async (ctx) => {
-        await folded(ctx);
-        const read = kinds(ctx).join(" · ");
-        if (read !== "1 message · 1 wait") throw new Error(`unexpected header: ${read}`);
-        await hoverNames(ctx, "waits", "Wait for the PR checks");
+    variants: {
+      before: {
+        note: "Before: the folded header named what runs at 28px, the look Leo found too short; the open header's counts showed only once opened.",
+        experiments: { "subagent-tray-fold-head": "one", "subagent-tray-head-height": "row" },
+        play: async (ctx) => {
+          await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__title"));
+          if (head(ctx)!.querySelector(".acpmux-running-tray__kind")) throw new Error("the before look drew kinds");
+        },
+        snapshot: leoTray,
       },
-      snapshot: leoTray,
-    },
-    mixed: {
-      note: "A subagent (its harness mark in its tone), a message, a wait, a test run and a plain command, folded: one row of marks and counts.",
-      play: async (ctx) => {
-        await folded(ctx);
-        if (kinds(ctx).length !== 5) throw new Error(`expected five kinds, read ${kinds(ctx).join(" · ")}`);
+      "leo-tray": {
+        note: "Leo's coordinator tray, folded: \"1 message · 1 wait\", each count after its kind's mark (the message's chat bubble, the wait's clock), then the time and the chevron. Hovering the wait names it.",
+        play: async (ctx) => {
+          await folded(ctx);
+          const read = kinds(ctx).join(" · ");
+          if (read !== "1 message · 1 wait") throw new Error(`unexpected header: ${read}`);
+          await hoverNames(ctx, "waits", "Wait for the PR checks");
+        },
+        snapshot: leoTray,
       },
-      snapshot: mixed,
-    },
-    open: {
-      note: "Open, the header keeps the same marks and counts, so folding never changes what it says.",
-      play: async (ctx) => {
-        await folded(ctx);
-        await ctx.click({ selector: ".acpmux-running-tray__head" });
-        await ctx.waitFor(() => head(ctx)?.getAttribute("aria-expanded") === "true");
-        if (kinds(ctx).length !== 5) throw new Error(`expected five kinds open, read ${kinds(ctx).join(" · ")}`);
+      mixed: {
+        note: "A subagent (its harness mark in its tone), a message, a wait, a test run and a plain command, folded: one row of marks and counts.",
+        play: async (ctx) => {
+          await folded(ctx);
+          if (kinds(ctx).length !== 5) throw new Error(`expected five kinds, read ${kinds(ctx).join(" · ")}`);
+        },
+        snapshot: mixed,
       },
-      snapshot: mixed,
+      open: {
+        note: "Open, the header keeps the same marks and counts, so folding never changes what it says.",
+        play: async (ctx) => {
+          await folded(ctx);
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+          await ctx.waitFor(() => head(ctx)?.getAttribute("aria-expanded") === "true");
+          if (kinds(ctx).length !== 5) throw new Error(`expected five kinds open, read ${kinds(ctx).join(" · ")}`);
+        },
+        snapshot: mixed,
+      },
     },
-  },
-});
+  }),
+);

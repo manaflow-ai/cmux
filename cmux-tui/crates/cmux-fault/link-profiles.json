@@ -76,6 +76,14 @@
       "source": "Phone and Mac on one Wi-Fi 6 WLAN, direct path through the access point, no relay: two wireless hops (phone to AP, AP to Mac) on one channel. Rate: the 802.11ax PHY rate for 2 spatial streams, 80 MHz, MCS 11, 0.8 us GI (1201 Mbit/s, IEEE 802.11ax-2021), halved because the AP sends every packet again on the same channel (wiisfi.com, 'Understanding Wi-Fi 4/5/6/6E/7', relay through the AP), halved again for MAC and TCP overhead (a rule of thumb, not a measurement): 300 Mbit/s each way. RTT: 1 ms per AP-to-client hop each way (VDMA 'WLAN IEEE 802.11ax, Wi-Fi 6/6E' guide: typical 1 ms, RTT 2-20 ms), two hops each way: 4 ms. No jitter or loss: an idle home WLAN, the best case."
     },
     {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 80,
+      "source": "The phone away from home reaching the Mac through a relay (no direct path): 80 ms round trip, the mobile hill climb's relay row (coordinator ruling, 2026-11-22). Rates: the 'lte' row's 12 Mbit/s each way (the phone's cell link bounds the path). No jitter or loss, so the row isolates the round trip's cost; 'lte' carries the loss."
+    },
+    {
       "name": "internet-down-lan-up",
       "version": 1,
       "down_kbit": 300000,

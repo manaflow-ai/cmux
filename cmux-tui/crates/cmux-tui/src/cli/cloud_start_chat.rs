@@ -1370,7 +1370,11 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut progress = Progress::default();
     let mut timed = Timed::new(runner);
     let mut outcome = steps(&mut timed, request, deadline, &mut progress);
-    if deadline.passed(&mut timed) {
+    // Rollback follows a definitive refusal. Its receipt must survive a deadline crossed
+    // during deletion, rather than suggesting the caller retry on a machine we just deleted.
+    let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
+        if error.pointer("/details/cleanup").is_some());
+    if deadline.passed(&mut timed) && !rolled_back {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
@@ -1760,7 +1764,14 @@ fn steps(
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
-            return start_refused(error, &listed, request);
+            let refused = start_refused(error, &listed, request);
+            return fresh::release_refused(
+                runner,
+                fresh.as_deref(),
+                progress.made.as_deref(),
+                refused,
+                deadline,
+            );
         }
     };
     if at(&started, "pending").as_bool() == Some(true) {
