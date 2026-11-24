@@ -193,6 +193,15 @@ impl Lower {
         }
     }
 
+    /// Why file `id` is kept on the Mac, when it is (the full manifest's record once extended).
+    #[must_use]
+    pub fn kept(&self, id: u32) -> Option<&str> {
+        match self.ext.get() {
+            Some(ext) => ext.full.kept(ext_index(ext, id)?),
+            None => self.head.kept(id),
+        }
+    }
+
     /// The id of the folder holding `id` ([`ROOT`] for the folder itself).
     #[must_use]
     pub fn parent(&self, id: u32) -> Option<u32> {
