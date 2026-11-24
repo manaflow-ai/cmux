@@ -369,6 +369,7 @@ impl Keeper {
                 session_id: uuid::Uuid::new_v4().to_string(),
                 payload: SignalPayload::WgResumed { ticket },
                 from_user_id: self.from_user_id.clone(),
+                relay_ticket: None,
             },
             events,
         };
