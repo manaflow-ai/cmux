@@ -25,7 +25,11 @@
 # route 0, route 1. Each trial then deletes the client's route-last-good.json (a first launch)
 # and times `cmux remote connect --headless` from spawn to the first line it prints, which it
 # prints once the session is connected (`runtime.info()`, after the Noise handshake and every
-# lane is ready).
+# lane is ready). A third arm, `floor`, makes route 0 healthy (shaped exactly like route 1, race on) so
+# connect cost alone shows. Per-phase split: the client logs none, so each trial is captured with
+# tcpdump in the client namespace: spawn -> first SYN (process start + route setup), first SYN ->
+# the winner's SYN-ACK (TCP up), SYN-ACK -> connected (WebSocket upgrade + Noise + lane setup).
+# ARMS="on off floor" selects arms.
 set -euo pipefail
 
 if [ "$(id -u)" != 0 ]; then
@@ -128,10 +132,20 @@ grep -q "10.77.0.2" "$work/known.txt" && grep -q "10.77.0.3" "$work/known.txt" |
 shape rrb-c rrb-vc dst 10.77.0.2 10.77.0.3
 # The daemon's replies leave from 10.77.0.3, so its egress matches on source.
 shape rrb-d rrb-vd src "" 10.77.0.3
+# Route 0's replies get the same shaping, used only by the floor arm (the client's egress drops it otherwise).
+ip netns exec rrb-d tc filter add dev rrb-vd parent 1: protocol ip prio 3 u32 match ip src 10.77.0.2/32 flowid 1:3
+set_route0() { # hole|shaped
+  if [ "$1" = hole ]; then
+    nc_ tc qdisc change dev rrb-vc parent 1:2 handle 20: netem loss 100%
+  else
+    nc_ tc qdisc change dev rrb-vc parent 1:2 handle 20: netem delay "${half}ms" loss "${loss}%" limit 100000
+  fi
+}
 
 # ---- trials ---------------------------------------------------------------------------------
 export BENCH_BIN="$bin" BENCH_CSTATE="$cstate" BENCH_CHOME="$ch" BENCH_TIMEOUT="$timeout_s"
-trial() { # ARM(on|off) -> ms, or "FAIL"
+trial() { # ARM(on|off|floor) -> "ms spawn_to_syn syn_to_synack synack_to_connected" or "FAIL"
+  if [ "$1" = floor ]; then set_route0 shaped; else set_route0 hole; fi
   nc_ python3 - "$1" <<'PY'
 import os, signal, subprocess, sys, time
 arm = sys.argv[1]
@@ -146,6 +160,10 @@ env = dict(os.environ, HOME=os.environ["BENCH_CHOME"],
 env.pop("CMUX_REMOTE_ROUTE_RACE", None)
 if arm == "off":
     env["CMUX_REMOTE_ROUTE_RACE"] = "0"
+cap = subprocess.Popen(["tcpdump", "-i", "any", "-tt", "-n", "-l", "-Q", "inout", "tcp", "port", "47931"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+time.sleep(0.4)
+w0 = time.time()
 t0 = time.monotonic()
 p = subprocess.Popen([os.environ["BENCH_BIN"], "remote", "connect", "--headless",
                       "--state-dir", state],
@@ -155,6 +173,7 @@ import select
 ready, _, _ = select.select([p.stdout], [], [], float(os.environ["BENCH_TIMEOUT"]))
 line = p.stdout.readline() if ready else b""
 dt = (time.monotonic() - t0) * 1000
+wend = w0 + dt / 1000
 try:
     os.killpg(p.pid, signal.SIGTERM)
 except ProcessLookupError:
@@ -164,18 +183,37 @@ try:
 except subprocess.TimeoutExpired:
     os.killpg(p.pid, signal.SIGKILL)
     p.wait()
-print(f"{dt:.0f}" if line.strip() else "FAIL")
+cap.terminate()
+out = cap.stdout.read()
+syn = synack = None
+for l in out.splitlines():
+    f = l.split()
+    if len(f) < 7 or "Flags" not in l:
+        continue
+    ts = float(f[0])
+    if "Flags [S]," in l and syn is None:
+        syn = ts
+    if "Flags [S.]," in l and synack is None:
+        synack = ts
+if line.strip() and syn and synack:
+    print(f"{dt:.0f} {(syn - w0) * 1000:.0f} {(synack - syn) * 1000:.0f} {(wend - synack) * 1000:.0f}")
+elif line.strip():
+    print(f"{dt:.0f} - - -")
+else:
+    print("FAIL")
 PY
 }
 
 results="$work/results.tsv"
 : >"$results"
 for i in $(seq 1 "$runs"); do
-  if [ $((i % 2)) = 1 ]; then order="on off"; else order="off on"; fi
-  for arm in $order; do
+  read -ra order <<<"${ARMS:-on off floor}"
+  # rotate the arm order each run so no arm always goes first
+  for ((k=0; k<${#order[@]}; k++)); do
+    arm=${order[$(( (k + i) % ${#order[@]} ))]}
     ms=$(trial "$arm")
-    printf '%s\t%s\t%s\n' "$arm" "$i" "$ms" >>"$results"
-    echo "run $i race=$arm connect_ms=$ms" >&2
+    printf '%s\t%s\t%s\n' "$arm" "$i" "${ms// /\t}" >>"$results"
+    echo "run $i arm=$arm connect_ms,spawn>syn,syn>synack,synack>connected=$ms" >&2
   done
 done
 
@@ -188,13 +226,17 @@ def pct(v, q):
     k = (len(v) - 1) * q
     lo = int(k); hi = min(lo + 1, len(v) - 1)
     return v[lo] + (v[hi] - v[lo]) * (k - lo)
-print(f"route 0 black-holed (netem loss 100%), route 1 {rtt} ms RTT / {loss}% loss; first launch, no last-good memory; N={runs} per arm")
-print(f"{'arm':<26}{'N':>3}{'ok':>4}{'min':>7}{'p50':>7}{'p95':>7}{'max':>7}  (ms to first attach)")
-for arm, name in (("on", "race on (default)"), ("off", "CMUX_REMOTE_ROUTE_RACE=0")):
-    v = [float(r[2]) for r in rows if r[0] == arm and r[2] != "FAIL"]
-    n = sum(1 for r in rows if r[0] == arm)
+print(f"route 0 black-holed (netem loss 100%) except the floor arm (route 0 shaped like route 1); route 1 {rtt} ms RTT / {loss}% loss; first launch, no last-good memory; N={runs} per arm")
+print(f"{'arm':<28}{'N':>3}{'ok':>4}{'min':>7}{'p50':>7}{'p95':>7}{'max':>7}   p50 phases ms: spawn>SYN  SYN>SYNACK  SYNACK>connected")
+for arm, name in (("on", "race on (default)"), ("off", "CMUX_REMOTE_ROUTE_RACE=0"), ("floor", "floor: route 0 healthy, race")):
+    sel = [r for r in rows if r[0] == arm]
+    if not sel:
+        continue
+    v = [float(r[2]) for r in sel if r[2] != "FAIL"]
+    ph = [[float(x) for x in r[3:6]] for r in sel if r[2] != "FAIL" and len(r) > 5 and r[3] != "-"]
+    phs = "  ".join(f"{pct([p[i] for p in ph], .5):>9.0f}" for i in range(3)) if ph else "-"
     if v:
-        print(f"{name:<26}{n:>3}{len(v):>4}{min(v):>7.0f}{pct(v,.5):>7.0f}{pct(v,.95):>7.0f}{max(v):>7.0f}")
+        print(f"{name:<28}{len(sel):>3}{len(v):>4}{min(v):>7.0f}{pct(v,.5):>7.0f}{pct(v,.95):>7.0f}{max(v):>7.0f}   {phs}")
     else:
-        print(f"{name:<26}{n:>3}{0:>4}{'-':>7}{'-':>7}{'-':>7}{'-':>7}")
+        print(f"{name:<28}{len(sel):>3}{0:>4}")
 PY
