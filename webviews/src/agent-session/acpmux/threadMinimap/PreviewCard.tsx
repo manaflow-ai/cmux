@@ -268,45 +268,66 @@ export const PreviewCard = React.forwardRef<
   }
   /// The content the card was last placed for: a card for another row centers again on its row.
   const placedFor = useRef<readonly unknown[]>([]);
-  /// A place asked for by a commit that changed nothing the card shows: the token of the one pending
-  /// read after the next paint, 0 when none waits. A newer place (or unmount) clears it.
-  const placeAfterPaint = useRef(0);
+  /// The one place a commit asked for, waiting: in the next frame's animation callbacks (before it
+  /// paints) or right after it paints. 0 when none waits; a newer place or unmount clears it.
+  const placeLater = useRef<{ token: number; frame: number; beforePaint: boolean }>({
+    token: 0,
+    frame: 0,
+    beforePaint: false,
+  });
   const placeTokens = useRef(0);
-  // After every commit on purpose: the rail can move under the card with any render.
+  const placeSoon = useCallback(
+    (beforePaint: boolean) => {
+      const waiting = placeLater.current;
+      if (waiting.token !== 0 && (waiting.beforePaint || !beforePaint)) return;
+      if (waiting.token !== 0) cancelAnimationFrame(waiting.frame);
+      const token = ++placeTokens.current;
+      const run = () => {
+        if (placeLater.current.token !== token) return;
+        placeLater.current = { token: 0, frame: 0, beforePaint: false };
+        place();
+      };
+      placeLater.current = {
+        token,
+        beforePaint,
+        frame: requestAnimationFrame(beforePaint ? run : () => setTimeout(run, 0)),
+      };
+    },
+    [place],
+  );
+  // After every commit on purpose: the rail can move under the card with any render. Only a card
+  // that opens is placed in the commit. A rail click's transcript commits many times a frame (pages
+  // arriving, rows mounting), and each moved the rail under the resting pointer, so the open card
+  // showed another turn, and each placed it here: a forced layout of the freshly mounted transcript
+  // per commit, the largest single cost of the click (40 to 145 ms of a 160 to 450 ms click). An open
+  // card that shows another turn is placed once in the next frame, before it paints; one that shows
+  // the same turn once right after the paint, when the read costs nothing.
   useLayoutEffect(() => {
     const node = self.current;
     if (!node) return;
-    const now = [metadata?.failure, metadata?.failed, prompt, from, reply, row];
-    if (
-      now.length !== placedFor.current.length ||
-      !now.every((value, index) => Object.is(value, placedFor.current[index]))
-    ) {
-      // A card that opens or moves to another row is placed before this paint.
-      placedFor.current = now;
-      openTop.current = undefined;
-      placeAfterPaint.current = 0;
-      place();
+    // The reply by its words, not its array: the rail rebuilds its turns (every reply array) with
+    // each page the transcript loads. It is the arm's few clamped lines, cheap to compare.
+    const now = [metadata?.failure, metadata?.failed, prompt, from, JSON.stringify(reply), row];
+    const opening = placedFor.current.length === 0;
+    if (!opening && now.every((value, index) => Object.is(value, placedFor.current[index]))) {
+      placeSoon(false);
       return;
     }
-    // Any other commit (the transcript loading pages and mounting rows under an open card, many
-    // commits a frame on a rail click) places it once, right after the next paint, when layout is
-    // clean and the read costs nothing. Read here or in the frame's animation callbacks, it forced a
-    // layout of the whole freshly mounted transcript before the transcript's own writes laid it out
-    // again: the largest single cost of a rail click (40 to 145 ms of a 160 to 450 ms click).
-    if (placeAfterPaint.current !== 0) return;
-    const token = ++placeTokens.current;
-    placeAfterPaint.current = token;
-    requestAnimationFrame(() =>
-      setTimeout(() => {
-        if (placeAfterPaint.current !== token) return;
-        placeAfterPaint.current = 0;
-        place();
-      }, 0),
-    );
+    // Another turn centers again on its row.
+    placedFor.current = now;
+    openTop.current = undefined;
+    if (!opening) {
+      placeSoon(true);
+      return;
+    }
+    if (placeLater.current.token !== 0) cancelAnimationFrame(placeLater.current.frame);
+    placeLater.current = { token: 0, frame: 0, beforePaint: false };
+    place();
   });
   useLayoutEffect(
     () => () => {
-      placeAfterPaint.current = 0;
+      cancelAnimationFrame(placeLater.current.frame);
+      placeLater.current = { token: 0, frame: 0, beforePaint: false };
     },
     [],
   );
