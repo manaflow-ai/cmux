@@ -139,6 +139,54 @@ struct AgentNotificationReconcilerTests {
         )
     }
 
+    /// #49646: a second session's start and end on the pane must not mute the
+    /// pane's live agent, live or after replaying the same journal.
+    @Test func supersededSessionNotifiesAgainAfterTheSupersedingSessionEnds() {
+        let events = [
+            event(1, .turnStarted, source: "claude", session: "A", notify: false),
+            event(2, .turnCompleted, source: "claude", session: "A"),
+            event(3, .sessionStarted, source: "claude", session: "B", turn: nil, notify: false),
+            event(4, .sessionEnded, source: "claude", session: "B", turn: nil, notify: false),
+            event(5, .turnStarted, source: "claude", session: "A", turn: "turn-2", notify: false),
+            event(6, .questionRequested, source: "claude", session: "A", turn: "turn-2", request: "q"),
+            event(7, .turnCompleted, source: "claude", session: "A", turn: "turn-2"),
+        ]
+        var live = AgentNotificationReconciler()
+        let liveDecisions = events.map { live.apply($0) }
+        #expect(liveDecisions[1].disposition == .accepted)
+        #expect(liveDecisions[5].disposition == .accepted)
+        #expect(liveDecisions[6].disposition == .accepted)
+
+        var replay = AgentNotificationReconciler()
+        let replayDecisions = events.map { replay.apply($0) }
+        #expect(replayDecisions.map(\.disposition) == liveDecisions.map(\.disposition))
+    }
+
+    /// #49646: a superseded session that starts again (`claude --resume`) after
+    /// the start that replaced it owns the pane again; a delayed start from
+    /// before the replacement stays stale.
+    @Test func freshStartFromASupersededSessionRevivesIt() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: "claude", session: "A", notify: false, occurredAt: 10))
+        _ = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "B", turn: nil,
+                                   notify: false, occurredAt: 20))
+        let delayed = reconciler.apply(event(3, .sessionStarted, source: "claude", session: "A", turn: nil,
+                                             notify: false, occurredAt: 15))
+        #expect(delayed.disposition == .stale)
+        #expect(reconciler.apply(event(4, .errorReported, source: "claude", session: "B", occurredAt: 25))
+            .disposition == .accepted)
+
+        let resumed = reconciler.apply(event(5, .sessionStarted, source: "claude", session: "A", turn: nil,
+                                             notify: false, occurredAt: 30))
+        #expect(resumed.disposition != .stale)
+        _ = reconciler.apply(event(6, .turnStarted, source: "claude", session: "A", turn: "turn-2",
+                                   notify: false, occurredAt: 31))
+        #expect(reconciler.apply(event(7, .turnCompleted, source: "claude", session: "A", turn: "turn-2",
+                                       occurredAt: 32)).disposition == .accepted)
+        #expect(reconciler.apply(event(8, .errorReported, source: "claude", session: "B", occurredAt: 33))
+            .disposition == .stale)
+    }
+
     @Test func sessionStartOnSiblingSurfacePreservesTheOtherSurfaceSession() throws {
         var reconciler = AgentNotificationReconciler()
         let sibling = UUID().uuidString
