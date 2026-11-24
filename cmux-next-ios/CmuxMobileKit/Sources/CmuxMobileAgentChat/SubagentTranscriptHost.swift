@@ -22,7 +22,9 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
     /// Within this of the end counts as on it (a fling that stops just short while a row lands).
     static let endBand: CGFloat = 60
 
-    init(store: AgentChatStore, subagentID: String, probe: FollowProbe? = nil) {
+    /// `windowed`: the open shows the rows where it opens and grows a chunk a frame (off: every
+    /// row at once, as tests compare against).
+    init(store: AgentChatStore, subagentID: String, probe: FollowProbe? = nil, windowed: Bool = true) {
         let source = ChatTranscriptSource.subagent(subagentID, store: store)
         let running = { source.runningTurn() != nil }
         self.running = running
@@ -36,7 +38,7 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         follow = SubagentFollow(follows: running())
         // The open shows the rows where it opens; the rest come a chunk a frame (`fill`).
         source.window?.atEnd = running()
-        source.window?.enabled = true
+        source.window?.enabled = windowed
         super.init(nibName: nil, bundle: nil)
         list.scrollDelegate = self
         // A finished transcript opens at its top: its newest rows are not primed on the main thread.

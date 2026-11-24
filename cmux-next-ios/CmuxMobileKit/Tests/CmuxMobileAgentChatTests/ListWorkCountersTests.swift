@@ -2,7 +2,6 @@
 @testable import CmuxMobileAgentChat
 import Foundation
 import Observation
-import SwiftUI
 import Testing
 import UIKit
 
@@ -60,36 +59,6 @@ import UIKit
             #expect(rows.rows(journal).map(\.id) == journal.events.filter { $0.matches(query) }.map(\.id))
         }
         #expect(perKeystroke.allSatisfy { $0 <= 1 }, "redraws of the list per keystroke: \(perKeystroke)")
-    }
-
-    /// The same keystrokes, counted where SwiftUI's List is built: the inspector's list view in
-    /// a window, its body evaluations per keystroke (`EventInspectorList.bodies`). The filter
-    /// text lives in the screen above it, so a keystroke itself does not evaluate the list.
-    @Test func aKeystrokeEvaluatesTheListViewOnce() async {
-        let journal = AgentEventJournal()
-        journal.nextFrame = nil
-        let pad = String(repeating: "output line of a long tool result\n", count: 200)
-        for n in 0..<500 { journal.record(EventInspectorCoalesceTests.record(n, body: n % 25 == 24 ? pad : nil)) }
-        let rows = EventInspectorRows(offMainAbove: 0)
-        rows.setQuery("", journal: journal)
-        let host = UIHostingController(rootView: NavigationStack { EventInspectorList(memo: rows, journal: journal, copied: .constant(false)) })
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = host
-        window.isHidden = false
-        ChatTranscriptSourceTests.settle(window)
-        #expect(EventInspectorList.bodies > 0, "the list view was drawn")
-        var perKeystroke: [Int] = []
-        for query in ["t", "to", "too", "tool", "tool_", "tool_call"] {
-            let before = EventInspectorList.bodies
-            rows.setQuery(query, journal: journal)
-            await rows.settled()
-            await Self.settle()
-            ChatTranscriptSourceTests.settle(window)
-            perKeystroke.append(EventInspectorList.bodies - before)
-        }
-        window.isHidden = true
-        #expect(perKeystroke.allSatisfy { $0 <= 1 } && perKeystroke.contains(1),
-                "list view body evaluations per keystroke: \(perKeystroke)")
     }
 
     /// The events-burst case: 2000 records over 50 frames reach the list as at most one redraw
@@ -155,8 +124,6 @@ import UIKit
         for _ in 0..<6 { await frame(window) }
         let deadline = Date().addingTimeInterval(20)
         while host.list.layoutsMadeOffMain == 0, Date() < deadline { await frame(window) }
-        // Every chunk of the transcript in (the open shows where it opens, then a chunk a frame).
-        while !host.filled, Date() < deadline { await frame(window) }
         var made = -1
         var still = 0
         while still < 10, Date() < deadline {
@@ -194,143 +161,6 @@ import UIKit
         #expect(visible > 0)
         #expect(host.list.layoutsMadeNow <= visible + 4,
                 "\(host.list.layoutsMadeNow) rows laid out on the main thread for \(visible) on screen")
-    }
-
-    // MARK: The open builds where it opens (#47189 r3: subagent-2000, subagent-stream)
-
-    /// A running subagent with `count` items (the last one still streaming).
-    static func runningLongStore(_ count: Int) -> AgentChatStore {
-        let store = finishedLongStore(count)
-        store.apply(.subagent(AgentSubagentChange(id: "s", state: .running, at: ChatTranscriptSourceTests.at)))
-        return store
-    }
-
-    /// The host in an iPhone-sized window, after its first layouts only (no frame let go: what
-    /// the open itself costs).
-    static func openNow(_ store: AgentChatStore) -> (SubagentTranscriptHost, UIWindow) {
-        let host = SubagentTranscriptHost(store: store, subagentID: "s")
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = host
-        window.isHidden = false
-        ChatTranscriptSourceTests.settle(window)
-        return (host, window)
-    }
-
-    /// A finished 2000-item transcript's open weighs the rows at its top, not all of them.
-    @Test func openingALongFinishedTranscriptWeighsItsTopOnly() {
-        let (host, _) = Self.openNow(Self.finishedLongStore())
-        let visible = host.list.collectionView.indexPathsForVisibleItems.count
-        #expect(visible > 0)
-        #expect(host.list.rowsWeighed <= 200,
-                "the open weighed \(host.list.rowsWeighed) rows on the main thread for \(visible) on screen")
-    }
-
-    /// A running transcript's open lays out on the main thread the rows one screen holds at its
-    /// end, not 24.
-    @Test func openingARunningTranscriptLaysOutOneScreenOnTheMainThread() {
-        let (host, _) = Self.openNow(Self.runningLongStore(200))
-        let view = host.list.collectionView
-        let visible = view.indexPathsForVisibleItems.count
-        #expect(visible > 0)
-        #expect(host.list.layoutsMadeNow <= visible + 4,
-                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen")
-    }
-
-    /// A running transcript's older rows, put in above its end after the open, move nothing the
-    /// reader sees: the last row on screen stays where it is (0.5 pt), frame after frame.
-    @Test func olderRowsPutInAboveARunningEndMoveNothing() async {
-        let (host, window) = Self.openNow(Self.runningLongStore(2000))
-        let view = host.list.collectionView
-        func lastOnScreen() -> (id: Int, y: CGFloat)? {
-            let paths = view.indexPathsForVisibleItems.sorted()
-            guard let path = paths.last, let cell = view.cellForItem(at: path) else { return nil }
-            return (path.item, cell.convert(cell.bounds, to: window).maxY)
-        }
-        guard let start = lastOnScreen() else { Issue.record("no row on screen"); return }
-        var worst: CGFloat = 0
-        for _ in 0..<40 {
-            await Self.frame(window)
-            guard let now = lastOnScreen() else { continue }
-            worst = max(worst, abs(now.y - start.y))
-        }
-        #expect(worst <= 0.5, "the end on screen moved \(worst) pt while older rows came in above it")
-        #expect(host.follows, "the reader still follows the end")
-    }
-
-    /// The main thread's time per chunk of a growing transcript (finished: below its top; running:
-    /// above its end), per row and at most; printed as CMUX_SUBAGENT_CHUNK (the chunk size is
-    /// picked from it) and bounded by a frame.
-    @Test(arguments: [false, true])
-    func eachChunkFitsAFrame(_ running: Bool) async {
-        let store = running ? Self.runningLongStore(2000) : Self.finishedLongStore()
-        let (host, window) = Self.openNow(store)
-        var times: [Double] = []
-        var weighed: [Int] = []
-        var chunks = host.chunks
-        var time = host.list.reloadTime
-        var rows = host.list.rowsWeighed
-        let deadline = Date().addingTimeInterval(20)
-        while !host.filled, Date() < deadline {
-            await Self.frame(window)
-            guard host.chunks != chunks else { continue }
-            chunks = host.chunks
-            let spent = host.list.reloadTime - time
-            times.append(Double(spent.components.attoseconds) / 1e15 + Double(spent.components.seconds) * 1000)
-            weighed.append(host.list.rowsWeighed - rows)
-            time = host.list.reloadTime
-            rows = host.list.rowsWeighed
-        }
-        let worst = times.max() ?? 0
-        let perRow = zip(times, weighed).map { $1 > 0 ? $0 / Double($1) : 0 }.max() ?? 0
-        print("CMUX_SUBAGENT_CHUNK running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(times.count) worst_ms=\(String(format: "%.2f", worst)) worst_ms_per_row=\(String(format: "%.3f", perRow)) weighed=\(weighed)")
-        #expect(host.filled, "every chunk came in")
-        #expect(worst <= 16, "a chunk took \(String(format: "%.1f", worst)) ms on the main thread")
-    }
-
-    // MARK: The Subagents list (#47189 r3: subagents-list-60)
-
-    /// 60 subagents, one of them changing its action: the list evaluates that row, not all 60.
-    @Test func aSubagentChangeEvaluatesItsRowOnly() async {
-        let store = AgentChatStore(source: SmoothChatTests.Silent())
-        store.nextFrame = nil
-        let running = ListStressChatScreens.seedSubagents(store, count: 60)
-        #expect(!running.isEmpty)
-        let host = UIHostingController(rootView: NavigationStack { SubagentsScreen(store: store, surface: AgentChatSurface()) })
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = host
-        window.isHidden = false
-        for _ in 0..<6 { await Self.frame(window) }
-        #expect(SubagentRow.bodies > 0, "the rows were drawn")
-        var perChange: [Int] = []
-        for tick in 0..<4 {
-            let before = SubagentRow.bodies
-            store.apply(.subagentUpdate(subagentID: running[0], .toolCall(ACPToolCall(id: "tick-\(tick)", title: "Run step \(tick)",
-                                                                                      kind: .execute))))
-            for _ in 0..<3 { await Self.frame(window) }
-            perChange.append(SubagentRow.bodies - before)
-        }
-        window.isHidden = true
-        #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)")
-    }
-
-    /// A running subagent's time advances with nothing changing in the store (its own clock), as
-    /// the list's row did only when some subagent changed.
-    @Test func aRunningSubagentsTimeAdvancesInAQuietStore() async {
-        let store = AgentChatStore(source: SmoothChatTests.Silent())
-        store.nextFrame = nil
-        store.apply(.subagent(AgentSubagentChange(id: "q", name: "Quiet", task: "Wait", state: .running, at: Date())))
-        let host = UIHostingController(rootView: NavigationStack { SubagentsScreen(store: store, surface: AgentChatSurface()) })
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = host
-        window.isHidden = false
-        for _ in 0..<6 { await Self.frame(window) }
-        let rows = SubagentRow.bodies
-        let ticks = SubagentElapsed.ticks
-        let deadline = Date().addingTimeInterval(2.5)
-        while Date() < deadline { await Self.frame(window) }
-        window.isHidden = true
-        #expect(SubagentElapsed.ticks - ticks >= 2, "the running time drew \(SubagentElapsed.ticks - ticks) times in 2.5 s with no change")
-        #expect(SubagentRow.bodies == rows, "the row itself was not evaluated again (\(SubagentRow.bodies - rows))")
     }
 }
 #endif

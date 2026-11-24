@@ -33,10 +33,8 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
     /// Cells measured (a height the cache did not have).
     private(set) var sizingPasses = 0
     #if DEBUG
-    /// Applies by every inspector list (tests that host the SwiftUI screen).
-    static var allApplies = 0
-    /// How many rows the last apply by any inspector list changed.
-    static var lastAnyChanged = 0
+    /// The hosting test's counters (`renderProbe`).
+    var probe: RenderProbe?
     #endif
 
     override init() {
@@ -101,8 +99,8 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
         shownIDs = ids
         applies += 1
         #if DEBUG
-        Self.allApplies += 1
-        Self.lastAnyChanged = lastChanged.count
+        probe?.inspectorApplies += 1
+        probe?.inspectorLastChanged = lastChanged.count
         #endif
         dataSource.apply(snapshot, animatingDifferences: false)
     }
@@ -226,6 +224,9 @@ struct EventInspectorCollectionView: UIViewRepresentable {
 
     func updateUIView(_ view: UICollectionView, context: Context) {
         let coordinator = context.coordinator
+        #if DEBUG
+        coordinator.list.probe = context.environment.renderProbe
+        #endif
         coordinator.list.open = open
         coordinator.list.away = away
         coordinator.counts = (shown, total, dropped)

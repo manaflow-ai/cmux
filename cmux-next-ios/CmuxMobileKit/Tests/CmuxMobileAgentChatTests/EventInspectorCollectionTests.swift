@@ -9,7 +9,7 @@ import UIKit
 /// batch): an update is one apply of the rows that changed, and a row measured once is not
 /// measured again.
 @MainActor
-@Suite struct EventInspectorCollectionTests {
+@Suite(.serialized) struct EventInspectorCollectionTests {
     static func journal(_ count: Int, from start: Int = 0) -> AgentEventJournal {
         let journal = AgentEventJournal()
         journal.nextFrame = nil
@@ -102,9 +102,10 @@ import UIKit
         await frames.fire()
         let rows = EventInspectorRows(offMainAbove: .max)
         rows.setQuery("", journal: journal)
+        let probe = RenderProbe()
         let host = UIHostingController(rootView: NavigationStack {
             EventInspectorList(memo: rows, journal: journal, copied: .constant(false))
-        })
+        }.environment(\.renderProbe, probe))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         window.rootViewController = host
         window.isHidden = false
@@ -113,11 +114,11 @@ import UIKit
         var changed: [Int] = []
         for frame in 0..<50 {
             for n in 0..<40 { journal.record(EventInspectorCoalesceTests.record(500 + frame * 40 + n)) }
-            let before = EventInspectorCollection.allApplies
+            let before = probe.inspectorApplies
             await frames.fire()
             await ListWorkCountersTests.frame(window)
-            perFrame.append(EventInspectorCollection.allApplies - before)
-            if EventInspectorCollection.allApplies > before { changed.append(EventInspectorCollection.lastAnyChanged) }
+            perFrame.append(probe.inspectorApplies - before)
+            if probe.inspectorApplies > before { changed.append(probe.inspectorLastChanged) }
         }
         window.isHidden = true
         #expect(perFrame.allSatisfy { $0 <= 1 }, "applies per frame: \(perFrame)")

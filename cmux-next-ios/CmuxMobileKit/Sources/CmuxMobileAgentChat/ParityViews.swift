@@ -207,7 +207,7 @@ struct SubagentElapsed: View {
     let endedAt: Date?
     #if DEBUG
     /// The running clock's draws (tests: it ticks with no change to the store).
-    static var ticks = 0
+    @Environment(\.renderProbe) private var probe
     #endif
 
     var body: some View {
@@ -216,7 +216,7 @@ struct SubagentElapsed: View {
         } else {
             TimelineView(.periodic(from: startedAt, by: 1)) { context in
                 #if DEBUG
-                let _ = Self.ticks += 1
+                let _ = probe.map { $0.subagentClockTicks += 1 }
                 #endif
                 label(context.date)
             }
@@ -239,12 +239,12 @@ struct SubagentRow: View {
     let depth: Int
     #if DEBUG
     /// Body evaluations (tests: per change, the changed rows only).
-    static var bodies = 0
+    @Environment(\.renderProbe) private var probe
     #endif
 
     var body: some View {
         #if DEBUG
-        let _ = Self.bodies += 1
+        let _ = probe.map { $0.subagentRowBodies += 1 }
         #endif
         HStack(spacing: 12) {
             SubagentStateGlyph(state: state)

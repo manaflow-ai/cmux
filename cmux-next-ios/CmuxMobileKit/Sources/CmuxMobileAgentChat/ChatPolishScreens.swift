@@ -283,12 +283,12 @@ struct EventInspectorList: View {
     @State private var selected: AgentInspectorEvent?
     #if DEBUG
     /// Body evaluations (tests: one per keystroke's landing, none for the keystroke itself).
-    static var bodies = 0
+    @Environment(\.renderProbe) private var probe
     #endif
 
     var body: some View {
         #if DEBUG
-        let _ = Self.bodies += 1
+        let _ = probe.map { $0.inspectorListBodies += 1 }
         #endif
         // Kept as records arrive (one redraw per frame; a record costs one match, a
         // drop costs itself), not filtered and reversed over every record per redraw.
