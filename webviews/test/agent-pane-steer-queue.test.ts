@@ -87,7 +87,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
   const QUIET = "Fix sidebar flicker on theme change";
   const openQueue = async (page: Page) => {
     await page.keyboard.press("Meta+Shift+J");
-    await page.waitForSelector(".acpmux-steer-queue");
+    await page.locator(".acpmux-steer-name", { hasText: QUIET }).waitFor();
     return rows(page);
   };
   const rowState = (page: Page, title: string) =>
@@ -200,8 +200,9 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
       { timeout: 30_000 },
     );
     console.log(`STEER-QUEUE-STOPPED ${JSON.stringify(await rowState(page, QUIET))}`);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("cmux.steerQueue.log") ?? "[]").length > 0);
     const log = await page.evaluate(() => JSON.parse(localStorage.getItem("cmux.steerQueue.log") ?? "[]"));
-    expect(log[0]).toMatchObject({ act: "stop" });
+    expect(log[0]).toMatchObject({ act: "stop", sessionId: "mock-sidebar-flicker" });
     await still(page, "stopped");
     await page.close();
   });
