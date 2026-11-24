@@ -12,6 +12,8 @@ Chromium tab:
      place in the list;
   3. (Chromium) a download Chromium resumes by itself after the connection
      breaks continues in its row and file, with no automatic-downloads question.
+  4. (Chromium) clicking blob: and data: download links saves the suggested
+     filenames and exact bytes in the test's downloads folder.
 `debug.downloads` (DEBUG builds) lists the App's downloads list and runs the
 Downloads menu's Pause, Resume and Retry on a row, as a click there does.
 
@@ -22,6 +24,7 @@ import argparse, glob, hashlib, http.server, json, os, plistlib, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from kit_downloads import require as require_downloads_folder  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -66,6 +69,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path == "/links.html":
+            page = f"""<!doctype html><meta charset="utf-8"><title>Download links</title>
+<a id="blob" download="blob-{RUN}.bin">Download blob</a>
+<a id="data" download="data-{RUN}.bin" href="data:application/octet-stream,%00%FFdata%0A">Download data</a>
+<script>
+document.querySelector('#blob').href = URL.createObjectURL(
+    new Blob([new Uint8Array([0, 255]), 'blob\\n'], {{type: 'application/octet-stream'}}));
+</script>""".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
         name = path.rsplit("/", 1)[-1]
         ranged = self.headers.get("Range")
         requests.append((round(time.monotonic(), 1), path, ranged))
@@ -179,13 +196,38 @@ def row(name, newest=True):
     return (found[-1] if newest else found[0]) if found else None
 
 
-def landed(item):
+def landed(item, digest=DIGEST):
     """The finished row's file holds every byte the server sent."""
     path = item.get("destination") or ""
     if not os.path.isfile(path):
         return False
     with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest() == DIGEST
+        return hashlib.sha256(f.read()).hexdigest() == digest
+
+
+def page_download_links():
+    reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": ORIGIN + "/links.html"}, "focus": True})
+    tab = next((item for item in reply.get("created", []) if str(item).startswith("tab_")), None)
+    if not tab:
+        return check(False, f"chromium: open fixture tab ({reply})")
+    if not wait_for(lambda: rpc("browser.page.eval", {"tab": tab, "script": "document.querySelector('#blob')?.protocol"}).get("value") == "blob:",
+                    "chromium: download links ready"):
+        return
+    for scheme in ("blob", "data"):
+        name = f"{scheme}-{RUN}.bin"
+        clicked = rpc("browser.page.click", {"tab": tab, "selector": "#" + scheme, "agent": "Downloads"})
+        if "error" in clicked:
+            check(False, f"chromium: click {scheme} link ({clicked})")
+            continue
+        done = wait_for(lambda: (item := row(name)) and item.get("status") != "inProgress" and item,
+                        f"chromium: {scheme} download ends")
+        if done:
+            expected_path = os.path.join(DOWNLOADS, name)
+            written.append(expected_path)
+            digest = hashlib.sha256(b"\x00\xff" + scheme.encode() + b"\n").hexdigest()
+            check(done.get("status") == "finished"
+                  and os.path.realpath(done.get("destination") or "") == os.path.realpath(expected_path)
+                  and landed(done, digest), f"chromium: {scheme} link lands under its name with its bytes ({done})")
 
 
 written = []
@@ -201,7 +243,7 @@ safe_print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.ou
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     to_workspace()
-    check("error" not in rpc("debug.downloads"), f"debug.downloads answers ({rpc('debug.downloads')})")
+    require_downloads_folder(rpc("debug.downloads"), DOWNLOADS)
     for engine in ("webkit", "chromium"):
         slow = f"slow-{engine}-{RUN}.bin"
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{slow}"}, "focus": True})
@@ -256,6 +298,7 @@ try:
               f"chromium: Chromium's own resume lands whole in one row ({rows}, ranges {resumed})")
         prompts = rpc("debug.browser.prompts").get("prompts") or []
         check(not any("automaticDownloads" in p.get("kind", "") for p in prompts), f"chromium: its resume asks nothing ({prompts})")
+    page_download_links()
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
