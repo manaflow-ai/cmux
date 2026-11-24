@@ -71,6 +71,16 @@
 //! settles, and at the first look after, is `unknown` too ([`Tracker::startup`]): a pause never
 //! lands under a tool this daemon did not see start (wake kind 5, cmuxterm-hq RFD 0017).
 //!
+//! Each line also carries `"turn_end": 1` (version [`TURN_END_VERSION`], capability
+//! `activity-turn-end`): this daemon's promise that `turns` 0 means nothing is pending. No turn
+//! runs or is queued, no permission or question waits, no continuation is pending, and no
+//! background task, process, subagent or sub-session is at work (the count is
+//! [`crate::hub::Hub::sessions_at_work`], which covers each). So a pause right when the count
+//! drops to 0 loses nothing, and the Cloud may pause at turn end instead of after its 60 s
+//! window, on the machines whose pause policy asks for it (cmux-platform `turn_end`). A daemon
+//! older than this field sends no `turn_end`, and the agent then advertises no capability, so
+//! the Cloud keeps its usual window.
+//!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
 use crate::hub::{Hub, SessionAtWork};
@@ -85,6 +95,8 @@ use tokio::io::AsyncWriteExt;
 /// How often a line goes in any case. The agent keeps a count for 90 s
 /// (cmux-host `cloud/wire.rs` `ACP_ACTIVITY_TTL_MS`), so two lines can be lost before it forgets.
 pub(super) const RENEW: Duration = Duration::from_secs(20);
+/// The `turn_end` field's version: 1 promises that a count of 0 means nothing pending (module doc).
+pub(super) const TURN_END_VERSION: u64 = 1;
 /// A line must not hold this loop on a dead socket.
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -307,7 +319,7 @@ impl Tracker {
         self.sent = Some((turns, self.last_action));
         self.sent_phases = phases;
         self.sent_person_prompt = self.person_prompt;
-        let mut activity = json!({"turns": turns});
+        let mut activity = json!({"turns": turns, "turn_end": TURN_END_VERSION});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
         }

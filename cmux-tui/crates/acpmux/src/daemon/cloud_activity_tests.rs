@@ -4,27 +4,30 @@ use super::*;
 fn a_running_turn_is_sent_then_renewed_and_its_end_carries_the_end_time() {
     let mut t = Tracker::default();
     // Nothing at work and nothing sent: the agent learns 0 once.
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
     assert!(t.line(0, false, 0).is_none(), "an unchanged 0 between renewals");
     assert!(t.line(0, true, 0).is_some(), "every renewal goes, 0 included");
 
     t.acted(1_000);
     let started = t.line(1, false, 0).unwrap();
-    assert_eq!(started, json!({"acp_activity": {"turns": 1, "last_agent_action_at": 1_000}}));
+    assert_eq!(
+        started,
+        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 1_000}})
+    );
     // A mux record that changes nothing sends nothing; the tick renews.
     t.acted(1_500);
     assert!(t.line(1, false, 0).is_none(), "an action while at work waits for the renewal");
     t.acted(2_000);
     assert_eq!(
         t.line(1, true, 0).unwrap(),
-        json!({"acp_activity": {"turns": 1, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 2_000}})
     );
 
     // The turn ends at 3 000: the count drops and the end is the last action.
     t.acted(3_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 3_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 3_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -40,7 +43,7 @@ fn an_action_after_the_count_dropped_to_zero_still_goes() {
     t.acted(2_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 2_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -55,7 +58,7 @@ fn an_unsent_line_goes_again_and_older_times_never_move_back() {
     t.unsent();
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 2, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 2, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -81,18 +84,18 @@ fn the_first_zero_after_work_carries_the_time_it_was_seen() {
     // Quiet for ten minutes, then the count drops before `turn_result` is read.
     assert_eq!(
         t.line(0, false, 601_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
     );
     // Later zeros keep that time: an idle machine's period is not restarted by renewals.
     assert_eq!(
         t.line(0, true, 900_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
     );
     // The first line a daemon sends, 0 at work, counts from when it was seen as well.
     let mut fresh = Tracker::default();
     assert_eq!(
         fresh.line(0, true, 5_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -112,7 +115,7 @@ fn each_line_names_its_daemon() {
     let mut t = Tracker::new("/run/acpmux-a.sock".into());
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 2, "daemon": "/run/acpmux-a.sock"}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 2, "daemon": "/run/acpmux-a.sock"}})
     );
 }
 
@@ -284,13 +287,13 @@ fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
 #[test]
 fn a_persons_prompt_time_goes_at_once_and_never_moves_back() {
     let mut t = Tracker::default();
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
     assert!(t.line(0, false, 0).is_none());
 
     t.person_prompted(7_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_person_prompt_at": 7_000}}),
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_person_prompt_at": 7_000}}),
         "a new prompt time goes without waiting for the renewal"
     );
     assert!(t.line(0, false, 0).is_none(), "an unchanged time sends nothing");
@@ -464,4 +467,14 @@ fn only_an_open_call_parks_and_unknown_wins() {
     t.lagged();
     t.observe(&[turn("a")], 2_000);
     assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("unknown".to_owned(), 2_000)]);
+}
+
+/// Every line carries the turn-end promise (version 1), at work or not, so the agent can
+/// advertise `activity-turn-end`; an older daemon's line has none (cmux-host's old-vs-new test).
+#[test]
+fn every_line_promises_turn_end() {
+    let mut t = Tracker::default();
+    assert_eq!(t.line(0, true, 0).unwrap()["acp_activity"]["turn_end"], TURN_END_VERSION);
+    assert_eq!(t.line(2, false, 1_000).unwrap()["acp_activity"]["turn_end"], 1);
+    assert_eq!(t.line(0, false, 2_000).unwrap()["acp_activity"]["turn_end"], 1);
 }

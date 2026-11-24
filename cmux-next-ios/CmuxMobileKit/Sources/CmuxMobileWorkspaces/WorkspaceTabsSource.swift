@@ -326,7 +326,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
         if isScreenSharingTabListed { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
-        if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
 
@@ -550,6 +549,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard workspaceTab(id) != nil else { return }
         // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
         ConnectTimeline.shared.event("tab_activate", detail: id)
+        if id != activeTabID { snapshotPage(activeTabID) }
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
@@ -1123,6 +1123,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
     }
 
+    /// A card is one accessibility element ("build, tab"), so its split map's
+    /// "Pane 1 of 2 in a split" is the card's value, not the badge's own label.
+    public func cardAccessibilityValue(for id: TabsKitTab.ID) -> String? {
+        guard TabSplitMapBadge.isEnabled, let map = listedWorkspace?.layout?.splitMap(ofTab: id) else { return nil }
+        return TabSplitMapBadge.label(map)
+    }
+
     public func accessory(for kit: TabsKitTab, context: TabsKitContentContext) -> some View {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
     }
@@ -1148,14 +1155,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// catch up once the grid shows or stops.
     @ObservationIgnored private var cardFeeds: [String: AgentCardFeed] = [:]
     @ObservationIgnored let rasterizer = AgentCardRasterizer()
-    /// A grid card's width over the page's (TabsKit's two-column card, or a
+    /// A grid card's width over the page's (TabsKit's column card, or a
     /// lone tab's larger card): the resolution an agent card's picture is drawn at.
+    /// TabsKit's own geometry decides it (`TabsKitOverviewGeometry`), from the tabs the grid
+    /// lists and its column count: a fixed two-column guess drew an unfolded screen's three-
+    /// and four-column cards too large, and a lone card on a wide page past TabsKit's cap.
     var cardScale: CGFloat {
         let w = max(1, pageWidth)
-        return isSingleTab ? (w * 2 / 3).rounded() / w : ((w - 48) / 2).rounded(.down) / w
+        let shown = tabs
+        let pins = pinnedTabIDs
+        let pinned = pins.isEmpty ? 0 : (shown.firstIndex { !pins.contains($0.id) } ?? shown.count)
+        return TabsKitOverviewGeometry.cardWidth(pageWidth: w, columns: overviewColumns, cards: shown.count, pinned: pinned) / w
     }
-    /// One tab listed (TabsKit draws its card larger).
-    private(set) var isSingleTab = false
+    /// The grid's columns (the page's `overview_columns`, set by `WorkspaceScreen`).
+    var overviewColumns = 2
     @ObservationIgnored private var gridShown = false
     @ObservationIgnored private var gridScrolling = false
     /// Cards follow their chats only while the grid rests (settled and still,
@@ -1305,15 +1318,26 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         warmSnapshots()
         guard let id = activeTabID else { freezeStreams(true); return }
-        let active = workspaceTab(id)
-        if let tab = active, tab.kind == .browser { keepSnapshots(of: browser(tab), tab: id) }
-        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { keepSnapshots(of: model, tab: id) }
         // A streamed page holds still from the first shrinking frame; its snapshot
-        // below is the held frame, kept as the tab's last-known picture.
+        // is the held frame, kept as the tab's last-known picture.
+        snapshotPage(id, freezingStreams: true)
         freezeStreams(true)
-        if let tab = active, tab.kind == .browser { browser(tab).takeSnapshot() }
-        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { model.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+    }
+
+    /// A browser or simulator page takes the picture its card shows while it is still on screen:
+    /// when the grid opens on it, and when a swipe or tap leaves it for another tab. Taken only at
+    /// the grid's opening, a page left by a swipe kept the blank globe (or the picture of an
+    /// older visit) on its card, since an off-screen web view takes no snapshot. At the grid's
+    /// opening the streams freeze between keeping and taking, so the picture is the held frame.
+    func snapshotPage(_ id: String?, freezingStreams: Bool = false) {
+        guard let id, let tab = workspaceTab(id) else { return }
+        let model: (any BrowserTabState)?
+        if tab.kind == .browser { model = browser(tab) } else if tab.kind == .simulator { model = simulator(tab) } else { model = nil }
+        guard let model else { return }
+        keepSnapshots(of: model, tab: id)
+        if freezingStreams { freezeStreams(true) }
+        model.takeSnapshot()
     }
 
     /// The streamed pages held on one frame while the grid shows.
@@ -2692,10 +2716,15 @@ struct WorkspaceTabCard: View {
                 // in page points so it reads like the card's title.
                 // Under the group chip: which of the Mac's screens the tab is on, when the workspace
                 // has more than one (the card shows only the top of the page).
+                // Under those, gallery variant (off by default): where the tab sits among its screen's
+                // splits. Here, not top-trailing: the kit's close button covers that corner.
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let group = tab.group { TabGroupChip(group: group) }
                         if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen) }
+                        if TabSplitMapBadge.isEnabled, let map = workspace.layout?.splitMap(ofTab: tab.id) {
+                            TabSplitMapBadge(map: map)
+                        }
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
