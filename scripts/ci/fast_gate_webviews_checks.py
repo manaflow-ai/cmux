@@ -102,6 +102,9 @@ def advisory_class(check: str, lines: list[str]) -> bool:
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# Vite bundles its config to node_modules/.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs, new on every run,
+# so a config error's stack frames differ between the base and the merge only by that name.
+VITE_TEMP = re.compile(r"(\.timestamp)-\d+-[0-9a-f]+(\.m?js)")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
 # Oxlint draws the frame in ASCII or Unicode (`╭─[`, `│`, `·`, `╰`) depending on the terminal; both are read.
@@ -179,7 +182,7 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 def key(line: str, root: str = "") -> str:
     """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", VITE_TEMP.sub(r"\1\2", unroot(line, root).strip())))
 
 
 def unroot(text: str, root: str) -> str:
