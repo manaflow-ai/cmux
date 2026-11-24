@@ -51,30 +51,36 @@ export const indexStub = (owner: string) => testEnv.AUTO_SESSION_INDEX_DO.get(te
 /** One Cloud machine as `cloud.machine.list` answers it (the fields the store's pick reads). */
 export type ListedMachine = { id: string; team: string; creator: string; status: string; classic: boolean; created_at: number; last_active_at: number | null }
 export const listed = (a: Person, id: string, more: Partial<ListedMachine> = {}): ListedMachine => ({ id, team: a.team, creator: a.user, status: "paused", classic: false, created_at: 1, last_active_at: null, ...more })
+/** One call the store made on the Cloud: the team's CloudDO it asked, and the principal it asked as. */
+export type CloudAsk = { op: string; team: string; as: { kind?: string; user?: string; team?: string } }
 /**
  * The platform's Cloud, as the store sees it: what a read answers, and the starts it was asked for. `machines`:
- * the machines of every team, for the tests of the store's own pick (`lists` counts the reads of a team's list).
- * A machine not in it reads as the one machine `status` describes, as the tests that name their Auto machine expect.
+ * the machines of every team, for the tests of the store's own pick (`lists` counts the pages read of a team's
+ * list; `endless`: every page says another follows). A machine not in it reads as the one machine `status`
+ * describes, as the tests that name their Auto machine expect, unless it is in `gone`: then it does not exist.
+ * `asked`: every call, with who it was made as.
  */
-export type FakeMachine = { status: string; revision: string; reads: number; lists: number; machines: Array<ListedMachine>; starts: Array<string>; failStart: boolean; failRead: boolean }
+export type FakeMachine = { status: string; revision: string; reads: number; lists: number; machines: Array<ListedMachine>; gone: Array<string>; endless: boolean; starts: Array<string>; asked: Array<CloudAsk>; failStart: boolean; failRead: boolean }
 /** Puts a fake Cloud behind the owner's index object (the platform's CloudDO is not in this Worker). */
 export const fakeCloud = async (owner: string): Promise<FakeMachine> => {
-  const m: FakeMachine = { status: "paused", revision: "rev1", reads: 0, lists: 0, machines: [], starts: [], failStart: false, failRead: false }
+  const m: FakeMachine = { status: "paused", revision: "rev1", reads: 0, lists: 0, machines: [], gone: [], endless: false, starts: [], asked: [], failStart: false, failRead: false }
   const down = { ok: false, code: "owner.unreachable", message: "down" }
   const cloud = {
-    readOp: async (team: string, _p: unknown, op: string, params: { machine?: string } | null) => {
+    readOp: async (team: string, p: CloudAsk["as"], op: string, params: { machine?: string } | null) => {
+      m.asked.push({ op, team, as: { kind: p.kind, user: p.user, team: p.team } })
       if (op === "cloud.machine.list") {
         m.lists += 1
-        return m.failRead ? down : { ok: true, revision: "", value: { machines: m.machines.filter((x) => x.team === team), next_cursor: null, revision: m.revision } }
+        return m.failRead ? down : { ok: true, revision: "", value: { machines: m.machines.filter((x) => x.team === team), next_cursor: m.endless ? `page-${m.lists}` : null, revision: m.revision } }
       }
       m.reads += 1
       if (m.failRead) return down
       // Once the test lists machines, one that is not listed is gone.
       const known = m.machines.find((x) => x.team === team && x.id === params?.machine)
-      if (m.machines.length > 0 && !known) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+      if (m.gone.includes(params?.machine ?? "") || (m.machines.length > 0 && !known)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
       return known ? { ok: true, revision: m.revision, value: known } : { ok: true, revision: m.revision, value: { machine: { status: m.status } } }
     },
-    submit: async (_team: string, _p: unknown, frame: { idempotency_key: string; params?: { machine?: string } }) => {
+    submit: async (team: string, p: CloudAsk["as"], frame: { op: string; idempotency_key: string; params?: { machine?: string } }) => {
+      m.asked.push({ op: frame.op, team, as: { kind: p.kind, user: p.user, team: p.team } })
       if (m.failStart) return { frames: [{ t: "reject", code: "cloud.capacity" }] }
       m.starts.push(frame.idempotency_key)
       m.status = "starting"
