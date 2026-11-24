@@ -160,6 +160,53 @@ class TreelessProbe(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertNotIn("same=true", output)
 
+    def without_migrations(self) -> None:
+        # main's shape: no backend/db/migrations at the base.
+        git(self.src, "rm", "-rq", "backend")
+        git(self.src, "commit", "-qm", "no migrations")
+        self.base = git(self.src, "rev-parse", "HEAD")
+
+    def test_no_migrations_on_either_side_is_the_same_tree(self):
+        # Both rev-parses come back empty here; the plan used to fall through to a full checkout of
+        # main, which hung on the gate pool until the 10-minute cancel (run 45091304441).
+        self.without_migrations()
+        (self.src / "App.tsx").write_text("ui change\n")
+        git(self.src, "commit", "-qam", "ui")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertIn("same=true", output, log)
+        self.assertIn("no backend/db/migrations at the base or the head", log)
+
+    def test_a_head_that_adds_the_first_migration_runs_the_full_plan(self):
+        self.without_migrations()
+        (self.src / "backend/db/migrations").mkdir(parents=True)
+        (self.src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        git(self.src, "add", "-A")
+        git(self.src, "commit", "-qm", "first migration")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def test_a_head_that_deletes_the_migrations_runs_the_full_plan(self):
+        git(self.src, "rm", "-rq", "backend")
+        git(self.src, "commit", "-qm", "delete")
+        code, output, log = self.probe(git(self.src, "rev-parse", "HEAD"))
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("same=true", output)
+
+    def test_the_base_checkout_is_bounded_and_retried(self):
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+        by_id = {s.get("id"): s for s in steps}
+        for sid in ("checkout", "checkout-retry"):
+            self.assertEqual(by_id[sid]["timeout-minutes"], 1)
+            self.assertTrue(by_id[sid]["continue-on-error"])
+            self.assertEqual(by_id[sid]["with"]["sparse-checkout"], "backend")
+            self.assertEqual(by_id[sid]["with"]["filter"], "blob:none")
+        self.assertIn("steps.checkout.outcome == 'failure'", by_id["checkout-retry"]["if"])
+        failed = next(s for s in steps if s.get("name") == "Base checkout did not finish")
+        self.assertIn("steps.checkout-retry.outcome == 'failure'", failed["if"])
+        self.assertIn("exit 1", failed["run"])
+
 
 if __name__ == "__main__":
     unittest.main()
