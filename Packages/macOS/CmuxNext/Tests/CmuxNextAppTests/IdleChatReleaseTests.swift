@@ -179,28 +179,34 @@ import Testing
         #expect(AgentChatDetail.of(summary: ["model": "m"])?.archived == false)
     }
 
-    /// A released idle chat that kept only its scroll place opens again in the prewarmed spare page, with that
-    /// place on the adopt event; one that kept chips, shell text or folds gets a page of its own, which its
+    /// A released idle chat that kept only its scroll place and open folds opens again in the prewarmed spare
+    /// page, with both on the adopt event; one that kept chips or shell text gets a page of its own, which its
     /// handshake hands them to.
-    @Test func aReleasedChatHoldingOnlyItsPlaceTakesTheSpare() {
+    @Test func aReleasedChatHoldingOnlyItsPlaceAndFoldsTakesTheSpare() {
         let anchor = AgentPaneScrollAnchor(rowId: "row-3", offset: 9)
         let placeOnly = AgentPaneWakeState(scrollAnchor: anchor)
-        #expect(placeOnly.holdsOnlyPlace)
+        #expect(placeOnly.spareCarriesAll)
         #expect(placeOnly.place == .some(anchor))
-        #expect(AgentPaneWakeState(atLatest: true).holdsOnlyPlace)
+        #expect(AgentPaneWakeState(atLatest: true).spareCarriesAll)
         #expect(AgentPaneWakeState(atLatest: true).place == .some(nil), "a chat left at its latest message reopens there")
         #expect(AgentPaneWakeState().place == nil)
-        #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).holdsOnlyPlace)
-        #expect(!AgentPaneWakeState(atLatest: true, folds: .init(session: "s", expanded: ["t1"])).holdsOnlyPlace)
+        #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).spareCarriesAll)
+        let withFolds = AgentPaneWakeState(atLatest: true, folds: .init(session: "s-1", expanded: ["t1"]))
+        #expect(withFolds.spareCarriesAll, "a released chat with an open tool card built a page from nothing")
+        #expect(!AgentPaneWakeState(attachments: [.init(id: "a", kind: "file", name: "f", mimeType: "text/plain", size: 1)],
+                                    folds: .init(session: "s-1", expanded: ["t1"])).spareCarriesAll)
 
         let adoption = { (wake: AgentPaneWakeState?) in
             AgentPaneSpareAdoption(thisMac: true, session: "s-1", newTabPage: false, seeded: false,
-                                   wake: wake.map { !$0.holdsOnlyPlace } ?? false).adopted(chiefKeeps: { _ in false })
+                                   wake: wake.map { !$0.spareCarriesAll } ?? false).adopted(chiefKeeps: { _ in false })
         }
         #expect(adoption(placeOnly) == "s-1", "a released chat with only its place built a page from nothing")
         #expect(adoption(AgentPaneWakeState(shell: true, shellText: "make", scrollAnchor: anchor)) == nil)
         let detail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: placeOnly.place)
         #expect(detail.contains("row-3"), "the adopt event lost the released chat's place: \(detail)")
+        let foldsDetail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: withFolds.place, folds: withFolds.folds)
+        #expect(foldsDetail.contains("\"folds\"") && foldsDetail.contains("t1"), "the adopt event lost the released chat's folds: \(foldsDetail)")
+        #expect(!AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, folds: .init()).contains("folds"))
     }
 
     /// Hidden chats cost only their cursor and kept tail (Leo, 2026-11-16: "the dream is infinite chats of

@@ -21,11 +21,12 @@ extension AgentPaneView {
     /// the reader left the chat is kept per tab, ``AgentPaneScrollAnchors``), and `revealTurn` is a turn
     /// its open asks to show (a subagent's pane: `subagent:<id>`). `moved` runs each time the held page
     /// changes place (out of the window now, back once it drew), so a Chromium page's window follows.
-    /// `place`: where a released page of the chat left it (``AgentPaneWakeState/place``), over the tab's kept one.
+    /// `place`: where a released page of the chat left it (``AgentPaneWakeState/place``), over the tab's kept one;
+    /// `folds`: the folds that page had open (``AgentPaneWakeState/folds``), which the spare opens as it was left.
     /// False when the page is no untouched, connected New Tab page (``AgentPaneModel/adoptSpareSession(_:)``).
     @discardableResult
     public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, place: AgentPaneScrollAnchor?? = nil,
-                             moved: (@MainActor () -> Void)? = nil) -> Bool {
+                             folds: AgentPaneWakeState.Folds? = nil, moved: (@MainActor () -> Void)? = nil) -> Bool {
         guard model.adoptSpareSession(session) else { return false }
         holdPageAway(moved: moved)
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
@@ -42,7 +43,7 @@ extension AgentPaneView {
         // reader left the chat: the page awaited `chat.scrollAnchor.get` (the same 250 ms race)
         // before its switch on every sidebar open.
         let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session),
-                                         place: place ?? Self.adoptedPlace(session: session, tab: tab))
+                                         place: place ?? Self.adoptedPlace(session: session, tab: tab), folds: folds)
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
     }
@@ -58,13 +59,18 @@ extension AgentPaneView {
     /// the turn its open asks to show, the chat's tail the host keeps (``AgentPaneTailCache``), in
     /// the page's own shape, when it holds one, and `place`, where the reader left the chat in its tab:
     /// `.some(nil)` is none kept (sent as null: the chat opens at its latest message), `nil` that there
-    /// is no place store (left out: the page asks `chat.scrollAnchor.get`, as before). Linear in the
-    /// tail's size, which the cache bounds.
+    /// is no place store (left out: the page asks `chat.scrollAnchor.get`, as before), and `folds`, a released
+    /// page's open folds in the wake state's shape (conversation/wakeFolds.ts `readWakeFolds` reads it). Linear
+    /// in the tail's size, which the cache bounds, and the folds', which the page bounds (WAKE_FOLD_LIMIT).
     nonisolated static func adoptEventDetail(session: String, revealTurn: String?, tail: JSONValue?,
-                                             place: AgentPaneScrollAnchor?? = nil) -> String {
+                                             place: AgentPaneScrollAnchor?? = nil, folds: AgentPaneWakeState.Folds? = nil) -> String {
         var detail: [String: JSONValue] = ["sessionId": .string(session)]
         if let revealTurn { detail["revealTurn"] = .string(revealTurn) }
         if let tail { detail["tail"] = tail }
+        if let folds, !folds.isEmpty, let data = try? JSONEncoder().encode(folds),
+           let value = try? JSONDecoder().decode(JSONValue.self, from: data) {
+            detail["folds"] = value
+        }
         if let place {
             detail["scrollAnchor"] = place.map { .object(["rowId": .string($0.rowId), "offset": .number($0.offset)]) } ?? .null
         }

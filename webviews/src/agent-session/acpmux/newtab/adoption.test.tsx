@@ -8,12 +8,14 @@ import {
   injectedNewTabContext,
   NEW_TAB_ADOPT_EVENT,
   NEW_TAB_PLACES_EVENT,
+  sessionAdoption,
   useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   withHandshakeNewTab,
 } from "./adoption";
 import { lacksSharedPart } from "./sharedPart";
+import { readWakeFolds } from "../conversation/wakeFolds";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 // Cmd-N's first page shows without the Commands palette's actions and lists them on the frame after
@@ -287,4 +289,18 @@ test("a page that gets its own part while its document keeps no shared part asks
   // A context in the whole form (an older host) asks nothing.
   act(() => view.check!(prepared));
   expect(asked).toEqual(["newTab.context"]);
+});
+
+// A released chat that kept open folds opens again in the prewarmed spare (AgentPaneWakeState.spareCarriesAll):
+// its adopt event carries them, and they read as its handshake's wake folds would.
+test("a session adopt event carries a released page's open folds", () => {
+  const folds = { session: "s-1", expanded: ["tool-7"], opened: ["group-2"] };
+  const adoption = sessionAdoption({ sessionId: "s-1", scrollAnchor: null, folds });
+  expect(adoption?.folds).toEqual(folds);
+  const read = readWakeFolds(adoption?.folds, adoption?.sessionId);
+  expect([...(read?.expanded ?? [])]).toEqual(["tool-7"]);
+  expect([...(read?.opened ?? [])]).toEqual(["group-2"]);
+  expect(sessionAdoption({ sessionId: "s-1", folds: "junk" })?.folds).toBeUndefined();
+  // Another chat's folds never open on this one.
+  expect(readWakeFolds(sessionAdoption({ sessionId: "s-2", folds })?.folds, "s-2")).toBeUndefined();
 });

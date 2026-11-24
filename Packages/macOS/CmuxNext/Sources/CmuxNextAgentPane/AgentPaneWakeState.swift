@@ -117,11 +117,14 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
             && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty && folds?.isEmpty != false
     }
 
-    /// It holds only where the transcript rested: a released idle chat opening again may take the
-    /// prewarmed spare page (``AgentPaneSpareAdoption``), whose adopt event carries that place (``place``).
-    public var holdsOnlyPlace: Bool {
+    /// It holds only what the prewarmed spare page's adopt event carries: where the transcript rested
+    /// (``place``) and its open folds (``folds``). A released idle chat opening again may then take the
+    /// spare (``AgentPaneSpareAdoption``), which shows it in about a fifth of a cold page's time under
+    /// load (design/agent-pane-mount-sites.md "Hidden reopen"); chips, shell text, held prompts, edits
+    /// or subagent drafts need a page of its own, whose handshake hands them back.
+    public var spareCarriesAll: Bool {
         var rest = self
-        (rest.scrollAnchor, rest.atLatest) = (nil, nil)
+        (rest.scrollAnchor, rest.atLatest, rest.folds) = (nil, nil, nil)
         return rest.isEmpty
     }
 
