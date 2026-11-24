@@ -5,7 +5,7 @@
   "acpmux::happy_dial::http_client": {
    "todo": true
   },
-  "acpmux::managed_codex": {
+  "acpmux::range_fetch": {
    "todo": true
   },
   "chatmux_relay": {

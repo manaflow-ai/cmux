@@ -202,10 +202,6 @@ path = "tests/test_egress_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_egress_seeded.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
@@ -215,6 +211,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fast_gates_lanes.py"
 lane = "linux-guard"
 
 [[test]]
@@ -240,7 +240,8 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Proves cmux 
 
 [[test]]
 path = "tests/test_fleet_test_host.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_fleet_test_host.py"
 
 [[test]]
 path = "tests/test_format_post_edit.py"
@@ -495,10 +496,6 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_mobile_stability_soak_attach_contract.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
@@ -513,6 +510,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch_groups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_closes_issues.py"
 lane = "linux-guard"
 
 [[test]]
@@ -934,6 +935,10 @@ reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (
 
 [[test]]
 path = "tests/test_ui_font.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_preview_worker.py"
 lane = "linux-guard"
 
 [[test]]

@@ -126,6 +126,8 @@ public final class OnboardingModel {
     /// answers after the window is gone.
     public func skipStep() {
         if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
+        // Make cmux Yours' Skip keeps the person's settings: the picks it made live are put back.
+        if step == .makeItYours { makeItYours.revert() }
         finish(completed: false)
     }
 
