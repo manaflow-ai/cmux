@@ -23,6 +23,7 @@ mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
+pub mod terms;
 pub mod text;
 mod watch;
 mod window;
@@ -704,6 +705,8 @@ impl crate::hub::Hub {
             .await
             .map_err(|e| format!("chat index start: {e}"))?;
         let _ = self.chats.set(service.clone());
+        // A transcript the watch sees change leaves its chat's usage stale (`hub/usage_view.rs`).
+        self.watch_usage_transcripts(&service);
         // Taken under the waiters' lock after the set: a later waiter sees the index.
         let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
         for waiter in waiters {
