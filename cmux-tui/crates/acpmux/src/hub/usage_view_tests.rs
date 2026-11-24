@@ -250,3 +250,4 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     hub.refresh_usage_stats_of(&session);
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
 }
+// clippy-195 probe
