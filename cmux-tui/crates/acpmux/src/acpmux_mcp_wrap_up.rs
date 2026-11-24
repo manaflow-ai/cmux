@@ -137,17 +137,41 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     let recap = text("recap").ok_or("recap is required: two or three sentences on what changed")?;
     let recap = cut("recap", recap, RECAP_CEILING, &mut notes);
     let ask = text("ask").map(|a| cut("ask", a, MAX_ASK, &mut notes));
-    let list = |key: &str, what: &str| -> Result<Vec<&str>, String> {
+    let list = |key: &str, what: &str, notes: &mut Vec<String>| -> Result<Vec<String>, String> {
+        let items = |list: &[Value]| -> Vec<String> {
+            list.iter()
+                .filter_map(|item| item.as_str().map(str::trim).filter(|v| !v.is_empty()))
+                .map(str::to_owned)
+                .collect()
+        };
         match args.get(key) {
             None | Some(Value::Null) => Ok(Vec::new()),
-            Some(Value::Array(list)) => Ok(list
-                .iter()
-                .filter_map(|item| item.as_str().map(str::trim).filter(|v| !v.is_empty()))
-                .collect()),
+            Some(Value::Array(list)) => Ok(items(list)),
+            // One string where a list goes is a list of it ("eh close enough"): the census of
+            // 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md) counted
+            // 54 wrap_up calls in 48 h on one VM refused "learned is a list". A string that is a
+            // JSON list (`"[\"a\", \"b\"]"`) is read as that list.
+            Some(Value::String(s)) if s.trim().is_empty() => Ok(Vec::new()),
+            Some(Value::String(s)) => {
+                let parsed = serde_json::from_str::<Vec<Value>>(s.trim()).ok();
+                // Otherwise each non-empty line is one item: a fact per line, as a list holds them.
+                let lines: Vec<String> = (s.lines().map(str::trim))
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                notes.push(match (&parsed, lines.len()) {
+                    (Some(_), _) => format!("{key} given as a JSON string; read as its list"),
+                    (None, 1) => format!("{key} given as one string; read as a list of it"),
+                    (None, n) => {
+                        format!("{key} given as one string; read as a list of its {n} lines")
+                    }
+                });
+                Ok(parsed.map_or(lines, |list| items(&list)))
+            }
             Some(_) => Err(what.to_owned()),
         }
     };
-    let mut actions = list("actions", "actions is a list of one or two short strings")?;
+    let mut actions = list("actions", "actions is a list of one or two short strings", &mut notes)?;
     if actions.len() > MAX_ACTIONS {
         notes.push(format!("{} actions given; the first {MAX_ACTIONS} kept", actions.len()));
         actions.truncate(MAX_ACTIONS);
@@ -158,7 +182,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     if !actions.is_empty() && ask.is_none() {
         return Err("actions answer an ask; add the question, or leave actions out".to_owned());
     }
-    let mut learned = list("learned", "learned is a list of up to three short facts")?;
+    let mut learned = list("learned", "learned is a list of up to three short facts", &mut notes)?;
     if learned.len() > MAX_LEARNED {
         notes.push(format!("{} learned facts given; the first {MAX_LEARNED} kept", learned.len()));
         learned.truncate(MAX_LEARNED);
@@ -168,7 +192,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             let what = format!("learned fact {}", n + 1);
             // One line, as the memory inbox keeps it (`memory_inbox::learned_facts`).
             let line = fact.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
-            if line != *fact {
+            if line != fact.as_str() {
                 notes.push(format!("{what} cut to its first line"));
             }
             cut(&what, line, MAX_FACT, &mut notes)
@@ -234,8 +258,8 @@ mod tests {
             json!({}),
             json!({"recap": "  "}),
             json!({"recap": "Done.", "actions": ["Yes"]}),
-            json!({"recap": "Done.", "ask": "Open?", "actions": "Yes"}),
-            json!({"recap": "Done.", "learned": "Use pnpm."}),
+            json!({"recap": "Done.", "learned": 3}),
+            json!({"recap": "Done.", "ask": "Open?", "actions": {"a": "Yes"}}),
         ] {
             assert!(check(&bad).is_err(), "{bad}");
         }
@@ -322,6 +346,26 @@ mod tests {
         }
         let at = "x".repeat(RECAP_CEILING);
         assert_eq!(shown(json!({"recap": at}))["recap"], at);
+    }
+
+    /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
+    /// 54 wrap_up calls in 48 h on one VM sent `learned` as one string and were refused "learned
+    /// is a list". A string is a list of it (of its lines, or the list a JSON string spells), and
+    /// the result says so.
+    #[test]
+    fn a_string_where_a_list_goes_is_read_as_a_list_and_said_so() {
+        let one = call(&json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
+        assert_eq!(one["isError"], false, "{one}");
+        assert_eq!(one["structuredContent"]["learned"], json!(["Use pnpm, not npm."]), "{one}");
+        let text = one["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("learned given as one string; read as a list of it"), "{text}");
+        let lines = shown(json!({"recap": "Done.", "learned": "Use pnpm.\n\n  Rebase first.\n"}));
+        assert_eq!(lines["learned"], json!(["Use pnpm.", "Rebase first."]));
+        let spelled = shown(json!({"recap": "Done.", "learned": "[\"a\", \"b\"]"}));
+        assert_eq!(spelled["learned"], json!(["a", "b"]));
+        let asked = shown(json!({"recap": "Done.", "ask": "Merge?", "actions": "Yes"}));
+        assert_eq!(asked["actions"], json!(["Yes"]));
+        assert!(shown(json!({"recap": "Done.", "learned": "  "})).get("learned").is_none());
     }
 
     /// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
