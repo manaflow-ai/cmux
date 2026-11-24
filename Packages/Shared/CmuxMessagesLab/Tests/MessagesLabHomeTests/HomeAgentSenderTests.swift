@@ -61,7 +61,9 @@ import Testing
         }
         #expect(chiefAvatar() == nil, "before the host's avatars come: nothing, not the letter C")
         let picture = "file:///Users/me/.cmux/chiefs/agent_chief/3f2a.png"
-        let swap = try #require(core.setAvatars([G.chief.rawValue: .image(picture)]))
+        // `setAvatars` is mutating: call it first, then require its action (#require cannot call a mutating member).
+        let changed = core.setAvatars([G.chief.rawValue: .image(picture)])
+        let swap = try #require(changed)
         _ = Reducer.reduce(&state, swap, now: G.date(61), newID: { "new" })
         #expect(chiefAvatar() == .image(picture))
     }

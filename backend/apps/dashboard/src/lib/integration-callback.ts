@@ -154,6 +154,9 @@ export const integrationAppHandoff = (search: {
   setup_action?: string
   error?: string
 }): string | undefined => {
+  // The API would not sign this connect on (AUTHORIZE_REFUSED): the app reads any `error` as a cancel and says
+  // nothing, so this one stays here, where the page tells the person to start again.
+  if (search.error === AUTHORIZE_REFUSED) return undefined
   const ret = stateReturnHint(search.state)
   if (!ret || ret.length > 512 || !RETURN_TO_PATTERN.test(ret) || !ret.endsWith("://integration/complete")) return undefined
   const query = new URLSearchParams()
@@ -176,6 +179,32 @@ export const integrationAppHandoffResponse = (url: string): Response | undefined
   if (!handoff) return undefined
   // The query carries GitHub's one-time code: not cached, and not sent on as a referrer.
   return new Response(null, { status: 302, headers: { Location: handoff, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+}
+
+/** The API route that sends a code-less GitHub redirect on to GitHub's authorize page (api src/integrations/github-authorize-route.ts). */
+export const GITHUB_AUTHORIZE_PATH = "/v1/integrations/github/authorize"
+/** The `error` that route sends back here for a state it would not sign again (expired, or not its own). */
+export const AUTHORIZE_REFUSED = "connection_link_expired"
+
+/**
+ * GitHub's redirect after a person saves an installation that already existed: `installation_id` and
+ * `setup_action=update`, and no `code`. Connect opens the App's install page, and for an account that already has the
+ * App GitHub shows that installation's settings instead. Without a code nobody can finish the connection (the code is
+ * what proves who the GitHub user is), so the browser goes on to the API, which sends it through GitHub's authorize
+ * page with the installation named in the state; GitHub then comes back here with a code. Checked before the app
+ * hand-off: the app could only be refused. `api` is asked for only when the answer is a redirect.
+ *
+ * Undefined for every other callback: one with a code, a cancelled one (`error`), an organization's install request
+ * (`setup_action=request`, which has no installation to authorize), and another provider's. GitHub's authorize page
+ * returns a code or an error and never an installation, so this cannot send the same connect round twice.
+ */
+export const integrationAuthorizeBounce = (url: string, at: { readonly api: () => string; readonly host?: string | null }): Response | undefined => {
+  const search = callbackSearch(Object.fromEntries(new URL(url).searchParams))
+  if (!search.state || !search.installation_id || search.code || search.error || search.setup_action === "request") return undefined
+  if (unverifiedStateClaims(search.state)?.provider !== "github") return undefined
+  const api = integrationCompletionApi({ api: at.api(), ...(at.host ? { host: at.host } : {}) }, search.state).url
+  const query = new URLSearchParams({ state: search.state, installation_id: search.installation_id })
+  return new Response(null, { status: 302, headers: { Location: `${api}${GITHUB_AUTHORIZE_PATH}?${query}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
 }
 
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
