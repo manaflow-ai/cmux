@@ -13,6 +13,7 @@ const ALLOWED: Record<string, string> = {
   "ui/popupHost.ts": "a comment about the close fade",
   "ui/openOverlay.ts": "selector of overlays",
   "ui/titleTooltips.ts": "closest() query",
+  "ui/FloatingRoles.tsx": "gallery sheet: static copies of the popups' markup, measured, never opened",
   "ui/Listbox.tsx": "a doc comment; the shell it draws carries data-popup-settle",
   "agent-session/acpmux/paneSurface.ts": "selector",
   "agent-session/acpmux/menuPressGuard.ts": "selector",
