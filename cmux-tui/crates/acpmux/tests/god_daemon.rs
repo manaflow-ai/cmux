@@ -682,6 +682,21 @@ impl Daemon {
         (field("VmRSS:"), field("VmHWM:"))
     }
 
+    /// `RssAnon` and `RssFile` of the daemon, in bytes: heap against mapped file pages.
+    fn rss_split(&self) -> (u64, u64) {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
+            .unwrap_or_default();
+        let field = |name: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(name))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|kib| kib.parse::<u64>().ok())
+                .map_or(0, |kib| kib * 1024)
+        };
+        (field("RssAnon:"), field("RssFile:"))
+    }
+
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
     fn stop(&mut self) {
         if self.child.try_wait().unwrap().is_some() {
@@ -2290,8 +2305,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
         std::fs::read_dir(home.join("sessions").join(&id).join("events")).map_or(0, |d| d.count());
 
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
-    // view exists. The open is the pane's attach, as soon as the socket answers.
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    // view exists. The open is the pane's attach, as soon as the socket answers. With
+    // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2328,6 +2347,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
+    let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, last + 1)
@@ -2393,6 +2413,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
+    let heap = profile.as_deref().map(attribute);
     let mut daemon = Daemon::start(&scratch, &home, None);
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
@@ -2451,7 +2472,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
-        "rssIdle": rss_idle, "rssAfterReads": rss_after_reads,
+        "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
+        "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
