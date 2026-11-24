@@ -75,6 +75,8 @@ import { guestMention } from "../mentionItems";
 import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
 import { paneSends, untilAcpmuxTakesSends } from "../sendWhenReady";
 import { CloudChatHint } from "../CloudChatHint";
+import { AutoArrival } from "../AutoWhere";
+import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
@@ -83,7 +85,7 @@ import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrus
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -151,6 +153,17 @@ export type PaneComposerDeps = {
     sandbox?: false | undefined;
     mode: RunMode;
     environment: CloudEnvironmentPick;
+    auto?: AutoRow;
+  };
+  /// Where Auto put this page's chat (AutoArrival), or `deciding` while the daemon answers.
+  autoArrival: AutoLanding | "deciding" | undefined;
+  /// The arrival line's move is offered now (the chat's own move menu offers it).
+  autoArrivalMove: boolean;
+  onAutoArrivalDismiss: () => void;
+  /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
+  autoSendGate: {
+    holds: (text: string) => boolean;
+    once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
   cloudHint: CloudChatHintState;
   machineCheck: MachineHarnessCheck;
@@ -406,6 +419,10 @@ export function drawPaneComposer({
   cloudHintShown,
   showNewTab,
   composerModeRows,
+  autoArrival,
+  autoArrivalMove,
+  onAutoArrivalDismiss,
+  autoSendGate,
   cloudHint,
   machineCheck,
   machinePeer,
@@ -638,6 +655,16 @@ export function drawPaneComposer({
         {!readOnlySubagent && (
           <>
             <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
+            <Notice id="auto-arrival" tier="hint" when={autoArrival !== undefined}>
+              {autoArrival !== undefined && (
+                <AutoArrival
+                  landing={autoArrival}
+                  look={AUTO_LOOK}
+                  {...(autoArrivalMove ? { onMove: (kind) => offloadChat(kind, snapshot.sessionId) } : {})}
+                  onDismiss={onAutoArrivalDismiss}
+                />
+              )}
+            </Notice>
             <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
               {shownComputerUseAsk && (
                 <ComputerUseSetupNotice
@@ -988,7 +1015,7 @@ export function drawPaneComposer({
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
             holdsSend={(text, late) => holdsForComputerUseSetup(text, false, sendPlace(text), !late)}
-            onSend={(text, chips, steer, gesture, filesReady) => {
+            onSend={autoSendGate.once((text, chips, steer, gesture, filesReady) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
@@ -1047,6 +1074,8 @@ export function drawPaneComposer({
               if (waitsInPane && holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               if (waitsInPane && (filesReady || !window.cmuxAcpmuxActions?.["chat.send"])) return sendInTurn();
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
+              if (autoSendGate.holds(text)) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
@@ -1382,7 +1411,7 @@ export function drawPaneComposer({
                 else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
               });
               return held;
-            }}
+            })}
             // A prompt held while the agent starts goes back to the composer; else Stop stops the turn.
             onResume={
               interruptedResumeOwner
