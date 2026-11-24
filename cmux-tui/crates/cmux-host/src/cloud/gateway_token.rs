@@ -10,37 +10,62 @@
 //! writes, so no path the work user controls is ever written by root. Without the marker the file is removed. The
 //! token is the one cmux-host itself uses; it acts only as this machine's install, and lives minutes. It is never
 //! logged.
+//!
+//! The paths ([`TOKEN_FILE`], [`marker`]) build on every OS, so a reader that only names them (acpmux's vault audit)
+//! builds on macOS too; the thread is Linux-only.
 
+#[cfg(target_os = "linux")]
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::io::Write as _;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use super::client::{CloudClient, Http};
+#[cfg(target_os = "linux")]
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
+#[cfg(target_os = "linux")]
 use crate::linux::spawn::lookup_user;
 
-pub use super::gateway_token_paths::{TOKEN_DIR, TOKEN_FILE, marker};
+/// Straight under root's `/run`, never under `/run/cmux` (the work user's): no path above the file is one the work
+/// user can replace.
+pub const TOKEN_DIR: &str = "/run/cmux-inference-gateway";
+pub const TOKEN_FILE: &str = "/run/cmux-inference-gateway/token";
 /// How often the thread looks at the marker and renews the token (the token cache renews a minute before expiry).
+#[cfg(target_os = "linux")]
 const EVERY: Duration = Duration::from_secs(60);
 
 /// The newest thread's generation: a thread replaced on a rebind never removes the file its successor keeps.
+#[cfg(target_os = "linux")]
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// The marker the person's setup makes in the work user's home.
+pub fn marker(home: &Path) -> PathBuf {
+    home.join(".config/cmux/inference-gateway/enabled")
+}
+
 /// Stops the thread when dropped (a rebind replaces it).
+#[cfg(target_os = "linux")]
 pub struct GatewayToken {
     stop: Arc<AtomicBool>,
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for GatewayToken {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
     }
 }
 
+#[cfg(target_os = "linux")]
 impl GatewayToken {
     pub fn spawn<H: Http + Send + 'static>(
         mut client: CloudClient<H>,
@@ -93,6 +118,7 @@ impl GatewayToken {
 
 /// Writes `token` to `dir/token` through a fresh temporary and a rename: root's folder (0755), the file the work
 /// user's (0600). Unchanged contents are not rewritten.
+#[cfg(target_os = "linux")]
 pub fn write_token(dir: &Path, token: &str) -> Result<(), String> {
     let user = lookup_user(WORK_USER).ok_or("no work user")?;
     use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};

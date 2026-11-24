@@ -85,7 +85,7 @@ cmux-tui/crates/cmux-config/src/location.rs	2	its default only: a DEV build's la
 cmux-tui/crates/cmux-config/src/schema/json_schema.rs	2	text only (help, a description, an error message), no path is read
 cmux-tui/crates/cmux-customize/src/paths.rs	3	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
 cmux-tui/crates/cmux-host-budget/src/lib.rs	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
-cmux-tui/crates/cmux-host/src/cloud/gateway_token_paths.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
+cmux-tui/crates/cmux-host/src/cloud/gateway_token.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-host/src/gitlab_cli.rs	1	the host's git-host tokens (cmux host on a Cloud machine or the Mac's one server), not a build's state
 cmux-tui/crates/cmux-remote/src/secrets/files.rs	1	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 cmux-tui/crates/cmux-server-core/src/layout.rs	1	the user-mode server (cmux host run, ~/.config/cmux/server.json): one per Mac, a DEV build never registers it (ServerLaunchAgent)
