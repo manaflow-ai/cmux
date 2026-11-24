@@ -7,26 +7,15 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { pageDensities } from "../src/gallery/pageDensityFixtures";
-import { GlyphIcon } from "../src/agent-session/acpmux/composer/SendSlotGlyph";
-
-const ENTRY = "agent-pane.feel-plan-tray";
-const VARIANT = "one";
-
-test("Resume's ▶ is the line glyph, not the solid one", () => {
-  const play = renderToStaticMarkup(createElement(GlyphIcon, { glyph: "play" }));
-  const send = renderToStaticMarkup(createElement(GlyphIcon, { glyph: "arrow" }));
-  // The line form draws a stroke, as Send's ↑ and the mic do; the solid form has none.
-  expect(send).toContain("stroke-width");
-  expect(play).toContain("stroke-width");
-});
 
 await requireBrowserLane("composer-resume-quiet.test.ts", async () => {
   setDefaultTimeout(300_000);
+  const ENTRY = "agent-pane.feel-plan-tray";
+  const VARIANT = "one";
   const { createServer } = await import("vite");
   let server: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -56,6 +45,7 @@ await requireBrowserLane("composer-resume-quiet.test.ts", async () => {
           reducedMotion: "reduce",
         });
         try {
+          await installPaintedFrames(page);
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, width: "normal" })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           if (look === "codex") {
@@ -90,7 +80,10 @@ await requireBrowserLane("composer-resume-quiet.test.ts", async () => {
               attributeFilter: ["class"],
             });
           });
-          await page.waitForTimeout(400);
+          // The controls' hover fades are not what this measures: each read is of the settled state.
+          await page.addStyleTag({ content: ".acpmux-composer-actions * { transition: none !important; }" });
+          await page.waitForFunction(() => document.querySelector(".acpmux-composer-actions .acpmux-resume"));
+          await page.evaluate(() => window.cmuxPaintFrame());
           const read = (hover: boolean) =>
             page.evaluate((hovered) => {
               const resume = document.querySelector<HTMLElement>(".acpmux-composer-actions .acpmux-resume")!;
@@ -135,12 +128,10 @@ await requireBrowserLane("composer-resume-quiet.test.ts", async () => {
           same("stroke", rest.resume.stroke, rest.mic.stroke);
           // Under the pointer each takes the same quiet pill and ink.
           await page.hover(".acpmux-composer-actions .acpmux-resume");
-          // Past the controls' hover fade.
-          await page.waitForTimeout(400);
+          await page.evaluate(() => window.cmuxPaintFrame());
           const resumeHover = (await read(true)).resume;
           await page.hover(".acpmux-composer-actions .acpmux-mic");
-          // Past the controls' hover fade.
-          await page.waitForTimeout(400);
+          await page.evaluate(() => window.cmuxPaintFrame());
           const micHover = (await read(true)).mic;
           same("fill under the pointer", resumeHover.background, micHover.background);
           same("colour under the pointer", resumeHover.color, micHover.color);

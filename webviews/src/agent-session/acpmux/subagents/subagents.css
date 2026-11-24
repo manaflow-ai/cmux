@@ -2979,6 +2979,10 @@ button.cv-subagent > :last-child {
    sit over +, Stop and the mic at the same size. test/hat-composer-icon-grid.test.ts measures it. */
 .acpmux-running-tray {
   --acpmux-tray-lead-box: var(--acpmux-composer-control, 28px);
+  /* The composer's control box (Stop, the mic), which the panel button takes. */
+  --acpmux-tray-control: var(--acpmux-composer-control, 28px);
+  /* A subagent face's size (HatFaces.tsx). */
+  --acpmux-tray-face: 14px;
   --acpmux-tray-lead-gap: var(--acpmux-composer-lead-gap, 8px);
   /* A row icon crops its grid's margin (icons/iconSize.ts ROW_VIEWBOX), so at 14 of the composer's 16
      its ink is the composer glyphs' size: the panel button's and the mic's both 13.5 px at Default. */
@@ -3016,7 +3020,7 @@ button.cv-subagent > :last-child {
 /* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
    subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
 .acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child)) {
-  margin-inline-start: calc((var(--acpmux-tray-lead-box) - 14px) / 2);
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
 }
 /* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping). */
 .acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child,
@@ -3025,8 +3029,8 @@ button.cv-subagent > :last-child {
 }
 /* The panel button is the composer's control box, centred on the header's row. */
 .acpmux-running-tray__open {
-  top: calc((var(--acpmux-tray-head-height) - var(--acpmux-composer-control, 28px)) / 2);
-  height: var(--acpmux-composer-control, 28px);
+  top: calc((var(--acpmux-tray-head-height) - var(--acpmux-tray-control)) / 2);
+  height: var(--acpmux-tray-control);
 }
 /* The lines and the plan's steps under the header keep its columns: each mark centred in +'s box, its
    words at the prompt's start. */

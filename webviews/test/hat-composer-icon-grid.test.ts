@@ -14,6 +14,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { pageDensities } from "../src/gallery/pageDensityFixtures";
 
@@ -47,6 +48,7 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
       deviceScaleFactor: 2,
       reducedMotion: "reduce",
     });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: "normal" })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.waitForSelector(".acpmux-running-tray[data-open] .acpmux-running-tray__plan");
@@ -60,17 +62,16 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
       document.fonts.ready.then(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))),
     );
     // The hat's header holds its words a moment (ComposerHatHead) and redraws at the new density after;
-    // measure once its leading mark has stopped moving.
+    // measure once its leading mark has held still for 20 painted frames.
     await page.evaluate(async () => {
       const lead = () =>
         document
           .querySelector(".acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind) svg")
           ?.getBoundingClientRect();
-      const frame = () => new Promise((done) => requestAnimationFrame(done));
       let last = "";
       let still = 0;
       for (let index = 0; index < 240 && still < 20; index += 1) {
-        await frame();
+        await window.cmuxPaintFrame();
         const rect = lead();
         const now = rect ? `${rect.left},${rect.top},${rect.width}` : "";
         still = now === last ? still + 1 : 0;
@@ -255,7 +256,7 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
             Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - height) < 0.25,
           empty.boxHeight,
         );
-        await page.waitForTimeout(300);
+        await page.evaluate(() => window.cmuxPaintFrame());
         const after = await measure(page);
         near("placeholder capitals on + after growing", after.capMiddle, after.plus.cy, 0.25);
         near("+ back where it was in the box", after.plus.cy - after.boxTop, empty.plus.cy - empty.boxTop, 0.25);
