@@ -14,16 +14,20 @@ struct ChiefPushBannerTests {
         #expect(banner.subtitle == nil)
     }
 
+    #if canImport(UserNotifications)
     @Test func chiefKeepsReplyInTheLongLook() {
         let actions = PushActions().extensionActions(for: Self.reply, replyField: true)
         #expect(actions?.map(\.identifier) == ["cmux.reply"])
     }
+    #endif
 
+    #if canImport(UserNotifications)
     @Test func otherKindsStillDropTheReplyButtonBesideTheField() {
         var done = Self.reply
         done.kind = .completed
         #expect(PushActions().extensionActions(for: done, replyField: true)?.isEmpty == true)
     }
+    #endif
 
     @Test func plainTextKeepsLineBreaks() {
         #expect(PushPlainText(markdown: "a *b*\nc").text == "a b\nc")

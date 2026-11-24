@@ -1,7 +1,12 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(OSLog)
 import OSLog
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "chief-call")
+#endif
 
 /// Performs one HTTP request (URLSession in the app, a fake in tests).
 public protocol VoiceCallHTTP: Sendable {
@@ -85,7 +90,9 @@ public struct RealtimeCallsAPI: Sendable {
         guard (200 ..< 300).contains(response.statusCode) else {
             let failure = Self.failure(status: response.statusCode, body: data,
                                        requestID: response.value(forHTTPHeaderField: "x-request-id"))
+            #if canImport(OSLog)
             log.error("realtime/calls HTTP \(response.statusCode, privacy: .public) request \(response.value(forHTTPHeaderField: "x-request-id") ?? "-", privacy: .public)")
+            #endif
             throw failure
         }
         let answer = String(decoding: data, as: UTF8.self)

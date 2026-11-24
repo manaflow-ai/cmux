@@ -1,6 +1,8 @@
 import Foundation
 import Observation
+#if canImport(Security)
 import Security
+#endif
 
 /// Where the user's OpenAI API key is kept.
 public protocol OpenAIKeyStoring: Sendable {
@@ -22,6 +24,7 @@ public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
         account = accountID
     }
 
+    #if canImport(Security)
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: Self.service,
@@ -57,9 +60,16 @@ public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
+    #else
+    // No keychain without the Security framework (a Linux build of the kit's tests): no key is kept.
+    public func load() -> String? { nil }
+    public func save(_ key: String) throws { throw KeychainError(status: -1) }
+    public func delete() throws {}
+    #endif
 
+    /// `status` is the keychain's OSStatus (Int32).
     public struct KeychainError: Error, Equatable {
-        public let status: OSStatus
+        public let status: Int32
     }
 }
 
