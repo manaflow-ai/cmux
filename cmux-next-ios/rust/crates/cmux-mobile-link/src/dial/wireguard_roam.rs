@@ -93,7 +93,9 @@ pub(super) enum Control {
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
     /// A joined relay socket: one more carrier, beside UDP and TURN.
-    Relay(super::RelayCarrier),
+    /// `pending`: send the pending handshake initiation through it at once
+    /// (both sides dial the relay first, so no reassert follows the join).
+    Relay { carrier: super::RelayCarrier, pending: bool },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
 }
@@ -1404,7 +1406,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
-                if session.control.send(Control::Relay(carrier)).is_err() {
+                if session.control.send(Control::Relay { carrier, pending: plan.first }).is_err() {
                     return;
                 }
                 shared.set_held(true);

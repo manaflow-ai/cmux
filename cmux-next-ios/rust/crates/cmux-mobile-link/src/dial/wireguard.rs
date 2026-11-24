@@ -1119,7 +1119,7 @@ impl HybridUnderlay {
                 self.paths.on_network_change();
             }
             Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
-            Control::Relay(_) => self.paths.forget_carrier(Carrier::Relay),
+            Control::Relay { .. } => self.paths.forget_carrier(Carrier::Relay),
             _ => {}
         }
         self.apply_one(control);
@@ -1310,19 +1310,23 @@ impl HybridUnderlay {
                     turn.kill();
                 }
             }
-            Control::Relay(relay) => {
+            Control::Relay { carrier: relay, pending } => {
                 tracing::info!("WireGuard joins cmux's relay");
                 self.relay = Some(relay);
                 self.relay_elsewhere_since = None;
                 self.relay_shared.set_held(true);
                 self.wake_receiver();
                 self.publish_path();
-                // The pending handshake initiation goes through the relay at
-                // once, not at its next repeat: the same message (a copy the
-                // peer already answered is dropped there, its timestamp is not
-                // newer), so a direct answer in flight still completes it.
-                if let Some((datagram, class)) =
-                    self.handshake_repeat.as_ref().map(|repeat| (repeat.datagram.clone(), repeat.class))
+                // Relay first: the pending handshake initiation goes through the
+                // relay at once, not at its next repeat. The same message (a copy
+                // the peer already answered is dropped there, its timestamp is not
+                // newer), so a direct answer in flight still completes it. A later
+                // join reasserts instead ([`roam`]'s relay watch).
+                if let Some((datagram, class)) = self
+                    .handshake_repeat
+                    .as_ref()
+                    .filter(|_| pending)
+                    .map(|repeat| (repeat.datagram.clone(), repeat.class))
                 {
                     self.send_relay(&datagram, class);
                 }
