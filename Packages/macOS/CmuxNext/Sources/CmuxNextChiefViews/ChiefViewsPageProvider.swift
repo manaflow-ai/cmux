@@ -3,6 +3,7 @@ import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import CmuxEgress
 
 /// Serves the Chief view gallery's `cmux.chief_views.*` ops (webviews/src/pages/chief-views/types.ts):
 /// - `agents` → every agent row (``ChiefViewsAgent``); stream `agents_changed` → the rows again
@@ -206,7 +207,7 @@ final class ChiefViewsPageProvider: PageProvider {
         if url.host == "api.github.com" {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Egress.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxEgress
 
 /// What a TLS check of a host found before WebKit may load its page
 /// (WebKitEngine+CertificateWarnings.swift).
@@ -14,7 +15,7 @@ nonisolated enum CertificateProbeResult: Sendable, Equatable {
     /// server trust off the main thread; no request is sent.
     static func probe(_ url: URL) async -> CertificateProbeResult {
         let (results, report) = AsyncStream.makeStream(of: CertificateProbeResult.self, bufferingPolicy: .bufferingNewest(1))
-        let session = URLSession(configuration: .ephemeral, delegate: CertificateProbeDelegate(report: report), delegateQueue: nil)
+        let session = Egress.session(site: "CmuxNextBrowser.CertificateProbeResult", configuration: .ephemeral, delegate: CertificateProbeDelegate(report: report), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         request.httpMethod = "HEAD"

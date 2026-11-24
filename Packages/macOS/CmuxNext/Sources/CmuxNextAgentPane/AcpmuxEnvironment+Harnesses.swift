@@ -1,5 +1,6 @@
 public import Foundation
 import Network
+import CmuxEgress
 
 /// A refusal from the acpmux daemon with its JSON-RPC code and, when the daemon names one, its
 /// reason id from `data.reason` (`harness.exists`, `harness.not_removable`, `harness.secret_inline`,
@@ -210,7 +211,7 @@ extension AcpmuxEnvironment {
         let socketPath = socketPath
         return Task.detached {
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
-            let connection = NWConnection(to: endpoint, using: .tcp)
+            let connection = Egress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)

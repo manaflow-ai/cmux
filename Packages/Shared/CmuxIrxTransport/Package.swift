@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXMobileCore"),
         // Grant claims/verifier and terminal-envelope codecs are consumed as
         // stable data contracts; none of the legacy runtime machinery is used.
@@ -30,6 +31,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxIrohTransport",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [

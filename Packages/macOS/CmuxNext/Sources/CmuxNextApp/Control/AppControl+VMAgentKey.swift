@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
+import CmuxEgress
 
 // `vm.agent_key.create`: what `cmux vm token create` sends from inside cmux. The app holds
 // the Stack session, so the CLI never sees it: the app asks the cmux VM API (vm.cmux.dev,
@@ -32,7 +33,7 @@ extension AppControl {
                 for (name, value) in issuer.buildSpaceHeaders { request.setValue(value, forHTTPHeaderField: name) }
                 request.httpBody = try JSONEncoder().encode(planned.body)
                 // No answer at all is status 0, which Rust reads as unreachable.
-                let answer = try? await URLSession.shared.data(for: request)
+                let answer = try? await Egress.shared.data(for: request)
                 let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
                 return try Self.vmAgentKeyAnswer(status: status, body: answer?.0 ?? Data(), baseURL: baseURL, teamID: issuer.teamID)
             }.withDeadline(.fixed(.seconds(25))),

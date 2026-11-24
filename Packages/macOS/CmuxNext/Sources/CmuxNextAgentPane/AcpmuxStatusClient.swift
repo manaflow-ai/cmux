@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import Foundation
 import Network
+import CmuxEgress
 
 /// Asks a running acpmux daemon for its WebSocket endpoint over the unix
 /// socket: `initialize`, then `_acpmux/status`, whose `webUrl` carries the
@@ -265,7 +266,7 @@ nonisolated enum AcpmuxStatusClient {
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
+        let connection = Egress.connection(to: try unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxStatusClient")
         defer { connection.cancel() }
         let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),

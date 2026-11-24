@@ -1,6 +1,7 @@
 public import CMUXAuthCore
 public import Foundation
 import CmuxNextWakeups
+import CmuxEgress
 
 /// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events;
 /// the access token is used only to mint a one-use ticket and never goes into the
@@ -66,7 +67,7 @@ public final class CloudMachineWire {
         let ticket = try await mintTicket(access: access)
         let request = try Self.socketRequest(apiBaseURL: apiBaseURL, ticket: ticket, team: selectedTeam,
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, buildSpace: buildSpace)
-        let task = URLSession.shared.webSocketTask(with: request)
+        let task = Egress.webSocketTask(in: Egress.shared, with: request, site: "CmuxNextCloud.CloudMachineWire")
         task.maximumMessageSize = 8 << 20
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
@@ -133,7 +134,7 @@ public final class CloudMachineWire {
 
     private func mintTicket(access: String) async throws -> String {
         let request = try Self.ticketRequest(apiBaseURL: apiBaseURL, access: access, buildSpace: buildSpace)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Egress.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw CloudAPIError.transport("Cloud wire ticket refused")
         }

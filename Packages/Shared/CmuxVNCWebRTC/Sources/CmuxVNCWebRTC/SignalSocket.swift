@@ -1,4 +1,5 @@
 import Foundation
+import CmuxEgress
 
 /// One signaling message, relayed by the room between host and viewer.
 struct SignalMessage: Codable, Sendable {
@@ -24,13 +25,13 @@ final class SignalSocket: @unchecked Sendable {
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
-        return URLSession(configuration: configuration)
+        return Egress.session(site: "CmuxVNCWebRTC.SignalSocket", configuration: configuration)
     }()
 
     init(pairing: VNCPairing, role: String) {
         var request = URLRequest(url: pairing.url("ws", query: [URLQueryItem(name: "role", value: role)]))
         request.setValue(pairing.secret, forHTTPHeaderField: "x-room-secret")
-        task = Self.session.webSocketTask(with: request)
+        task = Egress.webSocketTask(in: Self.session, with: request, site: "CmuxVNCWebRTC.SignalSocket")
         task.maximumMessageSize = 1 << 20
     }
 

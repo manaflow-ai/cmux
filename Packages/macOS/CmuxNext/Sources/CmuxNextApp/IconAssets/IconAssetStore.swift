@@ -4,6 +4,7 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 import CmuxNextIcons
+import CmuxEgress
 
 /// Where an icon picker session stores an Image or SVG asset: the picked object's owner, its
 /// daemon's blob store (`icon-assets-v1`). The daemon sanitizes and validates an SVG again and
@@ -95,7 +96,7 @@ nonisolated enum IconAssetKind: String {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
-        let session = URLSession(configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
+        let session = Egress.session(site: "CmuxNextApp.IconAssetStore", configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
         // Cancels a body still arriving when the read stops early (too large, cancelled).
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(from: url)

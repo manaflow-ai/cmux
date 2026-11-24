@@ -1,6 +1,7 @@
 public import CMUXAuthCore
 public import CmuxInstallAuthCore
 public import Foundation
+import CmuxEgress
 
 /// POSTs install-auth JSON to the API Worker at `baseURL`. Redirects are
 /// refused (a bearer or a signed challenge never follows one), and nothing
@@ -19,7 +20,7 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
-        session = URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        session = Egress.session(site: "CmuxNextCloud.InstallHTTPTransport", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import Foundation
 import Network
+import CmuxEgress
 
 /// The local model relay's admin socket (cmux-tui crate cmux-coderouter,
 /// ``socketPath(acpmuxHome:uid:)``, 0600): one JSON object per line,
@@ -76,7 +77,7 @@ public nonisolated struct LocalRouterClient: Sendable {
     /// bearer). Returns false at once when no relay answers.
     @concurrent public func waitUntilGone(pid: Int?) async -> Bool {
         guard let endpoint = try? Self.endpoint(socketPath) else { return false }
-        let connection = NWConnection(to: endpoint, using: .tcp)
+        let connection = Egress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.LocalRouterClient")
         defer { connection.cancel() }
         return await withTaskCancellationHandler {
             // Cancelled before the start: a cancelled connection may never report a state.
@@ -112,7 +113,7 @@ public nonisolated struct LocalRouterClient: Sendable {
 
     private static func exchange(socketPath: String, line: Data, deadline: Duration) async throws -> ResultBox {
         let target = try endpoint(socketPath)
-        let connection = NWConnection(to: target, using: .tcp)
+        let connection = Egress.connection(to: target, using: .tcp, site: "CmuxNextAgentPane.LocalRouterClient")
         defer { connection.cancel() }
         return try await withAgentPaneDeadline(deadline, label: "local router", onTimeout: { connection.cancel() }) {
             try await AcpmuxStatusClient.start(connection)

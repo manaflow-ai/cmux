@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import Foundation
 import os
+import CmuxEgress
 
 /// How one create's idempotency key reaches the Cloud API.
 ///
@@ -86,7 +87,7 @@ public nonisolated struct CloudPersonCreate {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = timeout
-        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+        return Egress.session(site: "CmuxNextCloud.CloudPersonCreate", configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
     }
 
     /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`); it waits

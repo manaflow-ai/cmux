@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXAuthCore"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -23,6 +24,7 @@ let package = Package(
             name: "CmuxAuthRuntime",
             dependencies: [
                 "CMUXAuthCore",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [

@@ -22,12 +22,16 @@ let package = Package(
         // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
         .package(path: "../CMUXAuthCore"),
     ],
+    dependencies: [
+        .package(path: "../CmuxEgress"),
+    ],
     targets: [
         .target(
             name: "CmuxHomeCore",
             dependencies: [
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

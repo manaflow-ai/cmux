@@ -1,6 +1,7 @@
 import CmuxUpdater
 public import Foundation
 import Observation
+import CmuxEgress
 
 /// One entry of the feed's `pulled.json`, written by `nightly-next-rollback.yml` next to the
 /// appcast (`scripts/ci/nightly_next_feed_rollback.py pulled`): a build taken off the feed, why,
@@ -136,7 +137,7 @@ public final class PulledBuildWatch {
     nonisolated static func download(_ url: URL) async -> Data? {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 15)
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await Egress.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return data
     }

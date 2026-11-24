@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import os
 import UniformTypeIdentifiers
+import CmuxEgress
 
 /// cmux: thumbnails for the pictures an agent's table names by path or web address (the user,
 /// 2026-11-04, msg 21749: before and after shots in a table showed "[before] [after]"). A cell's
@@ -170,7 +171,7 @@ final class HomeTablePictures: Sendable {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
-        let session = URLSession(configuration: config)
+        let session = Egress.session(site: "MessagesLabHome.HomeTablePictures", configuration: config)
         defer { session.finishTasksAndInvalidate() }
         let (file, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,

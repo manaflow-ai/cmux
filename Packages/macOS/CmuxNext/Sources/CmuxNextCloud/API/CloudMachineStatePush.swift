@@ -1,6 +1,7 @@
 public import CMUXAuthCore
 public import CmuxNextDaemon
 public import Foundation
+import CmuxEgress
 
 /// The pushed connection state of the Cloud machines the app shows (Leo, 2026-11-05: "yes" to a per-machine
 /// state object so the app stops polling). One WebSocket per machine, `GET /v1/cloud/machines/{id}/state` on the
@@ -153,7 +154,7 @@ public final class CloudMachineStatePush {
         // A misconfigured dev build opens no socket (its refusal is CMUXBuildSpaceError).
         guard let request = try? Self.upgradeRequest(url: url, token: token, team: team, buildSpace: buildSpace) else { return false }
         guard watches[machine] != nil, !Task.isCancelled else { return false }
-        let task = session.webSocketTask(with: request)
+        let task = Egress.webSocketTask(in: session, with: request, site: "CmuxNextCloud.CloudMachineStatePush")
         watches[machine]?.task = task
         watches[machine]?.socket = nextSocket()
         task.resume()

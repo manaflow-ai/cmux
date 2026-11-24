@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxEgress
 
 /// Gets a remote suggest response. The App uses `URLSessionSuggestFetcher`;
 /// tests inject a fake. A fetch must end with `CancellationError` (or any
@@ -13,7 +14,7 @@ public nonisolated protocol OmniboxSuggestFetching: Sendable {
 /// (search engine cookies, such as a Kagi login, apply), an ephemeral one
 /// for private profiles. Neither logs the request.
 public nonisolated struct URLSessionSuggestFetcher: OmniboxSuggestFetching {
-    private static let privateSession = URLSession(configuration: .ephemeral)
+    private static let privateSession = Egress.session(site: "CmuxNextBrowser.OmniboxRemoteFetch", configuration: .ephemeral)
 
     public init() {}
 
@@ -21,7 +22,7 @@ public nonisolated struct URLSessionSuggestFetcher: OmniboxSuggestFetching {
         var request = URLRequest(url: url)
         request.setValue("application/json, application/x-suggestions+json", forHTTPHeaderField: "Accept")
         request.cachePolicy = ephemeral ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
-        let session = ephemeral ? Self.privateSession : URLSession.shared
+        let session = ephemeral ? Self.privateSession : Egress.shared
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)

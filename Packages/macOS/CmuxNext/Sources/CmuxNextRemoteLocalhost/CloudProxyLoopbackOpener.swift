@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Network
+import CmuxEgress
 
 /// Opens a machine loopback tunnel through an authenticated local HTTP proxy.
 ///
@@ -59,7 +60,7 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = 15
         tcp.noDelay = true
-        let connection = NWConnection(host: .ipv4(.loopback), port: endpointPort, using: NWParameters(tls: nil, tcp: tcp))
+        let connection = Egress.connection(host: .ipv4(.loopback), port: endpointPort, using: NWParameters(tls: nil, tcp: tcp), site: "CmuxNextRemoteLocalhost.CloudProxyLoopbackOpener")
         do {
             return try await withTaskCancellationHandler {
                 guard await connection.ready(on: queue) else {

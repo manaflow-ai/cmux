@@ -6,6 +6,7 @@ import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 import Observation
+import CmuxEgress
 
 /// The signed-in cmux user on the sidebar's profile control (Leo 2026-10-06): their picture or
 /// initials on the control, and who is signed in, on which team, with Sign Out in its menu.
@@ -91,7 +92,7 @@ final class AccountAvatarImages {
     }
 
     private static func fetch(_ remote: URL) async -> Data? {
-        guard let (bytes, response) = try? await URLSession.shared.data(from: remote),
+        guard let (bytes, response) = try? await Egress.shared.data(from: remote),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return isPicture(bytes) ? bytes : nil
     }

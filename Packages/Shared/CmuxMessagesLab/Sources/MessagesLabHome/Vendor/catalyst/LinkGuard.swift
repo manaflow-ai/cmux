@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxEgress
 
 /// What a link preview may fetch. Previews start from URLs in INCOMING messages
 /// (agents, other people) and then from the page's og:image URL, so without a
@@ -220,7 +221,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
         c.timeoutIntervalForRequest = timeout
         c.timeoutIntervalForResource = timeout
         c.httpMaximumConnectionsPerHost = 2
-        return URLSession(configuration: c, delegate: self, delegateQueue: queue)
+        return Egress.session(site: "MessagesLabHome.LinkGuard", configuration: c, delegate: self, delegateQueue: queue)
     }()
 
     /// Checks the URL (resolution included), then GETs it. `done` runs on the

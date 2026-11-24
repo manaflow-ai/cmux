@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxEgress
 
 /// Where the device hub gets the account: the app's Stack Auth access token
 /// (CloudAuth's `tokens().access`), exchanged once for a hub session.
@@ -81,7 +82,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return Egress.session(site: "CmuxDeviceHub.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account

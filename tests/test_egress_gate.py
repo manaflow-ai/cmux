@@ -54,7 +54,7 @@ FORMS = {
         "urlsession": r"\bURLSession\((?:configuration|\))",
         "urlsession-shared": r"\bURLSession\.shared\b",
         "nwconnection": r"\bNWConnection\(",
-        "websocket-task": r"\.webSocketTask\(",
+        "websocket-task": r"(?<!\bEgress)\.webSocketTask\(",
     },
 }
 COMPILED = {ext: re.compile("|".join(f"(?P<{k.replace('-', '_')}>{v})" for k, v in forms.items()))
@@ -168,7 +168,7 @@ class Matcher(unittest.TestCase):
         self.assertEqual(sites_in(rs, "cmux-tui/crates/x/src/a.rs"),
                          {"reqwest-client": 2, "client-builder": 1, "reqwest-get": 1, "ws-connect": 1})
         sw = ('let s = URLSession(configuration: c)\nURLSession.shared.data(for: r)\nNWConnection(to: e, using: p)\n'
-              'session.webSocketTask(with: u)\n')
+              'session.webSocketTask(with: u)\nEgress.webSocketTask(in: s, with: u, site: "x")\n')
         self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
                          {"urlsession": 1, "urlsession-shared": 1, "nwconnection": 1, "websocket-task": 1})
 

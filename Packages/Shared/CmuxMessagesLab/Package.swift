@@ -27,11 +27,15 @@ let package = Package(
         .package(path: "../CmuxAgentBrands"),
         .package(path: "../CmuxSpinner"),
     ],
+    dependencies: [
+        .package(path: "../CmuxEgress"),
+    ],
     targets: [
         .target(
             name: "MessagesLabHome",
             dependencies: [
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

@@ -1,6 +1,7 @@
 public import CMUXAuthCore
 public import Foundation
 import CmuxNextCompat
+import CmuxEgress
 
 /// The Cloud REST client. A Worker machines client (CloudAPIClient+MachineRoutes.swift) sends a
 /// machine's exec, file, SCP and preview calls to cmux-platform's `/v1/cloud/machines`, the only
@@ -46,7 +47,7 @@ public struct CloudAPIClient: Sendable {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration)
+        return Egress.session(site: "CmuxNextCloud.CloudAPIClient", configuration: configuration)
     }()
 
     /// The team requests go to now (`X-Cmux-Team-Id`).

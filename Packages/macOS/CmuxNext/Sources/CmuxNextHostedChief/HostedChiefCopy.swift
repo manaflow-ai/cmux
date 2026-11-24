@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
+import CmuxEgress
 
 /// A refusal of the API Worker (`code` is the owner's error code) or a reply that does not parse.
 public enum HostedChiefError: Error, Equatable {
@@ -43,7 +44,7 @@ final class HostedChiefCopy {
             request.setValue("Bearer \(try await token())", forHTTPHeaderField: "authorization")
             for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
             request.httpBody = data
-            let (reply, response) = try await URLSession.shared.data(for: request)
+            let (reply, response) = try await Egress.shared.data(for: request)
             return ((response as? HTTPURLResponse)?.statusCode ?? 0, reply)
         }
 

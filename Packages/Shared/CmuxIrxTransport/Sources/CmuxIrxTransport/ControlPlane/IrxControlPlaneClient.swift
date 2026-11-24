@@ -1,5 +1,6 @@
 import CMUXMobileCore
 public import Foundation
+import CmuxEgress
 
 /// Persisted control-plane sync position: the highest account route revision
 /// this device has fully received. Sent as `haveRev` on reconnect so the
@@ -339,7 +340,7 @@ public actor IrxControlPlaneClient {
         if let namespace = configuration.clientNamespace {
             request.setValue(namespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
         }
-        let task = URLSession.shared.webSocketTask(with: request)
+        let task = Egress.webSocketTask(in: Egress.shared, with: request, site: "CmuxIrxTransport.IrxControlPlaneClient")
         socket = task
         lastAckedRev = nil
         lastActivityAt = nil

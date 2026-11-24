@@ -7,6 +7,7 @@ import Foundation
 import Network
 public import Observation
 import os
+import CmuxEgress
 
 /// One Mac Screen tab's stream to another of the user's Macs on cmux.rd/1
 /// (plans/cmux-next/remote-desktop-mac-host.md section 7). The device hub
@@ -586,7 +587,7 @@ public final class MacScreenSession {
 /// The link bridge's Unix socket as the remote view transport's byte stream.
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = Egress.connection(to: .unix(path: path), using: .tcp, site: "CmuxNextMacScreen.MacScreenSession")
         // The stream's bytes: the next decoded frame waits for them.
         let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
