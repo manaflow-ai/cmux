@@ -803,6 +803,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_mac_grants.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -977,6 +981,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_appstore_lane_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1661,6 +1669,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_docs_localization.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workflow_catalog_translation.py"
 lane = "macos-cli-no-socket"
 
@@ -1674,10 +1687,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_main_full_suite.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ios_ui_nightly.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1806,6 +1815,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scheduled_workflow_gh_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
@@ -1850,11 +1863,19 @@ path = "tests/test_ci_runner_pools.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_spend_mark.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2029,6 +2050,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cron_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2350,4 +2375,48 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_language_boundaries_spends_no_rest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_takeback_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_blind_spots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"

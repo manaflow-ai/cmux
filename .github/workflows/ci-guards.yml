@@ -22,10 +22,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -66,7 +70,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -164,6 +168,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_risk_tier_history_admission.py
 
+      - name: Validate the risk check is red only for an unowned takeback
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_risk_tier_takeback_only.py
+
       # No polling loops in scripts or workflows: waits go through one
       # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
       # must stay needs an allowlist entry with its reason.
@@ -194,6 +202,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
 
+      - name: Validate the App spend lines and budget floor of minting jobs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_spend_mark.py
+
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
@@ -201,6 +213,10 @@ jobs:
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
+
+      - name: Validate the real Cloud journey takes its own Claude login first
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_journey_prod_own_login.py
 
       - name: Validate fast checks name the commit they test
         if: ${{ matrix.group == 'ci' }}
@@ -226,8 +242,23 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      # Three shards of one file: alone it outlasted every other guard and set CI fast guards' wall time.
+      - name: Validate main-fix merge evidence (installed helper)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: installed-helper
+        run: python3 tests/test_gh_merge_green.py
+
+      - name: Validate main-fix merge evidence (merged-head checks)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: merged-head
+        run: python3 tests/test_gh_merge_green.py
+
       - name: Validate main-fix merge evidence
         if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: rest
         run: python3 tests/test_gh_merge_green.py
 
       - name: Validate the gh-merge-green fast gate
@@ -670,7 +701,7 @@ jobs:
 
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: sc="$(scripts/ci/ensure-shellcheck.sh)" && "$sc" scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' }}
@@ -700,6 +731,12 @@ jobs:
       - name: Validate the workflow concurrency lint
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_concurrency.py
+
+      # One queued run per cron or maintenance workflow; nightly, DEV, promote, release and publish
+      # workflows never gain cancel-in-progress or a shared cron group (docs/ci/cron-concurrency.md).
+      - name: Check cron workflows keep one queued run and delivery builds are never deduped
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cron_concurrency.py
 
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
@@ -789,10 +826,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
-      - name: Validate the nightly run of every iOS UI test
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_ios_ui_nightly.py
-
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_attribution.py
@@ -825,6 +858,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate scheduled workflows wait through GitHub API rate limits and 5xx
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_scheduled_workflow_gh_retry.py
+
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
@@ -853,9 +890,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate iOS simulator selection and per-slot devices
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_select_ios_simulator.py
+
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
+
+      - name: Validate the Mac pull request grant switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_mac_grants.py
 
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
@@ -975,6 +1020,14 @@ jobs:
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate the API call log names its blind spots and leaves scripts' PATH alone
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_blind_spots.py
+
+      - name: Validate the API call log loads in a sparse checkout and switches off cleanly
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_call_log_bootstrap.py
 
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
@@ -1131,6 +1184,10 @@ jobs:
       - name: Validate the PR media privacy gate
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
+
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1344,6 +1401,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 ios/tests/test_appstore_review_package.py
 
+      - name: Validate the App Store Connect ops script (ios-asc-ops.yml)
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_asc_ops.py
+
       - name: Validate the cmux CLASSIC upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
@@ -1501,6 +1562,10 @@ jobs:
       - name: Validate the Cloud chat proof dispatcher outwaits a slow proof and retries a transient error
         if: ${{ matrix.group == 'release-notary' }}
         run: node --test tests/cloud_chat_proof_dispatch.test.mjs
+
+      - name: Validate the Executor journey dispatcher files one issue when red and closes it on green
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/executor_journey_dispatch.test.mjs
 
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}
@@ -1670,6 +1735,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
+      - name: Validate write-token jobs lead with a JIT label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_write_token_jit_label.py
+
       - name: Validate the CEF publish checksum check
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_check_cef_sums.py
@@ -1810,7 +1879,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1876,7 +1945,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1911,7 +1980,7 @@ jobs:
         group: [sidebar-layout, dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1959,7 +2028,7 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

@@ -129,9 +129,12 @@ def _pr_numbers(run: dict[str, Any]) -> list[Any]:
 
 
 def dead_base(run: dict[str, Any], now: dt.datetime) -> bool:
-    """The facts every dead-queued kind needs: a queued pull_request run with a head, past
-    SUPERSEDED_MIN_AGE_SECONDS, of no PROTECTED_WORKFLOW."""
+    """The facts every dead-queued kind needs: a queued first-attempt pull_request run with a head, past
+    SUPERSEDED_MIN_AGE_SECONDS, of no PROTECTED_WORKFLOW. A rerun is someone asking for it again, however old the
+    run's created_at (review of #47775, F1)."""
     if run.get("event") != "pull_request" or run.get("status") != "queued" or not run.get("head_sha"):
+        return False
+    if int(run.get("run_attempt") or 1) != 1:
         return False
     if PROTECTED_WORKFLOW.search(str(run.get("path") or "")) or PROTECTED_WORKFLOW.search(str(run.get("name") or "")):
         return False
@@ -219,6 +222,10 @@ class GitHub:
 
     def runs(self, status: str, pages: int = 10, *, created: str | None = None) -> list[dict[str, Any]]:
         """The repository's pull_request runs in `status` (classify_run() keeps every other event)."""
+        return self.listing(status, pages, created=created)[0]
+
+    def listing(self, status: str, pages: int = 10, *, created: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        """runs(), and whether the listing reached its empty last page within PAGES."""
         result: list[dict[str, Any]] = []
         for page in range(1, pages + 1):
             params: dict[str, Any] = {"status": status, "event": "pull_request"}
@@ -230,24 +237,25 @@ class GitHub:
             # A short page is not the last one: GitHub drops runs it hides from a page (98 of 100 on
             # 2026-11-19), so only an empty page ends the listing.
             if not page_runs:
-                break
+                return result, True
             result.extend(page_runs)
-        return result
+        return result, False
 
     def queued_pull_request_runs(self, *, now: dt.datetime, hours: int = QUEUED_WINDOW_HOURS) -> list[dict[str, Any]]:
         """Every queued pull_request run created in the last HOURS, read in created-time windows.
 
         GitHub lists at most LIST_CAP runs for one query whatever total_count says: on 2026-11-19
         cmux had more than 2,500 queued runs, page 11 came back empty, and the one-query listing saw
-        98 of them, none superseded, so the pass cancelled nothing. A window that fills the cap is
-        halved until each one is read whole."""
+        98 of them, none superseded, so the pass cancelled nothing. A window whose listing ends before an
+        empty page is halved until each one is read whole: short pages can cap it below LIST_CAP runs (98 a
+        page is 980; review of #47775, F3)."""
         seen: dict[Any, dict[str, Any]] = {}
         windows = [(now - dt.timedelta(hours=hours), now)]
         while windows:
             start, end = windows.pop()
             created = f"{start.strftime('%Y-%m-%dT%H:%M:%SZ')}..{end.strftime('%Y-%m-%dT%H:%M:%SZ')}"
-            runs = self.runs("queued", pages=LIST_CAP // 100, created=created)
-            if len(runs) >= LIST_CAP and end - start > dt.timedelta(minutes=1):
+            runs, whole = self.listing("queued", pages=LIST_CAP // 100, created=created)
+            if not whole and end - start > dt.timedelta(minutes=1):
                 middle = start + (end - start) / 2
                 windows += [(start, middle), (middle, end)]
                 continue
@@ -319,12 +327,16 @@ def dead_queued_pass(janitor: GitHub, repo: str, *, cleanup: bool, limit: int) -
             # The run can start, its pull request can move, close, reopen or leave draft, and a kept run can start.
             current = janitor.request("GET", endpoint)
             live = dict(open_prs)
+            opted_out = False
             for number in set(_pr_numbers(current)):
                 pr = janitor.request("GET", f"/repos/{repo}/pulls/{number}", missing_is_empty=True)
                 if isinstance(pr, dict) and pr.get("state") == "open":
                     live[number] = pr_facts(pr)
                 elif isinstance(pr, dict) and pr.get("state") == "closed":
                     live.pop(number, None)
+                    # The inventory reads only open PRs' labels (review of #47775, F2).
+                    if JANITOR_OPT_OUT_LABEL in pr_facts(pr)["labels"]:
+                        opted_out = True
                 else:
                     raise RuntimeError(f"pull request {number} unread")
             for pr in janitor.pull_requests_for_commit(str(current.get("head_sha") or "")):
@@ -335,7 +347,7 @@ def dead_queued_pass(janitor: GitHub, repo: str, *, cleanup: bool, limit: int) -
                 fresh = janitor.request("GET", f"/repos/{repo}/actions/runs/{keepers[run_id].get('id')}")
                 if fresh.get("status") == "queued" and fresh.get("head_sha") == current.get("head_sha"):
                     kept = {run_id: fresh}
-            again = classify_dead(current, live, kept, now=dt.datetime.now(dt.timezone.utc))
+            again = None if opted_out else classify_dead(current, live, kept, now=dt.datetime.now(dt.timezone.utc))
             if again != kind:
                 print(f"preserved run {run_id}: no longer {kind} ({again or 'kept'})")
                 continue
@@ -453,13 +465,19 @@ def main() -> int:
         return superseded_pass(janitor, repo, cleanup=cleanup_requested, limit=limit)
     now = dt.datetime.now(dt.timezone.utc)
     eligible: list[tuple[dict[str, Any], str]] = []
+    # One read per commit in the inventory: on 2026-11-22 the report-only schedule read commits/{sha}/pulls for 227
+    # old runs of 19 commits, twice an hour, from the GITHUB_TOKEN hour the production promote gates read. A pull
+    # request that closes during the pass only shows in the next one, and cleanup reads again before it acts.
+    commit_prs: dict[str, list[dict[str, Any]]] = {}
     try:
         for status in ("queued", "in_progress"):
             for run in janitor.runs(status):
                 if not may_be_eligible(run, now=now, min_age_seconds=min_age_minutes * 60):
                     continue
-                # Read per run, not per commit: a pull request can close between two runs of one commit.
-                prs = janitor.pull_requests_for_commit(run.get("head_sha", ""))
+                sha = run.get("head_sha", "")
+                if sha not in commit_prs:
+                    commit_prs[sha] = janitor.pull_requests_for_commit(sha)
+                prs = commit_prs[sha]
                 reason = classify_run(run, prs, now=now, min_age_seconds=min_age_minutes * 60)
                 if reason:
                     eligible.append((run, reason))
