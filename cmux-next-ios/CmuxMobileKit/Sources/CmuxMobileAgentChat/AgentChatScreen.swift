@@ -868,6 +868,10 @@ public struct AgentChatBottomStack: View {
                     PlanProgressBar(progress: progress, entries: entries)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
+                if !store.outgoing.isEmpty {
+                    OutgoingMessagesView(store: store)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))

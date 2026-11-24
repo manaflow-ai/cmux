@@ -487,6 +487,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
         // Mac's screen after this update, as `prepareCard` does.
@@ -497,15 +498,29 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return cardView(tab.id, slot: slot)
     }
 
+    /// The screen the Mac pushed of a tab not opened in this launch (its `tabs` service, kept
+    /// on disk across launches): the card draws it at once, with no round trip, or as soon as the
+    /// disk read brings it (a cold launch builds the cards before that read is done). The read
+    /// below replaces it with the Mac's screen now.
+    private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
+        guard model.cardScreenText == nil, !model.pageStarted,
+              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id) else { return }
+        MacTabCards.shared.whenScreen(key) { [weak model] screen in
+            guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
+            model.cardScreenText = screen
+        }
+    }
+
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
         let host = host(for: tab, in: workspace)
+        primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
     }
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -833,11 +848,15 @@ struct TerminalTabSlotPage: View {
 
 struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
+    /// For the UI tests' face probe (`TabCardFaceRecord`).
+    let tabID: String
     let insets: EdgeInsets
 
     var body: some View {
-        TerminalTabCard(model: slot.host.model, insets: insets)
+        let card = TerminalTabCard(model: slot.host.model, insets: insets)
+        card
             .id(ObjectIdentifier(slot.host))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))
     }
 }
 #endif
