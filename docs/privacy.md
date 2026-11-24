@@ -110,6 +110,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
