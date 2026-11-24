@@ -6,8 +6,10 @@ when code names a host that has no row here, and when a row's host is gone from 
 
 ## Telemetry
 
-Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
-you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. In the
+standalone `cmux` CLI and the Chief it is off until you turn it on, and the `DisableTelemetry` managed policy turns it
+off for everyone on a managed Mac. Team usage sharing (`diagnostics.usageSharing`) is off until your team's admin
+enables it, you have seen its notice and acknowledged it (`diagnostics.usageSharingNoticeAck`), and you turned it on.
 
 - The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
   leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
@@ -16,8 +18,8 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   frames, breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and
   checks that none of them is left in the report as it is sent.
 - A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
-  panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
-  file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
+  panic and memory reports. It sends only when `app.sendAnonymousTelemetry: true` is set in `~/.config/cmux/cmux-next.json` (or the
+  file `CMUX_NEXT_CONFIG_FILE` names); unset is off. It also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
 
@@ -26,7 +28,7 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
   paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
   Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
-  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
+  the server's own Cloud events. It is off until `sendAnonymousTelemetry` is turned on in the app or `app.sendAnonymousTelemetry: true` is set in `cmux-next.json`. These turn it off: `sendAnonymousTelemetry` in the app (the running
   Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
   `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
   waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never

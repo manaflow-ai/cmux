@@ -9,10 +9,10 @@
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
 //! and right after each alert.
 //!
-//! It sends nothing when: the binary is inside the cmux app (the app sends
+//! It sends nothing until the person opts in (`app.sendAnonymousTelemetry: true` in cmux.json;
+//! unset is off). It also sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
-//! `CMUX_TUI_TELEMETRY=off` is set, cmux.json has
-//! `app.sendAnonymousTelemetry: false`, `CI` is set, or the build is not a
+//! `CMUX_TUI_TELEMETRY=off` is set, `CI` is set, or the build is not a
 //! release (no `CMUX_TUI_DISTRIBUTION_VERSION` stamp). Debug builds take a
 //! test DSN from `CMUX_TUI_TEST_SENTRY_DSN`, which also stands in for the stamp.
 
@@ -101,6 +101,10 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
     });
     if setting == Some(&Value::Bool(false)) {
         return Consent::Off("app.sendAnonymousTelemetry is false");
+    }
+    // Off until the person turns it on: an unset setting sends nothing.
+    if setting != Some(&Value::Bool(true)) {
+        return Consent::Off("app.sendAnonymousTelemetry is not turned on");
     }
     if env_set("CI").is_some() {
         return Consent::Off("CI");

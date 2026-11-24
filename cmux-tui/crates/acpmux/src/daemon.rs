@@ -270,7 +270,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
     crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
-    // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
+    // person turns on `diagnostics.usageSharing` and acknowledges the notice
+    // (`diagnostics.usageSharingNoticeAck`). One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
     let _ = cmux_usage_share::install(&home(), Some(crate::hand::pair::hostname()));
     // Before the store, the sockets and any agent: launchd's soft limit is 256.

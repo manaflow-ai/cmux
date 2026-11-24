@@ -3,7 +3,8 @@
 //! (`GET /v1/usage/audit`: by person, repository, model, harness, machine and day).
 //!
 //! Off by default. Nothing is recorded and nothing is sent until the person turns on
-//! `diagnostics.usageSharing` (`CMUX_USAGE_SHARING=on|off` overrides the setting). While on, each
+//! `diagnostics.usageSharing` and acknowledges the notice (`diagnostics.usageSharingNoticeAck`);
+//! `CMUX_USAGE_SHARING=off` forces it off. While on, each
 //! finished turn appends one `turn` record (and a session's first, one `session` record) to
 //! `<ACPMUX_HOME>/usage-share/YYYY-MM-DD.jsonl`, and the daemon uploads the unsent lines every
 //! [`UPLOAD_EVERY`].
@@ -32,6 +33,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The setting that turns sharing on (a toggle, default off).
 pub const SETTING_KEY: &str = "diagnostics.usageSharing";
+/// The notice acknowledgement: sharing sends nothing until this is `true` too (default off).
+pub const NOTICE_ACK_KEY: &str = "diagnostics.usageSharingNoticeAck";
 /// `CMUX_USAGE_SHARING=on|off` overrides the setting.
 pub const ENV_OVERRIDE: &str = "CMUX_USAGE_SHARING";
 /// The spool's folder under the acpmux home.
@@ -46,21 +49,31 @@ pub const GATE_REREAD: Duration = Duration::from_secs(5);
 /// memory starts over, which at worst writes a session's `session` record again.
 const MAX_REMEMBERED: usize = 4096;
 
-/// Whether sharing is on: `CMUX_USAGE_SHARING` when set, else `diagnostics.usageSharing` in the
-/// settings file at `config` (nested or as one dotted key) is `true`. A missing or unreadable
-/// file is off.
+/// Whether sharing is on. Both must hold: the person turned on `diagnostics.usageSharing` (or
+/// `CMUX_USAGE_SHARING=on`), and they have seen the notice that says what is shared and with
+/// whom and acknowledged it (`diagnostics.usageSharingNoticeAck` is `true`; the settings page
+/// writes it when they accept the notice). `CMUX_USAGE_SHARING=off` always wins. A missing or
+/// unreadable file is off. The team admin's side is checked by the platform: it refuses uploads
+/// from a team that has not enabled sharing, and this daemon then stops (see `upload`).
 pub fn setting_enabled(config: &Path) -> bool {
-    if let Some(forced) = env_override() {
-        return forced;
+    let forced = env_override();
+    if forced == Some(false) {
+        return false;
     }
     let Some(root) =
         std::fs::read_to_string(config).ok().and_then(|text| cmux_config::jsonc::parse(&text).ok())
     else {
         return false;
     };
-    let nested = cmux_config::value::value_at(&root, &["diagnostics", "usageSharing"]);
-    let flat = root.get(SETTING_KEY);
-    nested.or(flat).and_then(serde_json::Value::as_bool) == Some(true)
+    let flag = |nested: &[&str], flat: &str| {
+        cmux_config::value::value_at(&root, nested)
+            .or(root.get(flat))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    };
+    let acknowledged = flag(&["diagnostics", "usageSharingNoticeAck"], NOTICE_ACK_KEY);
+    let on = forced == Some(true) || flag(&["diagnostics", "usageSharing"], SETTING_KEY);
+    on && acknowledged
 }
 
 fn env_override() -> Option<bool> {

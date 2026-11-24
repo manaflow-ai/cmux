@@ -1,6 +1,10 @@
 //! Whether this Chief host may send analytics, re-read every few minutes so
 //! turning telemetry off stops sending at once and deletes what waits.
 //!
+//! Analytics are OFF until the person turns on `sendAnonymousTelemetry` (the app's choice or
+//! `app.sendAnonymousTelemetry: true` in the settings file); unset sends nothing. The only
+//! other way on is `CMUX_CHIEF_ANALYTICS=dev`, a developer's explicit switch (staging route).
+//!
 //! The rule is the cmux CLI's crash forwarding (`cmux-tui`
 //! `owner_start/crash_forward.rs`, docs/privacy.md "Telemetry"), with one
 //! Chief switch added:
@@ -15,7 +19,8 @@
 //!    host that outlives the app;
 //! 4. `app.sendAnonymousTelemetry: false` in the cmux settings file: off;
 //! 5. `CI` set: off;
-//! 6. a build that is not a release (a debug compile, a DEV or tagged app):
+//! 6. no opt-in (see above): off;
+//! 7. a build that is not a release (a debug compile, a DEV or tagged app):
 //!    off unless `CMUX_CHIEF_ANALYTICS=dev`, which sends with
 //!    `environment: dev` (the staging route: same project, filtered out of
 //!    every dashboard).
@@ -77,6 +82,11 @@ pub fn decide(inputs: &Inputs<'_>) -> Consent {
     let dev = chief.as_deref().map(str::trim) == Some("dev");
     if dev {
         return Consent::Send("dev");
+    }
+    // Off until the person turns it on: either the app's own choice or the cmux
+    // settings file says `sendAnonymousTelemetry: true`. Unset is off.
+    if inputs.app_choice != Some(true) && setting != Some(&Value::Bool(true)) {
+        return Consent::Off("sendAnonymousTelemetry is not turned on");
     }
     if !inputs.release_build {
         return Consent::Off("not a release build");

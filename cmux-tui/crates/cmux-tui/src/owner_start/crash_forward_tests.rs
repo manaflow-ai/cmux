@@ -27,33 +27,42 @@ fn the_dsn_names_the_envelope_endpoint() {
 }
 
 #[test]
-fn consent_sends_only_when_nothing_turns_it_off() {
+fn consent_sends_only_after_opt_in_and_when_nothing_turns_it_off() {
     let none: BTreeMap<String, Value> = BTreeMap::new();
     let no_env = |_: &str| -> Option<String> { None };
-    assert_eq!(consent(&inputs(&none, None, &no_env)), Consent::Send);
+    // A fresh install (no setting) sends nothing; only an explicit opt-in sends.
+    assert_eq!(
+        consent(&inputs(&none, None, &no_env)),
+        Consent::Off("app.sendAnonymousTelemetry is not turned on")
+    );
+    assert!(matches!(consent(&inputs(&none, Some(&json!({})), &no_env)), Consent::Off(_)));
+    let on_settings = json!({"app": {"sendAnonymousTelemetry": true}});
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &no_env)), Consent::Send);
 
     let app = ConsentInputs { channel: InstallChannel::App, ..inputs(&none, None, &no_env) };
     assert!(matches!(consent(&app), Consent::Off(_)));
 
     let forced = BTreeMap::from([("DisableTelemetry".to_string(), Value::Bool(true))]);
-    assert!(matches!(consent(&inputs(&forced, None, &no_env)), Consent::Off(_)));
+    assert!(matches!(consent(&inputs(&forced, Some(&on_settings), &no_env)), Consent::Off(_)));
 
     let off = json!({"app": {"sendAnonymousTelemetry": false}});
     assert_eq!(
         consent(&inputs(&none, Some(&off), &no_env)),
         Consent::Off("app.sendAnonymousTelemetry is false")
     );
-    let on = json!({"app": {"sendAnonymousTelemetry": true}});
-    assert_eq!(consent(&inputs(&none, Some(&on), &no_env)), Consent::Send);
 
     let dnt = |name: &str| (name == "DO_NOT_TRACK").then(|| "1".to_string());
-    assert_eq!(consent(&inputs(&none, None, &dnt)), Consent::Off("DO_NOT_TRACK"));
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &dnt)), Consent::Off("DO_NOT_TRACK"));
     let telemetry_off = |name: &str| (name == "CMUX_TUI_TELEMETRY").then(|| "off".to_string());
-    assert_eq!(consent(&inputs(&none, None, &telemetry_off)), Consent::Off("CMUX_TUI_TELEMETRY"));
+    assert_eq!(
+        consent(&inputs(&none, Some(&on_settings), &telemetry_off)),
+        Consent::Off("CMUX_TUI_TELEMETRY")
+    );
     let ci = |name: &str| (name == "CI").then(|| "true".to_string());
-    assert_eq!(consent(&inputs(&none, None, &ci)), Consent::Off("CI"));
+    assert_eq!(consent(&inputs(&none, Some(&on_settings), &ci)), Consent::Off("CI"));
 
-    let unreleased = ConsentInputs { release_build: false, ..inputs(&none, None, &no_env) };
+    let unreleased =
+        ConsentInputs { release_build: false, ..inputs(&none, Some(&on_settings), &no_env) };
     assert_eq!(consent(&unreleased), Consent::Off("not a release build"));
 }
 
