@@ -1,0 +1,25 @@
+#!/bin/bash
+# ssh to a Freestyle VM, for AUTO_SSH in ../remote.sh. Freestyle's gateway takes a VM-scoped,
+# temporary token in the ssh user name (what `freestyle vm ssh` does) and allows -L forwards.
+#
+#   bun add freestyle                                          once, in this folder
+#   FREESTYLE_API_KEY=... bun ssh-args.ts VM_ID > ssh.args     mode 600; never print it
+#   AUTO_SSH=$PWD/vmssh ../remote.sh install freestyle claude-haiku-5-5
+#   AUTO_SSH=$PWD/vmssh ../remote.sh up freestyle
+#   FREESTYLE_API_KEY=... bun ssh-args.ts --delete "$(sed -n 1p ssh.args)"   when done
+#
+# AUTO_FREESTYLE_SSH_ARGS names the args file (default: ssh.args beside this script).
+here=$(cd "$(dirname "$0")" && pwd)
+args=${AUTO_FREESTYLE_SSH_ARGS:-$here/ssh.args}
+user=$(sed -n 2p "$args")
+host=$(sed -n 3p "$args")
+opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$(dirname "$args")/known_hosts" -o ConnectTimeout=20
+      -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o LogLevel=ERROR)
+pre=()
+while [ $# -gt 0 ] && [[ "$1" == -* ]]; do
+    case "$1" in
+        -L|-R|-o) pre+=("$1" "$2"); shift 2 ;;
+        *) pre+=("$1"); shift ;;
+    esac
+done
+exec ssh "${opts[@]}" "${pre[@]}" -l "$user" -- "$host" "$@" 2> >(sed "s/${user##*:}/<token>/g" >&2)

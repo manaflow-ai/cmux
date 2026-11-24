@@ -89,7 +89,24 @@ the laptop is frozen in the middle of a tool call, the machine finishes the turn
 device sends a message, the laptop wakes, the chat comes home with what the Cloud did, and the
 next turn on the laptop remembers all of it.
 
-## On a cmux Cloud machine
+## On a remote machine, over ssh
+
+Nothing but ssh is needed: no cmux app, no open port. Any Linux machine with python3, tmux
+and `claude` will do.
+
+```
+./remote.sh install user@host claude-haiku-5-5   # copies the demo there, starts it in tmux
+./remote.sh up user@host                         # keep running: port forwards, login, model relay
+./auto chat -C ~/proj                            # in another terminal: the laptop side
+AUTO_TEST_STORE_URL=http://127.0.0.1:27717 AUTO_TEST_STORE_TOKEN=... python3 tests/journey.py
+```
+
+The store and the relay listen on the remote machine's loopback only and are reached through
+`ssh -L`. For a Freestyle VM (what a cmux Cloud machine is underneath), `freestyle/vmssh` is
+the ssh to use (`AUTO_SSH`): Freestyle's gateway takes a VM-scoped temporary token in the ssh
+user name and allows forwards.
+
+## On a cmux Cloud machine, through the app
 
 ```
 cmux vm new --name auto-demo --json        # prints the machine's id
@@ -160,6 +177,11 @@ did. Each is worth checking in the product's build of Auto mode.
     "nothing to run" as soon as its agent exits, with the turn's last events unsent, can have
     the chat handed on without them, and the next holder runs the turn again. Unsent events
     count as work here.
+
+13. **A handback is not done when the store names the laptop.** The laptop then brings the
+    Cloud's files in one by one (a quarter second each over a forwarded port). Anything that
+    reads the folder, or stops the laptop, in that time sees half of them. The chat does not
+    run here until the import is whole; a view of it should say "bringing the Cloud's work in".
 
 ## What it leaves out
 

@@ -182,7 +182,7 @@ def cmd_relay(args):
         sys.exit("give --token (the same on both sides)")
     try:
         if args.side == "in":
-            relay.serve_in(args.port, args.tunnel_port, token)
+            relay.serve_in(args.port, args.tunnel_port, token, tunnel_host=args.tunnel_host)
         else:
             if not args.target:
                 sys.exit("auto relay out HOST:PORT")
@@ -428,6 +428,7 @@ def main(argv=None):
     p = sub.add_parser("relay", help="a model route for a machine that has none")
     p.add_argument("side", choices=["in", "out"]); p.add_argument("target", nargs="?")
     p.add_argument("--port", type=int, default=7790); p.add_argument("--tunnel-port", type=int, default=7791)
+    p.add_argument("--tunnel-host", default="0.0.0.0", help="127.0.0.1 when the other side comes in over ssh -L")
     p.add_argument("--token"); p.set_defaults(fn=cmd_relay)
     p = sub.add_parser("login"); p.add_argument("url"); p.add_argument("token")
     p.add_argument("--header", action="append", help="NAME=VALUE sent with every call"); p.set_defaults(fn=cmd_login)

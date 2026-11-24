@@ -166,7 +166,8 @@ def main():
         until("the chat is back on the laptop", lambda: c.chat(CHAT)["holder"] == "device:laptop", 40)
         until("the laptop has what the Cloud did",
               lambda: "finished" in read(os.path.join(proj, "step2.txt"))
-              and ("PINEAPPLE" if REAL else "note from the phone") in read(os.path.join(proj, "notes.txt")), 60)
+              and ("PINEAPPLE" if REAL else "note from the phone") in read(os.path.join(proj, "notes.txt"))
+              and (not REMOTE or read(os.path.join(proj, "where.txt")).strip()), 60)
         if REMOTE:
             where = read(os.path.join(proj, "where.txt")).strip()
             log("where.txt, written in the Cloud and now on the laptop: %s" % where)
