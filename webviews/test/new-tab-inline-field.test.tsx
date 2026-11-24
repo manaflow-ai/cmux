@@ -176,7 +176,7 @@ test("a file pasted on the field draws in the field with its remove control, not
   const chip = host.querySelector<HTMLElement>(failed);
   expect(chip).not.toBeNull();
   expect(chip!.getAttribute("title")).toContain("notes.txt");
-  // In the field, with its own ×; the strip below the field leaves a placed file out. A file the
+  // In the field, with its own ×; the strip in the box leaves a placed file out. A file the
   // page refused fails the same way again, so it shows no Retry (#37877).
   expect(chip!.querySelector(".acpmux-attachment-retry")).toBeNull();
   const remove = chip!.querySelector<HTMLButtonElement>(".acpmux-attachment-remove");
