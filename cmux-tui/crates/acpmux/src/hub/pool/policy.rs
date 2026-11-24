@@ -88,8 +88,9 @@ pub enum Role {
     /// The shape of this harness's newest session: one per harness across
     /// folders (`pool.spare`), kept for `pool.spareIdleMinutes`.
     Spare,
-    /// The folder a Cloud machine's first home chat will take (`reserved.rs`):
-    /// kept like a spare, but one per folder and never refilled.
+    /// The folder a Cloud machine's next home chat will take (`reserved.rs`):
+    /// kept like a spare, but one per folder and never refilled; once a chat
+    /// takes it, a fresh folder is reserved in its place.
     Reserved,
 }
 
@@ -333,6 +334,17 @@ impl<T> Pool<T> {
             released += 1;
         }
         (released, self.drop_unwanted())
+    }
+
+    /// A chat took `key`'s session: when that entry was the reserved one, it is reserved no more
+    /// (its folder is the chat's now) and goes once nothing else wants it. Returns whether it was
+    /// reserved, and what the pool no longer wants.
+    pub fn end_reserved(&mut self, key: &PoolKey) -> (bool, Vec<T>) {
+        let Some(e) = self.entries.iter_mut().find(|e| &e.key == key && e.reserved) else {
+            return (false, Vec::new());
+        };
+        e.reserved = false;
+        (true, self.drop_unwanted())
     }
 
     fn drop_unwanted(&mut self) -> Vec<T> {

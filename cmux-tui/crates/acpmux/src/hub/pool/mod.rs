@@ -1007,6 +1007,13 @@ impl Hub {
                     p.claimed_under = Some(off.clone());
                     p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
+                    // A home chat took the machine's reserved warm agent: the next home chat's
+                    // folder is reserved and warmed now, so it starts warm too.
+                    let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
+                    self.pool_discard(ended);
+                    if reserved {
+                        self.refill_reserved_home(spec.key.cwd.clone());
+                    }
                     return Some(id);
                 }
                 Take::Discard(old) => {
