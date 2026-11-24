@@ -288,11 +288,31 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     };
     let mut grammar = build_grammar(false);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
-    let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
-        Ok(matches) => matches,
+    // A flag given in another case convention (`--no_wait`, `--noWait`) is read as the flag it
+    // spells and the call runs, with a line naming the spelling it took; a spelling several real
+    // flags answer to is refused, never guessed.
+    let mut took: Vec<(String, String)> = Vec::new();
+    let matches = loop {
+        let e = match grammar.try_get_matches_from_mut(argv.clone()) {
+            Ok(matches) => break matches,
+            Err(e) => e,
+        };
+        if took.len() < crate::cli::unknown_flag::REPAIRS {
+            match crate::cli::unknown_flag::repair(&e, &grammar, &argv, at, name) {
+                Some(crate::cli::unknown_flag::Repair::Took { argv: next, given, canonical }) => {
+                    argv = next;
+                    took.push((given, canonical));
+                    continue;
+                }
+                Some(crate::cli::unknown_flag::Repair::Ambiguous(refusal)) => {
+                    errors::exit_with(&(*refusal).into(), json_out)
+                }
+                None => {}
+            }
+        }
         // A flag another command takes says which, and what this one does instead; a root word
         // a command group takes names that command; under --json any other is the envelope.
-        Err(e) => {
+        {
             // Only help and errors need front-door spellings. Normal calls use the
             // unchanged engine grammar, including its canonical variant names.
             let e = if name == "cmux agent" {
@@ -312,6 +332,10 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
             }
         }
     };
+    // The caller learns the real name: silent acceptance of a near miss teaches nothing.
+    for (given, canonical) in &took {
+        eprintln!("{name}: read {given} as {canonical}");
+    }
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
     if let Some(Command::New(_)) = &cli.command
