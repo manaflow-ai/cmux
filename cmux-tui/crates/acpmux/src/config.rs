@@ -1930,18 +1930,41 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // A copy of this file still waiting for the disk writer is older: it never lands after this.
+    crate::disk_writer::settle(path);
+    write_atomic_now(path, bytes)
+}
+
+/// [`write_atomic`] on the disk writer's thread (`disk_writer.rs`): the caller never waits on the
+/// disk, and newer bytes for `path` replace older ones still waiting. A failed write is logged,
+/// not returned: only for a file holding the latest state of something its next write (or a
+/// rebuild) makes up for, never one a caller must know is on disk before it goes on.
+pub fn write_atomic_later(path: &Path, bytes: Vec<u8>) {
+    crate::disk_writer::write_later(path, bytes);
+}
+
+/// [`write_atomic`] with no wait for the disk writer: the writer's own write.
+pub(crate) fn write_atomic_now(path: &Path, bytes: &[u8]) -> Result<()> {
     refuse_lost_home(path)?;
-    write_atomic_checked(path, bytes)
+    write_atomic_synced(path, bytes)
 }
 
 /// [`write_atomic`] for a writer that checked `path` with [`refuse_lost_home`] itself before
 /// preparing its folder: a second check would refuse a home replaced since the first, which the
 /// writer's held folder (`home_fs`) already keeps the file out of.
 pub(crate) fn write_atomic_checked(path: &Path, bytes: &[u8]) -> Result<()> {
+    crate::disk_writer::settle(path);
+    write_atomic_synced(path, bytes)
+}
+
+fn write_atomic_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     // Sync before rename so a power loss cannot leave empty chat metadata behind.
     write_atomic_with(path, bytes, |file, tmp| {
         #[cfg(test)]
         startup_seams::sync(tmp);
+        // The fault harness's slow disk (`cmux-fault` `disk.rs`) slows these syncs too.
+        #[cfg(debug_assertions)]
+        crate::store::disk_fault::sync();
         file.sync_all().with_context(|| format!("sync {}", tmp.display()))
     })?;
     // The rename itself is durable once its directory is synced.
