@@ -10,6 +10,7 @@ import { build } from "vite";
 import { attachmentWithoutCwd } from "../test/support/attachmentWithoutCwd";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
+import type {} from "../src/agent-session/acpmux/pane/bridgeGlobals";
 
 const root = process.argv[2] ?? path.resolve(import.meta.dir, "..");
 const dir = mkdtempSync(path.join(tmpdir(), "cmux-composer-attachment-"));
