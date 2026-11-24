@@ -176,11 +176,11 @@ final class TooltipGalleryBackdrop: NSView {
             Palette.windowBackground.setFill()
             bounds.fill()
             guard busy else { return }
-            let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+            let font = Typography.system(.monospaced, size: TypeScale.caption)
             let inks = [Palette.textPrimary, NSColor.systemGreen, NSColor.systemRed, NSColor.systemYellow, Palette.textSecondary, NSColor.systemBlue]
             for (index, line) in Self.lines.enumerated() {
                 let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: inks[index % inks.count]]
-                (line as NSString).draw(at: NSPoint(x: 4, y: 2 + CGFloat(index) * 8), withAttributes: attributes)
+                (line as NSString).draw(at: NSPoint(x: 4, y: 2 + CGFloat(index) * (font.pointSize + 1)), withAttributes: attributes)
             }
         }
     }

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import CmuxTheme
 import Testing
@@ -219,10 +220,14 @@ import CmuxNextWakeupsTestSupport
     /// The glass is the hover surface setting's `glass` value (Leo 2026-11-24 named it: "wack ass glass";
     /// the solid default is `HoverSurfaceStaysPutTests`).
     @Test func theSurfaceIsTheSharedGlassOrOpaqueUnderReduceTransparency() async throws {
-        HoverSurfaceLook.lookOverride = .glass
+        let hoverStore = TunableStore.shared
+        hoverStore.register([HoverSurfaceLook.tunable.descriptor])
+        if !hoverStore.isActive { hoverStore.activate(file: nil) }
+        let hoverBefore = hoverStore.overrides[HoverSurfaceLook.tunable.key]
+        hoverStore.set(HoverSurfaceLook.tunable.key, .choice(HoverSurfaceLook.glass.rawValue))
         defer {
             ReduceTransparency.shared.override = nil
-            HoverSurfaceLook.lookOverride = nil
+            hoverStore.set(HoverSurfaceLook.tunable.key, hoverBefore)
         }
         for reduce in [false, true] {
             ReduceTransparency.shared.override = reduce

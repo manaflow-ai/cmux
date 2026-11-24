@@ -27,8 +27,12 @@ struct GlassTextEveryThemeTests {
 
     @Test func toastTextReadsOnItsGlassInEveryBundledTheme() throws {
         // The toast on the glass: the hover surface setting's `glass` value (solid is the default).
-        HoverSurfaceLook.lookOverride = .glass
-        defer { HoverSurfaceLook.lookOverride = nil }
+        let hoverStore = TunableStore.shared
+        hoverStore.register([HoverSurfaceLook.tunable.descriptor])
+        if !hoverStore.isActive { hoverStore.activate(file: nil) }
+        let hoverBefore = hoverStore.overrides[HoverSurfaceLook.tunable.key]
+        hoverStore.set(HoverSurfaceLook.tunable.key, .choice(HoverSurfaceLook.glass.rawValue))
+        defer { hoverStore.set(HoverSurfaceLook.tunable.key, hoverBefore) }
         let themes = try CardNeverOpaqueTests.bundledThemes()
         #expect(themes.count > 600)
         let scope = ThemeScope(level: .room)

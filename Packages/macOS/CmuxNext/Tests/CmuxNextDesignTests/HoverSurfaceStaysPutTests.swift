@@ -167,14 +167,19 @@ struct HoverSurfaceStaysPutTests {
     }
 }
 
-/// Pins the shared hover surface's look (``HoverSurfaceLook/lookOverride``) for one synchronous block, so a test
-/// of the glass or of a solid look does not depend on the default or a developer's Debug Settings.
+/// Pins the shared hover surface's look (the `glass.hoverSurface` setting in the shared tunable store) for one
+/// synchronous block, so a test of the glass or of a solid look does not depend on the default or a developer's
+/// Debug Settings.
 @MainActor
 enum HoverSurfacePin {
     static func with(_ look: HoverSurfaceLook, _ body: () throws -> Void) rethrows {
-        let before = HoverSurfaceLook.lookOverride
-        HoverSurfaceLook.lookOverride = look
-        defer { HoverSurfaceLook.lookOverride = before }
+        let store = TunableStore.shared
+        store.register([HoverSurfaceLook.tunable.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let key = HoverSurfaceLook.tunable.key
+        let before = store.overrides[key] // `set` returns the new value, not the old
+        store.set(key, .choice(look.rawValue))
+        defer { store.set(key, before) }
         try body()
     }
 }

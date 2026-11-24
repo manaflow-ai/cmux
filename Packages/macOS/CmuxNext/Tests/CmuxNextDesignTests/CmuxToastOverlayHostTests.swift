@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Testing
@@ -88,8 +89,12 @@ struct CmuxToastOverlayHostTests {
     /// glass in this Mac's material: Liquid Glass where this Mac has it, never forced to the blur.
     /// The glass is the hover surface setting's `glass` value; the solid default is `HoverSurfaceStaysPutTests`.
     @Test func aToastIsANativeViewOnThisMacsGlass() throws {
-        HoverSurfaceLook.lookOverride = .glass
-        defer { HoverSurfaceLook.lookOverride = nil }
+        let hoverStore = TunableStore.shared
+        hoverStore.register([HoverSurfaceLook.tunable.descriptor])
+        if !hoverStore.isActive { hoverStore.activate(file: nil) }
+        let hoverBefore = hoverStore.overrides[HoverSurfaceLook.tunable.key]
+        hoverStore.set(HoverSurfaceLook.tunable.key, .choice(HoverSurfaceLook.glass.rawValue))
+        defer { hoverStore.set(HoverSurfaceLook.tunable.key, hoverBefore) }
         let transparency = ReduceTransparency(system: { false }, changes: NotificationCenter())
         let center = CmuxToastCenter(host: CmuxToastOverlayHost(reduceTransparency: transparency))
         let window = Self.window()

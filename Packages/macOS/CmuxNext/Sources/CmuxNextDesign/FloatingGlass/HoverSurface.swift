@@ -43,12 +43,8 @@ public nonisolated enum HoverSurfaceLook: String, Sendable, CaseIterable, Tunabl
         help: "What tooltips, hover cards and hint toasts draw on: the solid popup surface (default) with a hairline, a shadow only or a one-point rim, or the glass they drew before.",
         default: .hairline, code: "HoverSurfaceLook.tunable")
 
-    /// The look the hover surfaces draw now: ``lookOverride``, else the setting.
-    @MainActor public static var current: HoverSurfaceLook { lookOverride ?? tunable.value }
-
-    /// Pins one look whatever the setting says (tests of the glass or of one solid look, as
-    /// `Motion.reduceMotionOverride` pins Reduce Motion); nil follows the setting.
-    @MainActor public static var lookOverride: HoverSurfaceLook?
+    /// The look the hover surfaces draw now: the setting (a test pins one through the tunable store).
+    @MainActor public static var current: HoverSurfaceLook { tunable.value }
 
     /// The material the look pins: the opaque popup surface, or nil (the glass follows this Mac).
     public var material: OverlayMaterial? { isSolid ? .opaque : nil }
