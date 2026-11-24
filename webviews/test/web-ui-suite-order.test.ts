@@ -73,4 +73,13 @@ describe("web-ui-suite --timeout-s", () => {
       expect(got.stderr.toString()).toContain("--timeout-s");
     }
   });
+
+  test("a valid one replaces the bench's own timeout and names itself when it fires", () => {
+    // edit-turns-stream's own timeout is 30 s; 0.01 s kills it before Bun has started it.
+    const suite = path.join(import.meta.dir, "..", "bench", "web-ui-suite.ts");
+    const got = Bun.spawnSync(["bun", suite, "--only", "edit-turns-stream", "--timeout-s", "0.01"], {
+      cwd: path.join(import.meta.dir, ".."),
+    });
+    expect(got.stdout.toString()).toContain("edit-turns-stream FAILED (timed out after 0.01 s)");
+  });
 });
