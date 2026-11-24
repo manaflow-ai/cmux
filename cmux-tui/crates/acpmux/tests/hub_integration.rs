@@ -155,6 +155,8 @@ mod xai_requests;
 
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
+#[path = "hub_integration/turn_cost.rs"]
+mod turn_cost;
 
 struct TestClient {
     tx: mpsc::Sender<String>,

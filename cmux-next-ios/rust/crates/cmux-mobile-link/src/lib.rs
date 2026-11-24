@@ -17,11 +17,11 @@
 pub mod api;
 pub mod build_space;
 pub mod class_queue;
+pub mod classes;
 pub mod dial;
 pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
-pub mod lan;
 pub mod link;
 pub mod link_stat;
 mod liveness;

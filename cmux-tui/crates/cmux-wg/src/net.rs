@@ -408,6 +408,8 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
+    wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
     /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
     last_inbound: Option<Instant>,
@@ -415,6 +417,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When a cookie reply last had this side send a handshake at once.
+    cookie_retry_at: Option<Instant>,
     scratch: Vec<u8>,
 }
 
@@ -491,10 +495,12 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            wait_for_handshake_until: None,
             last_inbound: None,
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            cookie_retry_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -597,6 +603,7 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        let mut cookie_taken = false;
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
                 TunnResult::Done => {
@@ -607,6 +614,10 @@ impl Driver {
                         self.underlay.authenticated(origin);
                         note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
                     }
+                    // Done for a cookie reply: boringtun took the cookie
+                    // (it answered this side's latest handshake message).
+                    cookie_taken =
+                        !input.is_empty() && classify(input) == DatagramClass::WireGuardCookieReply;
                     break;
                 }
                 TunnResult::Err(_) => break,
@@ -617,7 +628,12 @@ impl Driver {
                     // rate limiter's answer) proves only the public key.
                     // Nor does it begin a session: the handshake it
                     // answers is unchecked, so it leaves the watchdog armed.
-                    let cookie = classify(packet) == DatagramClass::WireGuardCookieReply;
+                    let kind = classify(packet);
+                    let cookie = kind == DatagramClass::WireGuardCookieReply;
+                    if kind == DatagramClass::WireGuardResponse {
+                        self.wait_for_handshake_until
+                            .get_or_insert_with(|| Instant::now() + Duration::from_secs(5));
+                    }
                     if !cookie {
                         self.underlay.authenticated(origin);
                         self.schedule.on_activity(Instant::now());
@@ -681,6 +697,9 @@ impl Driver {
                 }
             }
         }
+        if cookie_taken {
+            self.answer_cookie(Instant::now());
+        }
         self.replay(replay);
     }
 
@@ -701,7 +720,13 @@ impl Driver {
         self.pace_deadline = None;
         // Without a session boringtun would hold the segment through the
         // handshake, and the pacer would time that wait as a round trip.
-        if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() {
+        // Starting again after replying to a crossed initiation would make
+        // boringtun discard the state for our own outstanding initiation.
+        self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
+        if self.tunn.time_since_last_handshake().is_none()
+            && self.pacer.has_queued()
+            && self.wait_for_handshake_until.is_none()
+        {
             self.initiate_handshake();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {

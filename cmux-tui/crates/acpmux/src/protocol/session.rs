@@ -303,8 +303,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
-    /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    /// What it waits on the person for: `question` (an agent question), `permission`,
+    /// `secret` (a private card asking a secret's value), `elevation` (a card asking the
+    /// password to run one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server); null while it waits on nothing. A `waiting` status always has one. Only the
+    /// person allows a permission or answers a card.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,
@@ -805,8 +808,12 @@ pub struct Enforcement {
 pub struct LastTurn {
     pub turn_id: Option<String>,
     pub prompt_id: Option<String>,
-    /// `completed`, `failed` or `cancelled`.
+    /// `completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a
+    /// capacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).
     pub status: Option<String>,
+    /// When a `capacity` turn's continuation runs, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<u64>,
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
