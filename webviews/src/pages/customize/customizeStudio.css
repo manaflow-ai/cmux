@@ -1,0 +1,461 @@
+/* The customization paradigm proposal (CustomizeStudio.tsx): three layouts over one live preview. */
+.customize-studio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  color: var(--ds-color-fg);
+  font: inherit;
+}
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+.studio-header h2,
+.studio-detail h3,
+.studio-setups-changes h3 {
+  margin: 0;
+  font-weight: 600;
+}
+.studio-detail h4 {
+  margin: 0;
+  font-weight: 600;
+  color: var(--cmux-text-secondary);
+}
+.studio-muted {
+  color: var(--cmux-text-secondary);
+}
+.studio-button {
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-button-primary {
+  background: var(--ds-color-accent);
+  border-color: transparent;
+  color: var(--ds-color-on-accent);
+}
+.studio-switch {
+  flex: none;
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-switch::after {
+  content: "";
+  position: absolute;
+  top: var(--grid-half-step);
+  left: var(--grid-half-step);
+  width: 16px;
+  bottom: var(--grid-half-step);
+  border-radius: 999px;
+  background: var(--cmux-text-secondary);
+  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-switch-on {
+  background: var(--ds-color-accent);
+}
+.studio-switch-on::after {
+  background: var(--ds-color-on-accent);
+  transform: translateX(12px);
+}
+.studio-pill {
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--ds-surface-inset);
+  color: var(--cmux-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.studio-pill-pending {
+  background: color-mix(in oklab, var(--ds-color-accent) 18%, transparent);
+  color: var(--ds-color-accent);
+}
+.studio-trial {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-card);
+  background: color-mix(in oklab, var(--ds-color-accent) 14%, var(--ds-surface-card));
+}
+.studio-trial span {
+  flex: 1;
+}
+
+/* The live preview: a small cmux window. Every customization is one class on it. */
+.mini-cmux {
+  --mini-accent: var(--ds-color-accent);
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-color-surface);
+  aspect-ratio: 16 / 10;
+  width: 100%;
+}
+.mini-cmux-thumb {
+  border-radius: var(--ds-radius-md);
+}
+.mini-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: 30%;
+  padding: var(--ds-space-2);
+  background: var(--ds-surface-inset);
+  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+.mini-cmux-thumb .mini-sidebar {
+  padding: var(--ds-space-1);
+}
+.mini-row {
+  aspect-ratio: 8 / 1;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-hover);
+}
+.mini-row-on {
+  background: color-mix(in oklab, var(--mini-accent) 45%, transparent);
+}
+.mini-chip {
+  margin-top: auto;
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--mini-accent) 22%, transparent);
+  color: var(--mini-accent);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mini-cmux-thumb .mini-chip {
+  font-size: 0;
+  aspect-ratio: 10 / 1;
+}
+.mini-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.mini-titlebar {
+  height: 7%;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+.mini-welcome {
+  margin: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+  background: color-mix(in oklab, var(--mini-accent) 16%, var(--ds-surface-card));
+  font-size: 11px;
+  font-weight: 600;
+}
+.mini-cmux-thumb .mini-welcome {
+  margin: var(--ds-space-1);
+  padding: 0;
+  aspect-ratio: 12 / 1;
+  font-size: 0;
+}
+.mini-chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+}
+.mini-cmux-thumb .mini-chat {
+  padding: var(--ds-space-1);
+}
+.mini-bubble {
+  width: 70%;
+  aspect-ratio: 12 / 1;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-hover);
+}
+.mini-bubble-mine {
+  align-self: flex-end;
+  width: 45%;
+  background: color-mix(in oklab, var(--mini-accent) 35%, transparent);
+}
+.mini-bubble-new {
+  width: 55%;
+}
+.mini-composer {
+  aspect-ratio: 18 / 1;
+  margin: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-card);
+}
+.mini-cmux-thumb .mini-composer {
+  margin: var(--ds-space-1);
+}
+
+/* Effects. */
+.mini-cmux.fx-ember {
+  --mini-accent: color-mix(in oklab, var(--ds-color-danger) 65%, var(--ds-color-success));
+}
+.mini-cmux.fx-motion {
+  background: linear-gradient(
+    120deg,
+    color-mix(in oklab, var(--ds-color-success) 35%, var(--ds-color-surface)),
+    var(--ds-color-surface),
+    color-mix(in oklab, var(--ds-color-danger) 30%, var(--ds-color-surface))
+  );
+  background-size: 300% 300%;
+  animation: mini-drift calc(var(--cmux-motion-large) * 24) linear infinite;
+}
+@keyframes mini-drift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+.mini-cmux.fx-glass .mini-sidebar,
+.mini-cmux.fx-glass .mini-titlebar {
+  background: color-mix(in oklab, var(--ds-surface-card) 40%, transparent);
+  backdrop-filter: blur(12px);
+}
+.mini-cmux.fx-glass {
+  background-image: radial-gradient(
+    circle at 20% 30%,
+    color-mix(in oklab, var(--mini-accent) 35%, transparent),
+    transparent 60%
+  );
+}
+.mini-cmux.fx-compact .mini-sidebar {
+  width: 18%;
+  gap: 0;
+}
+.mini-cmux.fx-round .mini-composer {
+  border-radius: 999px;
+}
+.mini-cmux.fx-blocks .mini-bubble-new {
+  animation: mini-slide calc(var(--cmux-motion-large) * 4) var(--cmux-ease-out) infinite;
+}
+@keyframes mini-slide {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  40%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.studio-before-after {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-2);
+}
+.studio-before-after figure {
+  margin: 0;
+}
+.studio-before-after figcaption {
+  color: var(--cmux-text-secondary);
+  font-size: 11px;
+  text-align: center;
+}
+.studio-card-name {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-weight: 600;
+}
+.studio-card-line {
+  color: var(--cmux-text-secondary);
+  font-size: 12px;
+}
+.studio-on-dot {
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--ds-color-accent);
+}
+
+/* Store. */
+.studio-store {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+}
+.studio-store-browse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-setups-shelf {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-2);
+}
+.studio-setup-card {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+}
+.studio-setup-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 12px;
+}
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-card-selected {
+  border-color: var(--ds-color-accent);
+}
+.studio-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+}
+.studio-detail p {
+  margin: 0;
+}
+.studio-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+/* Manager. */
+.studio-manager {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+}
+.studio-manager-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding-bottom: var(--ds-space-2);
+}
+.studio-segment {
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-segment[aria-pressed="true"] {
+  background: var(--ds-color-accent);
+  border-color: transparent;
+  color: var(--ds-color-on-accent);
+}
+.studio-manager ul,
+.studio-setups ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-manager li,
+.studio-setups li {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) 0;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+.studio-manager-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.studio-manager-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+/* Setups. */
+.studio-setups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-setups-people {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-person {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-person-picked {
+  border-color: var(--ds-color-accent);
+}
+.studio-setups-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+.studio-setups-changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.studio-actions {
+  display: flex;
+  gap: var(--ds-space-2);
+}
