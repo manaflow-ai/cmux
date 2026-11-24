@@ -489,3 +489,66 @@ async fn a_raced_pass_that_fails_lists_failures_in_dial_order() {
     let b = text.find("wss://b.example/: route 1 timed out").expect(&text);
     assert!(a < b, "{text}");
 }
+
+/// Reconnect route `index` answers with a group after `delays[index]`, or fails.
+struct TimedReconnect {
+    delays: Vec<Duration>,
+    ok: Vec<bool>,
+    answered: std::sync::Mutex<Vec<usize>>,
+}
+
+#[async_trait]
+impl ReconnectRouteAttempt<usize> for TimedReconnect {
+    async fn connect(
+        &self,
+        index: usize,
+        _request: ConnectRequest,
+        _auth: AuthKind,
+    ) -> Result<usize, ProviderError> {
+        tokio::time::sleep(self.delays[index]).await;
+        self.answered.lock().unwrap().push(index);
+        if self.ok[index] {
+            Ok(index)
+        } else {
+            Err(ProviderError::Transport(format!("route {index} timed out")))
+        }
+    }
+}
+
+/// An established link whose route failed: the reconnect pass starts one past it, at a
+/// black-holed route. Serial, it waits that route's whole budget; raced, the next route starts
+/// after the stagger and wins. Virtual (paused) time.
+#[tokio::test(start_paused = true)]
+async fn a_raced_reconnect_never_waits_out_a_black_holed_route() {
+    let routes = vec![
+        test_route("wss://failed.example/v1/link"),
+        test_route("wss://black-holed.example/v1/link"),
+        test_route("wss://working.example/v1/link"),
+    ];
+    let budget = default_attempt_budget();
+    let ms = Duration::from_millis;
+    let mut took = Vec::new();
+    for race in [None, Some(RouteRace::after(None))] {
+        let attempt = TimedReconnect {
+            delays: vec![ms(1), budget, ms(30)],
+            ok: vec![false, false, true],
+            answered: Default::default(),
+        };
+        let started = tokio::time::Instant::now();
+        let (index, group) = route_race::select_reconnect_routes(
+            &routes,
+            1,
+            race,
+            SessionId([25; 16]),
+            LanePolicy::Single,
+            AuthKind::Enrolled,
+            &attempt,
+        )
+        .await
+        .unwrap();
+        assert_eq!((index, group), (2, 2));
+        took.push(started.elapsed());
+    }
+    eprintln!("reconnect, route 1 black-holed: serial {:?}, raced {:?}", took[0], took[1]);
+    assert_eq!(took, [budget + ms(30), RouteRace::FLOOR + ms(30)]);
+}

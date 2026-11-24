@@ -1021,6 +1021,16 @@ fn route_race_enabled() -> bool {
     std::env::var_os("CMUX_REMOTE_ROUTE_RACE").is_none_or(|value| value != "0")
 }
 
+/// The reconnect pass races when the first connect would: a follow-up dial is Enrolled unless
+/// the link is a carrier's, and a reconnect is never an upgrade. No remembered connect time
+/// reaches it, so the stagger is the floor.
+fn reconnect_race(options: &ClientRuntimeOptions) -> Option<RouteRace> {
+    (followup_auth_kind(&options.auth) == AuthKind::Enrolled
+        && options.routes.len() > 1
+        && route_race_enabled())
+    .then(|| RouteRace::after(None))
+}
+
 /// A route attempt's error type, as the route runner needs it.
 pub(crate) trait RouteFailure: Sized + Send {
     /// A failure that ends the round before or outside any one route.
@@ -1471,6 +1481,8 @@ pub(crate) trait ReconnectRouteAttempt<T: Send>: Send + Sync {
     ) -> Result<T, ProviderError>;
 }
 
+/// [`route_race::select_reconnect_routes`] one route at a time.
+#[cfg(test)]
 async fn select_reconnect_route<T: Send>(
     routes: &[ResolvedRouteCandidate],
     start: usize,
@@ -1479,44 +1491,15 @@ async fn select_reconnect_route<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<(usize, T), ProviderError> {
-    if routes.is_empty() {
-        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
-    }
-    let mut failures = Vec::new();
-    for offset in 0..routes.len() {
-        let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
-            failures.push(format!(
-                "{}: {}",
-                sanitized_route(&routes[index].endpoint),
-                ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
-                }
-            ));
-            continue;
-        }
-        let request = connect_request(&routes[index], session, lane_policy)
-            .map_err(|error| ProviderError::Configuration(error.to_string()))?;
-        let endpoint = request.endpoint.clone();
-        let display_endpoint = sanitized_route(&endpoint);
-        match attempt.connect(index, request, auth).await {
-            Ok(group) => return Ok((index, group)),
-            Err(error) => {
-                failures.push(format!("{display_endpoint}: {error}"));
-                continue;
-            }
-        }
-    }
-    Err(ProviderError::Transport(format!(
-        "all reconnect route providers failed: {}",
-        failures.join("; ")
-    )))
+    route_race::select_reconnect_routes(routes, start, None, session, lane_policy, auth, attempt)
+        .await
 }
 
 struct RuntimeReconnectGroups {
     options: ClientRuntimeOptions,
     next: AtomicUsize,
+    /// The reconnect pass's race (`None`: one route at a time), as the first connect's.
+    race: Option<RouteRace>,
     prepared_ssh: Vec<AtomicBool>,
     shutdown: Option<watch::Receiver<bool>>,
 }
@@ -1557,9 +1540,11 @@ impl RuntimeReconnectGroups {
                 )
             })
             .collect();
+        let race = reconnect_race(&options);
         Self {
             options,
             next: AtomicUsize::new(selected_index.saturating_add(1)),
+            race,
             prepared_ssh,
             shutdown,
         }
@@ -1608,6 +1593,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         next_reconnect_route(
             &self.next,
             &self.options.routes,
+            self.race,
             self.options.session,
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
@@ -1620,10 +1606,12 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
 /// The next route of an established link after its current one failed:
 /// from `next` (one past the route that last connected) round the list,
 /// and `next` moves past the route that connects. `remote connect` and the
-/// Cloud carrier (`carrier::source`) both rotate this way.
+/// Cloud carrier (`carrier::source`) both rotate this way; `remote connect` races the routes
+/// (`race`), the carrier, whose grants are single-use, does not.
 pub(crate) async fn next_reconnect_route<T: Send>(
     next: &AtomicUsize,
     routes: &[ResolvedRouteCandidate],
+    race: Option<RouteRace>,
     session: SessionId,
     lane_policy: LanePolicy,
     auth: AuthKind,
@@ -1632,8 +1620,16 @@ pub(crate) async fn next_reconnect_route<T: Send>(
     let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) =
-        select_reconnect_route(routes, start, session, lane_policy, auth, attempt).await?;
+    let (index, group) = route_race::select_reconnect_routes(
+        routes,
+        start,
+        race,
+        session,
+        lane_policy,
+        auth,
+        attempt,
+    )
+    .await?;
     next.store(index.saturating_add(1), Ordering::Relaxed);
     Ok(group)
 }

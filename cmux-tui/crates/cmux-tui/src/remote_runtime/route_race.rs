@@ -25,7 +25,7 @@ use tokio::time::Instant;
 
 use super::{
     InitialRouteAttempt, InitialRouteAttemptError, InitialRouteSelectionError,
-    ResolvedRouteCandidate, RouteFailure, connect_request, sanitized_route,
+    ReconnectRouteAttempt, ResolvedRouteCandidate, RouteFailure, connect_request, sanitized_route,
 };
 use cmux_remote::crypto::AuthKind;
 use cmux_remote::provider::{ConnectRequest, ProviderError};
@@ -232,4 +232,76 @@ async fn sleep_until_some(at: Option<Instant>) {
         Some(at) => tokio::time::sleep_until(at).await,
         None => std::future::pending().await,
     }
+}
+
+/// The reconnect pass of an established link after its route failed: from `start` round the
+/// list, the same race as the first connect's when `race` is set (one route at a time without
+/// one). Each route's dial ends at a provider group (transport up, before the Noise handshake);
+/// the first group wins and the dials still in flight are dropped, which closes them.
+pub(crate) async fn select_reconnect_routes<T: Send>(
+    routes: &[ResolvedRouteCandidate],
+    start: usize,
+    race: Option<RouteRace>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
+) -> Result<(usize, T), ProviderError> {
+    if routes.is_empty() {
+        return Err(ProviderError::Configuration("no reconnect routes configured".into()));
+    }
+    let sequence: Vec<usize> =
+        (0..routes.len()).map(|offset| (start + offset) % routes.len()).collect();
+    let mut failures: Vec<Option<String>> = vec![None; sequence.len()];
+    let mut cursor = 0;
+    let mut in_flight = FuturesUnordered::new();
+    let mut next_at: Option<Instant> = None;
+    loop {
+        while cursor < sequence.len()
+            && (in_flight.is_empty() || next_at.is_some_and(|at| Instant::now() >= at))
+        {
+            let position = cursor;
+            cursor += 1;
+            let index = sequence[position];
+            let candidate = &routes[index];
+            if !candidate.supports_client_auth(auth) {
+                failures[position] = Some(format!(
+                    "{}: {}",
+                    sanitized_route(&candidate.endpoint),
+                    ProviderError::UnsupportedClientAuth {
+                        scheme: candidate.endpoint.scheme().into(),
+                        auth,
+                    }
+                ));
+                continue;
+            }
+            let request = connect_request(candidate, session, lane_policy)
+                .map_err(|error| ProviderError::Configuration(error.to_string()))?;
+            let display = sanitized_route(&request.endpoint);
+            in_flight.push(async move {
+                (position, index, display, attempt.connect(index, request, auth).await)
+            });
+            next_at = race.map(|race| Instant::now() + race.stagger);
+        }
+        let stagger_due = next_at.filter(|_| cursor < sequence.len() && !in_flight.is_empty());
+        let finished = tokio::select! {
+            finished = in_flight.next() => Some(finished),
+            () = sleep_until_some(stagger_due) => None,
+        };
+        let Some(finished) = finished else { continue };
+        let Some((position, index, display, result)) = finished else { break };
+        match result {
+            Ok(group) => return Ok((index, group)),
+            Err(error) => {
+                failures[position] = Some(format!("{display}: {error}"));
+                if race.is_some() {
+                    next_at = Some(Instant::now());
+                }
+            }
+        }
+    }
+    Err(ProviderError::Transport(format!(
+        "all reconnect route providers failed: {}",
+        failures.into_iter().flatten().collect::<Vec<_>>().join("; ")
+    )))
 }
