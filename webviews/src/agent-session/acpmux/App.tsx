@@ -1113,12 +1113,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
   const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
   const cloudTurnRewindRef = useRef<ChatMarks | undefined>(undefined);
+  // The marks last handed to `publishCloudTurnRewind`. Each snapshot publishes the held marks (a
+  // hidden page holds them back); handed the same marks again, React still queues the update, and
+  // the pane's next render then draws the whole pane a second time to settle it: once per streamed
+  // record, a token or a tool call's start or end.
+  const publishedCloudTurnRewind = useRef<ChatMarks | undefined>(undefined);
+  const publishHeldCloudTurnRewind = (marks: ChatMarks | undefined) => {
+    if (document.visibilityState === "hidden" || marks === publishedCloudTurnRewind.current) return;
+    publishedCloudTurnRewind.current = marks;
+    publishCloudTurnRewind(marks);
+  };
   const setCloudTurnRewind = (
     update: ChatMarks | undefined | ((marks: ChatMarks | undefined) => ChatMarks | undefined),
   ) => {
     const next = typeof update === "function" ? update(cloudTurnRewindRef.current) : update;
     cloudTurnRewindRef.current = next;
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(next);
+    publishHeldCloudTurnRewind(next);
   };
   // A handshake that named no chat: its list joins the first chat a snapshot shows.
   const cloudTurnRewindUnbound = useRef(false);
@@ -1132,7 +1142,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
   );
   const observeCloudTurn = (next: AcpmuxSnapshot) => {
-    if (document.visibilityState !== "hidden") publishCloudTurnRewind(cloudTurnRewindRef.current);
+    publishHeldCloudTurnRewind(cloudTurnRewindRef.current);
     cloudCheckpoints.current?.observe(next);
     const session = next.sessionId;
     if (!cloudTurnRewindUnbound.current || !session) return;
@@ -4792,6 +4802,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
   /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
   const autoSendGate = {
+    /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
+    picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
     holds: (text: string): boolean => {
       if (autoPicked && autoDecided.current !== newTabGeneration) {
@@ -6042,7 +6054,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={hatHandle}
+            // The open hat's tuck stands where the person put the handle (middle by default), never where
+            // the tucked pill steps aside for Jump to latest: it is the hat's own control, on the hat's
+            // own axis, clear of the header's split icon and chevron (Leo, 2026-11-24).
+            tuckSide={trayHandle}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />

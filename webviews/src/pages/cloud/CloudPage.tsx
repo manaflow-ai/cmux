@@ -13,6 +13,8 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { shownSurge } from "./surge";
+import { SurgeCard } from "./SurgeCard";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -134,6 +136,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
                 {t(L.create)}
               </button>
             </div>
+            <SurgeCard surge={shownSurge(snap.surge, snap.machines)} strings={strings} />
             <MachineList
               rows={snap.rows}
               layout={snap.layout}
