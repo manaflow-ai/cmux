@@ -267,6 +267,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]
 pub(super) mod transfer_history;
+#[path = "compaction_outline.rs"]
+pub(super) mod compaction_outline;
 #[path = "transfer_live.rs"]
 pub(super) mod transfer_live;
 #[path = "transfer_precopy.rs"]
