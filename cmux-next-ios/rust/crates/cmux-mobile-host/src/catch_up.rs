@@ -504,10 +504,14 @@ async fn acpmux(config: &ServiceConfig, peer: &Peer, request: &Request) -> Acpmu
                 }
                 pending.insert(id, chat);
             }
-            // Not sent (its session id did not resolve now, or the relay answered it itself):
-            // cut, so its cursor stays and the next catch-up asks again.
+            // Not resolved now: cut, so its cursor stays and the next catch-up asks again.
+            Upstream::Unresolved(_) => match chat {
+                Some(chat) => drop(out.chats.insert(chat, ChatAnswer::Failed("not resolved".into()))),
+                None => out.list = Some(Err("not resolved".into())),
+            },
+            // Refused, as the channel refuses it: the chat is nowhere in the reply.
             Upstream::Answer(_) => match chat {
-                Some(chat) => drop(out.chats.insert(chat, ChatAnswer::Failed("not answered".into()))),
+                Some(chat) => drop(out.chats.insert(chat, ChatAnswer::Refused)),
                 None => out.list = Some(Err("refused".into())),
             },
             Upstream::Close => {

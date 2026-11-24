@@ -1274,6 +1274,9 @@ pub(crate) enum Upstream {
     Send(String),
     /// Answer the phone with this and send nothing to acpmux.
     Answer(String),
+    /// The message's session ids could not be resolved now (not a refusal): answer the phone
+    /// with this and send nothing to acpmux.
+    Unresolved(String),
     /// The exposure changed under the relay, or became unreadable: end the relay.
     Close,
 }
@@ -1327,7 +1330,7 @@ impl<'a> AcpmuxRelay<'a> {
     /// connection for the mode check (`_acpmux/info`), opened on first use.
     pub(crate) async fn upstream(&self, side: &mut Option<AcpmuxSocket>, text: &str) -> Upstream {
         let Some((text, dependencies)) = canonicalize_requests(self.target, text).await else {
-            return Upstream::Answer(serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string());
+            return Upstream::Unresolved(serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string());
         };
         let state = self.state();
         if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
@@ -1518,7 +1521,7 @@ async fn acpmux(
                                 break;
                             }
                         }
-                        Upstream::Answer(answer) => {
+                        Upstream::Answer(answer) | Upstream::Unresolved(answer) => {
                             if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
                                 break;
                             }
