@@ -202,8 +202,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every
-          # blob under the path one request at a time.
+          # restore, not git archive: archive fetched every blob one request at a time.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
@@ -270,6 +276,13 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/placement"
           # scripts/ci is outside this job's sparse checkout: without the flag restore finds no path.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/ci | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/placement" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/ci
 
       - name: Mint the owned-pool routing token
@@ -501,8 +514,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every
-          # blob under the path one request at a time.
+          # restore, not git archive: archive fetched every blob one request at a time.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
@@ -738,8 +757,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every blob under the paths one
-          # request at a time (1,584 s in one run on 2026-11-23); restore fetches them in one batch.
+          # restore, not git archive: archive fetched every blob one request at a time (1,584 s in one run on
+          # 2026-11-23); so does restore, hence the batched fetch first.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next scripts/ci | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next scripts/ci
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
 
