@@ -243,18 +243,37 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             let mut events = Vec::new();
             // The headless route carries no local files: apply skips those steps, said once each
             // and left undone, so a later run in the app carries them.
+            // Saved after every step, not only at the end: a crash or Ctrl-C after a machine is
+            // made keeps its id, so a rerun skips it and undo can delete it.
+            let mut checkpoint = |ledger: &Ledger| {
+                if let Err(why) = save_ledger(ledger) {
+                    eprintln!("cmux migrate: could not save the ledger: {why}");
+                }
+            };
             let outcome = match headless {
                 Some(backend) => {
                     let mut cloud = Headless { global: global.clone(), backend };
-                    apply::apply(&plan, &only, &mut ledger, &mut cloud, &local, &mut |e| {
-                        say(output, e, &mut events)
-                    })
+                    apply::apply_saving(
+                        &plan,
+                        &only,
+                        &mut ledger,
+                        &mut cloud,
+                        &local,
+                        &mut |e| say(output, e, &mut events),
+                        &mut checkpoint,
+                    )
                 }
                 None => {
                     let mut cloud = AppCloud { runner: SelfRunner::new(global) };
-                    apply::apply(&plan, &only, &mut ledger, &mut cloud, &local, &mut |e| {
-                        say(output, e, &mut events)
-                    })
+                    apply::apply_saving(
+                        &plan,
+                        &only,
+                        &mut ledger,
+                        &mut cloud,
+                        &local,
+                        &mut |e| say(output, e, &mut events),
+                        &mut checkpoint,
+                    )
                 }
             };
             save_ledger(&ledger)?;

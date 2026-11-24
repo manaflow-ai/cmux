@@ -446,3 +446,19 @@ fn the_work_patch_script_reads_a_checkout() {
     let _ = std::fs::remove_dir_all(&tmp);
     assert!(parse_remote_patch("cd: no such dir\n").is_err());
 }
+
+#[test]
+fn the_ledger_is_handed_out_after_every_step_with_the_machine_id_first() {
+    let (mut ledger, mut cloud, local) = (Ledger::new(), FakeCloud::default(), local());
+    let mut seen: Vec<Ledger> = Vec::new();
+    let out = apply_saving(&plan(), &[], &mut ledger, &mut cloud, &local, &mut |_| {}, &mut |l| {
+        seen.push(l.clone())
+    });
+    let steps = out.done.saturating_add(out.skipped).saturating_add(out.failed);
+    assert_eq!(seen.len(), steps);
+    // The first checkpoint follows create-machine: a crash after it still knows the machine.
+    let first = seen.first().and_then(|l| l.entry("laptop:mac", "~/code/app")).unwrap();
+    assert_eq!(first.machine_id.as_deref(), Some("m1"));
+    assert_eq!(first.done, ["create-machine"]);
+    assert_eq!(seen.last(), Some(&ledger));
+}

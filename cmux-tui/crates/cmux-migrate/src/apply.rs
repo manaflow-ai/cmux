@@ -305,10 +305,25 @@ pub fn apply(
     local: &dyn Local,
     report: &mut dyn FnMut(&Event),
 ) -> Outcome {
+    apply_saving(plan, only, ledger, cloud, local, report, &mut |_| {})
+}
+
+/// [`apply`], handing `checkpoint` the ledger after every step, so a caller can save it then: a
+/// crash or Ctrl-C after a machine is made keeps its id for the rerun and for undo.
+pub fn apply_saving(
+    plan: &Plan,
+    only: &[String],
+    ledger: &mut Ledger,
+    cloud: &mut dyn Cloud,
+    local: &dyn Local,
+    report: &mut dyn FnMut(&Event),
+    checkpoint: &mut dyn FnMut(&Ledger),
+) -> Outcome {
     let source = plan.source.id.clone();
     let mut outcome = Outcome::default();
     let mut checkouts: std::collections::BTreeMap<String, String> = Default::default();
-    let mut emit = |event: Event, outcome: &mut Outcome| {
+    let mut emit = |event: Event, outcome: &mut Outcome, ledger: &Ledger| {
+        checkpoint(ledger);
         match &event {
             Event::Done { .. } => outcome.done = outcome.done.saturating_add(1),
             Event::Skipped { .. } => outcome.skipped = outcome.skipped.saturating_add(1),
@@ -342,6 +357,7 @@ pub fn apply(
                         .into(),
                 },
                 &mut outcome,
+                ledger,
             );
             continue;
         }
@@ -349,7 +365,7 @@ pub fn apply(
             && !ledger.is_done(&source, &project, &name)
             && let PatchRoute::Unsupported(why) = patch_route(&plan.source, key)
         {
-            emit(Event::Skipped { step: name, project, why }, &mut outcome);
+            emit(Event::Skipped { step: name, project, why }, &mut outcome, ledger);
             continue;
         }
         if project != MACHINE_WIDE && ledger.is_done(&source, &project, &name) {
@@ -363,6 +379,7 @@ pub fn apply(
             emit(
                 Event::Skipped { step: name, project, why: "done in an earlier run".into() },
                 &mut outcome,
+                ledger,
             );
             continue;
         }
@@ -375,6 +392,7 @@ pub fn apply(
             emit(
                 Event::Skipped { step: name, project, why: "its machine was not made".into() },
                 &mut outcome,
+                ledger,
             );
             continue;
         }
@@ -452,7 +470,7 @@ pub fn apply(
                     })
                     .filter_map(|(key, entry)| {
                         let has = entry.done.iter().any(|d| d == &name);
-                        Some((key[prefix.len()..].to_owned(), entry.machine_id.clone()?, has))
+                        Some((key.get(prefix.len()..)?.to_owned(), entry.machine_id.clone()?, has))
                     })
                     .collect();
                 let (machines, keys): (Vec<String>, Vec<String>) =
@@ -467,6 +485,7 @@ pub fn apply(
                             why: "every machine has them from an earlier run".into(),
                         },
                         &mut outcome,
+                        ledger,
                     );
                     continue;
                 } else {
@@ -490,6 +509,7 @@ pub fn apply(
                         ),
                     },
                     &mut outcome,
+                    ledger,
                 );
                 continue;
             }
@@ -504,13 +524,13 @@ pub fn apply(
                     entry.done.retain(|d| !d.starts_with(&prefix));
                     entry.done.push(name.clone());
                 }
-                emit(Event::Done { step: name, project, detail }, &mut outcome);
+                emit(Event::Done { step: name, project, detail }, &mut outcome, ledger);
             }
             Err(error) => {
                 if !matches!(step, Step::CreateMachine { .. }) && project != MACHINE_WIDE {
                     ledger.entry_mut(&source, &project).error = Some(error.clone());
                 }
-                emit(Event::Failed { step: name, project, error }, &mut outcome);
+                emit(Event::Failed { step: name, project, error }, &mut outcome, ledger);
             }
         }
     }
@@ -629,7 +649,9 @@ fn move_chats(
 /// so) when it holds none.
 pub fn chat_files(local: &dyn Local, chat: &str) -> Vec<String> {
     let files = local.files(chat);
-    if files.len() == 1 && files[0].0 == chat {
+    if let [(only, _)] = files.as_slice()
+        && only == chat
+    {
         return vec![chat.to_owned()];
     }
     let mut transcripts: Vec<String> =
