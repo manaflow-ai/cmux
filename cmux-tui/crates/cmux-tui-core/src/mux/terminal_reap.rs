@@ -302,7 +302,7 @@ impl Mux {
     /// A kept terminal is detached on purpose and still takes input.
     pub(crate) fn terminal_awaiting_reap(&self, terminal_id: &TerminalPublicId) -> bool {
         let host_id = {
-            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let content_id = ContentPublicId::Terminal(terminal_id.clone());
             if !state.placements_of_content(&content_id).is_empty() {
                 return false;
