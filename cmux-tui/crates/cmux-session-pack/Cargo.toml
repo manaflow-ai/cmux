@@ -20,7 +20,5 @@ blake3 = "1"
 memchr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-zstd.workspace = true
-
-[dev-dependencies]
 tempfile = "3"
+zstd.workspace = true
