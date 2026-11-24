@@ -2042,6 +2042,131 @@ class SpoolProc:
     kill = terminate
 
 
+class PeerRemote(SpoolRemote):
+    """A Remote for the other Mac of a fleet pair job (scripts/measure/screen-share-vs-pair.sh):
+    each command is one HTTP POST to `screen-share-vs.py peer-serve` on that Mac's LAN address,
+    carrying the run's token (X-Eval-Token). popen and put are SpoolRemote's, over these calls,
+    so only the control lines cross the LAN; every timed sample runs on the Macs."""
+
+    CHUNK = 100_000  # one argument of `bash -c`, under Linux's 128 KiB and macOS's ARG_MAX
+
+    def __init__(self, name, url, token):
+        super().__init__(name)
+        self.url, self.token = url.rstrip("/"), token
+
+    def run(self, cmd, timeout=120, stdin=None):
+        import urllib.error
+        import urllib.request
+        body = json.dumps({"cmd": cmd, "timeout": timeout, "stdin": stdin}).encode()
+        req = urllib.request.Request(self.url + "/run", data=body, method="POST",
+                                     headers={"X-Eval-Token": self.token, "Content-Type": "application/json"})
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout + 30) as resp:
+                    res = json.loads(resp.read())
+                break
+            except urllib.error.HTTPError as e:
+                raise RuntimeError(f"{self.name}: peer refused {cmd[:80]}: HTTP {e.code}") from None
+            except OSError as e:  # the connection, not the command: it never ran
+                if attempt == 3:
+                    raise RuntimeError(f"{self.name}: peer at {self.url} unreachable: {e!r}") from None
+                time.sleep(2 * (attempt + 1))
+        if res.get("timeout"):
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        if res.get("rc") != 0:
+            raise RuntimeError(f"{self.name}: {cmd[:80]}: exit {res.get('rc')}: {res.get('err', '').strip()[-400:]}")
+        return res.get("out", "")
+
+    def done(self):
+        import urllib.request
+        req = urllib.request.Request(self.url + "/done", data=b"{}", method="POST",
+                                     headers={"X-Eval-Token": self.token})
+        with contextlib.suppress(OSError):
+            urllib.request.urlopen(req, timeout=10).close()
+
+
+def peer_client_ok(addr, pinned):
+    """Whether peer-serve takes a request from ADDR: a private or loopback address (the office
+    LAN), and once a client has been served, that same client only."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    if not (ip.is_private or ip.is_loopback):
+        return False
+    return pinned is None or pinned == addr
+
+
+def read_peer_token(path):
+    token = open(path).read().strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise SystemExit("peer: the run token is 64 hex characters")
+    return token
+
+
+def cmd_peer_serve(args):
+    """The other Mac's half of a pair job: run what the orchestrating Mac posts, as this step's
+    user, in this process's tree (so a launcher app's grants reach the rig), until /done or --hold-s."""
+    import hmac
+    import http.server
+    token = read_peer_token(args.token_file)
+    state = {"pinned": None, "last": time.time()}
+    stop = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def reply(self, code, body=None):
+            data = json.dumps(body or {}).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            client = self.client_address[0]
+            if not peer_client_ok(client, state["pinned"]) or \
+                    not hmac.compare_digest(self.headers.get("X-Eval-Token", ""), token):
+                self.reply(403)
+                return
+            state["pinned"], state["last"] = client, time.time()
+            n = int(self.headers.get("Content-Length") or 0)
+            req = json.loads(self.rfile.read(n) or b"{}")
+            if self.path == "/done":
+                self.reply(200)
+                stop.set()
+                return
+            if self.path != "/run" or not isinstance(req.get("cmd"), str):
+                self.reply(404)
+                return
+            timeout = float(req.get("timeout") or 120)
+            stdin = req.get("stdin")
+            kw = {"input": stdin} if isinstance(stdin, str) else {"stdin": subprocess.DEVNULL}
+            try:
+                p = subprocess.run(["/bin/bash", "-c", req["cmd"]], capture_output=True, text=True,
+                                   timeout=timeout, **kw)
+                self.reply(200, {"rc": p.returncode, "out": p.stdout, "err": p.stderr[-4000:]})
+            except subprocess.TimeoutExpired:
+                self.reply(200, {"rc": None, "timeout": True})
+            except OSError as e:  # the command could not start (too long, no bash): a failed command
+                self.reply(200, {"rc": 126, "out": "", "err": repr(e)})
+
+    server = http.server.ThreadingHTTPServer((args.bind, args.port), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"peer-serve: listening on {args.bind}:{args.port} for {args.hold_s} s", flush=True)
+    deadline = time.time() + args.hold_s
+    while not stop.wait(1):
+        if time.time() > deadline:
+            print("peer-serve: hold ended", flush=True)
+            break
+    else:
+        print(f"peer-serve: done from {state['pinned']}", flush=True)
+    server.shutdown()
+
+
 TAILNET_UDP = ("UDP over the tailnet got no answer between the wired fleet pair (2026-11-19, cmux20 to cmux17: "
                "\"no clock replies\" while ping answered); pass the shared Mac's LAN address as --host-ip.")
 
@@ -2072,10 +2197,14 @@ class Orchestrator:
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
         def make(name):
-            # --local-mac: the orchestrator runs on that Mac (a fleet job, scripts/measure/screen-share-vs-pair.sh),
-            # and only the other one is reached over --via.
+            # --local-mac: the orchestrator runs on that Mac (a fleet job, scripts/measure/screen-share-vs-pair.sh
+            # or screen-stream-eval.sh stage-table=), and only the other one is reached over --via.
             if name == getattr(args, "local_mac", None):
                 return Remote(name, "local")
+            if args.via == "peer":
+                if not (getattr(args, "peer_url", None) and getattr(args, "peer_token_file", None)):
+                    raise SystemExit("--via peer needs --peer-url and --peer-token-file")
+                return PeerRemote(name, args.peer_url, read_peer_token(args.peer_token_file))
             return SpoolRemote(name) if args.via == "spool" else Remote(name, args.via)
         self.host = make(args.host)
         self.viewer = make(args.viewer)
@@ -3210,11 +3339,14 @@ def build_parser():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh", "spool", "local"], default="reach",
+    r.add_argument("--via", choices=["reach", "ssh", "spool", "local", "peer"], default="reach",
                    help="spool: reach with no stdin (a lane VM's broker relay; SpoolRemote); "
-                   "local: both Macs are this one (run the orchestrator on the shared Mac)")
-    r.add_argument("--local-mac", help="the --host or --viewer name that is this Mac: it runs its commands here and "
-                   "reaches only the other Mac over --via (a job on one Mac of the pair)")
+                   "local: both Macs are this one (run the orchestrator on the shared Mac); "
+                   "peer: the other Mac's `peer-serve` at --peer-url (a fleet pair job)")
+    r.add_argument("--local-mac", help="this Mac is --host or --viewer NAME: its commands run here, "
+                   "and only the other end goes over --via")
+    r.add_argument("--peer-url", help="--via peer: http://LAN_IP:PORT of the other Mac's peer-serve")
+    r.add_argument("--peer-token-file", help="--via peer: the run token (64 hex), 0600")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
@@ -3348,6 +3480,12 @@ def build_parser():
     t = sub.add_parser("table", help="the stage ledger of every budget record in result files")
     t.add_argument("files", nargs="+")
     t.set_defaults(fn=cmd_table)
+    ps = sub.add_parser("peer-serve", help="the other Mac of a pair job: run what the orchestrator posts")
+    ps.add_argument("--bind", required=True, help="this Mac's LAN address")
+    ps.add_argument("--port", type=int, default=4181)
+    ps.add_argument("--token-file", required=True)
+    ps.add_argument("--hold-s", type=int, default=7200)
+    ps.set_defaults(fn=cmd_peer_serve)
     m = sub.add_parser("compare", help="two result files side by side")
     m.add_argument("before")
     m.add_argument("after")

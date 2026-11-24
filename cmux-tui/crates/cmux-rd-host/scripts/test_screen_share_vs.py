@@ -995,6 +995,79 @@ class RemoteRunStdin(unittest.TestCase):
         self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
 
 
+class PeerRoute(unittest.TestCase):
+    """--via peer: the orchestrating Mac drives the other Mac of a pair job through its peer-serve."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.token = "ab" * 32
+        self.token_file = os.path.join(self.tmp, "token")
+        with open(self.token_file, "w") as f:
+            f.write(self.token + "\n")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.port = s.getsockname()[1]
+        args = argparse.Namespace(bind="127.0.0.1", port=self.port, token_file=self.token_file, hold_s=60)
+        self.server = vs.threading.Thread(target=vs.cmd_peer_serve, args=(args,), daemon=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.server.start()
+            vs.time.sleep(0.3)
+        self.url = f"http://127.0.0.1:{self.port}"
+
+    def tearDown(self):
+        vs.PeerRemote("mac", self.url, self.token).done()
+        self.server.join(10)
+
+    def test_run_returns_stdout_and_passes_stdin(self):
+        r = vs.PeerRemote("mac", self.url, self.token)
+        self.assertEqual(r.run("echo hi"), "hi\n")
+        self.assertEqual(r.run("cat", stdin="in"), "in")
+
+    def test_a_failed_command_raises_with_its_status(self):
+        with self.assertRaisesRegex(RuntimeError, "exit 3"):
+            vs.PeerRemote("mac", self.url, self.token).run("echo no >&2; exit 3")
+
+    def test_a_wrong_token_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+            vs.PeerRemote("mac", self.url, "cd" * 32).run("echo hi")
+
+    def test_put_and_popen_go_through_it(self):
+        r = vs.PeerRemote("mac", self.url, self.token)
+        src = os.path.join(self.tmp, "blob")
+        with open(src, "wb") as f:
+            f.write(os.urandom(300_000))
+        dst = os.path.join(self.tmp, "out", "blob")
+        r.put(src, dst)
+        with open(src, "rb") as a, open(dst, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        if not os.path.exists("/usr/bin/python3"):
+            return
+        p = r.popen("read a; echo got:$a")
+        p.stdin.write("x\n")
+        p.stdin.close()
+        self.assertEqual(p.wait(timeout=30), 0)
+        self.assertEqual(p.lines.get(timeout=5), "got:x\n")
+
+    def test_clients_private_and_pinned(self):
+        self.assertTrue(vs.peer_client_ok("172.20.21.5", None))
+        self.assertTrue(vs.peer_client_ok("127.0.0.1", None))
+        self.assertFalse(vs.peer_client_ok("8.8.8.8", None))
+        self.assertFalse(vs.peer_client_ok("172.20.21.6", "172.20.21.5"))
+        self.assertTrue(vs.peer_client_ok("172.20.21.5", "172.20.21.5"))
+
+    def test_local_mac_runs_here_and_the_other_end_over_peer(self):
+        args = vs.build_parser().parse_args(run_argv("--via", "peer", "--local-mac", "cmux17",
+                                                     "--peer-url", self.url, "--peer-token-file", self.token_file))
+        o = vs.Orchestrator(args)
+        self.assertEqual((type(o.viewer), o.viewer.via), (vs.Remote, "local"))
+        self.assertIsInstance(o.host, vs.PeerRemote)
+
+    def test_peer_needs_its_url_and_token(self):
+        args = vs.build_parser().parse_args(run_argv("--via", "peer"))
+        with self.assertRaises(SystemExit):
+            vs.Orchestrator(args)
+
+
 class LocalMac(unittest.TestCase):
     """--local-mac NAME: that end runs here, the other end over --via (a job on one Mac of the pair)."""
 
