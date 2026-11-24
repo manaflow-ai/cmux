@@ -61,6 +61,36 @@ import Testing
         #expect(hangs.first.map { $0.duration >= .milliseconds(400) && !$0.ended } == true)
     }
 
+    /// A hard hang that ends (the main thread turns again) reaches `onHardHangEnded` once with
+    /// its whole length, and the marker it wrote is cleared: a recovered hang is not reported as
+    /// a prior hang on the next launch. A hang that never reached the hard bound does not.
+    @Test func aHardHangThatEndsClearsItsRestoreMarker() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("marker-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let watchdog = MainThreadHangWatchdog(configuration: .init(threshold: .milliseconds(50), hangThreshold: .milliseconds(200),
+                                                                   hardHangThreshold: .milliseconds(400)))
+        let wrote = HangTestFlag()
+        let ended = HangsSeen()
+        watchdog.onHardHang = { _ in
+            HangRestoreMarker(hangStarted: Date(), durationMilliseconds: 400, location: nil).write(to: url)
+            wrote.set()
+        }
+        watchdog.onHardHangEnded = { hang in
+            ended.hangs.withLock { $0.append(hang) }
+            HangRestoreMarker.clear(at: url)
+        }
+        await runOwnLoop(watchdog, seconds: 1.5) {
+            spinForHangTest(.milliseconds(300))
+            spinForHangTest(.milliseconds(700))
+        }
+        #expect(wrote.isSet, "no marker was written")
+        let hangs = ended.hangs.withLock { $0 }
+        #expect(hangs.count == 1, "\(hangs)")
+        #expect(hangs.first.map { $0.ended && $0.duration >= .milliseconds(700) } == true, "\(hangs)")
+        #expect(!FileManager.default.fileExists(atPath: url.path), "a recovered hang left its marker")
+        #expect(HangRestoreMarker.handlePriorHang(at: url, lastOpen: .inMemory()) == nil)
+    }
+
     /// The marker is read once: it reports the prior hang, hands its screen to the launch
     /// restore when none is saved, and is gone after.
     @Test func theRestoreMarkerIsReadOnceAndRestoresTheScreen() throws {

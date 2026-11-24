@@ -39,6 +39,17 @@ public struct HangRestoreMarker: Codable, Equatable, Sendable {
         return try? decoder.decode(HangRestoreMarker.self, from: data)
     }
 
+    /// Deletes the marker: the hard hang it stands for ended and the app lived on, so the next
+    /// launch has no prior hang to report (watchdog thread).
+    public static func clear(at url: URL = HangRestoreMarker.standardURL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch CocoaError.fileNoSuchFile {
+        } catch {
+            HangReports.logger.error("hang restore marker not cleared: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// At launch, after a hard hang: report it once (the `hangs` log), and make sure the
     /// launch restore has the screen the hang left. Returns the marker it consumed.
     @discardableResult

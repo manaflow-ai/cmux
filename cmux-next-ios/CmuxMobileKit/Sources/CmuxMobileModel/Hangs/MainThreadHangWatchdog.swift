@@ -95,6 +95,7 @@ public final class MainThreadHangWatchdog: Sendable {
     private let stallSink = Mutex<(@Sendable (Stall) -> Void)?>(nil)
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
     private let hardHangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    private let hardHangEndedSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
     #if DEBUG
     /// Runs on the watchdog thread right after a stall sample (tests).
     let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
@@ -146,6 +147,14 @@ public final class MainThreadHangWatchdog: Sendable {
     public var onHardHang: (@Sendable (Hang) -> Void)? {
         get { hardHangSink.withLock { $0 } }
         set { hardHangSink.withLock { $0 = newValue } }
+    }
+
+    /// Runs on the watchdog thread when a hang that reached the hard bound ends: the main
+    /// thread turned again, so the app was not killed and its restore marker no longer stands
+    /// for a lost launch. Not run when the watchdog stops mid-hang.
+    public var onHardHangEnded: (@Sendable (Hang) -> Void)? {
+        get { hardHangEndedSink.withLock { $0 } }
+        set { hardHangEndedSink.withLock { $0 = newValue } }
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
@@ -272,7 +281,8 @@ public final class MainThreadHangWatchdog: Sendable {
             }
             if let open = hang, beatSequence.load(ordering: .acquiring) != open.beat {
                 hang = nil
-                finishHang(open)
+                let ended = finishHang(open)
+                if hardBeat == open.beat { hardHangEndedSink.withLock { $0 }?(ended) }
             }
             if mainAsleep.load(ordering: .acquiring) {
                 // Parked until a main turn outlasts the sample delay (its alarm) or stop(). A wake
@@ -319,7 +329,7 @@ public final class MainThreadHangWatchdog: Sendable {
             waitForAlarm(nanos: next.map { max($0, 1_000_000) })
         }
         // Stopped mid-hang: the duration so far.
-        if let open = hang { finishHang(open) }
+        if let open = hang { _ = finishHang(open) }
     }
 
     /// Nanoseconds until the earliest registered wait's bound; nil with none.
@@ -333,7 +343,8 @@ public final class MainThreadHangWatchdog: Sendable {
         beat == beatSequence.load(ordering: .acquiring) && !mainAsleep.load(ordering: .acquiring)
     }
 
-    private func finishHang(_ open: OpenHang) {
+    @discardableResult
+    private func finishHang(_ open: OpenHang) -> Hang {
         let ended = endedHang.withLock { $0 }
         let nanos: UInt64
         if let ended, ended.start == open.start {
@@ -342,7 +353,9 @@ public final class MainThreadHangWatchdog: Sendable {
             let now = uptime()
             nanos = now > open.start ? now - open.start : 0
         }
-        report(Hang(startUptimeNanos: open.start, duration: .nanoseconds(Int64(clamping: nanos)), addresses: open.addresses, ended: true))
+        let hang = Hang(startUptimeNanos: open.start, duration: .nanoseconds(Int64(clamping: nanos)), addresses: open.addresses, ended: true)
+        report(hang)
+        return hang
     }
 
     private func report(_ hang: Hang) {

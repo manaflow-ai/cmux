@@ -30,6 +30,8 @@ public enum HangWatch {
             let ms = Int(hang.duration.components.seconds * 1_000 + hang.duration.components.attoseconds / 1_000_000_000_000_000)
             HangRestoreMarker(hangStarted: started, durationMilliseconds: ms, location: LastOpenMemory.standard.load()).write()
         }
+        // The hang ended and the app lived: the marker would report a hang this launch survived.
+        watchdog.onHardHangEnded = { _ in HangRestoreMarker.clear() }
         watchdog.start()
         started = (watchdog, reports, MetricKitHangs.subscribe(reports: reports))
     }
