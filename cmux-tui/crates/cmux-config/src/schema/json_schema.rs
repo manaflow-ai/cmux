@@ -76,6 +76,10 @@ impl Schema {
             }),
         );
         root.insert(
+            crate::theme_file::sounds::KEY.into(),
+            crate::theme_file::sounds::json_schema(),
+        );
+        root.insert(
             "density".into(),
             json!({
                 "type": "object",

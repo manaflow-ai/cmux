@@ -16,6 +16,8 @@ public import CmuxNextPalette
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
 /// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
+/// - `lookSound`: the active look's sound pack for a page's finish moments (``AgentPaneFinishSound/lookSource(_:)``,
+///   `notifications.sounds.lookPack`); nil (tests) plays only the built-in sounds.
 /// - `computerUseState`: the app's one Computer Use Setup, which ``AgentPaneComputerUse`` follows and pushes
 ///   to every page for the composer's `@computer-use`; nil (tests) pushes nothing, so the page holds no send.
 /// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
@@ -29,6 +31,7 @@ public struct AgentPaneShared {
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
     public let newTabText: AgentPaneNewTabText
+    public let lookSound: AgentPaneFinishSound.LookSource?
     public let computerUseState: (@MainActor () -> AgentPaneComputerUseState?)?
     /// Follows `computerUseState` and pushes it to every pane's page (one for all the panes).
     public let computerUse: AgentPaneComputerUse
@@ -39,7 +42,8 @@ public struct AgentPaneShared {
     /// a New Tab text of this value's own and no host marks.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), hostMarks: AgentPaneHostMarks? = nil,
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(), lookSound: AgentPaneFinishSound.LookSource? = nil,
+                hostMarks: AgentPaneHostMarks? = nil,
                 computerUseState: (@MainActor () -> AgentPaneComputerUseState?)? = nil,
                 projectPalette: (@MainActor () -> PaletteController?)? = nil) {
         self.hostMarks = hostMarks
@@ -51,6 +55,7 @@ public struct AgentPaneShared {
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
         self.newTabText = newTabText
+        self.lookSound = lookSound
         self.computerUseState = computerUseState
         computerUse = AgentPaneComputerUse(read: computerUseState, sources: eventSources)
     }
@@ -63,6 +68,7 @@ extension AgentPaneView {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
+        model.finishSound.lookSound = shared.lookSound
         model.hostTouch.marks = shared.hostMarks
         if let projectPalette = shared.projectPalette {
             // The pane's own closures hold the bridge; it holds the pane weakly.

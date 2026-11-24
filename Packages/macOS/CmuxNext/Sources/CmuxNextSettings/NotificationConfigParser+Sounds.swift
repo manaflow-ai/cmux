@@ -8,6 +8,7 @@ extension NotificationConfigParser {
         if let value = reader.number("volume", range: NotificationSoundPreferences.volumeRange) { sounds.volume = value }
         if let value = reader.choice("when", NotificationSoundTiming.self) { sounds.when = value }
         if let value = reader.number("cooldownSeconds", range: NotificationSoundPreferences.cooldownRange) { sounds.cooldownSeconds = value }
+        if let value = reader.bool("lookPack") { sounds.lookPack = value }
         diagnostics += reader.diagnostics
         if var events = ConfigFieldReader(root, at: path + ["events"], diagnostics: &diagnostics) {
             for name in events.members.keys.sorted() {
