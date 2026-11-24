@@ -14043,137 +14043,6 @@
         }
       }
     },
-    "onboarding.offline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Mac is offline. Sign-ins and installs work once it’s back."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هذا الـ Mac غير متصل بالإنترنت. سيعمل تسجيل الدخول والتثبيت عند عودة الاتصال."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj Mac nije na mreži. Prijave i instalacije rade kad se veza vrati."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne Mac er offline. Login og installationer virker, når den er tilbage."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Mac ist offline. Anmelden und Installieren funktionieren, sobald er wieder online ist."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este Mac no tiene conexión. Los inicios de sesión y las instalaciones funcionarán cuando vuelva."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce Mac est hors ligne. Connexions et installations fonctionneront dès son retour."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questo Mac è offline. Accessi e installazioni funzioneranno quando torna online."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacはオフラインです。接続が戻るとサインインとインストールができます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac នេះគ្មានអ៊ីនធឺណិត។ ការចូល និងការដំឡើងនឹងដំណើរការពេលវាត្រឡប់មកវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac은 오프라인입니다. 연결이 돌아오면 로그인과 설치가 됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne Macen er frakoblet. Pålogging og installering virker når den er tilbake."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten Mac jest offline. Logowanie i instalacje zadziałają po powrocie sieci."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este Mac está offline. Logins e instalações funcionam quando a conexão voltar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот Mac не в сети. Вход и установка заработают, когда сеть вернётся."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac เครื่องนี้ออฟไลน์อยู่ การลงชื่อเข้าและการติดตั้งจะใช้ได้เมื่อกลับมาออนไลน์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac çevrimdışı. Bağlantı dönünce giriş ve kurulumlar çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей Mac не в мережі. Вхід і встановлення запрацюють, коли мережа повернеться."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máy Mac này đang ngoại tuyến. Đăng nhập và cài đặt sẽ hoạt động khi có mạng lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 Mac 处于离线状态。恢复联网后即可登录和安装。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這台 Mac 目前離線。恢復連線後即可登入和安裝。"
-          }
-        }
-      }
-    },
     "onboarding.makeItYours.opacity": {
       "comment": "Make cmux Yours: the slider for how much of the theme color covers the background picture (Settings > Appearance names it the same).",
       "extractionState": "manual",
@@ -14962,6 +14831,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "透明玻璃"
+          }
+        }
+      }
+    },
+    "onboarding.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is offline. Sign-ins and installs work once it’s back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الـ Mac غير متصل بالإنترنت. سيعمل تسجيل الدخول والتثبيت عند عودة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije na mreži. Prijave i instalacije rade kad se veza vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er offline. Login og installationer virker, når den er tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist offline. Anmelden und Installieren funktionieren, sobald er wieder online ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no tiene conexión. Los inicios de sesión y las instalaciones funcionarán cuando vuelva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac est hors ligne. Connexions et installations fonctionneront dès son retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac è offline. Accessi e installazioni funzioneranno quando torna online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはオフラインです。接続が戻るとサインインとインストールができます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះគ្មានអ៊ីនធឺណិត។ ការចូល និងការដំឡើងនឹងដំណើរការពេលវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 오프라인입니다. 연결이 돌아오면 로그인과 설치가 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er frakoblet. Pålogging og installering virker når den er tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac jest offline. Logowanie i instalacje zadziałają po powrocie sieci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac está offline. Logins e instalações funcionam quando a conexão voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не в сети. Вход и установка заработают, когда сеть вернётся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ออฟไลน์อยู่ การลงชื่อเข้าและการติดตั้งจะใช้ได้เมื่อกลับมาออนไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac çevrimdışı. Bağlantı dönünce giriş ve kurulumlar çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не в мережі. Вхід і встановлення запрацюють, коли мережа повернеться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đang ngoại tuyến. Đăng nhập và cài đặt sẽ hoạt động khi có mạng lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 处于离线状态。恢复联网后即可登录和安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 目前離線。恢復連線後即可登入和安裝。"
           }
         }
       }
