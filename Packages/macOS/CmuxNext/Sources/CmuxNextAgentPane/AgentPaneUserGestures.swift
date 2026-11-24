@@ -10,6 +10,8 @@ import CmuxNextCompat
 /// covers a prompt held while a harness starts). Page script cannot set it.
 @MainActor public final class AgentPaneUserGestures {
     public static let lifetime: TimeInterval = 30
+    /// A person sent a prompt (`cmux.next.prompt-sent`, the GitHub star ask's count).
+    public static let promptSent = Notification.Name("cmux.next.prompt-sent")
     private var last: TimeInterval?
     /// The same gesture's scope-add credit.
     private var lastScope: TimeInterval?
@@ -303,6 +305,8 @@ import CmuxNextCompat
         let at = now()
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         if intent.method == "session/prompt" {
+            // The GitHub star ask counts the person's sends (GitHubStarPrompt, t3code's rule).
+            if postedUnder == nil { NotificationCenter.default.post(name: Self.promptSent, object: nil) }
             let prompts = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
             var excess = prompts.count - (Self.promptTicketsKept - 1)
             for old in prompts.filter({ at - $0.value.at > $0.value.intent.lifetime }).sorted(by: { $0.value.order < $1.value.order }) {

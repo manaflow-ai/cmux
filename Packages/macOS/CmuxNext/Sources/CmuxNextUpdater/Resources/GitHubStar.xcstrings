@@ -2,8 +2,7 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
-    "githubStar.message": {
-      "comment": "Star prompt toast title",
+    "githubStar.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -45,7 +44,6 @@
       }
     },
     "githubStar.detail": {
-      "comment": "Star prompt toast detail",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -57,37 +55,36 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gib uns einen Stern auf GitHub!"
+            "value": "Gib uns einen Stern auf GitHub, um es uns zu zeigen!"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Donnez-nous une étoile sur GitHub !"
+            "value": "Donnez-nous une étoile sur GitHub pour nous le faire savoir !"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¡Danos una estrella en GitHub!"
+            "value": "¡Danos una estrella en GitHub para que lo sepamos!"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub でスターをお願いします！"
+            "value": "GitHub でスターを付けて教えてください！"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 GitHub 上给我们点个星吧！"
+            "value": "在 GitHub 上给我们点个星告诉我们吧！"
           }
         }
       }
     },
     "githubStar.star": {
-      "comment": "Star prompt button that opens the cmux repo on GitHub",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -128,44 +125,125 @@
         }
       }
     },
-    "githubStar.notNow": {
-      "comment": "Star prompt button that dismisses it for good",
+    "githubStar.dismiss": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not Now"
+            "value": "Dismiss"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht jetzt"
+            "value": "Schließen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plus tard"
+            "value": "Ignorer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ahora no"
+            "value": "Descartar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "後で"
+            "value": "閉じる"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "以后再说"
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "githubStar.thanks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanks for the star!"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danke für den Stern!"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merci pour l’étoile !"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¡Gracias por la estrella!"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スターありがとうございます！"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "感谢点星！"
+          }
+        }
+      }
+    },
+    "githubStar.thanksDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It really helps cmux grow."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das hilft cmux sehr beim Wachsen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela aide vraiment cmux à grandir."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayuda mucho a que cmux crezca."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の成長に本当に役立ちます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这真的能帮助 cmux 成长。"
           }
         }
       }
