@@ -3,6 +3,7 @@
 mod callers;
 mod copy;
 mod daemon;
+mod devices;
 mod handback;
 mod held;
 mod inbox;
