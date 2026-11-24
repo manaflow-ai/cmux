@@ -22,6 +22,7 @@ pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
 pub mod link;
+pub mod lan;
 pub mod link_stat;
 mod liveness;
 pub mod media;

@@ -583,6 +583,11 @@ impl TurnCarrier {
         self.queue.push(Queued { datagram: Bytes::copy_from_slice(datagram), to }, class);
     }
 
+    /// Measurement compatibility hook. The permission-aware sender supplies
+    /// this in the fixed implementation. The baseline keeps the old sender
+    /// behavior, where permissions are created by the first `send_to`.
+    pub fn permit(&self, _targets: &[SocketAddr]) {}
+
     /// Whether the allocation's stream to the server failed (never for UDP).
     pub fn is_dead(&self) -> bool {
         *self.dead.borrow()
