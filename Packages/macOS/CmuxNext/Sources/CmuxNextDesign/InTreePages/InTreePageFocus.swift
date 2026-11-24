@@ -14,7 +14,7 @@ public protocol InTreePageContainer: NSView {
     var inTreeCensus: InTreePageCensus { get }
 }
 
-/// One in-tree page in `debug.layers` `page_views`.
+/// One in-tree page in `debug.layers` `page_views` (its views and layers: ``InTreePageContainer/inTreeGeometry``).
 public struct InTreePageCensus: Equatable, Sendable {
     /// Whether the page's current `RenderWidgetHostViewCocoa` is in the cmux window (`rwhv_in_window`).
     public var contentInWindow: Bool
