@@ -401,7 +401,10 @@ impl Hub {
         self.seal_retry_replacement(old);
         // Drain an earlier retention commit before replacing the journal.
         drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-        self.kill(old, false).await
+        let why =
+            crate::close_why::CloseWhy::by("daemon", "replaced by an import of the same chat")
+                .outcome("moved");
+        self.kill_why(old, false, why).await
     }
 
     /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat
@@ -455,7 +458,7 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
         }
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let here = self.session_get(id);
         if let Some(existing) = here.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -663,7 +666,7 @@ impl Hub {
                 "bundle identity does not match transfer manifest",
             ));
         }
-        let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
@@ -879,7 +882,7 @@ impl Hub {
                 let _ = crate::home_fs::remove_dir_all(entry.path());
             }
         }
-        let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
             // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).

@@ -16,6 +16,7 @@ pub mod error;
 pub mod github;
 pub mod harness_copy;
 mod json;
+pub mod keep_running_allowance;
 pub mod limits;
 pub mod list_facts;
 pub mod models;
