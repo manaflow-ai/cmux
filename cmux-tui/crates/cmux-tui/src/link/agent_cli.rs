@@ -860,6 +860,7 @@ fn up_to_finish(
         failed.side = Some("target");
         return Err(failed);
     }
+    let manifest = &taken_by_target(args, manifest, &record.transfer_id);
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
     if let Some(kind) = vm_kind {
         params.set("vm_kind", json!(kind));
@@ -893,6 +894,24 @@ fn up_to_finish(
     clock.lap("copy");
     saved.map_err(|e| Failed::state(&e))?;
     Ok((target, bytes))
+}
+
+/// The begin `manifest` less each optional bundle file the machine's daemon does not list (acpmux
+/// `capabilities::OPTIONAL_BUNDLE_FILES`, which a current daemon's `identify` lists as an agent
+/// transfer capability): a machine image older than the file would refuse the whole move for it
+/// (2026-11-24: `transfer.path: "composers.json" is not a file a guarded move takes`), so the
+/// chat moves without it and the pump says so in one line.
+fn taken_by_target(args: &Args, manifest: &Value, transfer_id: &str) -> Value {
+    let identity = super::machine_gate::reach(&args.to).ok();
+    let served = identity.as_ref().and_then(super::machine_gate::served).unwrap_or_default();
+    let mut manifest = manifest.clone();
+    let left = acpmux::capabilities::leave_out_untaken(&mut manifest, |c| served.contains(&c));
+    if let Some(line) = acpmux::capabilities::left_out_line(&left) {
+        let warning = json!({"warning": "optional_files_left", "transfer_id": transfer_id,
+                             "files": left, "error": line});
+        eprintln!("{warning}");
+    }
+    manifest
 }
 
 /// Copies one bundle file page by page; an empty file needs no page.

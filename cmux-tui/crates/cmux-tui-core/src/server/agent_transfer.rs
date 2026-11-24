@@ -107,6 +107,12 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
+/// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
+/// one its `identify` does not list, so an older machine image takes the chat without it
+/// instead of refusing the whole move (`cmux link agent move`).
+pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
+    &["transfer-composers-v1", "transfer-images-v1"];
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
