@@ -118,6 +118,11 @@ public final class TerminalModel {
     public internal(set) var composerPresented = true
     /// Hide Toolbar took the key row and the composer away until the next terminal tap.
     public internal(set) var chromeHidden = false
+    /// Wide (the key row's Wide key, the page menu's Wide View): the grid is
+    /// wider than the page (`TerminalHostGridLayout.wideColumns`), so a wide
+    /// table or a long line stays one row and the page pans sideways to it.
+    /// For this page's life.
+    public internal(set) var wideOutput = false
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -670,25 +675,46 @@ public final class TerminalModel {
             return
         }
         holdComposerText()
-        // A draft that goes as a paste goes to the Mac's terminal as one paste
-        // plus Return (`sendPasteAndSubmit`), when the session can; a one-line
-        // draft typed into a full-screen app, a bare Return, or a session with
-        // no Mac daemon goes through the mirror as before.
+        // The draft and its Return go to the Mac's terminal as one request when
+        // the session can: a paste plus Return (`sendPasteAndSubmit`), or a
+        // one-line draft for a full-screen app typed plus Return
+        // (`sendTypedAndSubmit`), so a blip never delivers the text without
+        // its Return. A bare Return, or a session with no Mac daemon, goes
+        // through the mirror as before.
         let submit = ComposerSubmit(text: composerText, pressReturn: true, fullScreenApp: isTUI)
         let text = composerText
         controller?.noteSent(text)
         composerSending = true
-        let viaDaemon = submit.steps.first == .paste(text)
-            && session.sendPasteAndSubmit(
-                text,
-                notSent: { [weak self] in self?.composerSendNotSent(text) },
-                maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
-            )
+        let viaDaemon = sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerSendNotSent(text) },
+            maybeSent: { [weak self] in self?.composerSendMaybeSent(text) }
+        )
         composerSending = false
         if !viaDaemon {
             controller?.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
         }
         finishComposerSend()
+    }
+
+    /// `submit`'s text and its Return as one request where the terminal runs
+    /// (a Mac daemon's `send` with `submit`), when the session can: a paste
+    /// (``TerminalSession/sendPasteAndSubmit(_:notSent:maybeSent:)``) or typed
+    /// text (``TerminalSession/sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    /// Never the text and a separate Return that a link blip can split (Leo,
+    /// 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). False: the caller sends through the mirror.
+    private func sendThroughSession(
+        _ submit: ComposerSubmit,
+        notSent: @escaping @MainActor () -> Void,
+        maybeSent: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard submit.steps.count == 2, submit.steps.last == .enter else { return false }
+        switch submit.steps.first {
+        case .paste(let text): return session.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        case .type(let text): return session.sendTypedAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+        default: return false
+        }
     }
 
     /// Inside `send`, handing the draft to the session.
@@ -757,9 +783,18 @@ public final class TerminalModel {
     /// Returns false when nothing was typed.
     @discardableResult
     public func sendVoicePrompt(_ text: String) -> Bool {
-        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
-        controller.noteSent(text)
-        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        guard connectionState.composerNotSentNotice == nil else { return false }
+        controller?.noteSent(text)
+        let submit = ComposerSubmit(text: text, pressReturn: true, fullScreenApp: isTUI)
+        if sendThroughSession(
+            submit,
+            notSent: { [weak self] in self?.composerNotice = TerminalConnectionState.composerSendNotSentNotice },
+            maybeSent: { [weak self] in self?.composerNotice = TerminalConnectionState.composerSendMaybeSentNotice }
+        ) {
+            return true
+        }
+        guard let controller else { return false }
+        controller.surface.perform(submit)
         return true
     }
 
@@ -815,8 +850,14 @@ public final class TerminalModel {
             guard let self else { return }
             self.isUploading = false
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
-            if pressReturn { self.controller?.noteSent(self.composerText) }
-            self.controller?.surface.perform(submit)
+            let draft = self.composerText
+            if pressReturn { self.controller?.noteSent(draft) }
+            let viaDaemon = self.sendThroughSession(
+                submit,
+                notSent: { [weak self] in self?.composerSendNotSent(draft) },
+                maybeSent: { [weak self] in self?.composerSendMaybeSent(draft) }
+            )
+            if !viaDaemon { self.controller?.surface.perform(submit) }
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
         }
@@ -902,7 +943,7 @@ public final class TerminalModel {
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.
         let resetsModifiers: Bool = switch key {
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        case .paste, .zoomOut, .zoomIn, .wide, .composer, .hideChrome, .launcher: true
         default: false
         }
         if resetsModifiers { surface.input.sticky.reset() }
@@ -930,6 +971,7 @@ public final class TerminalModel {
         case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
         case .composer: composeKeyTapped()
         case .hideChrome: setChromeHidden(true)
+        case .wide: setWide(!wideOutput)
         }
         sticky = surface.input.sticky
     }
@@ -961,6 +1003,24 @@ public final class TerminalModel {
             controller?.focusTerminal()
         }
         controller?.dockChanged()
+    }
+
+    /// Wide on or off: the page claims the wide grid (or the page's own
+    /// again) and pans sideways while it is wider than the page.
+    func setWide(_ on: Bool) {
+        guard wideOutput != on else { return }
+        wideOutput = on
+        controller?.wideChanged()
+    }
+
+    /// Wide View, the dedicated view for wide output (Leo, 2026-11-23: "being
+    /// able to flip [it] horizontally and actually have a dedicated view would
+    /// help too"): Wide on and the key row, composer and keyboard away, so the
+    /// grid has the whole page. A tap on the terminal brings them back (as
+    /// Hide Toolbar); Wide stays on until its key turns it off.
+    public func openWideView() {
+        setWide(true)
+        setChromeHidden(true)
     }
 
     /// Hide Toolbar: the key row, the composer and the keyboard go away until
