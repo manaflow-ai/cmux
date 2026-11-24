@@ -200,6 +200,10 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
 class LineBoxes {
   /// Whether the last commit's `check` found the boxes may have moved. Read in layout effects only.
   moved = true;
+  /// The words' width and the counts' left offsets as last laid out, read in the observer's callback
+  /// (layout is already clean there, so the reads cost no forced layout) whenever a watched box
+  /// reports. Undefined until the first report: `drawnBoxes` is then read in the commit instead.
+  private drawnBoxes: { width?: number; lefts: number[] } | undefined;
   private node: HTMLDivElement | undefined;
   private drawn: readonly unknown[] | undefined;
   private resized = false;
@@ -220,12 +224,14 @@ class LineBoxes {
         // A box's first report is its size when observed, already read in that commit.
         if (before !== undefined && before !== size) this.resized = true;
       }
+      if (this.node) this.drawnBoxes = { width: readWidth(this.node), lefts: readLefts(this.node) };
     });
     this.observer = observer;
     return () => {
       observer.disconnect();
       if (this.observer === observer) this.observer = undefined;
       this.boxes = new Map();
+      this.drawnBoxes = undefined;
       // A remount (Strict Mode's second pass) reads and observes again.
       this.drawn = undefined;
     };
@@ -244,6 +250,12 @@ class LineBoxes {
     this.node = node;
     this.drawn = drawn;
     if (changed) this.track(node);
+  }
+
+  /// The line's boxes as the observer last reported them laid out, while it watches this node; else
+  /// undefined (no ResizeObserver, or no report yet), and the caller reads them in the commit.
+  reported(node: HTMLDivElement): { width?: number; lefts: number[] } | undefined {
+    return this.observer && this.node === node ? this.drawnBoxes : undefined;
   }
 
   /// Observe the line, its direct boxes (whose sizes place the counts) and the words' own box; let go
@@ -267,6 +279,17 @@ class LineBoxes {
   }
 }
 
+/// The live line's words width, read from layout.
+function readWidth(node: HTMLDivElement): number | undefined {
+  const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+  return width && width > 0 ? width : undefined;
+}
+
+/// The live line's counts' left offsets, read from layout.
+function readLefts(node: HTMLDivElement): number[] {
+  return [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")].map((count) => count.offsetLeft);
+}
+
 /// Whether the live line's boxes may have moved since its last commit: the two hooks below read
 /// layout (a forced layout when the commit wrote the DOM) only then, never on a commit that changed
 /// nothing drawn, as each streamed chunk does (its new `quietKey` and `heardKey`). They move when
@@ -274,6 +297,8 @@ class LineBoxes {
 /// are) or its node is new, both known in the commit itself; or when a box resizes with no commit
 /// of the line (the pane's width, a font, a theme's slot), which a ResizeObserver on the line and
 /// its boxes marks for the next commit. Read `moved` in layout effects only, after this hook's own.
+/// What they read comes from the observer's last report once it made one (`LineBoxes.drawn`), so a
+/// commit that moved the line (each tool call's new words) forces no layout in the commit.
 function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly unknown[]): LineBoxes {
   const [boxes] = useState(() => new LineBoxes());
   // One observer for the line's life, disconnected when it unmounts.
@@ -297,15 +322,19 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, 
     const last = drawn.current;
     // Nothing drawn moved: the width read last still holds.
     if (turns === last.turns && !moved.moved) return;
-    if (turns !== last.turns && last.width !== undefined) {
-      const px = `${last.width}px`;
+    // The observer's report is the width the old words were last laid out at, read with no forced
+    // layout; without one, the width this hook read in the commit that drew them.
+    const reported = moved.reported(node);
+    const was = reported ? reported.width : last.width;
+    if (turns !== last.turns && was !== undefined) {
+      const px = `${was}px`;
       const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
       const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
       if (words) words.style.width = px;
       if (tail) tail.style.left = px;
     }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
-    drawn.current = { turns, width: width && width > 0 ? width : undefined };
+    // Once the observer reports, it reports this commit's width too: nothing to read here.
+    drawn.current = { turns, width: reported ? undefined : readWidth(node) };
   });
 }
 
@@ -314,6 +343,8 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, 
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
 /// (`useRoll`), and the gates that stop the roll stop this too.
+/// Where they were drawn is the observer's last report (`LineBoxes.reported`), so a commit that
+/// cannot glide (a roll, motion off) reads no layout; only a glide reads where they land now.
 function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
   useLayoutEffect(() => {
@@ -321,11 +352,13 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
     if (!node) return;
     // Nothing drawn moved: the counts sit where they were read last, so none glides.
     if (turns === drawn.current.turns && !moved.moved) return;
-    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
-    const lefts = counts.map((count) => count.offsetLeft);
-    const before = drawn.current;
+    const reported = moved.reported(node);
+    const before = reported ? { turns: drawn.current.turns, lefts: reported.lefts } : drawn.current;
+    const glides = before.turns === turns && motionAllowed(node) && countsMove(node);
+    const lefts = glides || !reported ? readLefts(node) : [];
     drawn.current = { turns, lefts };
-    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
+    if (!glides) return;
+    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     counts.forEach((count, index) => {
       const from = before.lefts[index];
       const dx = from === undefined ? 0 : from - lefts[index]!;
