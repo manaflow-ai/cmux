@@ -112,6 +112,25 @@ import Testing
         #expect(socket.asks == 1)
     }
 
+    /// A start that stopped without serving (the endpoint blocked) keeps the Mac free to sleep when the
+    /// paired list changes afterwards (review of #48532: the paired list's didSet held it awake again).
+    @Test func aPairedListChangeAfterABlockedStartDoesNotHoldTheMacAwake() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let socket = Socket(failures: .max, blocked: true), reads = Reads(), clock = ManualClock(), toggle = Toggle()
+        let host = Self.host(socket: socket, reads: reads, clock: clock, directory: directory)
+        var holds: [Bool] = []
+        host.setKeepAwake = { holds.append($0) }
+        defer { host.stop() }
+        host.follow(allowed: { toggle.on })
+        host.accountChanged(Self.account)
+        await Self.until { host.phase == .unavailable("turned off by your organization") && host.paired != nil }
+        try await host.pairedStore.change(for: Self.account.userID) { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
+        await Self.until { !(host.paired?.hostdDevices.isEmpty ?? true) }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(holds.last == false, "nothing is served: the Mac must not stay awake")
+    }
+
     /// Policy turned cmux-tui's endpoint off: that does not pass by itself, so the host shows it and
     /// does not retry (review of #36099: a retry loop there only spun).
     @Test func aBlockedDaemonEndpointIsNotRetried() async throws {

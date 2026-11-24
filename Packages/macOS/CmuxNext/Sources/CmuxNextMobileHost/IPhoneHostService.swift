@@ -221,6 +221,9 @@ public final class IPhoneHostService {
     @ObservationIgnored private var reconcileGeneration = 0
     /// Where this host holds off idle sleep while phones can reach it; tests record it instead.
     @ObservationIgnored var setKeepAwake: @MainActor (Bool) -> Void = { KeepAwakeService.shared.setIPhoneServing($0) }
+    /// The last start stopped without serving (blocked socket, build space, Keychain wait): no hold until the next start.
+    @ObservationIgnored var hostIdle = false
+    @ObservationIgnored var followingAutoApprove: Task<Void, Never>?
     /// The next try at this Mac's identity key after the Keychain refused the read, and how many
     /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``).
     @ObservationIgnored private var identityRetry: Task<Void, Never>?
@@ -510,6 +513,7 @@ public final class IPhoneHostService {
         folders.stop()
         followingPicks?.cancel()
         followingAppearance?.cancel()
+        followingAutoApprove?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor
@@ -578,6 +582,8 @@ public final class IPhoneHostService {
         identityRetry?.cancel()
         identityRetry = nil
         running = key
+        hostIdle = false
+        updateKeepAwake()
         // A reconcile that changes nothing (same key) leaves the generation alone, so an in-flight
         // start for that key still releases the hold when its endpoint turns out blocked.
         reconcileGeneration += 1
@@ -620,7 +626,7 @@ public final class IPhoneHostService {
                 // Nothing to serve: the Mac may sleep (a later reconcile sets it again). Only while no
                 // newer reconcile ran: one that started meanwhile set the hold for its own start.
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
-                self?.setKeepAwake(false)
+                self?.idleHost()
                 return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
@@ -671,7 +677,7 @@ public final class IPhoneHostService {
                 logger.fault("iPhone host not started: \(reason, privacy: .public)")
                 await supervisor.stop(phase: .unavailable(reason))
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
-                self?.setKeepAwake(false)
+                self?.idleHost()
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
                 // try again shortly rather than prove a second key the phones would refuse. A stop() or a
@@ -683,7 +689,7 @@ public final class IPhoneHostService {
                 // this stale start neither ends its hold nor clears its key for a retry of its own.
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
                 // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
-                self?.setKeepAwake(false)
+                self?.idleHost()
                 self?.running = nil
                 self?.retryIdentity(for: key)
             } catch {

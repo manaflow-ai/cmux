@@ -677,7 +677,7 @@
           },
           "help": {
             "key": "settings.mobile.autoApprovePhones.help",
-            "text": "A new phone signed in to your account connects without asking you first. Other accounts never connect."
+            "text": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect."
           },
           "summary": {
             "key": "settings.mobile.autoApprovePhones.summary",

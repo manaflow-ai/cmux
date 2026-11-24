@@ -273,7 +273,19 @@ extension IPhoneHostService {
     /// Idle sleep is held off only while a phone this account allowed can reach this Mac: phone
     /// access is on by default, so a Mac with no paired phone sleeps as it would without cmux.
     func updateKeepAwake() {
-        setKeepAwake(allowed && account != nil && !removed && !(paired?.hostdDevices.isEmpty ?? true))
+        setKeepAwake(allowed && account != nil && !removed && !hostIdle && !(paired?.hostdDevices.isEmpty ?? true))
+    }
+
+    /// A start that ended without serving: the Mac may sleep until the next start (``hostIdle``).
+    func idleHost() {
+        hostIdle = true
+        setKeepAwake(false)
+    }
+
+    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would.
+    func autoApproveWaiting() {
+        guard dependencies?.autoApprovePhones() ?? false else { return }
+        for request in prompts.pending where !request.isMachine { ask(request) }
     }
 
     /// The paired list is in: each request that came before it is answered now.
