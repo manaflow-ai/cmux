@@ -19048,6 +19048,16 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-resume-v1"
+     },
+     "resume_max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-bounded-v1"
      }
     },
     "additional_properties": false,

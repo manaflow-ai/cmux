@@ -1,0 +1,435 @@
+{
+  "schema": "best-of-n-results/v1",
+  "measured_at": "2026-11-24T17:11:20Z",
+  "task_set": "cmux evals/best-of-n/tasks_real",
+  "model": "claude/haiku",
+  "attempts": 4,
+  "reviewer": "claude/sonnet",
+  "effort": "low",
+  "n_tasks": 9,
+  "n_started": 9,
+  "single_solve_rate": 1.0,
+  "pick_solve_rate": 1.0,
+  "oracle_solve_rate": 1.0,
+  "single_test_share": 1.0,
+  "pick_test_share": 1.0,
+  "rows": [
+    {
+      "task": "csvdefuse",
+      "race": "01a20e7bbd8277c284a59722e07d016b",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "All four candidates behave the same. I ran 200k random CSV-like strings through them (quotes, commas, CR/LF, tabs, signs, digits), and no two outputs ever differed. All four apply the same readings: a `\\r` anywhere in a quoted cell is risky, and the number check stops at the first `\"`. c1 is the cleanest of them. It is standard library only and returns the input string unchanged when nothing is ri",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "eventbox",
+      "race": "01a20e7bbe5b74cf8b6f1b663b549f08",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I fuzzed all four candidates against each other (thousands of random push/pop sequences, capacities 0 to 5). c1, c3 and c4 behaved identically on every sequence, including the capacity 0 to 2 edge cases. c2 diverged from the other three in hundreds of cases. It raises IndexError when `exited` is pushed while a `config_reload` event is held, because it reads `key[1]` on the one-element config key. ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "promptmark",
+      "race": "01a20e7bbfaa7505b59d38409c1ddc0c",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "All four candidates change only promptmark/promptmark.py, and all four passed my own check. I ran 30,000 random mark-heavy byte strings per candidate, each cut at random points. Chunked feed plus flush matched one whole feed plus flush in every case. The spot cases also matched the spec on each: `\\x1b` and `\\x1b]1` are held, while `]133;` with no ESC and `\\x1bX` are not. c2 is the smallest change ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "ptycut",
+      "race": "01a20e7bc0f2746abd19f9e44f2b8e45",
+      "state": "completed",
+      "winner": "c4",
+      "reason": "All four candidates change only ptycut/ptycut.py. I checked each against an independent reference implementation of the spec on 200k random buffers (ESC and plain bytes, random room and capacity). All four had 0 mismatches. That includes an ESC at index room, a first sequence longer than capacity, and room 0. Since they behave the same, I picked c4. Its diff is the smallest: 21 lines added, none d",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "completed",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "rustdoc",
+      "race": "01a20e7bc372711a94dc50ca84dd9863",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "All four diffs escape in a single pass and are correct for the spec: `\\` becomes `\\\\`, each of `` ` ``, `<`, `[` and `]` gets one backslash, and `>` is unchanged. They also all return `[]` for whitespace-only input. Only c2 follows the spec's empty check literally. It returns `[]` only for None or \"\" and sends other falsy values such as `0` through `str()`. c1, c3 and c4 keep `if not text`, which ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "secretlit",
+      "race": "01a20e7bc5b77453ab872a4a9d57661e",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "c1 and c2 make identical code changes, and I chose c1 because it also adds a comment. Both anchor NOT_LITERAL so a bracket only counts as code after a leading identifier, which fixes the reported key `ab+Zq8~Hw4[Kd9Lm2Px7]`. Both also change the step-2 letter lookahead to `[^/]*`, so the letter and the digit must both come before the first `/`. That matches the spec's 'at least one ASCII letter an",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "shellwords",
+      "race": "01a20e7bc9a07279a447485d28b04502",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "All four candidates gave identical output on about 80 edge cases I ran against each one's shellwords.py. These covered the bug case `\"X=1\" gh`, quoted names and operators, `X[\"a=b\"]=v`, `+=`, backslash-newline, double-quote escapes, empty words, and the unclosed-quote and trailing-backslash errors. None was clearly more correct than the others, so I chose on cleanliness. c2 changes only `shellword",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "termtail",
+      "race": "01a20e7bcbeb77c2bb06bb920568078a",
+      "state": "completed",
+      "winner": "c3",
+      "reason": "All four candidates behave identically. I fuzzed 20k random byte streams, split into random chunks, against c1 to c4. I compared feed's return value, take_change, tail and pending after each chunk, and found 0 differences. I also ran 30k random strings through clean_line, with tabs, Cc and C1 controls, wide characters and the 160-character and 480-byte caps, and found 0 differences. All four fix t",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "titlesplit",
+      "race": "01a20e7bcf117771961c01ed9ef38b80",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "All four candidates are functionally identical against the spec; I compared the diffs and ran no tests. c1 keeps the spec's return annotations (`tuple[str, str | None]`), which work on the local Python 3.12.3. Its worktree has only `titlesplit.py` modified. c4 left an untracked `titlesplit/__pycache__/`, which goes against the edit-only-one-file instruction. c2 and c3 loosen the return types to a ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "win_rate_gain": 0.0,
+  "oracle_gain": 0.0,
+  "note": "Real set, haiku x4 at effort low (the setting of NOW's tasks_hard run), sonnet reviewer, all 9 races judged. Every one of 36 attempts passed every hidden test: single, pick and pass@4 all 1.0, gain 0.00. The prompts carry the fixed code's spec, which hands haiku the answer; the set is far easier than tasks_hard (single 0.85) and is no candidate for NOW's value."
+}
