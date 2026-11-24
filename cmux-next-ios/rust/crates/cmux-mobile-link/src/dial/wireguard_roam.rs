@@ -407,7 +407,9 @@ impl Session {
 
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
-        let dead = turn.transport.is_stream().then(|| turn.dead());
+        // UDP too: its allocation dies when its server stops answering
+        // (`TurnCarrier::check_server`).
+        let dead = Some(turn.dead());
         *lock(&self.relayed) = relayed;
         if self.control.send(Control::Turn(turn)).is_err() {
             return;
