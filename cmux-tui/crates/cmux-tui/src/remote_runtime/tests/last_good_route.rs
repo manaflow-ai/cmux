@@ -305,7 +305,10 @@ async fn the_runtime_attempt_remembers_the_route_that_connected() {
     options.reconnect.attempt_timeout = Duration::from_millis(200);
     options.state_dir = directory.path().join("client");
 
-    for launch in 0..2 {
+    for launch in 0..2u8 {
+        // Each launch is a new client process: a fresh session (the daemon refuses a closed
+        // session's generation 0 again).
+        options.session = SessionId([40 + launch; 16]);
         let memory = LastGoodRoute::open(Some(&options.state_dir), Some(DAEMON)).unwrap();
         let first = memory.first(&options.routes, false);
         assert_eq!(first, (launch == 1).then_some(1));
