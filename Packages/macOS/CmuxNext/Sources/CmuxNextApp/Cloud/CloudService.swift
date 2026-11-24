@@ -284,7 +284,7 @@ final class CloudService {
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
                 for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state else { continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
+                    guard case .connected = state else { changes.daemonDisconnected(); continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
             })
