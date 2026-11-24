@@ -17,8 +17,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
         // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
-        // each as it checks `cwd`.
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
+        // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -129,12 +130,23 @@ nonisolated extension AcpmuxPaneMethods {
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        "_acpmux/place_chat": (["where", "targets"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
@@ -183,6 +195,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
+        "_acpmux/agent_home": (["sessionId"], []),
+        // `accept` and `drop`: proposal ids from `_acpmux/agent_home`.
+        "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
@@ -193,6 +208,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
@@ -211,6 +228,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in": (["family", "sessionId"], []),
+        "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),

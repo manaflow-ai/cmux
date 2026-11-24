@@ -248,3 +248,44 @@ fn a_switch_to_another_account_reads_signed_in_machines_as_unasked() {
     assert_eq!(other["consent"]["screen"], "granted");
     assert_eq!(other["lastRefusal"]["surface"], "control");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_supervised_home_is_accepted_at_its_real_path() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let real = account.join(".acpmux-supervised/hb");
+    std::fs::create_dir_all(&real).unwrap();
+    symlink(&real, account.join(".acpmux")).unwrap();
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, std::fs::canonicalize(&real).unwrap());
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    authority.enroll().unwrap();
+    // The consent lives where ~/.acpmux/machine-consent reaches.
+    assert!(account.join(".acpmux/machine-consent/enrolled.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_outside_the_supervised_home_stays_refused() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let foreign = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(&foreign).unwrap();
+    symlink(&foreign, account.join(".acpmux")).unwrap();
+    // Not under .acpmux-supervised: left unresolved, and the consent check refuses it.
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, account.join(".acpmux"));
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    assert!(authority.enroll().is_err());
+    // A link to a sibling of the supervised folder, or a nested one, is foreign too.
+    std::fs::create_dir_all(account.join(".acpmux-supervised/hb/inner")).unwrap();
+    std::fs::remove_file(account.join(".acpmux")).unwrap();
+    symlink(account.join(".acpmux-supervised/hb/inner"), account.join(".acpmux")).unwrap();
+    assert_eq!(crate::config::resolve_supervised_home(&account), account.join(".acpmux"));
+}

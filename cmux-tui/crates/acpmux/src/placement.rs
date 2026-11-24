@@ -288,6 +288,45 @@ pub fn personal(registry: Option<&Value>, name: &str) -> bool {
     interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
 }
 
+/// Why a move's `--machine auto` never picks `name` (by name or alias), from the registry:
+/// a person's own machine (`personal`: `interactive`, `leo-mac`, `attended` or `leo-apps`, which
+/// the registry describes as one nothing shared may depend on), or a last-resort host
+/// (`lanes.last_resort`), which takes no agent lane. A hold or reservation is `held`'s.
+/// `None`: auto may pick it. A move that names the machine is the caller's choice.
+pub fn auto_move_refusal(registry: Option<&Value>, name: &str) -> Option<String> {
+    if personal(registry, name) {
+        return Some(
+            "a person's own machine (fleet-registry.json interactive, leo-mac, attended or \
+             leo-apps): never a dependency, so auto never moves a chat there; name it to"
+                .into(),
+        );
+    }
+    last_resort(registry, name).then(|| {
+        "a last-resort host (fleet-registry.json lanes.last_resort): it takes captures and \
+         builds, never an agent lane; name it to"
+            .into()
+    })
+}
+
+/// Whether `row`'s only fault is a build that differs from this one (`outdated`, its disk copy
+/// stale): with that left out it is up (`peer_down`). A move goes over ssh to the peer's own
+/// daemon, so such a peer can still take one.
+pub fn only_outdated(row: &Value) -> bool {
+    if row.get("outdated").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    let mut row = row.clone();
+    if let Some(o) = row.as_object_mut() {
+        o.remove("outdated");
+    }
+    peer_down(&row).is_none()
+}
+
+/// The one command that refreshes the outdated peer `name`'s build (`cli/peer_status.rs`).
+pub fn refresh_command(name: &str) -> String {
+    format!("acpmux machine update {name}")
+}
+
 /// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
 /// lane-place puts after every other one, and that takes a dispatch only for a capture or
 /// build (design/agent-dispatch.md: "never selected for a general agent lane"). False without
