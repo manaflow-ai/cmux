@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// A menu's separator: one hairline, ``MenuMetrics/separatorInset`` in from the menu's edges, in a
 /// row ``MenuMetrics/separatorHeight`` high laid ``MenuMetrics/highlightInset`` in from them (a
