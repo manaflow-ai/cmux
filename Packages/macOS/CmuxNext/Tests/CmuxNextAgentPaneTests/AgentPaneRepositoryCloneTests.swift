@@ -75,7 +75,10 @@ struct AgentPaneRepositoryCloneTests {
         #expect(call.arguments.prefix(4) == ["clone", "--quiet", "--", remote])
         #expect(call.environment == ["GIT_ALLOW_PROTOCOL": "https"])
         #expect(call.arguments.last?.contains("/.api.cloning-") == true)
-        #expect(await service.checkout(url: "https://git.example.test/group/team/api", key: "two") == .failure(.destinationTaken))
+        // The same repository without `.git` (or with another host case) is the checkout already there.
+        let again = try await service.checkout(url: "https://GIT.example.test/group/team/api/", key: "two").get()
+        #expect(again.path == destination)
+        #expect(!again.cloned)
         #expect(await service.checkout(url: "https://git.example.test/group/team/web", key: "one") == .failure(.keyConflict))
     }
 
@@ -92,6 +95,18 @@ struct AgentPaneRepositoryCloneTests {
         let containsCredentials = url.contains("private-text")
         #expect(result == .failure(containsCredentials ? .credentials : .invalidURL))
         #expect(await git.calls.isEmpty)
+    }
+
+    @Test func aGitHubURLUsesTheGitHubPickersLayout() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = clone(Git(), under: root)
+        let checkout = try await service.checkout(url: "https://github.com/acme/api.git", key: "one").get()
+        // `~/cmux/repos/<owner>/<name>`, where the GitHub row checks it out, never a second copy under the host.
+        #expect(checkout.path == root.appending(path: "acme/api").path)
+        let again = try await service.checkout(url: "https://github.com/acme/api", key: "two").get()
+        #expect(again.path == checkout.path)
+        #expect(!again.cloned)
     }
 
     @Test func aFolderThatAppearsDuringCloneWinsAndTheStagingFolderIsRemoved() async throws {

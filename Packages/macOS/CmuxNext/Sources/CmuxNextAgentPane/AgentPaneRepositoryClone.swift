@@ -59,12 +59,18 @@ import Foundation
 
         var destination: String { "\(host)/\(owner)/\(name)" }
 
+        /// The same repository whatever form its URL takes (`.git`, a trailing slash, the host's case): the
+        /// normalized host, owner and name; GitHub's owner and name ignore case as GitHub does.
         func matches(_ remote: Remote) -> Bool {
             if host == CloudMachineRepo.gitHub {
                 return destination.caseInsensitiveCompare(remote.destination) == .orderedSame
             }
-            return url == remote.url
+            return destination == remote.destination
         }
+
+        /// Its folder under the clone root. A GitHub repository uses the GitHub picker's own layout
+        /// (``AgentPaneGitHubCheckout``, `<owner>/<name>`), so a pasted github.com URL reuses that checkout.
+        var parentPath: String { host == CloudMachineRepo.gitHub ? owner : "\(host)/\(owner)" }
     }
 
     private struct Running {
@@ -109,8 +115,7 @@ import Foundation
     }
 
     private func resolve(_ remote: Remote) async -> Result<Checkout, Failure> {
-        let relativeParent = "\(remote.host)/\(remote.owner)"
-        guard let parent = await Self.containedParent(of: relativeParent, under: root) else {
+        guard let parent = await Self.containedParent(of: remote.parentPath, under: root) else {
             return .failure(.destinationTaken)
         }
         let destination = parent.appending(path: remote.name, directoryHint: .isDirectory).path
