@@ -11,7 +11,7 @@ import Testing
 /// Cloud's `/api/runs`), and its answer line passes through as the body's JSON or as the ``CloudAPIError``
 /// its failure names. A fake child stands in for the bundled cmux.
 @Suite(.serialized)
-struct CloudAPIClientRunTests {
+struct CloudDaemonRunTests {
     /// What the fake child prints for the `index`th request of `call` (0-based), or throws as the child runner does.
     typealias Script = @Sendable (_ call: String, _ args: [String: Any], _ index: Int) throws -> String
 
@@ -47,10 +47,10 @@ struct CloudAPIClientRunTests {
     nonisolated static let done = #"{"ok":true,"body":{"run":{"id":"run-9","status":"succeeded"},"attempts":[],"artifacts":[],"receipt":{"status":"succeeded","reply":"done"}}}"#
 
     private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudDaemon {
-        var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
+        var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
-        if let daemon { api.daemon.daemonCall = { input, _ in try daemon.run(input) } }
-        return api.daemon.runningAs(Self.account)
+        if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
+        return api.runningAs(Self.account)
     }
 
     nonisolated static let account = CloudDaemon.RunAccount(user: "u1", team: "t1")
@@ -195,9 +195,8 @@ struct CloudAPIClientRunTests {
     @Test func theClassicSessionGoesBesideEachCallWithTheStackTeam() async throws {
         struct Down: Error {}
         let reads = Counter()
-        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_stack_now" },
-                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next").daemon
+        let classic = CloudDaemon(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_stack_now" }, appVersion: "cmux-next", sendsStackSession: true)
         let daemon = sandbox(dropCreates: 1)
         let sender = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
         _ = try await sender.runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
@@ -207,8 +206,8 @@ struct CloudAPIClientRunTests {
         let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }.map { ($0["classic"] as? [String: Any])?["refresh"] as? String }
         #expect(creates.count == 2 && Set(creates).count == 1 && creates.first != nil, "a send's creates carry one session: \(creates)")
 
-        let unread = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                    tokens: { throw Down() }, teamID: { nil }, session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next").daemon
+        let unread = CloudDaemon(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                    tokens: { throw Down() }, teamID: { nil }, appVersion: "cmux-next", sendsStackSession: true)
         let lost = FakeDaemon { _, _, _ in Self.done }
         _ = try await api(lost).drainingClassic(unread).waitRun("r-old", timeoutMs: 1_000)
         #expect(lost.requests.last?["classic_unread"] as? Bool == true)

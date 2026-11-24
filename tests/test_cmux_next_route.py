@@ -359,8 +359,8 @@ class MacReleaseInputs(unittest.TestCase):
 
 class PullRequestTiers(unittest.TestCase):
     def test_changed_swift_suite_is_prioritized(self):
-        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
-        self.assertEqual(result["swift_priority_filter"], r".*(CloudAPIClientRunTests)\.")
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudDaemonRunTests.swift"])
+        self.assertEqual(result["swift_priority_filter"], r".*(CloudDaemonRunTests)\.")
 
     def test_changed_swift_source_prioritizes_its_matching_suite(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])

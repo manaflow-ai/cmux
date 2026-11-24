@@ -8,3 +8,16 @@ public enum FeedServiceError: Error, Sendable {
     /// The owner (a Durable Object behind the Worker) refused: its error `code` and `message`.
     case owner(code: String, message: String)
 }
+
+extension URLSession {
+    /// Requests that carry the account's bearer or install token: ephemeral, no URL cache, no cookies, so no
+    /// answer (or the request headers stored with it) lands in `~/Library/Caches/<bundle id>/Cache.db`.
+    public static let cloudNoStore: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+}

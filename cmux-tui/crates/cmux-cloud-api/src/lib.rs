@@ -2,7 +2,7 @@
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
 //! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
 //! routes, previews and a machine's files and exec. The macOS app sent these from Swift
-//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! (`CloudDaemon`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
 //! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
 //! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!

@@ -147,7 +147,7 @@ final class FeedService {
         try auth.configuration.buildSpace.apply(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         // The bearer never goes through the shared, caching session.
-        let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
+        let (data, _) = try await URLSession.cloudNoStore.data(for: request)
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
