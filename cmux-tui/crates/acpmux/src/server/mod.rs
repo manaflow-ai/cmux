@@ -221,12 +221,19 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
+    /// to it only once it listed the gate.
+    client_features: client_features::ClientFeatures,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
     /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
     session_delta: AtomicBool,
     sent_rows: StdMutex<session_patch::SentRows>,
+    /// The client draws no time breakdown and asked, in its `initialize`
+    /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
+    /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
+    omit_time_breakdown: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -997,23 +1004,49 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
-    // Made owner-only by bind itself (umask 0177 for the one call), never wider until the chmod
-    // below: a socket file carries its mode from the umask, and connect needs its write bit.
-    let listener = {
-        // SAFETY: umask has no preconditions and cannot fail; the old mask is put back at once.
-        let old = unsafe { libc::umask(0o177) };
-        let bound = UnixListener::bind(path);
-        // SAFETY: as above.
-        unsafe { libc::umask(old) };
-        bound.with_context(|| format!("bind {}", path.display()))?
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let listener = bind_owner_only(path)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
+}
+
+/// Binds `path` so nobody but this user can ever connect, without touching the process umask:
+/// the umask is process-wide, so setting it for one bind made a folder another thread created
+/// meanwhile 0600, which nothing can enter (two hub_carrier pipe tests failed with "bind
+/// .../acpmux.sock: Permission denied" that way). The socket is bound inside a fresh 0700
+/// folder next to `path`, made 0600 there and renamed into place; a bound socket keeps working
+/// under its new name. A staging path too long for `sun_path` binds in place, where the 0600
+/// chmod follows at once and the peer check at accept ([`peer_uid_allowed`]) holds meanwhile.
+#[cfg(unix)]
+fn bind_owner_only(path: &std::path::Path) -> Result<UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let owner_only = || std::fs::Permissions::from_mode(0o600);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stage = parent.map(|p| p.join(format!(".b{:x}{n:x}", std::process::id())));
+    let staged = stage.as_ref().map(|s| s.join("s"));
+    let fits = staged.as_ref().is_some_and(|s| cmux_unix_socket::check_path(s).is_ok());
+    let (Some(stage), Some(staged), true) = (stage, staged, fits) else {
+        let listener =
+            UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(path, owner_only())?;
+        return Ok(listener);
+    };
+    crate::home_fs::create_dir(&stage, 0o700)
+        .with_context(|| format!("create {}", stage.display()))?;
+    let bound = (|| -> Result<UnixListener> {
+        // A umask set elsewhere can leave the folder without its search bit; 0700 whatever it was.
+        crate::home_fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700))?;
+        let listener =
+            UnixListener::bind(&staged).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(&staged, owner_only())?;
+        crate::home_fs::rename(&staged, path)
+            .with_context(|| format!("move the socket to {}", path.display()))?;
+        Ok(listener)
+    })();
+    let _ = crate::home_fs::remove_file(&staged);
+    let _ = crate::home_fs::remove_dir(&stage);
+    bound
 }
 
 /// Narrows `dir`, the daemon socket's directory, to 0700 when it is acpmux's own (its home, or a
@@ -2014,9 +2047,11 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        client_features: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
+        omit_time_breakdown: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2139,6 +2174,17 @@ async fn serve_connection_from(
             }
         };
         match msg {
+            // Which of this connection's requests still run (`in_flight.rs` `states`): answered
+            // here, in order with the requests read before it, and never queued for a slot, so a
+            // client whose slots are all taken by slow requests still gets its proof. Only this
+            // connection's own requests, like a `$/cancel_request`: any client may ask.
+            Message::Request { id, method: m, .. } if m == method::MUX_REQUEST_STATE => {
+                let (running, answered) = conn.in_flight.states();
+                conn.send_replying(
+                    &Message::ok(id, json!({"running": running, "answered": answered})),
+                    Some(&m),
+                );
+            }
             Message::Request { id, method: m, mut params } => {
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
@@ -2547,7 +2593,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let mut session =
+                if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+                requests::without_time_breakdown(&mut session);
+            }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
             // A patch names the row it builds on, so it is never replaced in the queue.
             if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
@@ -2661,20 +2711,29 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
         // stopped it until the next page, so a move during a long turn found a copy without
         // the running turn or the prompts queued behind it.
-        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+        if !sent
+            && rec.seq > 0
+            && conn.origin == Origin::Peer
+            && ev.remote.is_none()
+            && conn.client_features.hears_any(&[client_features::UNSENT_FEATURE])
+        {
             conn.send(&Message::notification(
                 method::MUX_UNSENT,
                 json!({"sessionId": ev.session_id, "seq": rec.seq}),
             ));
         }
-        if message && heard && !repeat {
+        if message
+            && heard
+            && !repeat
+            && conn.client_features.hears_any(&[crate::capabilities::SESSION_MESSAGES])
+        {
             // Routed as the event beside it: a peer's chat id alone may match one here.
             conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
@@ -2714,8 +2773,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
-                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
+                let mut session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+                    requests::without_time_breakdown(&mut session);
+                }
                 let qualified = remote.qualified_id(&ev.session_id);
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
@@ -2760,11 +2822,28 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &ev.row.cells;
-        let row = if full { full_row } else { list_row };
+        // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
+        // on every record of a running turn; a client that draws none shares a row without it.
+        let lean = full && conn.omit_time_breakdown.load(Ordering::SeqCst);
+        let [list_row, full_row, lean_row] = &ev.row.cells;
+        let row = if lean {
+            lean_row
+        } else if full {
+            full_row
+        } else {
+            list_row
+        };
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+            Some(if full {
+                let mut summary = hub.session_summary(&s);
+                if lean {
+                    requests::without_time_breakdown(&mut summary);
+                }
+                summary
+            } else {
+                hub.session_list_summary(&s)
+            })
         });
         if let Some(summary) = summary {
             let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
@@ -2786,7 +2865,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send_row(
                 &Message::notification(
                     method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch"),
+                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
                 ),
                 outbound::Row::After(row_key()),
             );
@@ -2821,6 +2900,7 @@ mod cancel_prompt_tests;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
+pub(crate) mod client_features;
 mod client_request;
 pub(crate) mod computer_use_relay;
 #[cfg(test)]
@@ -2914,6 +2994,7 @@ mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
 mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;

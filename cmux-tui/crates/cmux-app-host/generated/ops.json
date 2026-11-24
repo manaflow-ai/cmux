@@ -391,6 +391,7 @@
     "session.window.title.clear",
     "session.window.title.set",
     "settings.get",
+    "settings.history",
     "settings.list",
     "settings.schema",
     "settings.snapshot",

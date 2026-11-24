@@ -438,6 +438,8 @@ declare namespace Cmux {
   type SettingsChange = { keys: Array<string> }
   type SettingsEdit = { op: "set" | "set_exact" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
+  type SettingsHistory = { entries: Array<Cmux.SettingsHistoryEntry> }
+  type SettingsHistoryEntry = { at: string; keys: Array<string>; origin: "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file"; revision: string; undoes?: string }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -1615,6 +1617,8 @@ interface CmuxGlobal {
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
     get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.history` (read, scope `settings:read`) */
+    history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
     list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
     /** `settings.schema` (read, scope `settings:read`) */
