@@ -452,9 +452,20 @@ fn launchd_restart_command(
 ) -> Option<Vec<String>> {
     let gui = format!("gui/{uid}/{label}");
     let system = format!("system/{label}");
-    let target =
-        [&gui, &system].into_iter().find(|job| launchd_job_pid(&print(job)) == Some(pid))?;
-    Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), target.clone()])
+    let gui_print = print(&gui);
+    if launchd_job_pid(&gui_print) == Some(pid) {
+        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), gui]);
+    }
+    if launchd_job_pid(&print(&system)) == Some(pid) {
+        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), system]);
+    }
+    // The legacy LaunchAgent has a stable, exact label. If launchctl's GUI output is
+    // unavailable or has no parseable pid, keep the old label-specific handoff rather
+    // than detaching a second daemon. Hashed LaunchDaemon labels remain fail-closed.
+    if label == crate::cli::daemon_service::LAUNCHD_LABEL && launchd_job_pid(&gui_print).is_none() {
+        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), gui]);
+    }
+    None
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -506,14 +517,26 @@ mod tests {
     }
 
     #[test]
-    fn a_launchd_job_with_no_matching_pid_is_not_restarted_as_a_takeover() {
-        let plan = launchd_restart_plan("com.acpmux.daemon", 501, 420, |_| {
-            Some("state = running\npid = 419\n".into())
-        });
+    fn a_launchagent_with_unusable_gui_output_uses_its_stable_label() {
+        let label = "com.acpmux.daemon";
+        let command = launchd_restart_command(label, 501, 420, |_| None);
         assert_eq!(
-            plan,
-            ServiceRestart::SupervisedButUnresolved { label: "com.acpmux.daemon".into(), pid: 420 }
+            command,
+            Some(vec![
+                "launchctl".into(),
+                "kickstart".into(),
+                "-k".into(),
+                format!("gui/501/{label}"),
+            ])
         );
+    }
+
+    #[test]
+    fn a_launchd_job_with_no_matching_pid_is_not_restarted_as_a_takeover() {
+        let label = "com.cmux.acpmux.daemon.077f602dcb3c3936";
+        let plan =
+            launchd_restart_plan(label, 501, 420, |_| Some("state = running\npid = 419\n".into()));
+        assert_eq!(plan, ServiceRestart::SupervisedButUnresolved { label: label.into(), pid: 420 });
         assert!(!matches!(plan, ServiceRestart::Unmanaged | ServiceRestart::Command(_)));
     }
 
