@@ -14,7 +14,8 @@
  *
  * Without cross-origin isolation (the agent page has none) Chromium rounds `presentationTime` up to a 4 ms
  * multiple, so `submitted` reads up to 4 ms late; `submittedFloor` is the earliest it can be: that rounded
- * time less 4 ms, never before the frame's main-thread paint (`paintTime`, not rounded).
+ * time less 4 ms, never before the frame's main-thread paint (`paintTime`, not rounded). `painted` is that paint:
+ * keydown to the main-thread paint of the frame that draws the key (composer-load.ts reads it as `to_paint`).
  */
 export type KeyPresentation = { submitted: number; submittedFloor: number; painted?: number };
 
@@ -40,7 +41,11 @@ export function keyPresentation(
   if (!(presented > 0)) return null;
   const painted = entry.paintTime ?? 0;
   const floor = isolated ? presented : Math.max(painted, presented - PRESENTATION_COARSENING_MS);
-  return { submitted: presented - start, submittedFloor: Math.min(presented, floor) - start, ...(painted > 0 && { painted: painted - start }) };
+  return {
+    submitted: presented - start,
+    submittedFloor: Math.min(presented, floor) - start,
+    ...(painted > 0 && { painted: painted - start }),
+  };
 }
 
 /**

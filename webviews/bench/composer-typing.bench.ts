@@ -242,8 +242,8 @@ const releases: (() => unknown)[] = [];
 // arm's build maps over the first's: profile one tree at a time).
 const serveOptions = {
   dev: DEV,
-  unminified: PROFILE || TRACE || FRAMES || !!process.env.CT_TRACE,
-  sourcemap: PROFILE || TRACE || FRAMES || !!process.env.CT_TRACE,
+  unminified: PROFILE || TRACE || FRAMES,
+  sourcemap: PROFILE || TRACE || FRAMES,
   built: PROFILE || TRACE || FRAMES ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
 };
 
@@ -299,11 +299,7 @@ async function measure(
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
-      const traceOut = process.env.CT_TRACE;
-      const typing = traceOut && engine === "chromium" ? {
-        start: async () => { await browser.startTracing(page, { path: traceOut, categories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing"] }); },
-        stop: async () => { await browser.stopTracing(); },
-      } : cdp && {
+      const typing = cdp && {
         start: async () => {
           await cdp.send("Profiler.enable");
           await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
