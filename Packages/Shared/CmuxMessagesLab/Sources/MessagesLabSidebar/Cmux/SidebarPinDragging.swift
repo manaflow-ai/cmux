@@ -160,7 +160,7 @@ extension SidebarController {
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
         if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
-            natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
+            natural: SidebarDraw.tileNatural(c).name, tileWidth: metrics.tileNameWidth), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
             label.frame = CGRect(x: ((tileSize.width - w) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap,
@@ -234,6 +234,9 @@ extension SidebarController {
             let below = source.map { l.position.y > $0.position.y } ?? false
             shift(l, by: dy - (closes && below ? (source?.bounds.height ?? 0) : 0), animated: animated)
         }
+        // The avatar strip's divider moves with the rows; it goes while no pinned avatar is left.
+        shift(pinDivider, by: dy, animated: animated)
+        pinDivider.opacity = order.isEmpty ? 0 : 1
     }
 
     private func finishPinDrag(cancelled: Bool) {
@@ -269,6 +272,9 @@ extension SidebarController {
             l.transform = CATransform3DIdentity
             l.opacity = 1
         }
+        pinDivider.removeAnimation(forKey: "cmux.pinDrag.shift")
+        pinDivider.transform = CATransform3DIdentity
+        pinDivider.opacity = 1
         switch drag.outcome {
         case .none: break
         case let .place(id, index): placer?.sidebar(self, place: id, at: index)

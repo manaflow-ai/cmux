@@ -170,7 +170,9 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// to avatars keeps its column (and so the divider to drag it back); a wider column brings the
     /// list back at their width. Debug Settings can keep the column.
     private var foldsLoneConversation: Bool {
-        let own = widths.width(window: windowKey()) ?? standard
+        // A width saved before the strip snapped (188 to 325 pt) is the strip now, as `clamp` shows it.
+        let saved = widths.width(window: windowKey()) ?? standard
+        let own = saved < HomeSidebarWidth.fullMinimum ? minimum : saved
         // The list is the column less the panel's inset (`HomeSidebarView.panelInset`).
         let inset = HomeSidebarView.panelInset
         return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own) - inset)
@@ -226,6 +228,16 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     public func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         clamp(.greatestFiniteMagnitude)
+    }
+
+    /// The divider's drag, as Messages' on macOS 26: the full list follows the pointer down to its minimum and holds there,
+    /// and the strip holds, until the pointer is ``HomeSidebarWidth/snapResistance`` past the edge; then the list snaps
+    /// to the other width. No drag closes the list (Messages' never does; the Chats button does).
+    public func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        // A window too narrow for the full list keeps the strip; a drag past the widest stays at the widest.
+        let widest = clamp(.greatestFiniteMagnitude)
+        let snapped = HomeSidebarWidth.snap(proposedPosition, from: sidebarWidth, minimum: minimum)
+        return widest < HomeSidebarWidth.fullMinimum ? minimum : min(snapped, widest)
     }
 
     public func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }

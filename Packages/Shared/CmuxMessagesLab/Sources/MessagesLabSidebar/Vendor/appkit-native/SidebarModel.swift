@@ -278,18 +278,21 @@ struct SidebarMetrics: Equatable {
     static let pinColumns = 3
     static let pinInsetX: CGFloat = 10
     static let pinTopPad: CGFloat = 12
-    static let pinMaxAvatar: CGFloat = 76
+    static let pinMaxAvatar: CGFloat = 88 // cmux: Messages (macOS 26) at a wide list, measured at 2x
     static let pinAvatarSideInset: CGFloat = 14
     static let pinNameSize: CGFloat = 11
     static let pinNameGap: CGFloat = 6
     static let pinNameHeight: CGFloat = 16
     static let pinBottomPad: CGFloat = 8
     static let pinSelectionRadius: CGFloat = 12
+    /// cmux: the selection runs this far past the avatar on the top and the sides, at every width (Messages, macOS 26,
+    /// measured at 2x: an 88 pt avatar in a 108 pt slab); the tile's own width only caps it.
+    static let pinSelectionPad: CGFloat = 10
     static let pinSectionBottom: CGFloat = 6
-    /// cmux: the compact list's pinned ring, this far outside the avatar (inside the 4 pt
-    /// selection-disc margin) and this thick.
-    static let compactPinRingGap: CGFloat = 2.5
-    static let compactPinRingWidth: CGFloat = 1.5
+    /// cmux: Messages' avatar strip parts its pinned avatars from the rest with a line in a 10 pt gap (macOS 26,
+    /// measured at 2x): 54 x 2 pt, centred, the separator's colour.
+    static let compactDividerGap: CGFloat = 10
+    static let compactDivider = CGSize(width: 54, height: 2)
 
     var width: CGFloat
 
@@ -332,8 +335,20 @@ struct SidebarMetrics: Equatable {
     func pinnedHeight(count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
         let rows = (count + columns - 1) / columns
-        return CGFloat(rows) * tileHeight + (compact ? 0 : Self.pinSectionBottom)
+        return CGFloat(rows) * tileHeight + (compact ? Self.compactDividerGap : Self.pinSectionBottom)
     }
+    /// cmux: a tile's selection in tile coordinates: the avatar and its name with `pinSelectionPad` around the avatar,
+    /// never the tile's whole width (the user, 2026-11-23: in a wide list it was a wide slab); the compact tile is a row.
+    var tileSelection: CGRect {
+        if compact { return CGRect(x: 0, y: 0, width: tileWidth, height: tileHeight) }
+        let w = min(tileWidth - 4, pinAvatar + 2 * Self.pinSelectionPad)
+        let avatarX = ((tileWidth - pinAvatar) / 2).rounded()
+        let x = max(2, avatarX - ((w - pinAvatar) / 2).rounded())
+        return CGRect(x: x, y: Self.pinTopPad - Self.pinSelectionPad, width: w, height: tileHeight - 2 * (Self.pinTopPad - Self.pinSelectionPad))
+    }
+    /// cmux: the width a tile's name is fitted to (`SidebarDraw.tileNameKeyWidth`): the selection's, so a selected
+    /// name stays 2 pt inside it.
+    var tileNameWidth: CGFloat { compact ? tileWidth : tileSelection.width + 4 }
     func tileRect(_ i: Int) -> CGRect {
         let cols = columns
         let r = i / cols, c = i % cols

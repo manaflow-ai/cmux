@@ -82,6 +82,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var extraRequest: SidebarSearchRequest?
     private let sectionHeader = CALayer()
     private var sectionHeaderKey = ""
+    /// cmux: the avatar strip's line between the pinned avatars and the rest (Messages, macOS 26).
+    let pinDivider = CALayer()
     /// Room for the extra section's title above its first row.
     static let sectionHeaderHeight: CGFloat = 28
     /// Extra results' ids inside the list (they never collide with conversation ids).
@@ -784,10 +786,25 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     var sectionHeaderRect: CGRect? {
         extraStart.map { CGRect(x: 0, y: pinnedHeight + CGFloat($0) * metrics.listRowHeight, width: metrics.width, height: Self.sectionHeaderHeight) }
     }
+    /// cmux: the avatar strip's divider, centred in the gap under the pinned avatars; only with rows under it.
+    private func layoutPinDivider() {
+        if pinDivider.superlayer == nil {
+            pinDivider.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull()]
+            document.layer?.addSublayer(pinDivider)
+        }
+        pinDivider.isHidden = !metrics.compact || pinnedItems.isEmpty || rowItems.isEmpty
+        guard !pinDivider.isHidden else { return }
+        let d = SidebarMetrics.compactDivider
+        pinDivider.frame = CGRect(x: ((metrics.width - d.width) / 2).rounded(), y: pinnedHeight - SidebarMetrics.compactDividerGap / 2 - d.height / 2,
+                                  width: d.width, height: d.height)
+        pinDivider.cornerRadius = d.height / 2
+        pinDivider.backgroundColor = palette.separator
+    }
     /// The section title: one small bitmap, drawn when the title, width or palette changes.
     private func layoutSectionHeader() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        layoutPinDivider() // cmux: placed on the same changes (data, width, palette)
         if sectionHeader.superlayer == nil {
             sectionHeader.contentsGravity = .topLeft
             sectionHeader.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull()]
@@ -818,7 +835,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func item(_ h: Hit) -> Int? { switch h { case let .tile(t): return pinnedItems[checked: t]; case let .row(r): return rowItems[checked: r] } } // nil when stale
     func rect(_ h: Hit) -> CGRect {
         switch h {
-        case let .tile(t): return metrics.compact ? tileRect(t) : tileRect(t).insetBy(dx: 2, dy: 2) // cmux: a compact tile is a row
+        case let .tile(t): return metrics.tileSelection.offsetBy(dx: tileRect(t).minX, dy: tileRect(t).minY) // cmux: the tile's selection
         case let .row(r): return selectionRect(r)
         }
     }
@@ -1212,11 +1229,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func tileKeys(_ i: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?)? { // nil for a stale item
         guard let c = snapshot.items[checked: i] else { return nil }
         let n = natural(c), tw = metrics.tileWidth
-        return SidebarController.tileKeys(c, natural: n, tileWidth: tw, emphasized: emphasized(i), generation: generation)
+        return SidebarController.tileKeys(c, natural: n, tileWidth: tw, nameWidth: metrics.tileNameWidth, emphasized: emphasized(i), generation: generation)
     }
     static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
+                         nameWidth nw: CGFloat, // cmux: the name fits the selection (`SidebarMetrics.tileNameWidth`)
                          emphasized: Bool, generation: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?) {
-        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: tw, unread: c.unread),
+        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: nw, unread: c.unread),
                                     emphasized: emphasized, generation: generation)
         let bubble = c.unread && !c.typing
             ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
@@ -1242,13 +1260,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let s = renderContext.scale
         l.frame = f
         l.conversationID = c.id
-        l.selection.frame = l.bounds.insetBy(dx: 2, dy: 2)
+        l.selection.frame = metrics.tileSelection // cmux: the avatar and its name, not the tile's width
         l.selection.cornerRadius = SidebarMetrics.pinSelectionRadius
         l.selection.isHidden = c.id != highlightID
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         let ar = SidebarDraw.tileAvatar(metrics)
         if metrics.compact { // cmux: the compact tile is a row: the row's selection across it
-            l.selection.frame = l.bounds
             l.selection.cornerRadius = SidebarMetrics.selectionRadius
         }
         // The avatar: one bitmap at the largest pin size, scaled to the current one.
@@ -1262,16 +1279,6 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.dot.isHidden = !c.unread
         l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
         l.dot.backgroundColor = palette.unread
-        // cmux: in the compact list a pinned avatar is row-sized, so a thin ring 2 pt outside it
-        // says "pinned"; the selection replaces it.
-        l.pinRing.isHidden = !metrics.compact || !l.selection.isHidden
-        if !l.pinRing.isHidden {
-            l.pinRing.frame = ar.insetBy(dx: -SidebarMetrics.compactPinRingGap, dy: -SidebarMetrics.compactPinRingGap)
-            l.pinRing.cornerRadius = l.pinRing.frame.width / 2
-            l.pinRing.borderWidth = SidebarMetrics.compactPinRingWidth
-            l.pinRing.borderColor = palette.secondary
-            l.pinRing.opacity = 0.45
-        }
         if c.typing {
             l.setTyping(palette, scale: s, still: !animates)
             l.typing?.showsTail = true
@@ -1288,7 +1295,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             let d = SidebarMetrics.dotDiameter
             l.dot.frame = CGRect(x: SidebarMetrics.dotCenterX - f.minX - d / 2, y: f.height / 2 - d / 2, width: d, height: d)
         } else {
-            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: emphasized(i), generation: generation)
+            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, nameWidth: metrics.tileNameWidth,
+                                                  emphasized: emphasized(i), generation: generation)
             let name = tileImage(keys.name, c)
             let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
             l.content.isHidden = false
@@ -1548,7 +1556,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             }
             let rowWork = screenItems.map { (key(.row, $0), $0) }.filter { !cached.contains($0.0) }
             let tileWork: [(SidebarBitmapKey, ConversationSummary)] = m.compact ? [] : list.pinned.compactMap { snap.items[checked: $0] }.flatMap { c -> [(SidebarBitmapKey, ConversationSummary)] in // checked
-                let k = SidebarController.tileKeys(c, natural: SidebarDraw.tileNatural(c), tileWidth: m.tileWidth, emphasized: c.id == selected, generation: ctx.generation)
+                let k = SidebarController.tileKeys(c, natural: SidebarDraw.tileNatural(c), tileWidth: m.tileWidth, nameWidth: m.tileNameWidth, emphasized: c.id == selected, generation: ctx.generation)
                 return [k.name, k.bubble].compactMap { $0 }.map { ($0, c) }
             }.filter { !cached.contains($0.0) }
             var out = Prerendered()
@@ -1809,8 +1817,6 @@ final class SidebarRowLayer: CALayer {
     let content = CALayer()
     let time = CALayer()
     let separator = CALayer()
-    /// cmux: the compact list's pinned marker, a ring around a row-sized avatar (tiles only).
-    let pinRing = CALayer()
     private(set) var typing: SidebarTypingLayer?
     /// A pinned group tile's recent senders (small avatars at the avatar's edge).
     var senders: [CALayer] = []
@@ -1830,8 +1836,7 @@ final class SidebarRowLayer: CALayer {
         let none: [String: CAAction] = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "contents": NSNull(),
                                         "backgroundColor": NSNull(), "frame": NSNull(), "cornerRadius": NSNull()]
         actions = none
-        for l in [selection, avatar, dot, content, time, separator, pinRing] { l.actions = none; addSublayer(l) }
-        pinRing.isHidden = true
+        for l in [selection, avatar, dot, content, time, separator] { l.actions = none; addSublayer(l) }
         content.contentsGravity = .topLeft
         time.contentsGravity = .topLeft
         avatar.contentsGravity = .resize
@@ -1850,7 +1855,7 @@ final class SidebarRowLayer: CALayer {
     }
     func contentsScaleAll(_ s: CGFloat) {
         guard content.contentsScale != s else { return }
-        for l in [self, selection, avatar, dot, content, time, separator, pinRing] { l.contentsScale = s }
+        for l in [self, selection, avatar, dot, content, time, separator] { l.contentsScale = s }
     }
 }
 
