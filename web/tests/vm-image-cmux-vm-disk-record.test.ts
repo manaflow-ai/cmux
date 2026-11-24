@@ -99,7 +99,7 @@ describe("the doc section", () => {
 });
 
 describe("images/cmux-vm/fresh-disk.json", () => {
-  const seed = JSON.parse(readFileSync(path.resolve(import.meta.dir, "../../images/cmux-vm/fresh-disk.json"), "utf8")) as DiskRecord;
+  const seed = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../images/cmux-vm/fresh-disk.json"), "utf8")) as DiskRecord;
 
   test("is the hand-measured record, labelled as not by the bake", () => {
     expect(seed).toMatchObject({ schema: 1, image: null, source: "fresh-vm", measured_at: "2026-11-23 09:58Z", inodes: null });
