@@ -228,7 +228,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        let scale = OmnibarStyle.scale(of: self)
+        return CGFloat(count) * OmnibarStyle.buttonSize(scale: scale) + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing(scale: scale)
     }
 
     @objc private func pressed(_ sender: NSButton) {

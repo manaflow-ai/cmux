@@ -34,10 +34,10 @@ describe("the production journey copies the login on spare.ready, as the app's S
     expect(probe.login_path).toBe("copy");
   });
 
-  test("without --preclaim-login the login is the copy after bind, as before", () => {
+  test("without --preclaim-login the login goes with the agent's start, as the app sends it (cmux#40159), never a copy", () => {
     const { steps, probe, log } = runJourney({ login: FIXTURE_LOGIN });
     expect(steps.find((s) => s.step === "preclaim login (spare.ready)")).toBeUndefined();
-    expect(log.slice(0, log.indexOf("create"))).not.toContain("fs/write credential");
-    expect(probe.login_path).toBe("copy");
+    expect(log).not.toContain("fs/write credential");
+    expect(probe.login_path).toBe("launch");
   });
 });

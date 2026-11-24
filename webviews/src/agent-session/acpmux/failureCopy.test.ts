@@ -340,3 +340,17 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   expect(copy).toContain("spending cap");
   expect(copy).toContain("team admin");
 });
+
+// The user's OpenCode Go chat (Nov 19): the provider expired its API key and said a sign-in would not
+// renew it. Its card is a key failure, never "signed out or its sign-in expired" with Sign in again.
+test("a provider's expired API key is a key failure, not a sign-in", () => {
+  for (const message of [
+    "Internal error: This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key.",
+    'Internal error: turn failed: 401: {"type":"authentication_error","code":"api_key_expired","message":"This API key has expired."}',
+  ]) {
+    expect(failureKind(message), message).toBe("invalid-key");
+    expect(failureRecovery(failureKind(message)), message).not.toBe("sign-in");
+  }
+  // Claude Code's own sign-in still reads as its login.
+  expect(failureKind("Invalid API key · Please run /login")).toBe("subscription-login");
+});

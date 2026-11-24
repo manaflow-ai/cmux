@@ -24,6 +24,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.showSetup",
+        group: GROUP,
+        title: t("ActionCatalog", "action.home.showSetup", "Set Up cmux…"),
+        keywords: &["home", "setup", "set up", "onboarding", "first run", "agents", "account", "history", "cli"],
+        category: "window",
+        symbol: "checklist",
+        surfaces: PALETTE | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "home setup",
+        main_menu: Some("app"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "home.openChief",
         group: GROUP,
         title: t("HomeActions", "action.home.openChief", "Open Chief"),

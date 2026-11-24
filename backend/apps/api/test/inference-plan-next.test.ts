@@ -39,6 +39,8 @@ describe("inferencePlan next_plan (cmuxNextPlan)", () => {
 
   it("answers next_max, and null for an unknown, wrong-typed or absent value", async () => {
     expect((await personal(stackServer(env, fakeHttp({ cmuxNextPlan: "next_max" }).http)!)) as any).toMatchObject({ next_plan: "next_max" })
+    // cmux NEXT Plus is a NEXT plan like the others; it never makes the record `paid` for the model router.
+    expect(await personal(stackServer(env, fakeHttp({ cmuxNextPlan: "next_plus" }).http)!)).toMatchObject({ paid: false, plan: null, next_plan: "next_plus" })
     for (const meta of [{ cmuxNextPlan: "next_ultra" }, { cmuxNextPlan: "pro" }, { cmuxNextPlan: "NEXT_PRO" }, { cmuxNextPlan: 1 }, { cmuxPlan: "pro" }, undefined])
       expect(((await personal(stackServer(env, fakeHttp(meta).http)!)) as any).next_plan).toBeNull()
   })

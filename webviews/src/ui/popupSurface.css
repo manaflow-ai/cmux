@@ -291,7 +291,8 @@
    submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
    so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
    its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash;
-   a host that maps none gets the app's highlighted-row token (desktop.css --cmux-row-focus), ui.css's. */
+   a host that maps none gets the native menu's highlighted row (the theme's hover fill, GlassMenu's
+   PopupRowView), ui.css's. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
   font-family: var(--font-ui);
@@ -313,7 +314,11 @@
   outline: none;
 }
 :where(.ui-menu-item[data-highlighted]) {
-  background: var(--ui-row, var(--cmux-row-focus, color-mix(in srgb, currentColor 10%, transparent)));
+  background: var(--ui-row, var(--cmux-hover, color-mix(in srgb, currentColor 5%, transparent)));
+}
+/* Pressed (the pointer down on it, or a host's data-pressed): the pressed fill, as a native row's. */
+:where(.ui-menu-item[data-highlighted]:is(:active, [data-pressed])) {
+  background: var(--ui-row-pressed, var(--cmux-pressed, color-mix(in srgb, currentColor 12%, transparent)));
 }
 :where(.ui-menu-check) {
   display: inline-flex;
@@ -440,6 +445,8 @@
 /* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
    pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+/* Combobox `listEnd`: keeps its height as the scrolling list gives up room. */
+.ui-combobox-list-end { flex: none; }
 .ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
 .ui-combobox-pinned[data-placement="bottom"] { margin: 4px 0 0; padding: 4px 0 0; }
 .ui-combobox-scroll { min-height: 0; }

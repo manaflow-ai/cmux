@@ -8,6 +8,11 @@
   "keep": [
     {
       "surface": "menu",
+      "name": "remoteBrowserPage",
+      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
       "name": "terminalPaste",
       "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
     },
@@ -650,7 +655,8 @@
       "palette": "home.deleteChief"
     },
     {
-      "verb": "chief edit"
+      "verb": "chief edit",
+      "palette": "openSettings"
     },
     {
       "verb": "chief engine",
@@ -825,7 +831,8 @@
       "palette": "openSettings"
     },
     {
-      "verb": "customize library reset"
+      "verb": "customize library reset",
+      "palette": "customize.library.reset"
     },
     {
       "verb": "customize library status",
@@ -1135,7 +1142,8 @@
       "palette": "palette.quickAgentChat"
     },
     {
-      "verb": "harness secret"
+      "verb": "harness secret",
+      "reason": "keep: stores a secret value for a harness env key, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "history clear-range",
@@ -1490,7 +1498,8 @@
       "palette": "space.delete"
     },
     {
-      "verb": "room follow"
+      "verb": "room follow",
+      "palette": "space.followSession"
     },
     {
       "verb": "room list",
@@ -2063,7 +2072,8 @@
       "reason": "keep: blocks a script until the process exits; a wait has no palette form"
     },
     {
-      "verb": "terminal project"
+      "verb": "terminal project",
+      "palette": "terminal.project"
     },
     {
       "verb": "terminal resume",
@@ -2114,7 +2124,8 @@
       "reason": "keep: short-lived VM API access tokens for a process, no app; nothing for a person to pick"
     },
     {
-      "verb": "vm archive-machine"
+      "verb": "vm archive-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm client-session create",
@@ -2141,7 +2152,8 @@
       "palette": "palette.cloud.fork"
     },
     {
-      "verb": "vm keep-machine"
+      "verb": "vm keep-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm key",
@@ -2184,10 +2196,12 @@
       "reason": "keep: a read for scripts and agents (VM secrets); the app shows the same state on screen"
     },
     {
-      "verb": "vm secret rm"
+      "verb": "vm secret rm",
+      "palette": "cloud.secret.remove"
     },
     {
-      "verb": "vm secret set"
+      "verb": "vm secret set",
+      "reason": "keep: stores a secret value, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "vm show",

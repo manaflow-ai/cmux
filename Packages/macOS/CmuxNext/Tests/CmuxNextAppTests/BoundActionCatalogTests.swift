@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextOnboarding
 import Testing
 
 /// Every handler the app binds has its row in the catalog the app links (the pinned cmux-app-ffi
@@ -16,6 +17,8 @@ struct BoundActionCatalogTests {
     /// ignored, so the re-pin bot's pull request stays green. Add to it only for that case, never
     /// for a typo.
     static let awaitingRepin: Set<ActionID> = [
+        // The release action lands with the Swift handler; the pinned app FFI gains its catalog row on re-pin.
+        "home.showSetup",
         // #44169 (Screen Sharing viewer palette rows, step B) merged before its step A, #44164,
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
@@ -31,6 +34,32 @@ struct BoundActionCatalogTests {
             handlers bound to ids the catalog does not have (a typo, or an action the pinned app \
             FFI lacks: re-pin first, docs/ci/app-ffi-release.md): \(missing.map(\.rawValue))
             """)
+    }
+
+    /// Seed the new row until the app FFI pin includes it, then invoke the real handler.
+    @Test func setupActionReopensTheEndedCardAndSelectsHomeAndChief() {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let keys = [FirstRunSetup.stateKey, OnboardingWindowPresenter.historyShownKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let registry = services.registry
+        registry.seed([ActionDescriptor(id: "home.showSetup", title: "Set Up cmux…", category: .window)])
+        OnboardingHandlers.bind(into: registry, context: AppActionContext(services: services))
+        var routes: [String] = []
+        registry.bindEffect("home.show") { _ in routes.append("home"); return .done }
+        registry.bindEffect("home.openChief") { _ in routes.append("chief"); return .done }
+        services.onboarding.setup.end()
+        #expect(!services.onboarding.setup.shows)
+
+        #expect(registry.perform("home.showSetup", invocation: .init(origin: .user)))
+        #expect(services.onboarding.setup.shows)
+        #expect(routes == ["home", "chief"])
     }
 
     /// The Team section's actions (#40159) are bound once the pin carries their rows

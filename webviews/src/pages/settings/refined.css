@@ -141,22 +141,24 @@
 
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--ds-control-primary);
-  padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-md);
   color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-base));
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
 }
 
+:root[data-settings-look="refined"] .settings .section-link:is(:hover, :active) > .section-link-content {
+  background: var(--polish-hover);
+}
+
+:root[data-settings-look="refined"] .settings .section-link[aria-current] > .section-link-content {
+  background: var(--settings-nav-selection-fill, var(--polish-selected));
+}
+
 :root[data-settings-look="refined"] .settings .section-link[aria-current] {
-  /* The sidebar's selected row: selectionFill at the item radius. */
-  background: var(--polish-selected);
   color: var(--polish-ink);
 }
 
-:root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
-/* A held row changes its fill only (design/pressed-state.md). */
-:root[data-settings-look="refined"] .settings .section-link:not([aria-current]):active { background: var(--polish-pressed); }
 :root[data-settings-look="refined"] .settings .section-icon {
   --settings-nav-icon: calc(16px * var(--cmux-row-icon-scale, var(--page-density, 1)));
   color: var(--polish-muted);
@@ -318,7 +320,6 @@
 
   :root[data-settings-look="refined"] .settings .section-link {
     min-height: 0;
-    padding: var(--ds-space-1) var(--ds-space-2);
   }
 
   :root[data-settings-look="refined"] .settings > .content {

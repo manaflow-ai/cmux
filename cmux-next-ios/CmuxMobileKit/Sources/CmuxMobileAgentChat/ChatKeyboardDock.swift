@@ -930,7 +930,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
         // A jump ends the reader's own drag and fling first, before its layout pass.
         scrollView.haltScrollMomentum()
-        let id = ChatTranscriptList.rowID(findBlock: findBlock)
+        var id = ChatTranscriptList.rowID(findBlock: findBlock)
+        // A match in a turn's folded work opens its "Worked for", and the reader goes to its line.
+        var position = position
+        if let fold = list.openFold(holding: id) {
+            id = fold
+            position = 0
+        }
         list.layOutNow(id)
         view.layoutIfNeeded()
         guard let top = list.layout.top(of: id) else { return }

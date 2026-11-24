@@ -486,12 +486,54 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
         "{}",
         writable_refusal(path, metadata.mode(), "600")
     );
-    refuse_extended_acl(file, path)?;
+    if !acl_checked(&metadata) {
+        refuse_extended_acl(file, path)?;
+        if metadata.mode() & 0o077 == 0 {
+            remember_acl_checked(&metadata);
+        }
+    }
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
     Ok(())
+}
+
+/// The files whose extended ACL was checked, by file and change time: a state file read again
+/// (each page of a chat's log opens its segments) is checked once, not on each open. Any change
+/// to a file's ACL, mode or owner moves its change time (`ctime`), so a file changed since is
+/// checked again. The owner and mode checks above still run on every open: they read the
+/// `fstat` the open already needs. Leo's daemon, 2026-11-18: an attach spent a tenth of its
+/// reads in `acl_get_fd_np` (`store/segment_starts.rs`).
+#[cfg(unix)]
+type AclKey = (u64, u64);
+
+#[cfg(unix)]
+static ACL_CHECKED: std::sync::Mutex<Option<std::collections::HashMap<AclKey, (i64, i64)>>> =
+    std::sync::Mutex::new(None);
+
+/// The most files remembered; past it the memo starts over.
+#[cfg(unix)]
+const ACL_CHECKED_MAX: usize = 65_536;
+
+#[cfg(unix)]
+fn acl_checked(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    memo.as_ref()
+        .and_then(|memo| memo.get(&(metadata.dev(), metadata.ino())))
+        .is_some_and(|&changed| changed == (metadata.ctime(), metadata.ctime_nsec()))
+}
+
+#[cfg(unix)]
+fn remember_acl_checked(metadata: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    let mut memo = ACL_CHECKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let memo = memo.get_or_insert_with(Default::default);
+    if memo.len() >= ACL_CHECKED_MAX {
+        memo.clear();
+    }
+    memo.insert((metadata.dev(), metadata.ino()), (metadata.ctime(), metadata.ctime_nsec()));
 }
 
 /// Open or create an owner-only regular state file for read/write without
@@ -1520,6 +1562,10 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
+    /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
+    #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_store: Option<std::path::PathBuf>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs

@@ -202,6 +202,9 @@ type VariantBase = {
   /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
    * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
   titleAreaTone?: import("./env").TitleAreaToneName;
+  /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
+   * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
+  look?: import("./golden/look").GoldenLook;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -241,6 +244,10 @@ export type AgentPaneVariant = VariantBase & {
     routeId: string | null;
     fromSessionId: string | null;
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+    /** Whose credential refused the chat, as acpmux names it. */
+    credential?: "login" | "apiKey" | "cmux";
+    /** The provider id of a refused API key ("opencode-go"). */
+    provider?: string;
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
@@ -272,6 +279,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
+  /** The mock app's tab strip (mock-app.html): other tabs' titles beside this chat's, in order; the
+   * chat's own tab is the one named by the snapshot's title. */
+  windowTabs?: string[];
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

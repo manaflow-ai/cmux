@@ -49,6 +49,8 @@ const CLI_FLAGS: &[&str] = &[
     "no-wait",
     "interactive",
     "focus",
+    // `run_action` reads `--no-focus` as the run's `focus: false` (and the action's `focus` when it takes one).
+    "no-focus",
     "target",
     "arg",
     "json",

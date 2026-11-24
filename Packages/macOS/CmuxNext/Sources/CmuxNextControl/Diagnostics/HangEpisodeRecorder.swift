@@ -87,13 +87,13 @@ public final class HangEpisodeRecorder: Sendable {
         let info = bundle.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
-        let header = _dyld_get_image_header(0)
+        let header: UnsafePointer<mach_header>? = AppSymbolMap.codeImage
         let uuid = header.flatMap(AppSymbolMap.uuid(of:))?.uuidString ?? "?"
         let base = header.map { "0x" + String(UInt(bitPattern: $0), radix: 16) } ?? "?"
         identity = [
             "app: \(bundle.bundleIdentifier ?? "?") \(version) (\(build))",
             "commit: \(info["CMUXCommit"] as? String ?? "unknown")",
-            // Raw frames in the executable resolve as address - load address against its dSYM.
+            // Raw frames in the app code image (CmuxNextApp.framework) resolve as address - load address against its dSYM.
             "executable: uuid \(uuid), load address \(base)",
         ]
         queue.async { [self] in loadEntries() }

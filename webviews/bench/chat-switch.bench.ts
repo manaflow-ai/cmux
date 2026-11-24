@@ -39,6 +39,7 @@ import { growthPerOp, growthRows, RESOLUTION, sampleGrowth, type GrowthSample } 
 import { diff as heapDiff, takeSnapshot, type Snapshot } from "./heapProbe";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
+import { addRenderCountProbe, formatRenderCounts, renderCountsReset, renderCountsTake } from "./renderCounts";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -59,6 +60,8 @@ if (!Number.isInteger(CHURN) || CHURN <= 5 * SAMPLE_EVERY || CHURN % SAMPLE_EVER
   throw new Error(`CHURN must be a multiple of ${SAMPLE_EVERY} over ${5 * SAMPLE_EVERY}`);
 const LATENCY = Number(process.env.LATENCY ?? 0);
 const PROFILE = process.env.PROFILE === "1";
+/// RENDERS=1 builds the pane unminified and prints each switch's renders by component (bench/renderCounts.ts).
+const RENDERS = process.env.RENDERS === "1";
 /// The steady idle window: STEADY_MS of rest, starting STEADY_AFTER_MS after the 5 s one ends.
 const STEADY_AFTER_MS = 8_000;
 const STEADY_MS = 10_000;
@@ -313,7 +316,11 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, ...(PROFILE || process.env.HEAP_PROBE ? { minify: false } : {}) },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
+    },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -359,6 +366,7 @@ try {
     remoteTail = mode;
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     await addStabilityProbe(context, { boxes: false });
+    if (RENDERS) await addRenderCountProbe(context);
     const page = await context.newPage();
     const cdp = await cpuSession(page, true);
     if (mode)
@@ -426,6 +434,7 @@ try {
           transferMode: "ReportEvents",
         });
       }
+      if (RENDERS) await renderCountsReset(page);
       const got = await page.evaluate(
         ({ id, text, mode, snapshot }) =>
           new Promise<Omit<Round, "sent">>((resolve, reject) => {
@@ -614,6 +623,14 @@ try {
           ),
         );
       }
+      // RENDERS=1: which components the switch rendered, from the call until it settled (bench/renderCounts.ts).
+      if (RENDERS)
+        console.log(
+          formatRenderCounts(
+            `chat_switch${FIXTURE === "god" ? ".god" : ""}.${idle < 600 ? "unread" : "read_ahead"}`,
+            await renderCountsTake(page),
+          ),
+        );
       const sent = calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`);
       let quiet: Idle | undefined;
       let steady: Idle | undefined;

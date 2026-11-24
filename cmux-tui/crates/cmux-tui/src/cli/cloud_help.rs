@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH]",
+                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--no-focus]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -620,10 +620,12 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
-                             [--cwd DIR | --from-folder PATH [--allow-large]]
+                             [--effort EFFORT] [--mode MODE]
+                             [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
                              [--environment ENV]
                              [--name VM | --target vm:VM_ID]
-                             [--wait] [--timeout SECONDS] [--make-room] [--json]
+                             [--wait] [--timeout SECONDS] [--make-room]
+                             [--no-focus] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
@@ -641,7 +643,14 @@ older name; both run the same start.
                      the model
   --model MODEL      The model the agent starts on there (claude-haiku-5-5;
                      default: the harness's own)
+  --effort EFFORT    Its thinking effort (low, medium, high, xhigh, max; what
+                     the harness offers), as the composer's effort picker
+                     sets it; set before the first prompt
+  --mode MODE        The permission mode it starts in (plan, acceptEdits, ...)
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
+  --no-folder        The composer's No folder: a new folder of the chat's own
+                     under ~/chats, nothing copied (also what no folder flag
+                     means); not with --cwd or --from-folder
   --from-folder PATH A folder on this Mac (relative: of this shell's folder),
                      copied to the machine as the composer's Cloud start
                      copies one; the chat starts in the copy. Never home,
@@ -652,7 +661,10 @@ older name; both run the same start.
                      (the files the copy sends), which are refused without it
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
-                     Neither: create a new small machine with a new name
+                     Neither: create a new small machine with a new name.
+                     One that doesn't connect or start its agent within
+                     90 s is deleted and the chat starts on a fresh one,
+                     once
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
   --account ACCOUNT  Start and send only while the app is signed in to this
@@ -664,6 +676,10 @@ older name; both run the same start.
   --make-room        At a machine cap, free the machine the refusal offers
                      (a leftover it names is deleted; else the paused one
                      used longest ago is archived and deleted) and start again
+  --no-focus         Start without changing what the app shows: its workspace,
+                     tab, window and focus stay as they are (for an agent or a
+                     script; the chat's tab still opens in the machine's
+                     workspace)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
 plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
@@ -674,6 +690,7 @@ EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
   cmux cloud start-chat --agent codex --json
+  cmux cloud start-chat --model claude-sonnet-5-5 --effort high --no-folder --prompt 'What is 1+1?' --wait
 
 FOLLOW-UPS (SESSION_ID from the answer)
   cmux chat send SESSION_ID 'next prompt' --wait

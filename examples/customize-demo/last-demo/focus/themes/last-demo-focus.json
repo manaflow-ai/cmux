@@ -1,0 +1,44 @@
+// Focus: ink on warm paper, behind frosted glass. Hiroshige's Zoshigaya is there but quiet: the
+// glass is frosted, not clear, so it reads as a mood and never as a picture to look at. One sage
+// accent, soft amber for warnings, no borders, rounded but small corners.
+{
+  "name": "Focus",
+  "description": "Ink on warm paper behind frosted glass over Hiroshige; one sage accent, no borders.",
+
+  "appearance.theme": "Rose Pine Moon",
+  "colors": {
+    "background": "#1b1915",
+    "foreground": "#ece4d4",
+    "cursor": "#a8c6a0",
+    "selection": "#38342b",
+    "accent": "#a8c6a0",
+    "1": "#e08a7a",
+    "2": "#a8c6a0",
+    "3": "#e2b872",
+    "4": "#8fb3c9",
+    "5": "#c4a6c9",
+    "6": "#8cc2b8"
+  },
+  "appearance.accent": "theme",
+
+  "appearance.background": "hiroshige-zoshigaya",
+  "appearance.backgroundOpacity": 0.86,
+  "appearance.backgroundBlur": "frosted",
+
+  "appearance.chromeStyle": "bare",
+  "appearance.borders": "none",
+  "appearance.titleAreaTone": "oneColor",
+
+  "appearance.sidebarSurface": "same",
+  "sidebar.sectionLook": "quiet",
+
+  "appearance.surfaces.terminal.color": "#1b1915",
+  "appearance.surfaces.terminal.opacity": 0.92,
+  "appearance.surfaces.agentPane.color": "#1b1915",
+  "appearance.surfaces.agentPane.opacity": 0.92,
+  "appearance.surfaces.newTabPage.color": "#1b1915",
+  "appearance.surfaces.newTabPage.opacity": 0.6,
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.color": "#a8c6a0"
+}

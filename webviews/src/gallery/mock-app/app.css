@@ -102,9 +102,22 @@ body {
   color: var(--app-text);
 }
 .app-sidebar-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* A row's age (sidebar.showTimestamps), at the right of its title. */
+.app-sidebar-age {
+  flex: none;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-3);
+}
+.app-sidebar-row[data-mark="unread"] .app-sidebar-title {
+  color: var(--app-text);
+  font-weight: 600;
 }
 .app-sidebar-mark {
   /* The sidebar row's 6 pt status dot. */
@@ -159,6 +172,11 @@ body {
   border-radius: 6px;
   background: var(--app-tab);
   color: var(--app-text);
+}
+/* Tabs beside the selected one (format.ts windowTabs): the strip's own fill, quieter text. */
+.app-tab:not([data-selected]) {
+  background: transparent;
+  color: var(--app-text-2);
 }
 .app-tab-title {
   overflow: hidden;

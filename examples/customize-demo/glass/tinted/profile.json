@@ -1,0 +1,11 @@
+{
+  "name": "glass-tinted",
+  "description": "Indigo-stained Liquid Glass over the live desktop: aurora workspace groups on glass headers, a cyan accent tinting the address bar's glass.",
+  "settings": {
+    "appearance.themeFile": "glass-tinted",
+    "layout.paneCornerRadius": 12,
+    "sidebar.groupGradient": "aurora",
+    "sidebar.groupHeader.background": "glass",
+    "sidebar.groupPalette": "gradient"
+  }
+}

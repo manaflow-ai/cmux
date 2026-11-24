@@ -194,8 +194,16 @@ fn is_zero(n: &u64) -> bool {
 }
 
 impl Delivery {
+    /// Whether it is the record of a message this daemon posted to the mesh hub, a team one or
+    /// a direct `HOST/NAME` send (`record_mesh_origin`): bookkeeping, never a delivery.
     fn is_team_receipt(&self) -> bool {
-        self.id.starts_with("mesh:") && self.request.get("teamOrigin") == Some(&Value::Bool(true))
+        self.id.starts_with("mesh:")
+            && self.request.get("teamOrigin").is_some_and(Value::is_boolean)
+    }
+
+    /// Whether it is the record of a team message (`record_team_receipt`).
+    pub(crate) fn team_origin(&self) -> bool {
+        self.is_team_receipt() && self.request.get("teamOrigin") == Some(&Value::Bool(true))
     }
 
     pub fn prompt_id(&self) -> &str {
@@ -483,13 +491,26 @@ impl Outbox {
         address: &str,
         caller: Option<&str>,
     ) -> bool {
+        self.record_mesh_origin(id, address, caller, true)
+    }
+
+    /// Who posted hub message `id` from here, and to whom: a team address (`team`), or a
+    /// direct `HOST/NAME` send (`server/mesh_send.rs`), whose sender reads its status though the
+    /// hub stamps every receipt with its start-work decision. Kept as long as a team record.
+    pub(crate) fn record_mesh_origin(
+        &self,
+        id: &str,
+        address: &str,
+        caller: Option<&str>,
+        team: bool,
+    ) -> bool {
         let key = format!("mesh:{id}");
         let mut book = self.book();
         let now = crate::store::now_ms();
         book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
             id: key.clone(),
             target: address.to_owned(),
-            request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
+            request: json!({"teamOrigin": team, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
             unproven_caller: None,
             not_terminal: false,
@@ -513,7 +534,8 @@ impl Outbox {
         in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
-    pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
+    /// The record of hub message `id` this daemon posted, team or direct.
+    pub(crate) fn mesh_origin(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
     }
 

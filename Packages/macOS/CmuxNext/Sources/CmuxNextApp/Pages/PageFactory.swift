@@ -251,8 +251,8 @@ struct PageFactory {
         provider.keys = SettingsKeys(requests: services.keyRequests, binary: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
-        let integrations = SettingsAgentIntegrations(cli: cli)
-        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
+        let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) })
+        provider.parts = ["cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url })]
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

@@ -75,6 +75,11 @@ if "--bench=new-pane-start-state" in sys.argv:
 if "--bench=cmd-n-paint" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmd-n-paint-e2e.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmd-n-paint"]])
+# `--bench=cmdn-typing`: scripts/cmux-next/cmdn-typing-bench.py on the same tagged app (a display worker), the keys typed
+# right after Cmd-N and how many the new New Tab field lost, from a terminal and from a page, now, late and cold.
+if "--bench=cmdn-typing" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmdn-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmdn-typing"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402

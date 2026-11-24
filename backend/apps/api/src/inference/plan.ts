@@ -28,7 +28,7 @@ export const FAILURE_BACKOFF_MS = 60_000
 
 /** `user_limit_usd`: the caller's monthly AI limit in this team (personal, else team default, else 200; team-ai-limit.ts). */
 /** `plan`: the plan id the sign-in service holds (go, pro, max, founders, team), or null (cx-y79zh S5: the included-amount stop). */
-/** `next_plan`: the record's cmux NEXT plan (cmuxNextPlan: next_pro or next_max), or null; for the Cloud service only, it never changes `paid` or the limit. */
+/** `next_plan`: the record's cmux NEXT plan (cmuxNextPlan: next_plus, next_pro or next_max), or null; for the Cloud service only, it never changes `paid` or the limit. */
 export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null; readonly next_plan?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
 
 const tableReady = new WeakSet<SqlStorage>()

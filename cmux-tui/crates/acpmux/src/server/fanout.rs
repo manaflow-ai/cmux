@@ -39,6 +39,8 @@ impl Flush {
 fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
+    #[cfg(test)]
+    tests::panic_if_marked(&ev.session_id);
     deliver(hub, conn, ev);
 }
 
@@ -157,5 +159,32 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
     if attached {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+    }
+}
+
+/// The fan-out task of `conn` ended while its connection was still open: a panic in a delivery,
+/// or the hub's feed closed. The connection ends with it (`serve_connection_from`), never lives on answering
+/// requests with no pushes, which left an attached chat standing still with no close.
+pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
+    match ended {
+        Err(error) if error.is_panic() => {
+            tracing::error!(conn = %conn.id, "the connection's fan-out task panicked: it is disconnected");
+        }
+        _ => {
+            tracing::warn!(conn = %conn.id, "the connection's fan-out task ended: it is disconnected")
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
+    /// so parallel tests never trip each other (the test-hooks check, cmux#41350).
+    pub(in crate::server) const PANIC_PREFIX: &str = "fanout-test-panic-";
+
+    pub(super) fn panic_if_marked(session: &str) {
+        if session.starts_with(PANIC_PREFIX) {
+            panic!("fan-out test panic for {session}");
+        }
     }
 }

@@ -182,7 +182,7 @@ jobs:
       - name: iOS Acknowledgements pane is current
         run: python3 scripts/cmux-next/notices/ios_notices.py generate --ghostty-tree "$RUNNER_TEMP/source-archive/ghostty-next-licenses" --check
 
-      # The macOS app links GhosttyNextKit's macos slice into Contents/MacOS/cmux
+      # The macOS app links GhosttyNextKit's macos slice into CmuxNextApp.framework
       # and bundles this tree (nightly-next): every package of the slice's DWARF
       # (ghosttykit-macos-link-set.json, made on a Mac) needs a license text in it.
       - name: macOS GhosttyNextKit link set is covered by the notices

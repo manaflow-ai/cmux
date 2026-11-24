@@ -417,6 +417,8 @@ final class SidebarRegionView: NSView {
         var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
         info.leadingPin = !style.isIconOnly && style != .chip && section.id == SidebarLayoutDocument.pinnedSectionID
             && item.ref.kind == LayoutItemRef.workspaceKind
+        // A pinned row leads with its pin whatever its shown tab is (msg 40501): a tab's favicon is not the workspace's icon.
+        if info.leadingPin { info = info.droppingShownTabIcon() }
         view.configure(info, style: style)
         view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
         view.activatesOnPress = item.ref.activatesOnPress

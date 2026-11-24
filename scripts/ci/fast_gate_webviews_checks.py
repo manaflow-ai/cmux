@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The webviews checks that fail a feat-cmux-next pull request, compared with its base per error.
 
-    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install]
+    fast_gate_webviews_checks.py [--base BASE] [--repo PATH] [--no-install] [--advisory-out FILE]
 
 Installs webviews' node_modules (bun install --frozen-lockfile; --no-install when the job already did) and runs, in
 webviews/, every check in CHECKS, each on its own: a red never stops the next. ci-web's "Check webviews" step runs
@@ -23,10 +23,16 @@ ci-web already ran these checks on the same merge commit. A merger dispatches wh
 landed after the pull request's CI runs on it before it merges (2026-10-21: #22967, #22975 and #23094 merged past
 the new check:fixed-waits; replayed, #22975 merged with 01ea78b3 adds
 "test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0" to the two findings the base already had).
+
+The nightly passes --advisory-out FILE: a failed check of class `lint` (CHECK_CLASSES) is a warning written to FILE
+(JSON, {"failed": [{"check", "findings"}]}) for nightly_fix_forward_issue.py, and only a `blocks` check fails the
+step. Leo, 2026-11-20, after check:design-tokens held the NEXT nightly for 15 h: "aren't these a bit bad to halt the
+nightly on? what about the fixit/ignoring and fixing forward for things?" Without the flag every check counts.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from collections import Counter
 import re
@@ -49,6 +55,43 @@ CHECKS = (
     "check:catalog-unused",
     "check:popup-hover-reveals",
 )
+# Per check: ("lint", "") reports and is fixed forward on the nightly (--advisory-out); ("blocks", why) still fails it.
+LINT = ("lint", "")
+CHECK_CLASSES = {
+    "check:effect-cleanup": LINT,
+    "check:browser-lanes": LINT,
+    "check:fixed-waits": LINT,
+    "check:whole-list-rows": LINT,
+    "check:design-tokens": LINT,
+    "check:ui-review": LINT,
+    "typecheck": ("blocks", "#32056's TS2448 broke every agent pane and was published 2026-11-02"),
+    "acpmux-protocol:check": ("blocks", "generated code drifting from the spec breaks the client-daemon wire"),
+    "check:catalog-keys": LINT,
+    "check:catalog-unused": LINT,
+    "check:popup-hover-reveals": LINT,
+}
+ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
+# A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
+# nothing about whether the app works, so on the nightly it is fixed forward like a lint. Leo, 2026-11-20, after
+# a TS2367 in bench/composer-typing.bench.ts held the NEXT nightly (run 44661110467): "failed on a webview check i
+# thought we didnt panic for these types of things? ... where's our fixit type things". A red in app source blocks.
+# Build-time code under dev-server/ and scripts/ (Vite plugins) is read by the build, but a type error there does not
+# change the emitted JS, so it is still outside what the app runs.
+NOT_SHIPPED = re.compile(r"^(?:webviews/)?(?:bench|test|tests|e2e|dev-server|scripts)/"
+                         r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?:")
+# bun's own lines around a check's output, never a finding: the script it ran and its exit (job 136040412192).
+BUN_RUN_LINE = re.compile(r'^(?:\$ .*|error: script "[^"]+" exited with code \d+)$')
+
+
+def outside_the_app(lines: list[str]) -> bool:
+    """Whether every finding names a file the app never ships (NOT_SHIPPED); a finding with no path counts as app."""
+    found = [line for line in lines if not BUN_RUN_LINE.match(line.strip())]
+    return bool(found) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in found)
+
+
+def advisory_class(check: str, lines: list[str]) -> bool:
+    """Whether a failed CHECK is reported and fixed forward on the nightly instead of failing it."""
+    return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -217,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="", help="the base sha (or ref) to compare with; none charges every red")
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--no-install", action="store_true", help="webviews' node_modules is already installed")
+    parser.add_argument("--advisory-out", type=Path, default=None,
+                        help="the nightly: lint-class reds go to this JSON report and never fail the run")
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
     webviews = repo / "webviews"
@@ -225,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     base = BaseTree(repo, args.base) if args.base else None
     failed = []
+    shown: dict[str, list[str]] = {}  # a failed check's findings, for --advisory-out
     try:
         for check in CHECKS:
             code, output = run_check(webviews, check)
@@ -234,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             base_webviews = base.webviews() if base else None
             if base_webviews is None:  # a push, or no base to compare with: the red is charged here
                 failed.append(check)
+                shown[check] = [line for _, line in findings(output, str(repo))]
                 continue
             # A new ratchet is intentionally introduced in the same PR as its baseline and
             # package script. Until that PR lands, the merge parent cannot run this check; do not
@@ -260,18 +307,30 @@ def main(argv: list[str] | None = None) -> int:
                       flush=True)
                 continue
             failed.append(check)
+            shown[check] = new
+            advisory = args.advisory_out is not None and advisory_class(check, new)
             print(f"webviews checks: {check} adds, over the base {args.base[:12]}:", flush=True)
             for line in new:
                 print(f"  {line}", flush=True)
-                print(f"::error title=webviews {check}::{line}", flush=True)
+                print(f"::{'warning' if advisory else 'error'} title=webviews {check}::{line}", flush=True)
     finally:
         if base:
             base.close()
     where = "the pull request merged with its base" if args.base else "this commit"
+    advisory = ([c for c in failed if advisory_class(c, shown.get(c, []))] if args.advisory_out is not None else [])
     for check in failed:
-        print(f"::error title=webviews {check}::{check} fails on {where}")
+        if check in advisory:
+            kind = "lint-class" if CHECK_CLASSES[check][0] == "lint" else "only in files the app never ships"
+            print(f"::warning title=webviews {check} (fix forward)::{check} fails on {where}; {kind}, so it is "
+                  "reported and never fails the nightly")
+        else:
+            print(f"::error title=webviews {check}::{check} fails on {where}")
+    if args.advisory_out is not None:
+        report = {"failed": [{"check": c, "findings": shown.get(c, [])[:ADVISORY_EXCERPT]} for c in advisory]}
+        args.advisory_out.parent.mkdir(parents=True, exist_ok=True)
+        args.advisory_out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"webviews checks: {', '.join(failed) + ' failed' if failed else 'all passed'}", flush=True)
-    return 1 if failed else 0
+    return 1 if any(c not in advisory for c in failed) else 0
 
 
 if __name__ == "__main__":

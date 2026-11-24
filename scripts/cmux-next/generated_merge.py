@@ -157,8 +157,6 @@ REGENERATE: dict[str, Regen] = {
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift": here(
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
-    "Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/include/cua_driver_abi.h": line(
-        "the cua driver's C ABI header, written by its Mac SDK build (build-cua-driver-sdk.sh)"),
     "Resources/markdown-viewer/ondine.min.js": line("a vendored upstream release (vendor-ondine.mjs)"),
     "THIRD_PARTY_LICENSES.md": line("written by the release build's license collector"),
     "cmux-tui/build-support/notices/REVIEW.md": line("written by pin-cmux-tui.sh when the cmux-tui pin moves"),

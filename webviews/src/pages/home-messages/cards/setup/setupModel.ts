@@ -24,11 +24,16 @@ export interface SetupState {
   /** Chats from other agents on this Mac (the host found some): the row opens the history import; `done` once
    * that page showed or the row was dismissed. Null or absent: none found (the row does not show). */
   history?: { done: boolean } | null;
+  /** Whether cmux may add its tools (its MCP server, Computer Use included) to the person's coding
+   * agents (`agents.cmuxMcp`): the agents found, by name, and the answer (`ask` until the person
+   * answers on this card; `on` or `off` after). Null or absent: nothing to ask (no agent found, or it
+   * was answered before), so the row does not show. */
+  tools?: { agents: readonly string[]; choice: "ask" | "on" | "off"; applying: boolean } | null;
   /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
   classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
 }
 
-export type SetupStepID = "agents" | "history" | "account" | "cli" | "classic";
+export type SetupStepID = "agents" | "tools" | "history" | "account" | "cli" | "classic";
 
 /** What a row's button asks the host to do. */
 export type SetupAction =
@@ -39,6 +44,8 @@ export type SetupAction =
   | { kind: "installCLI" }
   | { kind: "importHistory" }
   | { kind: "declineHistory" }
+  | { kind: "addTools" }
+  | { kind: "declineTools" }
   | { kind: "importClassic" }
   | { kind: "declineClassic" };
 
@@ -73,7 +80,8 @@ function agentAction(agent: SetupAgent, { format }: Strings): { label: string; r
 }
 
 /** The rows in their order: classic first when found (its answer decides what Home holds), then
- * agents, the chat history when found, account and the command line. */
+ * agents, cmux's tools in those agents when there is something to ask, the chat history when found,
+ * account and the command line. */
 export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
@@ -135,6 +143,27 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
         }
       : other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });
+  if (state.tools) {
+    const { agents, choice, applying } = state.tools;
+    const done = choice !== "ask" && !applying;
+    steps.push({
+      id: "tools",
+      done,
+      title: t("home.setup.tools"),
+      detail:
+        choice === "on" && !applying
+          ? t("home.setup.tools.added")
+          : choice === "off"
+            ? t("home.setup.tools.declined")
+            : format("home.setup.tools.detail", agents.join(", ")),
+      busy: applying,
+      ...(choice === "ask" &&
+        !applying && {
+          action: { label: t("home.setup.tools.add"), run: { kind: "addTools" } as const },
+          secondary: { label: t("home.setup.notNow"), run: { kind: "declineTools" } as const },
+        }),
+    });
+  }
   if (state.history) {
     const { done } = state.history;
     steps.push({

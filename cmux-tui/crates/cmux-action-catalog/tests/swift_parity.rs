@@ -34,6 +34,7 @@ fn repo() -> PathBuf {
 /// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
 ///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
 /// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `members/<name>`: a top-level catalog member the dump does not have yet.
 /// - `tier/<list>/<id>`: an id the crate added to the palette tier list `daily` or `niche`.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
@@ -324,6 +325,16 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    // `members/<name>`: a top-level catalog member this crate added that the pinned app FFI,
+    // and so the dump, does not have yet.
+    for member in marked("members") {
+        assert!(
+            swift.get(&member).is_none(),
+            "action-catalog.json has {member}: the re-pin landed, so delete {}",
+            marker("members", &member)
+        );
+        object.remove(&member);
+    }
     check_awaiting_repin(
         swift["actions"].as_array().map_or(&[], Vec::as_slice),
         "action-catalog.json",
@@ -484,11 +495,15 @@ fn action_list_export_matches() {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
         assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
-        assert_eq!(
-            row["context_menu"],
-            action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
-            "{id}"
-        );
+        // A context-menu change awaiting the re-pin keeps the pinned app's decision in this
+        // export too.
+        if !field_awaits_repin(id, "/surfacePlan/contextMenus") {
+            assert_eq!(
+                row["context_menu"],
+                action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
+                "{id}"
+            );
+        }
         assert_eq!(
             row["mcp"],
             action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),

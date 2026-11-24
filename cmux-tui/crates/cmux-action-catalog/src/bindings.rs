@@ -72,6 +72,7 @@ pub static FOCUS_HISTORY_ALIASES: &[Binding] = &[
 #[rustfmt::skip]
 pub static ZOOM_ALIASES: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "markdownZoomIn", argument: None, arguments: &[], when: None, source: "default" },
+    Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "diffViewerZoomIn", argument: None, arguments: &[], when: Some("diffViewerFocused"), source: "default" },
 ];
 
 #[rustfmt::skip]

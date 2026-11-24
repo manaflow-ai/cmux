@@ -37,10 +37,12 @@ SUFFIX=" Screen Sharing"
 # PlistBuddy on a Mac; plistlib elsewhere (the Linux release signer stamps before it signs). Empty for a plist that
 # is not there: PlistBuddy's Print then writes "File Doesn't Exist, Will Create: PATH" to stdout, which became the
 # helper's name and an mv to that path failed the build (a launch-ready A/B's head build, 2026-11-17).
+# CMUX_PLISTBUDDY: another PlistBuddy (tests).
+PLISTBUDDY="${CMUX_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 plist_get() {
   [[ -f "$1" ]] || return 0
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
-    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
+  if [[ -x "$PLISTBUDDY" ]]; then
+    "$PLISTBUDDY" -c "Print :$2" "$1" 2>/dev/null || true
   else
     python3 -I -c 'import plistlib, sys; v = plistlib.load(open(sys.argv[1], "rb")).get(sys.argv[2]); print("" if v is None else v)' \
       "$1" "$2" 2>/dev/null || true
@@ -72,6 +74,15 @@ write_plist() {
 PLIST
 }
 
+# Refuses a bundle id or app name that is not one: a value read from a tool's output can carry the tool's own
+# message (the PlistBuddy line above), and the helper's path is built from the name. <id> <name>.
+check_identity() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] \
+    || { echo "error: Screen Sharing helper: bundle id '$1' is not a plain reverse-DNS name" >&2; exit 1; }
+  [[ -n "$2" && "$2" != *[/:[:cntrl:]]* ]] \
+    || { echo "error: Screen Sharing helper: app name '$2' is empty or holds a slash, colon or control character" >&2; exit 1; }
+}
+
 # Removes every helper bundle in <app>/Contents/Library except <keep> (a renamed app's old one).
 remove_other_helpers() {
   local app="$1" keep="${2:-}" helper
@@ -93,6 +104,7 @@ if [[ "${1:-}" == "--stamp" ]]; then
   id="$(plist_get "$app/Contents/Info.plist" CFBundleIdentifier)"
   name="$(plist_get "$app/Contents/Info.plist" CFBundleName)"
   [[ -n "$id" && -n "$name" ]] || { echo "error: $app/Contents/Info.plist has no CFBundleIdentifier or CFBundleName" >&2; exit 1; }
+  check_identity "$id" "$name"
   version="$(plist_get "$app/Contents/Info.plist" CFBundleVersion)"
   minimum="$(plist_get "$app/Contents/Info.plist" LSMinimumSystemVersion)"
   dest="$app/Contents/Library/$name$SUFFIX.app"
@@ -154,11 +166,25 @@ if command -v lipo >/dev/null 2>&1 && [[ -n "${ARCHS:-}" ]]; then
   done
 fi
 
+# The Xcode phase takes the id, name and version from the build's own settings, as bundle-server-helper.sh and
+# build-cmux-cua.sh do: Xcode may write the processed Info.plist after the script phases, so a rebuild in the same
+# DerivedData finds none, or the previous build's (Resources/Info.plist's CFBundleName is $(PRODUCT_NAME)). --app
+# reads the built app's Info.plist. Each falls back to the other, then to the bundle's file name.
 info="$app/Contents/Info.plist"
-id="$(plist_get "$info" CFBundleIdentifier)"; id="${id:-${PRODUCT_BUNDLE_IDENTIFIER:-com.cmuxterm.app.next}}"
-name="$(plist_get "$info" CFBundleName)"; name="${name:-$(basename "$app" .app)}"
-version="$(plist_get "$info" CFBundleVersion)"; version="${version:-${CURRENT_PROJECT_VERSION:-1}}"
+if [[ -n "$stamp" ]]; then
+  id="${PRODUCT_BUNDLE_IDENTIFIER:-$(plist_get "$info" CFBundleIdentifier)}"
+  name="${PRODUCT_NAME:-$(plist_get "$info" CFBundleName)}"
+  version="${CURRENT_PROJECT_VERSION:-$(plist_get "$info" CFBundleVersion)}"
+else
+  id="$(plist_get "$info" CFBundleIdentifier)"; id="${id:-${PRODUCT_BUNDLE_IDENTIFIER:-}}"
+  name="$(plist_get "$info" CFBundleName)"; name="${name:-${PRODUCT_NAME:-}}"
+  version="$(plist_get "$info" CFBundleVersion)"; version="${version:-${CURRENT_PROJECT_VERSION:-}}"
+fi
+id="${id:-com.cmuxterm.app.next}"
+name="${name:-$(basename "$app" .app)}"
+version="${version:-1}"
 minimum="${MACOSX_DEPLOYMENT_TARGET:-$(plist_get "$info" LSMinimumSystemVersion)}"; minimum="${minimum:-14.0}"
+check_identity "$id" "$name"
 dest="$app/Contents/Library/$name$SUFFIX.app"
 remove_other_helpers "$app" "$dest"
 mkdir -p "$app/Contents/Library"

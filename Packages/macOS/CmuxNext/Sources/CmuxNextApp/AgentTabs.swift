@@ -99,6 +99,7 @@ final class AgentTabStore {
     var placeForkScoped: @MainActor (_ key: AgentTabKey, _ chat: AgentTabKey, _ left: Bool?) -> Void = { _, _, _ in }
     /// Keeps a tab about to be made in pane `pane` for a move elsewhere out of its strip (``OutboundTab``).
     var holdOutbound: @MainActor (_ pane: PaneID, _ daemon: DaemonService) -> OutboundTab? = { _, _ in nil }
+    var chatInAgentDockScoped: @MainActor (_ chat: AgentTabKey) -> Bool = { _ in false } // its pane is in the agent chat dock (#46926)
     var moveToNewWorkspace: @MainActor (_ key: String, _ machine: String, _ newWindow: Bool) async -> Bool = { _, _, _ in false } // true once its window is placed
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
@@ -258,6 +259,9 @@ final class AgentTabStore {
     var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
+    /// Whether agent tab `key` is half of a terminal and chat pair: its chat menu offers Switch to Terminal
+    /// (``TerminalChatHandler/offersToggle(on:services:)``, as the tab's right-click).
+    var offersTerminalSwitch: ((AgentTabKey) -> Bool)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
     /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).

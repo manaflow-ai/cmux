@@ -11,7 +11,7 @@ use cmux_customize::community::Tier;
 use cmux_customize::{Customize, Roots};
 
 use super::super::{GlobalArgs, OutputMode};
-use super::{Consent, Git, RepoRef, Request, listed, parse, resolve_in, run};
+use super::{Consent, Git, RepoRef, Request, Routed, listed, parse, resolve_in, routed, run};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -247,4 +247,87 @@ fn an_id_that_is_not_the_owners_is_refused() {
         1
     );
     assert!(customize.community(None).unwrap().is_empty());
+}
+
+#[test]
+fn apps_install_and_theme_import_of_a_repository_are_routed() {
+    let no_file = |_: &str| false;
+    assert_eq!(
+        routed(&words("apps install github.com/alice/dusk@1.0.0"), no_file),
+        Some(Routed { scope: None, reference: "github.com/alice/dusk@1.0.0".into(), yes: false })
+    );
+    assert_eq!(
+        routed(&words("theme import github.com/alice/dusk --yes"), no_file),
+        Some(Routed {
+            scope: Some(Tier::Theme),
+            reference: "github.com/alice/dusk".into(),
+            yes: true
+        })
+    );
+    // A local app id, a file of that name, another flag or verb: left to their own command.
+    assert_eq!(routed(&words("apps install local/hello"), no_file), None);
+    assert_eq!(routed(&words("theme import github.com/alice/dusk"), |_| true), None);
+    assert_eq!(routed(&words("theme import github.com/alice/dusk --use"), no_file), None);
+    assert_eq!(
+        routed(&words("apps install github.com/alice/dusk --grant-optional"), no_file),
+        None
+    );
+    assert_eq!(routed(&words("apps remove github.com/alice/dusk"), no_file), None);
+    assert_eq!(routed(&words("theme import dusk.json"), no_file), None);
+}
+
+#[test]
+fn the_marker_says_whether_a_repository_is_a_theme_a_snippet_or_neither() {
+    let base = tempfile::tempdir().unwrap();
+    let git_local = Git::local(base.path());
+    let dusk = RepoRef::parse("github.com/alice/dusk").unwrap();
+    repo(base.path(), &[("cmux-app.v2.json", "{}"), ("main.js", "")], "1.0.0");
+    assert_eq!(git_local.tier_of(&dusk).unwrap(), None, "an extension goes on to apps install");
+    repo(base.path(), &[("cmux-theme.json", MARKER), ("themes/dusk.json", "{}")], "1.1.0");
+    assert_eq!(git_local.tier_of(&dusk).unwrap(), Some(Tier::Theme));
+    // At a path: the marker under it.
+    repo(base.path(), &[("look/cmux-snippet.json", "{}")], "1.2.0");
+    let look = RepoRef::parse("github.com/alice/dusk/look").unwrap();
+    assert_eq!(git_local.tier_of(&look).unwrap(), Some(Tier::Snippet));
+    assert!(git_local.tier_of(&RepoRef::parse("github.com/alice/none").unwrap()).is_err());
+}
+
+#[test]
+fn apps_install_of_a_theme_repository_installs_and_applies_it() {
+    let base = tempfile::tempdir().unwrap();
+    let dusk = r#"{ "appearance": { "accent": "blue" } }"#;
+    repo(base.path(), &[("cmux-theme.json", MARKER), ("themes/dusk.json", dusk)], "1.0.0");
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("config")).unwrap();
+    fs::write(home.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(home.path()));
+    let git_local = Git::local(base.path());
+
+    // What cmux.com's install page shows: `cmux apps install REF@COMMIT`.
+    let commit = git(&base.path().join("alice/dusk"), &["rev-parse", "HEAD"]);
+    let words = words(&format!("apps install github.com/alice/dusk@{commit} --yes"));
+    let route = routed(&words, |_| false).unwrap();
+    let tier = git_local.tier_of(&RepoRef::parse(&route.reference).unwrap()).unwrap().unwrap();
+    let install = Request::Install { reference: route.reference, yes: route.yes };
+    assert_eq!(
+        run(&quiet(), &customize, &git_local, tier, install, &mut Consent::Answer(false)),
+        0
+    );
+    assert_eq!(fs::read_to_string(home.path().join("config/themes/dusk.json")).unwrap(), dusk);
+    // Applied: the settings now pick it, so the look changes with no other command.
+    let settings = fs::read_to_string(home.path().join("config/cmux-next.json")).unwrap();
+    assert!(
+        settings.contains("\"themeFile\"") || settings.contains("appearance.themeFile"),
+        "{settings}"
+    );
+    assert!(settings.contains("\"dusk\""), "{settings}");
+
+    // And back: remove puts back what was there.
+    let remove = Request::Remove { which: "alice/dusk".into() };
+    assert_eq!(
+        run(&quiet(), &customize, &git_local, Tier::Theme, remove, &mut Consent::Answer(false)),
+        0
+    );
+    let settings = fs::read_to_string(home.path().join("config/cmux-next.json")).unwrap();
+    assert!(!settings.contains("\"dusk\""), "{settings}");
 }

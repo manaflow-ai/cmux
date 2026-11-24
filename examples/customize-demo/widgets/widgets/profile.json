@@ -1,0 +1,8 @@
+{
+  "name": "widgets",
+  "description": "Widgets on one screen: the time and the weather, your agents at a glance (a cat whose mood follows them, what works, waits and finished today), the usage left on every Claude and Codex account, and your pull requests with their checks and reviews. Cards in the sidebar, this chat's agent, usage and branch PR in Session Info, and a widget page on every New Tab.",
+  "settings": {
+    "tabs.newTabApp": "local/customize",
+    "sidebar.sectionLook": "card"
+  }
+}

@@ -342,3 +342,43 @@ fn videotoolbox_a_change_after_a_still_screen_fits_one_frame_budget() {
     let worst = sizes.iter().copied().max().unwrap_or(0);
     assert!(worst <= budget * 3 / 2, "a changed frame of {worst} B is over the {budget} B budget");
 }
+
+/// Every IDR OpenH264 makes on its own says why (`idr_cause`): screen usage's scene-change IDR
+/// on full-screen motion, then the usage moves that rebuild the encoder both ways. A forced or
+/// delta frame has none.
+#[cfg(feature = "openh264-source")]
+#[test]
+fn openh264_names_the_cause_of_every_idr_it_was_not_asked_for() {
+    use cmux_encode::openh264::{CALM_FRAMES_TO_SCREEN, OpenH264, OpenH264Api};
+    use cmux_encode::{EncCfg, H264Encoder};
+    let cfg =
+        EncCfg { width: 320, height: 192, fps: 30, kbps: 4000, threads: 1, screen_content: true };
+    let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+    let mut pic = I420::new(320, 192);
+    let mut seed = 7u32;
+    let mut au = Vec::new();
+    let mut pts = 0;
+    let mut causes = Vec::new();
+    let mut code = |enc: &mut OpenH264, pic: &I420, force: bool, causes: &mut Vec<_>| {
+        pts += 33_000;
+        let idr = enc.encode(pic, force, pts, &mut au).expect("encode");
+        let cause = enc.idr_cause();
+        assert!(idr || cause.is_none(), "a delta frame with a cause: {cause:?}");
+        assert!(!force || cause.is_none(), "a forced IDR with a cause: {cause:?}");
+        if idr && !force {
+            causes.push(cause.expect("an IDR nobody asked for names its cause"));
+        }
+    };
+    for i in 0..10 {
+        for y in &mut pic.y {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *y = 16 + (seed >> 24) as u8 % 200;
+        }
+        code(&mut enc, &pic, i == 0, &mut causes);
+    }
+    assert_eq!(causes.get(..2), Some(&["scene_change", "usage_switch"][..]), "{causes:?}");
+    for _ in 0..=CALM_FRAMES_TO_SCREEN {
+        code(&mut enc, &pic, false, &mut causes);
+    }
+    assert_eq!(causes.last(), Some(&"usage_switch"), "the move back to screen: {causes:?}");
+}

@@ -46,7 +46,8 @@ typedef struct {
 /*
  `HoverCardMachine<u64>`, every field. `phase` (`PHASE_*`) with its
  `target` and `token` (each meaningful only for the phases that carry
- it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide. The windows are
+ it); `suppressions` bit 0 drag, 1 scroll, 2 sidebarHide; `last_shown` is
+ the id of the target whose card showed last (when `has_last_shown`). The windows are
  nanoseconds; the host may set them between calls (tunables).
  */
 typedef struct {
@@ -59,6 +60,7 @@ typedef struct {
     int64_t leave_window;
     int64_t aim_window;
     int64_t still_pointer_delay;
+    uint64_t last_shown;
     uint8_t phase;
     uint8_t suppressions;
     bool has_last_hit;
@@ -66,6 +68,7 @@ typedef struct {
     bool pointer_on_card;
     bool owned_card_shown;
     bool was_on_card;
+    bool has_last_shown;
 } CmuxHoverCardMachine;
 
 /*

@@ -601,8 +601,8 @@ def test_bundled_root_markdown_still_runs_macos() -> None:
 
 
 def test_bundled_and_executable_skill_files_run_macos() -> None:
-    # The app bundles skills/cmux-cua as a folder resource.
-    assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
+    # The app bundles skills/cmux-computer-use as a folder resource.
+    assert_areas(["skills/cmux-computer-use/SKILL.md"], macos=True, web=False)
     assert_areas(["skills/cmux-settings/scripts/cmux-settings"], macos=True, web=False)
     assert_areas(["skills/cmux-browser/agents/openai.yaml"], macos=True, web=False)
 
@@ -1883,10 +1883,50 @@ def test_macos_test_references_fail_open_without_ci_workflow() -> None:
     assert module.macos_job_test_references("not a workflow") is None
 
 
+def ci_router_trigger_problems(workflow: str) -> list[str]:
+    """Why ci.yml would not run its router on every pull request event and every merge group.
+
+    The only path filter allowed is the docs-only block scripts/ci/docs_only_paths.py writes under pull_request
+    (#47195): docs-only-fallback.yml calls ci.yml when that block could have skipped it wrongly. merge_group takes
+    no filter at all, since a merge group must always get its required checks."""
+    spec = importlib.util.spec_from_file_location("docs_only_paths_for_router", ROOT / "scripts" / "ci" / "docs_only_paths.py")
+    assert spec and spec.loader
+    docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(docs)
+    problems = []
+    on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
+    pull_request = on.get("pull_request") or {}
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled"]:
+        problems.append(f"pull_request types are {pull_request.get('types')!r}")
+    if set(pull_request) - {"types", "paths"}:
+        problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
+    if "paths" in pull_request and pull_request["paths"] != list(docs.DOCS_ONLY_PATHS):
+        problems.append("pull_request paths are not the synced docs-only block")
+    block = "\n".join(docs.block("    "))
+    if "paths" in pull_request and block not in workflow:
+        problems.append("the docs-only block drifted from scripts/ci/docs_only_paths.py")
+    if "merge_group" not in on:
+        problems.append("no merge_group trigger")
+    elif on["merge_group"] not in (None, "", {}):
+        problems.append(f"merge_group has a filter: {on['merge_group']!r}")
+    if len(re.findall(r"(?m)^\s*paths:", workflow)) != workflow.count(docs.BEGIN):
+        problems.append("a paths: filter outside the docs-only block")
+    if re.search(r"(?m)^\s*paths-ignore:", workflow):
+        problems.append("a paths-ignore filter")
+    return problems
+
+
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
+    assert ci_router_trigger_problems(CI_WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
-    assert "    paths:" not in workflow
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
+    assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
 def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
@@ -2530,6 +2570,19 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None
+    run_by_a_python_script = {
+        **unrouted_test,
+        "scripts/run_it.py": 'import subprocess\nsubprocess.run(["python3", "tests/test_unrouted.py"])\n',
+    }
+    assert helper_areas(run_by_a_python_script) is None
+    # A scripts/ Python file that names the test only in a comment or docstring
+    # runs nothing (scripts/cmux-next/tests/test_build_names.py's comment, once
+    # run-script-tests.py ran that file, #44759, failed owned_pool_rescue.py open).
+    named_in_prose = {
+        **unrouted_test,
+        "scripts/notes_it.py": '"""See tests/test_unrouted.py."""\n# tests/test_unrouted.py shares a module\nprint(1)\n',
+    }
+    assert helper_areas(named_in_prose) == areas()
     # A nightly step script only an unrouted workflow runs is a dead end too.
     step_script = {
         **unrouted_test,
@@ -2693,7 +2746,11 @@ def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_l
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
     for path in (
-        "scripts/strip-release-bundle.sh",
+        # The cmux-tui legs restore and record their warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml) on Linux
+        # runners only: the aarch64-apple-darwin leg is cross-built there.
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
     ):
         assert module.classify_files([path]) == areas(), path
 
@@ -2704,12 +2761,10 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
-        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
-        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
+        # scripts/cmux-next/swap-binary.sh and its Mac test run it (#46110).
+        "scripts/strip-release-bundle.sh",
     ):
         actual = module.classify_files([path])
         assert actual.macos and actual.release_build, path

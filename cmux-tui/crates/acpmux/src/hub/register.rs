@@ -334,7 +334,10 @@ impl Hub {
             }
             mark_registered(&session.id)
                 .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
-            self.set_tags(&session, tags.as_object(), &[], None);
+            // A stale or contested registration this one replaces no longer holds
+            // (`bridge.rs` `note_unreached`).
+            let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
+            self.set_tags(&session, tags.as_object(), &unreachable, None);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {

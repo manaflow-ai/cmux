@@ -22,7 +22,7 @@ extension AppControl {
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
-                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null, "backend_label": cloud.configuration.runtimeSelection?.developerBackendLabel.map(JSONValue.string) ?? .null,
                     "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
                     "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,

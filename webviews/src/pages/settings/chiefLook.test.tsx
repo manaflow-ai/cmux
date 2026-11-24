@@ -13,7 +13,7 @@ const { CHIEF_PET_MASCOTS } = await import("./components/ChiefPetCard");
 
 // The Look card's one page is Personalization's Chief part (SectionView HUB_KEYS); Chief keeps the
 // chat rows (Bubble Style, its colors, Show the Feed) in its own Chief Chat card, their home.
-const LOOK_PAGE = "/settings/personalization";
+const LOOK_PAGE = "/settings/personalization?part=chief";
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const BUBBLE_COLORS = ["sent", "sentText", "received", "receivedText"].map((role) => `home.bubbleColors.${role}`);
 

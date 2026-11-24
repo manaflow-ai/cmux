@@ -22,18 +22,73 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
 
 permissions: {}
 
+# The description only matters through its `size:` line. An edit with no `size:` line before or
+# after it (a title, a base, a HOLD line) measures nothing: it takes no runner and its own group,
+# so it never cancels a push's or a `size:` edit's run. GitHub's contains() ignores case, as the
+# checker's REASON_LINE does (pattern pr-edit-fans-out-ci in cmuxterm-hq docs/handbook: 130 HOLD-line
+# edits on 2026-11-17 queued this workflow 41 times).
 concurrency:
-  group: cmux-next-size-budget-${{ github.event.pull_request.number }}
+  group: cmux-next-size-budget-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   plan:
     name: cmux-next size budget (plan)
-    # An edit that leaves the description as it was (a title, a base) changes nothing measured.
-    if: ${{ github.event.action != 'edited' || github.event.changes.body != null }}
+    # An edit that adds, changes or removes no `size:` line changes nothing measured.
+    if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     permissions:
@@ -90,6 +145,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -122,6 +178,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -138,7 +195,9 @@ jobs:
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
 
   size-budget:
-    name: cmux-next size budget
+    # An edit with no `size:` line skips this job, and a skipped job reads as success for a check:
+    # that run publishes another name so it never replaces a red `cmux-next size budget`.
+    name: ${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && 'cmux-next size budget metadata edit (ignored)' || 'cmux-next size budget' }}
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}

@@ -11,6 +11,8 @@ import AppKit
 /// One message: role, sender, text and time.
 final class MessageAccessibilityElement: NSAccessibilityElement {
     let messageID: ID
+    /// cmux: its links' elements by link index, reused (Cmux/TranscriptLinkAccess.swift).
+    var cmuxLinks: [Int: TranscriptLinkElement] = [:]
     init(messageID: ID) { self.messageID = messageID; super.init() }
 }
 
@@ -65,6 +67,7 @@ extension ChatController {
         // elements are kept, one per message id and reused. AX clients hold them between calls; an
         // element made on every call was freed before a client read it (the AX dump's list was empty).
         let visible = visibleMessages()
+        let linkRows = accessibilityLinkRows() // cmux: links as AXLink children (Cmux/TranscriptLinkAccess.swift)
         let keep = Set(visible.map(\.id))
         selection.axElements = selection.axElements.filter { keep.contains($0.key) }
         return visible.map { m in
@@ -84,6 +87,10 @@ extension ChatController {
             e.setAccessibilityParent(parent)
             let inWindow = host.convert(m.frame, to: nil)
             e.setAccessibilityFrame(window.convertToScreen(inWindow))
+            // cmux: each visible link is a child (role link, press opens it as a click); the element is an
+            // accessibility element explicitly, so a client that skips ignored elements reads it.
+            e.setAccessibilityElement(true)
+            e.setAccessibilityChildren(accessibilityLinkElements(linkRows[m.id] ?? [], of: e, window: window))
             return e
         }
     }

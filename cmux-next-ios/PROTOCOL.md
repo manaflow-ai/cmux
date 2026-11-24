@@ -88,6 +88,47 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   and would make a debug build hold the identity key phones pin for the
   release build.
 
+## Build spaces (API 0.16.0)
+
+Two dev builds of the app and Mac host (say tags `a` and `b`), signed in as the
+same person, never see or touch each other's data on the service, and never see
+nightly or stable data. Each build is in a **build space**:
+
+- A dev build sends `X-Cmux-Build-Space: dev:<slug>` on every HTTP request and
+  on the signaling WebSocket upgrade. `<slug>` is the dev tag's slug
+  (`scripts/lib/mobile-attach.sh`: lowercase letters, digits and inner dashes,
+  at most 64), so the value matches
+  `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`. `dev:default` is refused:
+  `default` is the stable instance's reserved tag.
+- Stable and nightly builds send nothing: the stable space `""`, where every
+  row and hub that predates build spaces stays.
+- A malformed value is refused with `400 build_space.invalid` before anything
+  else; it never falls back to the stable space.
+- Only the dev, test and local Workers (`ENVIRONMENT` `dev`, `test`, `local`)
+  serve dev spaces. Every other Worker, production included, and one whose
+  environment is missing or misspelled, refuses them with
+  `403 build_space.not_allowed`: production holds only stable data, so a dev
+  build pointed at it fails on its first request instead of reading or writing
+  a person's real devices. Dev builds use the dev Worker or a local one.
+
+What a space scopes: the device registry (`/v1/devices`, `/v1/me/devices`,
+`/v1/me/macs`, `/v1/teams/:teamId/macs`, bootstrap), push registrations and
+notify targets, team prefs, the reply mailbox, and the user hub. A device id
+held by another space is never found (404). Each build keeps its own id, and a
+device id is one install of one build, so `POST /v1/devices` of an id the
+caller holds in another space moves that device, with its push registration,
+into the caller's space: the other space's hub drops it (presence `removed`,
+its socket closed with 4002) and it is listed only in the new space. This is
+how a dev build that registered before build spaces (its row is in stable) or
+whose dev tag changed keeps working. An id another user holds in another space
+is refused with `409 build_space.device_conflict` and left alone. A
+dev space's hub is named `dev:<slug>|user:<owner key>`; the stable hub keeps
+`user:<owner key>`, so presence, `hello`, signaling admission and turn push
+coalescing never cross spaces. `DELETE /v1/me` from a dev build purges only its
+space; from a stable build it purges every space (the account is deleted).
+Cloud attention pushes go only to stable phones. Wire shapes do not change:
+no response carries the space.
+
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
 The production Worker `cmux-mobile-api-prod` accepts only the production Stack
@@ -103,7 +144,10 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob),
+`build_space.invalid` (400), `build_space.not_allowed` (403) and
+`build_space.device_conflict` (409) ("Build spaces", 0.16.0), `store.schema_outdated` (503, 0.16.0: the
+Worker was deployed before its database migration; the message names it), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
@@ -948,6 +992,16 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+`bundle_id` (string; added 2026-11-17) is the phone app's bundle id as the
+phone states it in its `auth` args (`bundleId`, 1 to 155 ASCII letters,
+digits, `.` and `-`; the phone app sends `Bundle.main.bundleIdentifier`). hostd
+forwards it for phones only and drops a malformed one without refusing the
+link. It is a claim, not a proof: the app reads it only to auto-approve its own
+tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
+to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
+auto-approve"). An older phone sends none, an older hostd forwards none, and
+the app then asks as before.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's
@@ -1414,9 +1468,10 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
 `sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
-phones; `box` is base64url of at most 3072 characters (hostd trims the content
-to fit, and skips a phone whose box still would not). When every paired phone
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). One request
+carries at most 20 boxes (a bound on its body, not on phones); `box` is
+base64url of at most 3072 characters (hostd trims the content to fit, and
+skips a phone whose box still would not). When every paired phone
 has a push key the Mac sends no content fields, also when one box failed or
 its identity key has not arrived (those phones get the generic banner from
 the ids alone); a phone without a push key gets the v2 payload built from the
@@ -1430,6 +1485,26 @@ key, fills in the v2 content, category and thread, and keeps the v3 object
 (`cmuxMobileSealed`) beside them; the app opens that box again before any
 button acts. If it can't open it, the generic banner and no buttons stay. A
 push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+#### More than 20 phones: a lead and batches (API 0.16.0)
+
+There is no cap on how many phones get a push. The Worker sends a notify to
+every push registration of the Mac's owner that wants the kind and has not
+muted the Mac. A Mac with more than 20 boxes splits one event:
+
+- The **lead** is the notify as above with the first 20 boxes, plus
+  `batchedPhones: ["<phone device id>", ...]` (at most 10000), the phones
+  whose boxes come in batches. The Worker sends the lead to every target but
+  those phones. A Worker that takes batches answers with `batches: true`.
+- Each **batch** carries the routing ids, the next at most 20 boxes and
+  `batch: n` (1, 2, ...; at most 500). The Worker sends it only to the targets
+  it has a box for, never checks the turn-end window again (the lead did),
+  and counts it in its own rate bucket (`<mac>:batch:<n>`), so a phone past
+  the first 20 gets pushes at the same rate as the rest.
+- hostd posts the batches after the lead, and only when the lead's answer
+  has `batches: true` and no `coalesced: true`: an older Worker ignores
+  `batch` and would push a batch to every phone again. A malformed `batch`
+  or `batchedPhones` is refused (400), never dropped.
 
 ### Reply mailbox
 

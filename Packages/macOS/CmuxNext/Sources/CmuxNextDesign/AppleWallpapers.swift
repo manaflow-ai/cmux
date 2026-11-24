@@ -66,8 +66,8 @@ public nonisolated struct AppleWallpapers: Sendable {
         let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         return files.compactMap { AppleWallpaper(path: $0.path, assets: assets, fileManager: fileManager) }
             .sorted { a, b in
-                let ra = rank[URL(fileURLWithPath: a.path).lastPathComponent] ?? Int.max
-                let rb = rank[URL(fileURLWithPath: b.path).lastPathComponent] ?? Int.max
+                let ra = rank[(a.path as NSString).lastPathComponent] ?? Int.max
+                let rb = rank[(b.path as NSString).lastPathComponent] ?? Int.max
                 if ra != rb { return ra < rb }
                 return a.title.localizedStandardCompare(b.title) == .orderedAscending
             }
@@ -144,12 +144,12 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// Whether `path` names a video.
     public static func isVideo(_ path: String) -> Bool {
-        videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+        videoExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
     /// Whether `path` is a shipped moving wallpaper with a light and a dark cut.
     public static func hasCuts(_ path: String) -> Bool {
-        let name = URL(fileURLWithPath: path).lastPathComponent
+        let name = (path as NSString).lastPathComponent
         return isVideo(path) && (name.contains(" Light ") || name.contains(" Dark "))
     }
 

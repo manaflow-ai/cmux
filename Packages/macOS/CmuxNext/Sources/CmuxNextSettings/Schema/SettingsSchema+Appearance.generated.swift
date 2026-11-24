@@ -46,6 +46,12 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
+extension ThemeFileExceptionsSetting {
+    /// `appearance.themeFileExceptions`.
+    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -92,6 +98,12 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
+    public nonisolated static let fallback = false
+}
+
+extension AgentGlowSetting {
+    /// `appearance.agentGlow`.
+    public nonisolated static let configPath = ["appearance", "agentGlow"]
     public nonisolated static let fallback = false
 }
 

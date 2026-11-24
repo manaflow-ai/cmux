@@ -91,6 +91,19 @@ struct MacScreenActionRoutingTests {
         #expect(failure { _ = try MacScreenActions.deviceID(named: "mac mini!", among: looser) }?.contains(other) == true)
     }
 
+    /// One machine registered several times under one name (a reinstall, an old hub record): the one registration
+    /// that is online and shares is the one a person means. Two live ones, or none, stay ambiguous.
+    @Test func aNameWithOneLiveRegistrationOpensThatOne() {
+        let stale = HubDevice(id: device, name: "studio")
+        let live = HubDevice(id: other, name: "studio", macScreenShared: true, online: true)
+        let notShared = HubDevice(id: third, name: "studio", online: true)
+        #expect((try? MacScreenActions.deviceID(named: "Studio", among: [stale, live, notShared])) == other)
+        var second = live
+        second.id = third
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, live, second]) } != nil)
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, notShared]) } != nil)
+    }
+
     @Test func anUnknownNameFailsListingEveryDeviceAsNameAndID() {
         let pages = pages()
         let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Studio")]

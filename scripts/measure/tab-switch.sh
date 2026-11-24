@@ -24,7 +24,18 @@
 #                   chat-100k, tabs-N, and any of them joined with + (L4+tabs-40)
 #    scenarios=LIST chat-long-return,terminal-return,chromium-return,new-tab,close-tab (default), or all: also
 #                   webkit-return, new-workspace, switch-workspace, close-workspace, rapid-open-5, rapid-close-3,
-#                   open-while-close
+#                   open-while-close; or matrix: the settle matrix (scripts/cmux-next/tab_switch_matrix.py), trigger to
+#                   truly settled over the window, the page side and the sidebar for workspace switches cold and warm,
+#                   new workspace and chat, split, resize, tab move, unsplit, window resize, pane to a new window, a
+#                   10k-row chat and a relaunch that restores (SETTLE lines, matrix.md). The settle matrix at Leo's
+#                   scale, one command:
+#                     ... --arg=build=nightly --arg=scenarios=matrix --arg=scale=leo --arg=load=idle --arg=record=3 \
+#                       --arg=gate=0
+#    scale=NAME     leo (10,789 daemon sessions written into the app's fresh ~/.acpmux before its first launch by
+#                   cmux-tui acpmux `examples/scale_home.rs`, built here; 205 of them opened as workspaces, 206 in
+#                   all), SESSIONSxWORKSPACES, or none (default)
+#    launch_record=S  seconds recorded after each launch-restore relaunch (default 8)
+#    chat_perf=1    the settle matrix also runs the chat page's own capture (agent.chat.perf) over each step
 #    record=S       seconds recorded after each action (default 1.2); settled needs 300 ms still inside it
 #    rows=N         rows of the 100k-row chat (default 100000)
 #    turns=N        answered turns in the long chat (default 200); agents=N streaming chats (default 4)
@@ -109,7 +120,8 @@ require_submodule_refs() { # SRC DIR [PREFIX]
 
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
-  local tmp="$1"
+  local tmp
+  tmp="$(cd "$1" && pwd)" || return 3 # absolute: the bun dir goes on PATH, and the web builders cd into webviews/
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
   done
@@ -185,7 +197,7 @@ app_under_test() {
 
 frames_main() {
   local build=nightly rounds=5 load=idle,cpu,agents scenarios="" gate=1 turns=200 agents=4 dmg="" config=release arg
-  local record="" rows=""
+  local record="" rows="" scale=none launch_record="" chat_perf=0
   for arg in "$@"; do
     case "$arg" in
       build=*) build="${arg#build=}" ;;
@@ -199,6 +211,9 @@ frames_main() {
       config=release|config=bench) config="${arg#config=}" ;;
       record=*) record="${arg#record=}" ;;
       rows=*) rows="${arg#rows=}" ;;
+      scale=*) scale="${arg#scale=}" ;;
+      launch_record=*) launch_record="${arg#launch_record=}" ;;
+      chat_perf=0|chat_perf=1) chat_perf="${arg#chat_perf=}" ;;
       *) echo "tab-switch: unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -206,6 +221,8 @@ frames_main() {
   [[ "$turns" =~ ^[0-9]+$ && "$agents" =~ ^[0-9]+$ ]] || { echo "tab-switch: turns= and agents= take numbers" >&2; exit 2; }
   [[ -z "$record" || "$record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: record= takes seconds" >&2; exit 2; }
   [[ -z "$rows" || "$rows" =~ ^[0-9]+$ ]] || { echo "tab-switch: rows= takes a number" >&2; exit 2; }
+  [[ "$scale" =~ ^(none|leo|[0-9]+x[0-9]+)$ ]] || { echo "tab-switch: scale= is none, leo or SESSIONSxWORKSPACES" >&2; exit 2; }
+  [[ -z "$launch_record" || "$launch_record" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "tab-switch: launch_record= takes seconds" >&2; exit 2; }
   [[ "$load" =~ ^[A-Za-z0-9+,-]+$ && "$scenarios" =~ ^[a-z0-9,-]*$ ]] || { echo "tab-switch: load= and scenarios= take names" >&2; exit 2; }
   [[ "$build" == nightly || "$build" == head || "$build" =~ ^[0-9a-f]{40}$ ]] || { echo "tab-switch: build= is nightly, head or a 40-hex commit" >&2; exit 2; }
   [[ "$build" == nightly ]] || require_cef_read_credentials
@@ -230,14 +247,26 @@ frames_main() {
     preflight || exit 3
   swiftc -O -o "$tmp/tab-switch-tools" scripts/measure/tab-switch-frames/tools.swift 2>&1 | tail -n 40 || true
   [ -x "$tmp/tab-switch-tools" ] || { echo "TSW the marker and decoder did not compile"; exit 3; }
+  if [[ "$scale" != none ]]; then
+    # The settle matrix's daemon home at scale is written by acpmux's own store (god_fixture::write_scale_home), so
+    # the seeder is built from this checkout's cmux-tui; its target folder stays warm between steps.
+    local account_home
+    account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    (cd cmux-tui && PATH="${account_home:+$account_home/.cargo/bin:}$PATH" cargo build --release --quiet -p acpmux --example scale_home) >"$tmp/seeder.log" 2>&1 \
+      || { echo "TSW the scale seeder did not build"; tail -n 30 "$tmp/seeder.log"; exit 3; }
+    cp "${CARGO_TARGET_DIR:-$root/cmux-tui/target}/release/examples/scale_home" "$tmp/scale_home" && chmod 0755 "$tmp/scale_home"
+  fi
   app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch TSW || exit 3
-  local app_args=("${APP_ARGS[@]}") label="$APP_LABEL"
+  local app_args=(${APP_ARGS[@]+"${APP_ARGS[@]}"}) label="$APP_LABEL"
   local gate_args=()
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()
   [[ -n "$scenarios" ]] && scenario_args=(--scenarios "$scenarios")
   [[ -n "$record" ]] && scenario_args+=(--record "$record")
   [[ -n "$rows" ]] && scenario_args+=(--chat-rows "$rows")
+  [[ "$scale" != none ]] && scenario_args+=(--scale "$scale" --seeder "$tmp/scale_home")
+  [[ -n "$launch_record" ]] && scenario_args+=(--launch-record "$launch_record")
+  [[ "$chat_perf" == 1 ]] && scenario_args+=(--chat-perf)
   local rc=0
   set +e
   GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/cmux-next/bench_tab_switch.py" \

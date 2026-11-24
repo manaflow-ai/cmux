@@ -135,6 +135,9 @@ final class RemoteStateCard: NSView {
         case .ended(.hostStoppedSharing):
             return Spec(symbol: "rectangle.on.rectangle.slash", title: RemoteViewStrings.stoppedTitle,
                         detail: RemoteViewStrings.stoppedDetail(host), buttons: [.reconnect, .close])
+        case let .ended(.hostFailed(reason)):
+            return Spec(symbol: "exclamationmark.triangle", symbolIsAttention: true, title: RemoteViewStrings.hostFailedTitle,
+                        detail: RemoteViewStrings.hostFailedDetail(host, reason), buttons: [.reconnect, .close])
         case .ended(.stoppedByViewer):
             return Spec(symbol: "stop.circle", title: RemoteViewStrings.viewerStoppedTitle,
                         detail: RemoteViewStrings.viewerStoppedDetail, buttons: [.reconnect, .close])

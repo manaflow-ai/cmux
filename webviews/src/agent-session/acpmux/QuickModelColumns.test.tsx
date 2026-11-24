@@ -850,20 +850,20 @@ async function search(text: string) {
   await settle();
 }
 const local = { host: null, login: { kind: "terminal" as const, command: "claude /login", host: null } };
-const SIGN_IN_AGAIN = translate("turn.signInAgain");
+const SIGN_IN_CLAUDE = translate("auth.fix.signInTo", { name: "Claude Code" });
 const CHECK_AGAIN = translate("harnesses.checkAgain");
 const cases: { name: string; auth: SessionAuth; words: string; actions: string[] }[] = [
   {
     name: "an expired local login",
     auth: { state: "expired", source: "authCheck", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("turn.authExpired"),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.expired", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     name: "a turn that found it signed out",
     auth: { state: "signedOut", source: "turn", evidenceAt: 1, harness: "Claude Code", ...local },
-    words: translate("harness.signedOut", { agent: "Claude Code" }),
-    actions: [SIGN_IN_AGAIN, CHECK_AGAIN],
+    words: translate("auth.login.signedOut", { agent: "Claude Code" }),
+    actions: [SIGN_IN_CLAUDE, CHECK_AGAIN],
   },
   {
     // The strongest false-ready case: a route login is no local terminal login.
@@ -888,7 +888,7 @@ const cases: { name: string; auth: SessionAuth; words: string; actions: string[]
       host: "studio-mac",
       login: { kind: "terminal", command: "claude /login", host: "studio-mac" },
     },
-    words: "studio-mac: claude /login",
+    words: "On studio-mac, run claude /login.",
     actions: [CHECK_AGAIN],
   },
   {
@@ -915,7 +915,7 @@ for (const { name, auth, words, actions } of cases)
     await click(check);
     expect(calls.refreshes).toBe(1);
     expect(calls.open).toBe(true);
-    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_AGAIN);
+    const signIn = [...authRow()!.querySelectorAll("button")].find((button) => button.textContent === SIGN_IN_CLAUDE);
     if (signIn) {
       await click(signIn);
       expect(calls.logins).toBe(1);
@@ -933,7 +933,7 @@ test("an unknown verdict draws no readiness row, before or during a search", asy
 test("a harness this Mac does not have keeps its Install row beside the chat's readiness", async () => {
   await openMenu(undefined, undefined, cases[0]!.auth);
   await click(tab("Gemini"));
-  expect(authRow()?.textContent).toContain(translate("turn.authExpired"));
+  expect(authRow()?.textContent).toContain(translate("auth.login.expired", { agent: "Claude Code" }));
   expect(
     [...popup().querySelectorAll("[role=listbox] [role=button]")].some(
       (row) => row.textContent === translate("harnesses.install"),

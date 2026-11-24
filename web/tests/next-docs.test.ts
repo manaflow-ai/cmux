@@ -118,11 +118,14 @@ describe("cmux-next docs", () => {
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
     // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
     // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
-    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs).
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs); `server …` is
+    // cmux-server's (cmux-tui/crates/cmux-server/src/cli/args.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
       "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
+      "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
+      "cmux server down", "cmux server logs",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {

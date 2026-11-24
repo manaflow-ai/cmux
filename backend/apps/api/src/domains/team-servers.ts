@@ -5,7 +5,7 @@ import { decodeParams, reject, ServerNetworkConfirmedParams } from "./common.ts"
 import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
 import type { RowReader, RowWrite } from "@cmux/ownership"
-import { can, hostByInstall, hostDelete, hostOf, hostUpsert, memberOf } from "./team-members.ts"
+import { can, hostByInstall, hostDelete, hostInSpace, hostOf, hostPayload, hostSpaceOf, hostUpsert, memberOf } from "./team-members.ts"
 
 /**
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
@@ -40,6 +40,8 @@ export interface ServerRevocation {
   readonly owner_user: string
   readonly by: string
   readonly at: number
+  /** The dev build space of the server's install (its UserDO's; build-space.ts), when not nightly and stable's. */
+  readonly space?: string
   /**
    * The cmux-platform join token the server's approval minted (pair-machine-join.ts), when it had one: TeamDO
    * revokes the machine that token made too, as `cmux machine revoke` would, before the item is done.
@@ -66,10 +68,13 @@ const ENROLL_REFUSED = "only team owners and admins may add a server"
 
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
-  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown; machine_join_token?: string }
+  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown; machine_join_token?: string; space?: string }
+  // The approver's build space (TeamDO.enrollServer): the server's install is registered in that space's UserDO.
+  const space = typeof v.space === "string" ? v.space : ""
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
   const existing = hostByInstall(state, ctx.rows, v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
+  if (existing && hostSpaceOf(ctx.rows, existing.id) !== space) return reject("auth.forbidden", "the server belongs to another build")
   if (!mayEnrollServer(state, v.approved_by, ctx.rows)) {
     // A host already exists: an earlier commit decided this enrollment; server.revoke owns that host.
     if (existing) return reject("auth.forbidden", ENROLL_REFUSED)
@@ -99,15 +104,15 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
   // The join token its approval minted, kept so the server's revoke revokes that machine too.
   const newJoin = v.machine_join_token !== undefined && state.server_machine_joins?.[v.install] !== v.machine_join_token
   if (existing && JSON.stringify(existing) === JSON.stringify(host) && !newJoin) return { ok: true, state, value: host, changed: false }
-  const next = { ...state, ...(newJoin ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token! } } : {}), host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
+  const next = { ...state, ...(newJoin ? { server_machine_joins: { ...(state.server_machine_joins ?? {}), [v.install]: v.machine_join_token! } } : {}), host_count: (state.host_count ?? 0) + (existing || space ? 0 : 1) }
   return withWrites(
-    audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
+    audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: hostPayload(host, state.team.id, space) }, `server ${host.name} paired`, {
       host: host.id,
       install: v.install,
       owner_user: v.owner_user,
       approved_by: v.approved_by
     }),
-    hostUpsert(host)
+    hostUpsert(host, existing ? undefined : space)
   )
 }
 
@@ -119,11 +124,11 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
  * UserDO confirms. The result is a committed refusal, so a retry with the same
  * idempotency key replays it and can never add a host for the revoked install.
  */
-const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: string; name: string; owner_user: string; approved_by: string; machine_join_token?: string }): Out => {
+const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: string; name: string; owner_user: string; approved_by: string; machine_join_token?: string; space?: string }): Out => {
   const value: ServerEnrollRefused = { refused: true, install: v.install, message: ENROLL_REFUSED }
   if (state.server_revocations?.[v.install]) return { ok: true, state, value, changed: false }
   // The join token the approval minted is voided too, so the box can never join the platform with it.
-  const pending: ServerRevocation = { install: v.install, owner_user: v.owner_user, by: v.approved_by, at: ctx.now, ...(v.machine_join_token ? { machine_join_token: v.machine_join_token } : {}) }
+  const pending: ServerRevocation = { install: v.install, owner_user: v.owner_user, by: v.approved_by, at: ctx.now, ...(v.machine_join_token ? { machine_join_token: v.machine_join_token } : {}), ...(v.space ? { space: v.space } : {}) }
   const next = { ...state, server_revocations: { ...(state.server_revocations ?? {}), [v.install]: pending } }
   const a = appendAudit(next, state.team!.id, ctx, "server.enroll_refused", `server ${v.name} not paired: the approver may no longer add servers`, {
     install: v.install,
@@ -154,7 +159,7 @@ export const reduceServerNetworkConfirmed = (state: TeamState, params: unknown, 
   const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now }
   const next = { ...host, network }
   return withWrites(audited(state, ctx, "server.network.confirm", { host: host.id, network },
-    { kind: "host.upsert", entity: host.id, payload: { ...next, team: state.team.id } }, `server ${host.name} network identity confirmed`,
+    { kind: "host.upsert", entity: host.id, payload: hostPayload(next, state.team.id, hostSpaceOf(ctx.rows, host.id)) }, `server ${host.name} network identity confirmed`,
     { host: host.id, install: v.install, owner_user: v.owner_user, network }), hostUpsert(next))
 }
 
@@ -165,16 +170,17 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   const d = decodeParams<typeof ServerRevoke.params.Type>(ServerRevoke, params)
   if (!d.ok) return d
   const host = hostOf(state, ctx.rows, d.value.host)
-  if (!host || host.kind !== "server") return reject("selector.not_found", "server not found")
+  if (!host || host.kind !== "server" || !hostInSpace(ctx.rows, host.id, p)) return reject("selector.not_found", "server not found")
+  const space = hostSpaceOf(ctx.rows, host.id)
   if (host.owner_user !== p.user && !can(state, ctx.rows, p.user, "team.manage")) return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
   const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
   // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
   // Its machine (the join token its approval minted) is revoked with it, by the same pending item.
   const { [host.enrolled_by]: machineJoin, ...joins } = state.server_machine_joins ?? {}
-  const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now, ...(machineJoin ? { machine_join_token: machineJoin } : {}) }
-  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}) }
+  const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now, ...(machineJoin ? { machine_join_token: machineJoin } : {}), ...(space ? { space } : {}) }
+  const next = { ...state, ...legacy, host_count: space ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}) }
   return withWrites(
-    audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
+    audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(space ? { space } : {}) } }, `server ${host.name} revoked`, {
       host: host.id,
       install: host.enrolled_by,
       by: p.user

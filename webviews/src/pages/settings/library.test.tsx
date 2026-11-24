@@ -198,3 +198,24 @@ test("with fifty entries, Remove on an early row scrolls its confirmation into v
     expect(page!.provider.libraryRuns).toEqual([]);
   });
 });
+
+test("a try-on that reverts reads the library again, so the entry it turned on shows off", async () => {
+  const tried = mockLibrary();
+  await open({
+    library: tried,
+    tryOn: {
+      generation: 7,
+      revert_to: 6,
+      started_ms: Date.now() - 60_000,
+      expires_ms: Date.now() + 5 * 60_000,
+      label: "profile night",
+      origin: "cli",
+    },
+  });
+  expect(toggle("night").getAttribute("aria-checked")).toBe("true");
+  // The engine's revert turns the try-on's entry off in the library it lists.
+  page!.provider.library = runLibrary(tried, { verb: "off", name: "night" })!;
+  await click(page!.container.querySelector<HTMLElement>("[data-try-on-revert]")!);
+  await settle();
+  expect(toggle("night").getAttribute("aria-checked")).toBe("false");
+});

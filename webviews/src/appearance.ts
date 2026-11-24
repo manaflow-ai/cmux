@@ -156,7 +156,9 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
     fontFamily: appearance?.fontFamily ?? hostTerminalFontFamily() ?? "Menlo",
     fallbackFamilies: appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies(),
-    fontSize: metric(appearance?.fontSize, 10),
+    // The chat's code block size (diff-viewer/fontZoom.ts), not the 10 px the viewer drew before (user
+    // 2026-11-19: "default font size needs to better match chat trajectory").
+    fontSize: metric(appearance?.fontSize, 12),
     lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
       light: appearance?.theme?.light ?? lightTheme.name ?? "cmux-ghostty-light",

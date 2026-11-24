@@ -22,7 +22,8 @@
 //! the last line, which no other sender can take.
 //!
 //! Two lanes (cmuxterm-hq `docs/design/remote-cloud-durability.md` 4.6, F18): the answer to a
-//! cheap read ([`is_cheap_read`]: identify, the session list, host health, status) goes in the
+//! cheap read ([`is_cheap_read`]: identify, the session list, host health, status, the peer list
+//! the agent pane probes the daemon's liveness with) goes in the
 //! read lane, which the pump takes before anything else; every other line keeps its order in the
 //! bulk lane. So the pump never lets the bulk lane hold more than [`BULK_WINDOW`] bytes in the
 //! transport's channel: a replay of thousands of lines stays here, where a read answered after it
@@ -49,6 +50,10 @@ pub(super) fn is_cheap_read(method: &str) -> bool {
             | method::MUX_STATUS
             | method::MUX_HARNESS_HEALTH
             | "_acpmux/host_health"
+            // The agent pane's liveness probe (webviews `direct.ts` `probeDaemon`): the pane gives
+            // its socket up when this goes unanswered for 15 s, so behind a huge chat's replay a
+            // busy but alive daemon had every pane cut and reattach at once.
+            | "_acpmux/peers"
     )
 }
 

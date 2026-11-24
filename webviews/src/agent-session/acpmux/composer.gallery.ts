@@ -826,6 +826,35 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
     },
+    // Lawrence 2026-11-19: "hovering on each of the things should show keyboard shortcuts like cmd
+    // ctrl m". The host pushes its bound keys (applyShortcuts); each chip's tooltip ends with its key.
+    "chip-shortcut-tooltips": {
+      note: "The host's bound keys reach the page; hovering the model chip shows its tooltip with ⌃⌘M after it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { applyShortcuts?(labels: Record<string, string>): void };
+          }
+        ).cmuxAcpmuxBridge;
+        bridge?.applyShortcuts?.({
+          "agentPane.switchModel": "⌃⌘M",
+          "agentPane.composer.addMenu": "⌃⌥⌘A",
+          "agentPane.composer.chooseFolder": "⌃⌥⌘O",
+          "agentPane.composer.chooseComputer": "⌃⌥⌘K",
+          "agentPane.composer.switchMode": "⌃⌥⌘M",
+          "agentPane.composer.togglePlan": "⌃⌥⌘P",
+          "agentPane.composer.agentOptions": "⌃⌥⌘G",
+          "agentPane.composer.showContextUsage": "⌃⌥⌘U",
+        });
+        await ctx.waitFor(() => ctx.document.querySelector(`${MODEL_PICKER}[data-tooltip-shortcut="⌃⌘M"]`));
+        await ctx.hover(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip:not([hidden]) .ui-tooltip-hint"));
+      },
+    },
     "side-session": {
       note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
@@ -1428,7 +1457,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
           return Boolean(
-            failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
+            failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
             failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
             !failed.querySelector(".acpmux-attachment-retry"),

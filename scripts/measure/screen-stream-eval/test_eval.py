@@ -167,6 +167,54 @@ class ReportTests(unittest.TestCase):
             self.assertIn('window: no repeat ran', errors)
 
 
+class ExternalContenderTests(unittest.TestCase):
+    def test_readback_numbers_and_null_for_missing(self):
+        records = [{"type": "first_frame", "ms": 412.0}]
+        records += [{"type": "key", "g2g_ms": float(v)} for v in range(1, 21)] + [{"type": "key", "lost": True}]
+        records += [{"type": "second", "bytes": 125_000, "frames": 30, "duration_ms": 1000} for _ in range(4)]
+        records += [{"type": "cpu", "side": "host", "pct": 55.5}, {"type": "meta", "codec": "h264"}]
+        numbers = report.readback_numbers(records)
+        self.assertEqual(numbers["key"], {"p50_ms": 10.0, "p95_ms": 19.0, "n": 20, "lost": 1})
+        self.assertEqual(numbers["motion_kbps"], 1000.0)
+        self.assertEqual(numbers["motion_fps"], 30.0)
+        self.assertEqual(numbers["first_frame_ms"], 412.0)
+        self.assertEqual(numbers["host_cpu_pct"], 55.5)
+        self.assertIsNone(numbers["viewer_cpu_pct"])
+        self.assertEqual(numbers["meta"], {"codec": "h264"})
+        # One second without a byte count leaves kbps unmeasured instead of low.
+        records.append({"type": "second", "frames": 30, "duration_ms": 1000})
+        self.assertIsNone(report.readback_numbers(records)["motion_kbps"])
+        self.assertEqual(report.readback_numbers([])["key"], {"p50_ms": None, "p95_ms": None, "n": None, "lost": None})
+
+    def test_external_runs_fresh_host_per_take_and_reports_medians(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            starts = folder / "starts"
+            host = f'echo started >> {starts}; touch "$EVAL_STATE/host-ready"; exec sleep 60'
+            viewer = ('python3 -c \'import json,os; t=int(os.environ["EVAL_TAKE"]); '
+                      'f=open(os.environ["EVAL_READBACK"],"w"); '
+                      '[f.write(json.dumps({"type":"key","g2g_ms":10*t+i})+"\\n") for i in range(5)]; '
+                      'f.write(json.dumps({"type":"second","bytes":1000*t,"frames":10*t})+"\\n"); '
+                      'f.write(json.dumps({"type":"first_frame","ms":100*t})+"\\n")\'')
+            out = folder / "out.json"
+            result = report.external("x", out, host, viewer, None, 3, 10, 30, folder / "keep")
+            self.assertTrue(result["ok"], result["errors"])
+            self.assertEqual(starts.read_text().count("started"), 3)
+            self.assertEqual(result["latency"]["key"]["p50_ms"], 22.0)
+            self.assertEqual(result["motion"], {"kbps": 16.0, "fps": 20.0})
+            self.assertEqual(result["extra"]["first_frame_ms"], 200.0)
+            self.assertEqual(len(result["extra"]["takes"]), 3)
+            self.assertTrue((folder / "keep" / "take-3" / "readback.jsonl").exists())
+            self.assertEqual(json.loads(out.read_text())["latency"]["key"]["n"], 5)
+
+    def test_external_host_never_ready_is_an_error_not_a_number(self):
+        with tempfile.TemporaryDirectory() as name:
+            out = Path(name) / "out.json"
+            result = report.external("x", out, "exit 3", "true", None, 1, 5, 5, None)
+            self.assertFalse(result["ok"])
+            self.assertTrue(any("host not ready" in e for e in result["errors"]))
+            self.assertIsNone(result["latency"]["key"]["p50_ms"])
+
 
 
 if __name__ == "__main__":

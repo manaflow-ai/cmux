@@ -59,6 +59,9 @@ extension MacScreenPages {
         guard let session = pane.session else { return .object(row) }
         row["phase"] = .string(phaseName(session.phase))
         row["connected"] = .bool(session.phase == .connected)
+        // Where a connect is (no_answer, no_link, no_frame, shown), and where one that timed out stopped.
+        row["connect_stage"] = .string(session.connectStage.name)
+        row["timed_out_at"] = session.timedOutStage.map { .string($0.name) } ?? .null
         row["path"] = .string(session.streamPath)
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
@@ -74,6 +77,10 @@ extension MacScreenPages {
         let frames = session.frameCounter?.timings
         row["frame_interval_ms"] = frames.map { summary($0.intervals) } ?? .null
         row["present_ms"] = frames.map { summary($0.present) } ?? .null
+        // The viewer's stages to the glass (design D8): Decode, Present and the two together.
+        row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
+        row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
+        row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
         return .object(row)
     }
 

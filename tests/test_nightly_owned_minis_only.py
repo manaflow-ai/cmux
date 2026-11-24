@@ -48,7 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
-from test_nightly_trusted_routing import evaluate  # noqa: E402
+from test_nightly_trusted_routing import JIT_ARM, JIT_ARM_JOBS, JIT_LABEL, evaluate, hosted_route  # noqa: E402,F401
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
 import workflow_jobs  # noqa: E402
@@ -80,8 +80,8 @@ HOSTED_LOOP_JOBS = {
 }
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
-# the dedicated nightly-only pool (never vars.CI_NIGHTLY_MINI, the label it exists to judge;
-# tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
+# decide's own route: the nightly-only pool, or in one-mini mode vars.CI_NIGHTLY_MINI with the rest of the run
+# (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
 # short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
@@ -224,7 +224,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
             resolved = workflow_jobs.resolve(job, name)
             with self.subTest(job=name):
                 self.assertEqual(resolved.runs_on_cells,
-                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
+                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                  + JIT_ARM + "'ubuntu-24.04' }}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())

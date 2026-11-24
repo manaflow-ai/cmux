@@ -132,9 +132,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
-            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
-            // the window, so they show the App Theme's one veil like the terminals; else the page
-            // color made opaque, so desktop text never reads through a document (#30818).
+            // Reading pages (the Markdown viewer): clear over a picture (Window Glass's included),
+            // which covers what is behind the window, so they show the App Theme's one veil like the
+            // terminals; else the page color made opaque, so desktop text never reads through a
+            // document (#30818).
             "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
                 ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
@@ -175,6 +176,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // window's own color, parted only by its line (`SidebarSurface.same`).
             "--cmux-sidebar-surface": Self.sidebarSurface(tokens, backgrounds: backgrounds, windowTint: windowTint),
             "--cmux-hover": Self.css(tokens.hoverFill),
+            // A pressed row's fill (`Palette.pressedFill`, `PopupRowView`'s press), so a web menu row
+            // pressed is the native one's.
+            "--cmux-pressed": Self.css(tokens.pressedFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
             // with `appearance.highlightColor` over it, and `cursor-color`). Without a readable
@@ -461,9 +465,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     static func chromeDivider(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds) -> String {
         guard Borders.drawsLines else { return "transparent" }
-        if let override = backgrounds.fill(for: .splitDivider, tokens: tokens) { return css(override) }
         let separator = tokens.separator
-        return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
+        let base = separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value))
+        return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
@@ -480,14 +484,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
-        let alpha = (color.alpha * 1000).rounded() / 1000
-        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(cssAlpha(color.alpha)))"
     }
 
-    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    /// `alpha` as the 8-bit alpha the native layer draws (round(alpha x 255) / 255), written to 3 decimals, which
+    /// every engine reads back as that same 8-bit value. Before, an alpha on a half step (0.1 x 255 = 25.5, the
+    /// light theme's pressed row) drew 26/255 natively and 25/255 in WebKit, a level apart over the whole row
+    /// (Liquid Glass Parity, fleet step e573c84a).
+    static func cssAlpha(_ alpha: Double) -> Double {
+        ((alpha * 255).rounded() / 255 * 1000).rounded() / 1000
+    }
+
+    /// `color` as pages read it from `css`: each channel and the alpha rounded to 8 bits.
     public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
         func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
         return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
-                        alpha: (color.alpha * 1000).rounded() / 1000)
+                        alpha: cssAlpha(color.alpha))
     }
 }

@@ -30,7 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
+from test_nightly_owned_minis_only import (HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS,  # noqa: E402
+                                           NIGHTLY_NEXT_ONLY_OWNED, hosted_route)
 import workflow_jobs  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
@@ -46,14 +47,15 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 HOSTED = "ubuntu-24.04"
 
 
-def want(name: str, ref: str = "refs/heads/nightly-next") -> str:
+def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2) -> str:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return HOSTED  # classic and RC: their rate-limit waits must not hold the mini
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    return HOSTED if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
+    # A hosted tail or loop job takes the JIT nightly label on attempt 1 (test_nightly_owned_minis_only.JIT_ARM_JOBS).
+    return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:
@@ -79,7 +81,7 @@ class NightlyOneMini(unittest.TestCase):
             for source in sources or [""]:
                 for _ in range(200):
                     value, context = resolve(source, rng)
-                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next")):
+                    if value != want(name, context.get("github.ref", "refs/heads/nightly-next"), context.get("github.run_attempt", 2)):
                         failures[name] = (value, {k: v for k, v in context.items() if v and k.startswith(("github", "vars"))})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))

@@ -425,7 +425,11 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
                                          "steps": [{"title": "Launch"}]}), encoding="utf-8")
         self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
-        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+        # A fixture store the app's terminals see too; {workdir} is filled in at run time.
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_AUTOMATIONS_DIR": "{workdir}/automations"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"], {"CMUX_SOCKET_PATH": "/x"}):
             with self.subTest(env=env):
                 self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):

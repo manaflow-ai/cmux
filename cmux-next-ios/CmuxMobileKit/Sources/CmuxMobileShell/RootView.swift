@@ -17,6 +17,7 @@ import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
 import OSLog
 import UIKit
@@ -242,7 +243,7 @@ public struct RootView: View {
             }
             if options.setupPairDemo { await runSetupPairDemo() }
             // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
-            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
+            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness(auth: auth).writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
         }
         // Signed in (or out): live data and the team list follow the account.
@@ -474,7 +475,7 @@ public struct RootView: View {
             coordinator.accept(invite)
         }
         // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
-        DogfoodReadiness().start(auth: auth, live: coordinator, apiBase: base)
+        DogfoodReadiness(auth: auth).start(auth: auth, live: coordinator, apiBase: base)
         #endif
     }
 
@@ -681,6 +682,9 @@ struct ShellView: View {
             PushRegistration.shared.setPreferences(preferences)
         }
         .onAppear {
+            LaunchMarks.shared.markNextFrame("shell_frame")
+            // The terminal engine starts when the main thread first idles, not in the first terminal tap.
+            TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
             // On the model SwiftUI keeps (init also builds throwaway ones).
             FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
@@ -903,7 +907,7 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
-                    cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
+                    cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
                         machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
                         automations: { AnyView(CloudAutomationsScreen()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }

@@ -19,7 +19,7 @@ const slider = (name: string) =>
 const preview = () => page!.container.querySelector<HTMLElement>(".density-editor .density-preview")!;
 
 test("a copied preset's exact-size controls update, save and reload the native sizes", async () => {
-  page = await renderPage({ path: "/settings/personalization", mock: { values: { [DENSITY_KEY]: "cozy" } } });
+  page = await renderPage({ path: "/settings/personalization?part=text", mock: { values: { [DENSITY_KEY]: "cozy" } } });
   await click(action("duplicate"));
   expect(slider("sidebarRowHeight").value).toBe("30");
   await changeValue(slider("sidebarRowHeight"), "40");
@@ -47,7 +47,7 @@ test("a copied preset's exact-size controls update, save and reload the native s
   expect(saved).toEqual([fixture]);
   page.unmount();
   page = await renderPage({
-    path: "/settings/personalization",
+    path: "/settings/personalization?part=text",
     mock: { values: { [CUSTOM_DENSITIES_KEY]: saved, [CUSTOM_DENSITY_KEY]: density!.id } },
   });
   for (const [name, value] of [
@@ -63,7 +63,7 @@ test("a copied preset's exact-size controls update, save and reload the native s
 test("a legacy custom row edit does not add preset fill", async () => {
   const legacy = { id: "legacy", name: "Legacy", level: 0, tokens: { sidebarRowHeight: 24 } };
   page = await renderPage({
-    path: "/settings/personalization",
+    path: "/settings/personalization?part=text",
     mock: { values: { [CUSTOM_DENSITIES_KEY]: [legacy], [CUSTOM_DENSITY_KEY]: legacy.id } },
   });
   await changeValue(slider("sidebarRowHeight"), "40");

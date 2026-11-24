@@ -152,7 +152,7 @@
   padding: 1px 5px;
   border: 0;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--cv-text, var(--agent-text));
   font: inherit;
   text-align: inherit;

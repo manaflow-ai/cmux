@@ -209,15 +209,34 @@ pub trait Http: Send + Sync {
     }
 }
 
-/// Blocking HTTP through ureq.
-pub struct UreqHttp;
+/// Blocking HTTP through ureq, in this Chief's build space (`crate::build_space`): the
+/// install's challenge, token mint, ops, reads and `cloud pair`'s begin all carry it.
+pub struct UreqHttp {
+    space: crate::build_space::Resolved,
+}
+
+impl UreqHttp {
+    /// In this process's build space.
+    pub fn new() -> UreqHttp {
+        UreqHttp::in_space(crate::build_space::process())
+    }
+
+    /// In `space`; an unusable space makes every call fail, sending nothing.
+    pub fn in_space(space: crate::build_space::Resolved) -> UreqHttp {
+        UreqHttp { space }
+    }
+}
+
+impl Default for UreqHttp {
+    fn default() -> UreqHttp {
+        UreqHttp::new()
+    }
+}
 
 impl Http for UreqHttp {
     fn get(&self, url: &str) -> Result<Value, String> {
-        match ureq::get(url)
-            .timeout(std::time::Duration::from_secs(30))
-            .call()
-        {
+        let request = ureq::get(url).timeout(std::time::Duration::from_secs(30));
+        match crate::build_space::apply(request, &self.space)?.call() {
             Ok(resp) => resp.into_json::<Value>().map_err(|e| format!("{url}: {e}")),
             Err(ureq::Error::Status(code, _)) => Err(format!("{url}: HTTP {code}")),
             Err(e) => Err(format!("{url}: {e}")),
@@ -225,7 +244,10 @@ impl Http for UreqHttp {
     }
 
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<Value, String> {
-        let mut req = ureq::post(url).timeout(std::time::Duration::from_secs(30));
+        let mut req = crate::build_space::apply(
+            ureq::post(url).timeout(std::time::Duration::from_secs(30)),
+            &self.space,
+        )?;
         if let Some(token) = bearer {
             req = req.set("authorization", &format!("Bearer {token}"));
         }
@@ -346,4 +368,52 @@ pub fn read(
         .get("value")
         .cloned()
         .ok_or_else(|| format!("{name}: {reply}"))
+}
+
+#[cfg(test)]
+mod build_space_tests {
+    use super::{Http, UreqHttp};
+    use crate::build_space::testing::{Heads, dev, unusable};
+
+    /// The install's register and token calls (and `cloud pair`'s begin) from a dev build go to
+    /// the build's own space: its install token then carries that space, and Cloud takes it.
+    #[test]
+    fn a_dev_chiefs_install_calls_carry_its_build_space() {
+        let heads = Heads::start();
+        let http = UreqHttp::in_space(dev());
+        http.post(
+            &format!("{}/v1/auth/token", heads.base_url),
+            &serde_json::json!({}),
+            Some("t"),
+        )
+        .unwrap();
+        http.get(&format!("{}/v1/health", heads.base_url)).unwrap();
+        UreqHttp::in_space(Ok(None))
+            .get(&format!("{}/v1/health", heads.base_url))
+            .unwrap();
+        assert_eq!(
+            heads.spaces(),
+            vec![
+                Some("dev:my-tag".to_owned()),
+                Some("dev:my-tag".to_owned()),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unusable_build_space_registers_nothing() {
+        let heads = Heads::start();
+        let http = UreqHttp::in_space(unusable());
+        assert!(
+            http.post(
+                &format!("{}/v1/auth/challenge", heads.base_url),
+                &serde_json::json!({}),
+                None
+            )
+            .is_err()
+        );
+        assert!(http.get(&format!("{}/v1/health", heads.base_url)).is_err());
+        assert!(heads.spaces().is_empty());
+    }
 }

@@ -1206,6 +1206,43 @@ for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
 
+## Dev auto-approve (DEBUG tagged dev builds)
+
+A tagged dev Mac pairs its own tag's iPhone app without the person-only "Allow “<phone>” to
+connect?" prompt, exactly as Allow would (`IPhoneDevAutoApprove`,
+`IPhoneHostService+Pairing.swift`). It applies only when all of these hold:
+
+- the Mac app is a DEBUG binary (`#if DEBUG`; a Release build compiles none of it) whose bundle id
+  is `com.cmuxterm.app.debug.<tag>` and which ships a tag (`BuildIdentity`, from the bundle's
+  `LSEnvironment` `CMUX_TAG`, never the process environment). NIGHTLY, RC, staging, release and
+  untagged DEV bundle ids never auto-approve;
+- the request is a phone, never a machine (`kind` `mac`/`linux` always asks);
+- the paired list it would join is the signed-in user's (`account.userID == list.userID`), and the
+  Mac was not removed from the account. Admission is already same-user only (hostd serves a dial
+  only when the backend stamped it with the Mac's own user, "Who the peer is");
+- the phone names its app as `dev.cmux.mobile.<the same tag>` (the `auth` arg `bundleId`, which
+  hostd forwards as `bundle_id`, PROTOCOL.md "Pairing");
+- the launch did not set `CMUX_NEXT_IPHONE_APPROVE_FIRST=1` (`review.sh --approve-first`), which
+  keeps the prompt to test it.
+
+The bundle id is the phone's claim, not a proof. The safety argument is the conjunction, not the
+claim: only a developer's own DEBUG build runs this code, and only a device that already signs in
+as that developer reaches it, so the most a false claim gains is what the developer's own phone
+would get by pressing Allow on their own dev build. The tag check keeps a dev build from adopting
+the developer's other phones and apps (the App Store app, another tag's build) by accident. It
+writes the same paired-list entry Allow writes; the phone's keys, Face ID approvals and Settings >
+Mobile removal work as for any paired phone. Recommendation filed on #13742.
+
+Its other half holds in every build and only removes prompts: a request from a dev iPhone app
+(`dev.cmux.mobile.<tag>`) to any Mac but its own tag's dev build (NIGHTLY, release, another tag)
+shows no prompt, banner or Dock bounce; it waits in Settings > Mobile, where the person can still
+allow it. Quiet requests have their own few places (`MobileHostPairPrompts.quietLimit`, the oldest
+going first) and never take one of the places that cap real prompts, so dev phones can never block
+the next real phone's prompt. A signed-in phone dials the Macs it lists, which can be another build on the same
+computer, and that prompt was one the person never meant to answer (2026-11-17: an `ios-onboard`
+phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
+nothing: it only hides a request from the prompt.
+
 ## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
 
 `scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
@@ -1226,6 +1263,32 @@ compile none of it. A launch that resolves signed out writes a signed-out receip
 Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
 `CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
 ships. `--manual-pairing` hands the phone no code at all.
+
+## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
+
+The hand-off can point a tag's Mac and phone builds at that tag's own backend stack on the dev VM
+(`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
+token to that origin, so the origin is allowlisted in each app, not only in the script:
+
+- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
+  origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
+  else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
+  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
+  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
+  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
+  environment or write its files. Shipped builds never take a tailnet origin from any source.
+- **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
+  out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
+  (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
+  keeps it in its own defaults for later launches, and an empty value clears it.
+- **Mac:** read only by DEV bundles (`com.cmuxterm.app.debug[.<tag>]`), from the launch or the tag's
+  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet origin. A tailnet
+  backend's client-config may name only its own host for other services, and no other backend's
+  may name a tailnet host. Each override has its own sign-in storage, so no other backend's session
+  is sent there.
+- **Visible:** Settings > Developer > Cloud backend (phone), Settings > Accounts (Mac), the DEBUG
+  readiness receipt's `cloud_backend` and the Mac's `auth.status`; the hand-off checks both apps
+  report the asked-for origin.
 
 ## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
 

@@ -12,6 +12,7 @@
 
 mod ask;
 mod dir;
+mod expire;
 mod library;
 mod pr;
 mod render;
@@ -50,11 +51,14 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
-  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
+  cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library expire               Turn off layers past their bound: a merged or closed PR,
+                                              a code layer on over 24 h, a hand overlay as old
+  cmux customize library on web-dev-overlay   Turn an expired hand-installed overlay back on
   cmux customize library off --code           Every code layer off (PR, branch, folder, fork); cmux serves its own pages
   cmux customize library reset                Every layer off: settings, files and web-dev.json as before any
 

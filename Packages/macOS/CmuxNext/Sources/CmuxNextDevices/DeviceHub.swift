@@ -252,7 +252,7 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == ticket.sessionId }
             tickets[ticket.sessionId] = ticket
             onSessionPush?(push)
-        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _, _):
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)
@@ -369,6 +369,11 @@ public final class DeviceHub {
     /// From this device as viewer: asks `host` for a session.
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
+    }
+
+    /// From this device as viewer: a fresh viewer ticket for an approved or live session.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
     }
 
     /// From this device as host: answers a request.

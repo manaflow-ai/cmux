@@ -23,11 +23,27 @@ pub struct KindHead<'a> {
     /// `msg.digestPromptId` (a prompt an inbox digest took, `inbox_digest.rs`).
     pub digest_prompt_id: Option<&'a str>,
     /// The record names other prompts by a list (`msg.promptIds`, `msg.took`,
-    /// `msg._meta.provenance.parts`), which the head does not hold.
+    /// `msg._meta.provenance.parts`): [`Self::names`] says which.
     pub names_many: bool,
     /// The head could not be read (an id that is not a string, a line that does not parse): a
     /// caller keeps it to learn.
     pub unread: bool,
+    /// The prompts those lists name.
+    named: Named<'a>,
+}
+
+/// The prompts a record's lists name, as a head holds them.
+#[derive(Clone, Copy, Debug, Default)]
+enum Named<'a> {
+    /// No list.
+    #[default]
+    Nothing,
+    /// The ids, read when the head was.
+    Ids(&'a [Box<str>]),
+    /// A record read whole: its message's lists.
+    Msg(&'a Value),
+    /// A list the head could not read: it may name any prompt.
+    Unknown,
 }
 
 impl<'a> KindHead<'a> {
@@ -37,18 +53,58 @@ impl<'a> KindHead<'a> {
         let unread = ["promptId", "turnId", "joinedTurnId", "digestPromptId"]
             .iter()
             .any(|k| rec.msg.get(*k).is_some_and(|v| !v.is_string() && !v.is_null()));
+        let names_many = rec.msg.get("promptIds").is_some()
+            || rec.msg.get("took").is_some()
+            || rec.msg.pointer("/_meta/provenance/parts").is_some();
         Self {
             kind: &rec.kind,
             prompt_id: field("promptId"),
             turn_id: field("turnId"),
             joined_turn_id: field("joinedTurnId"),
             digest_prompt_id: field("digestPromptId"),
-            names_many: rec.msg.get("promptIds").is_some()
-                || rec.msg.get("took").is_some()
-                || rec.msg.pointer("/_meta/provenance/parts").is_some(),
+            names_many,
             unread,
+            named: if names_many { Named::Msg(&rec.msg) } else { Named::Nothing },
         }
     }
+
+    /// Whether the record's lists name a prompt `wanted` keeps; true for a list that did not
+    /// read, which may name any. So a keyed scan of one prompt reads the records whose lists name
+    /// it, not every record with a list (a coordinator's 3,213 of 23,349 heads, 41 segments,
+    /// on every resend).
+    pub fn names(&self, mut wanted: impl FnMut(&str) -> bool) -> bool {
+        match self.named {
+            Named::Nothing => false,
+            Named::Unknown => true,
+            Named::Ids(ids) => ids.iter().any(|id| wanted(id)),
+            Named::Msg(msg) => match listed(
+                msg.get("promptIds"),
+                msg.get("took"),
+                msg.pointer("/_meta/provenance/parts"),
+            ) {
+                Some(ids) => ids.into_iter().any(wanted),
+                None => true,
+            },
+        }
+    }
+}
+
+/// The prompt ids a record's lists name: `promptIds` (strings), `took` and provenance `parts`
+/// (objects with a `promptId`). None when one is not of that shape.
+fn listed<'v>(
+    prompt_ids: Option<&'v Value>,
+    took: Option<&'v Value>,
+    parts: Option<&'v Value>,
+) -> Option<Vec<&'v str>> {
+    let mut ids = Vec::new();
+    for (list, by_object) in [(prompt_ids, false), (took, true), (parts, true)] {
+        let Some(list) = list.filter(|v| !v.is_null()) else { continue };
+        for item in list.as_array()? {
+            let id = if by_object { item.get("promptId")? } else { item };
+            ids.push(id.as_str()?);
+        }
+    }
+    Some(ids)
 }
 
 // A keyed scan's heads: each segment's indexed records' heads, where each record's line is (in
@@ -90,6 +146,8 @@ struct Head {
     joined_turn_id: Option<Box<str>>,
     digest_prompt_id: Option<Box<str>>,
     names_many: bool,
+    /// The ids its lists name; None with `names_many` for a list that did not read ([`listed`]).
+    named: Option<Box<[Box<str>]>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -112,8 +170,8 @@ struct MsgHead<'a> {
     #[serde(rename = "digestPromptId", borrow)]
     digest_prompt_id: Option<std::borrow::Cow<'a, str>>,
     #[serde(rename = "promptIds")]
-    prompt_ids: Option<serde::de::IgnoredAny>,
-    took: Option<serde::de::IgnoredAny>,
+    prompt_ids: Option<Value>,
+    took: Option<Value>,
     #[serde(rename = "_meta")]
     meta: Option<MetaHead>,
 }
@@ -127,7 +185,7 @@ struct MetaHead {
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
 struct ProvenanceHead {
-    parts: Option<serde::de::IgnoredAny>,
+    parts: Option<Value>,
 }
 
 impl Head {
@@ -144,6 +202,7 @@ impl Head {
             joined_turn_id: None,
             digest_prompt_id: None,
             names_many: false,
+            named: None,
         };
         if let Ok(LineHead { kind, msg }) = serde_json::from_slice::<LineHead<'_>>(line) {
             head.kind = Some(
@@ -153,9 +212,12 @@ impl Head {
                     .and_then(|i| u16::try_from(i).ok())
                     .unwrap_or(u16::MAX),
             );
-            head.names_many = msg.prompt_ids.is_some()
-                || msg.took.is_some()
-                || msg.meta.and_then(|m| m.provenance).is_some_and(|p| p.parts.is_some());
+            let parts = msg.meta.and_then(|m| m.provenance).and_then(|p| p.parts);
+            head.names_many = msg.prompt_ids.is_some() || msg.took.is_some() || parts.is_some();
+            if head.names_many {
+                head.named = listed(msg.prompt_ids.as_ref(), msg.took.as_ref(), parts.as_ref())
+                    .map(|ids| ids.into_iter().map(Box::from).collect());
+            }
             head.prompt_id = boxed(msg.prompt_id);
             head.turn_id = boxed(msg.turn_id);
             head.joined_turn_id = boxed(msg.joined_turn_id);
@@ -173,13 +235,20 @@ impl Head {
             digest_prompt_id: self.digest_prompt_id.as_deref(),
             names_many: self.names_many,
             unread: self.kind.is_none(),
+            named: match (&self.named, self.names_many) {
+                (_, false) => Named::Nothing,
+                (Some(ids), true) => Named::Ids(ids),
+                (None, true) => Named::Unknown,
+            },
         }
     }
 
     fn bytes(&self) -> usize {
         let ids = [&self.prompt_id, &self.turn_id, &self.joined_turn_id, &self.digest_prompt_id];
+        let named = self.named.iter().flatten();
         std::mem::size_of::<Self>()
             + ids.iter().map(|s| s.as_ref().map_or(0, |s| s.len())).sum::<usize>()
+            + named.map(|id| id.len() + std::mem::size_of::<Box<str>>()).sum::<usize>()
     }
 }
 
@@ -191,6 +260,11 @@ struct SegmentHeads {
     len: u64,
     /// The inode of the copy the [`Place::Copy`] heads were read from.
     copy: Option<u64>,
+    /// The chat's folders as they were ([`Folders`]) when these heads were read to the end of
+    /// a segment that was no longer the log's last: a sealed segment is never appended to, so
+    /// while the folders are still so its heads are whole, and a keyed scan uses them without
+    /// opening the segment or its copy ([`LocalStore::scan_kinds_keyed_in`]).
+    whole_under: Option<Folders>,
     heads: Vec<Head>,
     bytes: usize,
 }
@@ -205,9 +279,41 @@ impl SegmentHeads {
 #[derive(Default)]
 struct Map {
     map: HashMap<(String, u32), (Arc<SegmentHeads>, u64)>,
+    /// Each chat's segments as last listed, and its folders then ([`Listing`]).
+    listings: HashMap<String, Listing>,
     tick: u64,
     bytes: usize,
 }
+
+/// A folder as `lstat` shows it: device, inode, and its change and modify times in ns. A name
+/// made, renamed or removed in it moves both times; an append to a file in it moves neither.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DirStamp(u64, u64, i128, i128);
+
+/// A chat's `events/` and `events-index/` folders' stamps (the second None while there is none):
+/// a segment or a copy replaced by a rename, a new segment, a cut or a rehydrate each change one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Folders {
+    events: DirStamp,
+    copies: Option<DirStamp>,
+}
+
+/// A chat's segment list as read when its folders were `folders`. Kept only once both folders
+/// were last changed [`SETTLED`] before they were stamped, as git trusts an index entry only when
+/// the file's time is older than the index ("racy git"): a change in the same clock tick as the
+/// stamp could leave the folder's times as they were.
+struct Listing {
+    folders: Folders,
+    segments: Vec<(u32, PathBuf)>,
+}
+
+/// How long before its stamp a folder must have last changed for the stamp to be trusted: well
+/// past any file system's time granularity (ext4's coarse clock ticks in milliseconds, FAT's in
+/// two seconds).
+const SETTLED: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The most chats whose listings are kept.
+const LISTINGS: usize = 16_384;
 
 /// The heads of a store's segments a keyed scan read.
 #[derive(Default)]
@@ -261,6 +367,37 @@ impl KindHeads {
         }
     }
 
+    /// Segment `index` of chat `id`'s heads when they are whole under `folders`, with no check
+    /// of the segment file: its folders are as they were when its heads were read to its end.
+    fn whole(&self, id: &str, index: u32, folders: Folders) -> Option<Arc<SegmentHeads>> {
+        let mut map = self.lock();
+        map.tick = map.tick.wrapping_add(1);
+        let tick = map.tick;
+        let (heads, used) = map.map.get_mut(&(id.to_owned(), index))?;
+        if heads.whole_under != Some(folders) {
+            return None;
+        }
+        *used = tick;
+        Some(Arc::clone(heads))
+    }
+
+    /// Chat `id`'s segments as listed under `folders`, if they were.
+    fn listing(&self, id: &str, folders: Folders) -> Option<Vec<(u32, PathBuf)>> {
+        let map = self.lock();
+        let listing = map.listings.get(id).filter(|l| l.folders == folders)?;
+        Some(listing.segments.clone())
+    }
+
+    fn keep_listing(&self, id: &str, folders: Folders, segments: &[(u32, PathBuf)]) {
+        let listing = Listing { folders, segments: segments.to_vec() };
+        let mut map = self.lock();
+        // A few hundred bytes a chat; a store asked about more chats than this lists again.
+        if map.listings.len() >= LISTINGS && !map.listings.contains_key(id) {
+            map.listings.clear();
+        }
+        map.listings.insert(id.to_owned(), listing);
+    }
+
     fn forget_segment(&self, id: &str, index: u32) {
         let mut map = self.lock();
         if let Some((gone, _)) = map.map.remove(&(id.to_owned(), index)) {
@@ -274,6 +411,7 @@ impl KindHeads {
         let gone: usize =
             map.map.iter().filter(|((chat, _), _)| chat == id).map(|(_, (h, _))| h.bytes).sum();
         map.map.retain(|(chat, _), _| chat != id);
+        map.listings.remove(id);
         map.bytes = map.bytes.saturating_sub(gone);
     }
 }
@@ -319,12 +457,53 @@ impl LocalStore {
             });
         }
         kind_index::test_scan_delay();
-        for (index, path) in self.segments(id)? {
-            if !self.keyed_segment(id, index, &path, kinds, keep, visit)? {
+        let (segments, folders) = self.keyed_listing(id)?;
+        let last = segments.last().map(|(index, _)| *index);
+        for (index, path) in segments {
+            let sealed = folders.filter(|_| Some(index) != last);
+            if !self.keyed_segment(id, index, &path, kinds, keep, visit, sealed)? {
                 break;
             }
         }
         Ok(())
+    }
+
+    /// Chat `id`'s segments, and its folders' stamps when both were last changed [`SETTLED`]
+    /// ago or more. With such stamps a keyed scan reads the folder again only once one of them
+    /// changed: a resend asks a chat of hundreds of segments its prompt state three times, and
+    /// a listing, an open and two stats of every segment each time held the daemon at a core
+    /// (cmux NEXT nightly 1.0.0-nightly.4424316677601: `scan_kinds_keyed` 2,078 of 5 s of
+    /// samples, 1,419 of them in `open` and `lstat`).
+    fn keyed_listing(&self, id: &str) -> Result<(Vec<(u32, PathBuf)>, Option<Folders>)> {
+        let folders = self.settled_folders(id);
+        if let Some(folders) = folders
+            && let Some(segments) = self.kind_heads.listing(id, folders)
+        {
+            return Ok((segments, Some(folders)));
+        }
+        // Stamped before the listing: a change after the stamp moves the folder's times past it,
+        // so the next scan lists again.
+        let segments = self.segments(id)?;
+        if let Some(folders) = folders
+            && !segments.is_empty()
+        {
+            self.kind_heads.keep_listing(id, folders, &segments);
+        }
+        Ok((segments, folders))
+    }
+
+    /// Chat `id`'s [`Folders`], None unless both were last changed [`SETTLED`] ago or more (or
+    /// off Unix, where no stamp is kept).
+    fn settled_folders(&self, id: &str) -> Option<Folders> {
+        let now = std::time::SystemTime::now();
+        let dir = self.dir(id);
+        let events = dir_stamp(&dir.join("events"), now).ok()??;
+        let copies = match dir_stamp(&dir.join(kind_index::DIR), now) {
+            Ok(stamp) => Some(stamp?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return None,
+        };
+        Some(Folders { events, copies })
     }
 
     /// A segment scanned whole, as `scan_kinds` scans it, its records' heads shown to `keep` as
@@ -345,6 +524,10 @@ impl LocalStore {
     }
 
     /// One segment of [`Self::scan_kinds_keyed_in`]; false when `visit` stopped the scan.
+    /// `sealed`: the chat's settled folders, when this segment is not the log's last. Its heads
+    /// read to its end under those folders are then used as they are: neither the segment nor
+    /// its copy is opened unless a kept record's line is in it.
+    #[allow(clippy::too_many_arguments)]
     fn keyed_segment(
         &self,
         id: &str,
@@ -353,8 +536,24 @@ impl LocalStore {
         kinds: &[&str],
         keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
+        sealed: Option<Folders>,
     ) -> Result<bool> {
-        let scan = kind_index::Scan { kinds, copied: true, strict: false };
+        let scan = kind_index::Scan { kinds, copied: true, strict: false, heads: false };
+        if let Some(folders) = sealed
+            && let Some(heads) = self.kind_heads.whole(id, index, folders)
+        {
+            #[cfg(test)]
+            SEALED_HITS.with(|n| n.set(n.get() + 1));
+            return match self.read_picked(id, index, path, None, &heads, kinds, keep) {
+                Some(records) => Ok(records.into_iter().all(visit)),
+                None => {
+                    self.kind_heads.forget_segment(id, index);
+                    self.keyed_whole(id, index, path, &scan, keep, visit)
+                }
+            };
+        }
+        #[cfg(test)]
+        SEGMENT_OPENS.with(|n| n.set(n.get() + 1));
         let mut file = crate::config::private_state_file(path)?;
         let stamp = kind_index::Stamp::of(&file)?;
         // A system that names no birth time keeps no copy, so no heads.
@@ -379,6 +578,7 @@ impl LocalStore {
                     file: stamp.id,
                     len: from,
                     copy: copy_inode(&copy_path),
+                    whole_under: None,
                     heads: Vec::new(),
                     bytes: std::mem::size_of::<SegmentHeads>(),
                 };
@@ -410,6 +610,41 @@ impl LocalStore {
                 heads.len = heads.len.saturating_add(line.len() as u64);
             }
         }
+        // Read to the segment's end while a later one exists: nothing is appended to it again,
+        // so its heads are whole while the folders stay as stamped.
+        if sealed.is_some() && heads.whole_under != sealed {
+            self.kind_heads.forget_segment(id, index);
+            Arc::make_mut(&mut heads).whole_under = sealed;
+        }
+        let Some(records) = self.read_picked(id, index, path, Some(file), &heads, kinds, keep)
+        else {
+            self.kind_heads.forget_segment(id, index);
+            return self.keyed_whole(id, index, path, &scan, keep, visit);
+        };
+        self.kind_heads.put(id, index, heads);
+        for rec in records {
+            if !visit(rec) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The records of the heads `keep` keeps, read back by their places, the segment (`file`,
+    /// opened here if None) and its copy opened only for a line in them. None when a line does
+    /// not check (its seq, its end of line) or cannot be read: the caller scans the segment
+    /// whole.
+    #[allow(clippy::too_many_arguments)]
+    fn read_picked(
+        &self,
+        id: &str,
+        index: u32,
+        path: &Path,
+        mut file: Option<std::fs::File>,
+        heads: &SegmentHeads,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&KindHead<'_>) -> bool,
+    ) -> Option<Vec<EventRecord>> {
         let picked: Vec<&Head> = heads
             .heads
             .iter()
@@ -420,28 +655,26 @@ impl LocalStore {
             .collect();
         let mut copy_file = None;
         let mut records = Vec::with_capacity(picked.len());
-        let mut sound = true;
         for head in picked {
-            if head.place == Place::Copy && copy_file.is_none() {
-                copy_file = crate::config::private_state_file(&copy_path).ok();
-            }
             let source = match head.place {
-                Place::Segment => &mut file,
-                Place::Copy => match copy_file.as_mut() {
-                    Some(f) => f,
-                    None => {
-                        sound = false;
-                        break;
+                Place::Segment => {
+                    if file.is_none() {
+                        file = Some(crate::config::private_state_file(path).ok()?);
                     }
-                },
+                    file.as_mut()?
+                }
+                Place::Copy => {
+                    if copy_file.is_none() {
+                        let copy =
+                            crate::config::private_state_file(&self.kind_index_path(id, index));
+                        copy_file = Some(copy.ok()?);
+                    }
+                    copy_file.as_mut()?
+                }
             };
-            let Ok(line) = read_at(source, head.at, head.len) else {
-                sound = false;
-                break;
-            };
+            let line = read_at(source, head.at, head.len).ok()?;
             if !line.ends_with(b"\n") || record_seq(&line) != head.seq {
-                sound = false;
-                break;
+                return None;
             }
             // A line that does not read is skipped, as a scan skips it.
             if let Ok(rec) = parse_record(&line)
@@ -450,16 +683,59 @@ impl LocalStore {
                 records.push(rec);
             }
         }
-        if !sound {
-            self.kind_heads.forget_segment(id, index);
-            return self.keyed_whole(id, index, path, &scan, keep, visit);
-        }
-        self.kind_heads.put(id, index, heads);
-        for rec in records {
-            if !visit(rec) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        Some(records)
     }
+}
+
+/// The [`DirStamp`] of the folder at `path`, None while it changed within [`SETTLED`] of `now`
+/// (or off Unix).
+fn dir_stamp(path: &Path, now: std::time::SystemTime) -> std::io::Result<Option<DirStamp>> {
+    let meta = crate::home_fs::symlink_metadata(path)?;
+    if !meta.is_dir() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let ns = |s: i64, n: i64| i128::from(s) * 1_000_000_000 + i128::from(n);
+        let Ok(before) = now
+            .checked_sub(settled_for())
+            .unwrap_or(std::time::UNIX_EPOCH)
+            .duration_since(std::time::UNIX_EPOCH)
+        else {
+            return Ok(None);
+        };
+        let before = i128::try_from(before.as_nanos()).unwrap_or(i128::MAX);
+        let (mtime, ctime) =
+            (ns(meta.mtime(), meta.mtime_nsec()), ns(meta.ctime(), meta.ctime_nsec()));
+        if mtime > before || ctime > before {
+            return Ok(None);
+        }
+        Ok(Some(DirStamp(meta.dev(), meta.ino(), mtime, ctime)))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (now, settled_for);
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Sealed segments a keyed scan on this thread used the heads of without opening them.
+    pub(super) static SEALED_HITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Segments a keyed scan on this thread opened.
+    pub(super) static SEGMENT_OPENS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// [`SETTLED`] for this thread's scans, when a test sets it.
+    pub(super) static SETTLED_FOR: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// [`SETTLED`], or a test's own.
+fn settled_for() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(settled) = SETTLED_FOR.with(std::cell::Cell::get) {
+        return settled;
+    }
+    SETTLED
 }

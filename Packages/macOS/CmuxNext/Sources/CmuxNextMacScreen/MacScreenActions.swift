@@ -100,6 +100,10 @@ public struct MacScreenActions {
             guard !wanted.isEmpty else { continue }
             let matches = devices.filter { key($0.name) == wanted }
             if matches.count == 1, let match = matches.first { return match.id }
+            // One name, several registrations (a reinstall, an old hub record): the one that is online and shares
+            // is the one a person means; only when that does not single one out is the name ambiguous.
+            let live = matches.filter { $0.online && $0.macScreenShared }
+            if matches.count > 1, live.count == 1, let match = live.first { return match.id }
             if matches.count > 1 {
                 throw ActionFailure(message: String(format: L.t("macScreen.actions.ambiguousDevice", "More than one device is named “%@”: %@. Pass the id of the one to open."), name, listed(matches)))
             }

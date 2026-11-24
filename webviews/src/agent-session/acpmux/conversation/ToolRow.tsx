@@ -23,6 +23,7 @@ import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
+import { RunningTime } from "./RunningTime";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
@@ -108,9 +109,11 @@ export const ToolRow = memo(function ToolRow({
   const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
-  // A finished call's check and run time, at the row's right edge and only on hover
-  // (conversation.css), as on a command row; its failure already says so in the label.
-  const duration = foreground ? undefined : toolDuration(t, tool);
+  // How long a finished call took, said in its opened Shell card (a running one's edge counts it,
+  // RunningTime.tsx); its row draws no time once it ends (2026-11-11 standup).
+  const took = running ? undefined : toolDuration(t, tool);
+  // How long a running call has run, at the row's edge, counting each second (RunningTime.tsx).
+  const runningTime = running && <RunningTime startedAt={tool.startedAt} background={!foreground} />;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a shortened line is skipped.
@@ -220,7 +223,7 @@ export const ToolRow = memo(function ToolRow({
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
-          {running && duration && <span className="cv-command__time">{duration}</span>}
+          {runningTime}
         </span>
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
@@ -233,26 +236,28 @@ export const ToolRow = memo(function ToolRow({
             running={running}
             background={inBackground(tool)}
           />
+          {runningTime}
         </span>
+      ) : foreground && !tool.approved ? (
+        // Any other running call's edge holds only its time, from a few seconds on (RunningTime.tsx).
+        <RunningTime startedAt={tool.startedAt} meta />
       ) : (
-        (!foreground || tool.approved) && (
-          <span className="cv-command__meta">
-            {shell && running && (
-              <RunElsewhereChip
-                toolCallId={tool.id}
-                kind={tool.kind}
-                command={tool.command}
-                startedAt={tool.startedAt}
-                running={running}
-                background={inBackground(tool)}
-              />
-            )}
-            <ReactionMark reaction={tool.reaction} />
-            {tool.approved && <ApprovedMark />}
-            {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
-            {running && duration && <span className="cv-command__time">{duration}</span>}
-          </span>
-        )
+        <span className="cv-command__meta">
+          {shell && running && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+              background={inBackground(tool)}
+            />
+          )}
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+          {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
+          {runningTime}
+        </span>
       )}
     </>
   );
@@ -303,6 +308,7 @@ export const ToolRow = memo(function ToolRow({
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}
+              took={took}
             />
           ) : files.length > 0 ? (
             <div id={detailsId}>

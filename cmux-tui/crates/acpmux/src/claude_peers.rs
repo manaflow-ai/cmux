@@ -439,6 +439,32 @@ pub fn sole_claimant(peer: &Peer, live: &[Peer]) -> bool {
     !live.iter().any(|p| p.pid != peer.pid && p.session_id == peer.session_id)
 }
 
+/// Why a registered chat's conversation has no process its registration reaches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unreached {
+    /// No live process runs the conversation: its app is closed.
+    NotRunning,
+    /// One live process runs it, but not the one that registered (Claude Code restarted, or
+    /// resumed the conversation in a new process): that process's token is in its own shell only,
+    /// so only `acpmux register` run there hands it over.
+    Restarted { pid: u32 },
+    /// More than one live process claims it ([`sole_claimant`]): neither is delivered to.
+    Contested { pids: Vec<u32> },
+}
+
+/// Why no process of `live` takes a registered chat's delivery for conversation `session_id`,
+/// asked once none did ([`token_for`] and [`sole_claimant`] both refused or none runs it).
+pub fn unreached(session_id: &str, live: &[Peer]) -> Unreached {
+    let mut pids: Vec<u32> =
+        live.iter().filter(|p| p.session_id == session_id).map(|p| p.pid).collect();
+    pids.sort_unstable();
+    match pids.as_slice() {
+        [] => Unreached::NotRunning,
+        [pid] => Unreached::Restarted { pid: *pid },
+        _ => Unreached::Contested { pids },
+    }
+}
+
 /// The code-signing requirement Claude Code's own binary meets (the CLI and the desktop app's).
 #[cfg(target_os = "macos")]
 const CLAUDE_CODE_REQUIREMENT: &str = "=anchor apple generic and certificate leaf[subject.OU] = \"Q6L2SF6YDW\" and identifier \"com.anthropic.claude-code\"";

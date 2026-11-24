@@ -389,7 +389,7 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
         execute(&customize, Request::Recipes { open: true }, "cli", 1_000, &opener).ok().unwrap();
     let json = answer.json();
     let recipes = json["recipes"].as_array().unwrap();
-    assert_eq!(recipes.len(), 10);
+    assert_eq!(recipes.len(), cmux_customize_recipes::RECIPES.len());
     let guide = json["guide"].as_str().unwrap().to_owned();
     assert_eq!(json["opened"], true);
     assert_eq!(*opener.calls.borrow(), vec![vec!["open".to_owned(), guide.clone()]]);

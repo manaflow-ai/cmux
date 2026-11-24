@@ -31,11 +31,13 @@ pub enum Group {
     Type,
     Widgets,
     Keys,
+    /// Looks and behavior like another app's, whole: theme file, chat stylesheet and settings.
+    Apps,
 }
 
 impl Group {
     pub const ALL: &'static [Group] =
-        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys];
+        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys, Group::Apps];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -44,6 +46,7 @@ impl Group {
             Group::Type => "Type",
             Group::Widgets => "Widgets",
             Group::Keys => "Keys",
+            Group::Apps => "App looks",
         }
     }
 }
@@ -85,6 +88,13 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
         "customize/main.js",
         include_str!("../../../../skills/cmux-customization/templates/clock-weather/main.js"),
     ),
+];
+
+/// A look-alike carries its theme file and its chat stylesheet, kept as real
+/// files beside the recipe so they read and diff like any theme or stylesheet.
+const CLAUDE_CODE_APP: &[(&str, &str)] = &[
+    ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -168,6 +178,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make the window see-through glass",
         profile: include_str!("../recipes/glass.json"),
         includes: &[],
+    },
+    Recipe {
+        name: "claude-code-app",
+        title: "Like the Claude desktop app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Claude desktop app's Code tab",
+        profile: include_str!("../recipes/claude-code-app.json"),
+        includes: CLAUDE_CODE_APP,
     },
 ];
 

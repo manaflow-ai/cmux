@@ -868,8 +868,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (attribute === undefined) dom.removeAttribute(name);
       else dom.setAttribute(name, attribute);
   };
+  // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   const showPlaceholder = (markdown: string) => {
-    if (empty.current) empty.current.hidden = markdown !== "";
+    const hide = markdown !== "";
+    if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.

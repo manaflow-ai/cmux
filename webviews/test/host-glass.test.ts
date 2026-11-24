@@ -10,10 +10,13 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
+  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
+  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
 } from "../src/ui/glass/hostGlass";
@@ -93,6 +96,16 @@ test("a marked surface is reported and shows its content before the App answers"
   answer!();
   await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a surface asks for a known role's glass by name and never for an unknown one", () => {
+  const doc = page();
+  const element = surface(doc);
+  expect(hostGlassSurface(element, "g1")?.role).toBeUndefined();
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "sheet");
+  expect(hostGlassSurface(element, "g1")?.role).toBe("sheet");
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "menu-bar");
+  expect(hostGlassSurface(element, "g1")).not.toHaveProperty("role");
 });
 
 test("a surface the App has not drawn by the deadline keeps the page's own glass", async () => {
@@ -197,6 +210,23 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
   expect(hostGlassApplies(live)).toBe(false);
+});
+
+test("a page that asks for the App's glass in either engine gets it in WebKit too, never past its other gates", () => {
+  const webkit = page({ chromium: false });
+  webkit.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(webkit)).toBe(true);
+  const opaque = page({ chromium: false, seeThrough: false });
+  opaque.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(opaque)).toBe(false);
+  const reduced = page({ chromium: false });
+  reduced.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  reduced.documentElement.setAttribute("data-reduce-transparency", "");
+  expect(hostGlassApplies(reduced)).toBe(false);
+  const lens = page({ chromium: false });
+  lens.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  lens.documentElement.setAttribute("data-glass-lens", "");
+  expect(hostGlassApplies(lens)).toBe(false);
 });
 
 test("an opaque page reports nothing and its surfaces keep the page's glass", async () => {

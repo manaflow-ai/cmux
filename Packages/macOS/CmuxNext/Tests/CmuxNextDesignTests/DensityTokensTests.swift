@@ -66,7 +66,8 @@ import Testing
         let t = preset.scaleFactor
         func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
         // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar).
-        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize"]
+        // Compact alone sets its gap from the tabs to the omnibar (`tabToOmnibarGap`, its strip padding and 1 pt).
+        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize", "tabToOmnibarGap"]
         #expect(Set(tokens.tokens.keys).subtracting(defaultOnly) == Set(reference.tokens.keys).subtracting(defaultOnly))
         let rows: [DensityPreset: Double] = [.ultraCompact: 24, .compact: 28, .cozy: 30, .comfortable: 32, .spacious: 36]
         let row = try #require(rows[preset])

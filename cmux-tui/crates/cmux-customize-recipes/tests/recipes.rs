@@ -43,8 +43,9 @@ fn a_recipe_that_names_a_key_the_schema_lacks_is_refused() {
 }
 
 #[test]
-fn there_are_ten_recipes_with_unique_names_in_every_group() {
-    assert_eq!(RECIPES.len(), 10);
+fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
+    // No fixed count: each look that ships adds its recipe without editing a number here.
+    assert!(RECIPES.len() >= 10, "{} recipes", RECIPES.len());
     let mut names: Vec<_> = RECIPES.iter().map(|recipe| recipe.name).collect();
     names.sort();
     names.dedup();

@@ -39,6 +39,10 @@ final class TabHoverCardController: HoverCardSource {
     /// How the card's first show plays; nil reads `TabTunables.hoverCardEntrance` on each show
     /// (the tab bar playground's Hover Card page pins one per strip).
     var entrance: HoverCardEntrance?
+    /// How the card moves to the next tab or chip while it shows; nil reads `TabTunables.hoverCardRetarget` on
+    /// each show (the tab bar playground's Hover Card page pins one per strip). Switched in place by default
+    /// (Leo 2026-11-18: "the hover preview bounces for some reason").
+    var retarget: HoverCardRetarget?
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
     /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
@@ -161,7 +165,8 @@ final class TabHoverCardController: HoverCardSource {
             groupBody = body
             body.configure(strip.groupHoverSummary(item, options: DesignSettings.shared.groupHoverCard, now: now()))
             bodyID = id
-            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in
+            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                                 retarget: retarget ?? TabTunables.hoverCardRetarget.value) { [weak body] in
                 body?.applyColors()
             }
         }
@@ -207,7 +212,8 @@ final class TabHoverCardController: HoverCardSource {
         if newCard, case .tab = content { startSampling(tab, card: id) }
         // The card hangs from its tab with no gap: it takes the tab's corners.
         return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
-                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value) { [weak body] in
+                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value,
+                             retarget: retarget ?? TabTunables.hoverCardRetarget.value) { [weak body] in
             body?.applyColors()
         }
     }

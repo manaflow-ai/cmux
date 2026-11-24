@@ -14651,6 +14651,84 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在停留位置淡入"}}
       }
     },
+    "tabs.playground.hoverCard.retarget.jump": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Switches to the next tab in place"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次のタブにその場で切り替わります"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنتقل إلى علامة التبويب التالية في مكانها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prelazi na sljedeću karticu na mjestu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skifter til næste fane på stedet"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wechselt an Ort und Stelle zum nächsten Tab"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia a la siguiente pestaña en su sitio"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Passe à l’onglet suivant sur place"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Passa alla scheda successiva sul posto"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្ដូរទៅផ្ទាំងបន្ទាប់នៅនឹងកន្លែង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "제자리에서 다음 탭으로 바뀝니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bytter til neste fane på stedet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przełącza się na następną kartę w miejscu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Muda para a próxima aba no lugar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Переключается на следующую вкладку на месте"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สลับไปยังแท็บถัดไปในที่เดิม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yerinde bir sonraki sekmeye geçer"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перемикається на наступну вкладку на місці"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chuyển sang thẻ tiếp theo ngay tại chỗ"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "原地切换到下一个标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "原地切換到下一個分頁"}}
+      }
+    },
+    "tabs.playground.hoverCard.retarget.crossfade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Switches in place, its content cross-fading"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "その場で切り替わり、内容がクロスフェードします"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنتقل في مكانها مع تلاشي محتواها تدريجيًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prelazi na mjestu, sadržaj se pretapa"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skifter på stedet, og indholdet overtoner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wechselt an Ort und Stelle, der Inhalt blendet über"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cambia en su sitio y su contenido se funde"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Change sur place, son contenu en fondu enchaîné"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cambia sul posto, con il contenuto in dissolvenza incrociata"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្ដូរនៅនឹងកន្លែង ដោយខ្លឹមសាររលាយចូលគ្នា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "제자리에서 바뀌며 내용이 크로스페이드됩니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bytter på stedet, og innholdet overtoner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przełącza się w miejscu, a treść płynnie się przenika"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Muda no lugar, com o conteúdo em transição suave"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Переключается на месте, содержимое плавно сменяется"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สลับในที่เดิม โดยเนื้อหาค่อย ๆ เปลี่ยน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yerinde geçer, içeriği yumuşak geçişle değişir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перемикається на місці, вміст плавно змінюється"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chuyển tại chỗ, nội dung chuyển mờ dần"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "原地切换，内容交叉淡入淡出"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "原地切換，內容交叉淡入淡出"}}
+      }
+    },
+    "tabs.playground.hoverCard.retarget.glide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Glides to the next tab"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次のタブへ滑るように移動します"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تنزلق إلى علامة التبويب التالية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Klizi do sljedeće kartice"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Glider til næste fane"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gleitet zum nächsten Tab"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se desliza a la siguiente pestaña"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Glisse vers l’onglet suivant"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Scivola alla scheda successiva"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រំកិលទៅផ្ទាំងបន្ទាប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다음 탭으로 미끄러지듯 이동합니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Glir til neste fane"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przesuwa się płynnie do następnej karty"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Desliza para a próxima aba"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Плавно переезжает к следующей вкладке"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เลื่อนไปยังแท็บถัดไป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir sonraki sekmeye kayar"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Плавно переїжджає до наступної вкладки"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trượt sang thẻ tiếp theo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "滑动到下一个标签页"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "滑動到下一個分頁"}}
+      }
+    },
     "tabs.playground.hoverClose.crossFade": {
       "extractionState": "manual",
       "localizations": {

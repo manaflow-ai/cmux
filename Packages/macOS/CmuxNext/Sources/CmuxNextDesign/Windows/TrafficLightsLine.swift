@@ -47,6 +47,10 @@ public struct TrafficLightsLine {
     }
 
     /// Moves `window`'s traffic lights onto its top row's line (``targetCenterY(in:look:)``), or back to macOS's place.
+    /// The root view's layout runs it, and so does the end of every layout pass of the window: AppKit lays its titlebar
+    /// out again on its own (a new window title, an appearance or key change) and puts the lights back at its place, 16 pt
+    /// below the window's top, without a layout of the root view. The user's window showed them so, 4 pt above the toolbar
+    /// band and the tabs (2026-11-19: "traffic lights not aligned").
     public static func apply(in window: NSWindow) { // perf-hot: 1ms motion-frame
         apply(in: window, centerY: targetCenterY(in: window))
     }

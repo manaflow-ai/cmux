@@ -66,6 +66,11 @@ parser.add_argument("--arms", default="warm,quick,cold",
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                     help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
+parser.add_argument("--inactive", action="store_true",
+                    help="type with the app inactive and no key window, as the fleet launches it (no person can type so)")
+parser.add_argument("--type", default="qwz",
+                    help="characters typed at once after each blank Cmd-Shift-L, through the real key path: focus_ms (the omnibar edits, as "
+                         "first responder), typed_ms (it shows them) and typed_text (a key lost or typed twice); empty: none")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -187,7 +192,14 @@ def settle():
 
 def create(params, case, session, rnd, arm=None):
     """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
+    if opts.type and not params.get("url") and not params.get("type"):
+        params = {**params, "type": opts.type}
+    if params.get("type") and not opts.inactive:
+        # A person types into an active app with a key window: an inactive app (the fleet launch) drops the replayed keys
+        # of its first cold Chromium tab (round 0, a1227 probes A/B), which no person can hit.
+        rpc("debug.window.focus", {"window": window_key(), "activate": True})
     result = rpc("debug.new_tab", params, timeout=30) or {}
+    result.update(result.get("omnibar") or {})  # focus_ms, typed_ms, typed_text, focused_at_end
     result.update({"case": case, "session": session, "round": rnd})
     if arm:
         result["arm"] = arm
@@ -195,8 +207,9 @@ def create(params, case, session, rnd, arm=None):
     result["page_frame"] = frame_of(result, "page_ms")
     spans = [s for s in result.get("spans") or [] if s.get("name", "").startswith("cef.") or s.get("ms", 0) >= 2]
     print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
-          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} page={result.get('page_ms')} "
-          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
+          f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} focus={result.get('focus_ms')} typed={result.get('typed_ms')} "
+          f"text={result.get('typed_text')!r} focused_end={result.get('focused_at_end')} page={result.get('page_ms')} "
+          f"spare_after={result.get('spare_window')} webkit_spare={result.get('webkit_spare')}/{result.get('webkit_spare_taken')} confirmed={result.get('confirmed_ms')} "
           f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
           f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
     return result
@@ -445,6 +458,11 @@ def summary(rows):
                 "visible_frame_p95": pct([r.get("visible_frame") for r in sel], .95),
                 "chrome_p50": pct([r.get("chrome_ms") for r in sel], .5),
                 "chrome_p95": pct([r.get("chrome_ms") for r in sel], .95),
+                "focus_p50": pct([r.get("focus_ms") for r in sel], .5),
+                "focus_p95": pct([r.get("focus_ms") for r in sel], .95),
+                "typed_p50": pct([r.get("typed_ms") for r in sel], .5),
+                "typed_p95": pct([r.get("typed_ms") for r in sel], .95),
+                "typed_lost": sum(1 for r in sel if r.get("typed_text") is not None and r.get("typed_text") != (opts.type or None)),
                 "page_p50": pct([r.get("page_ms") for r in sel], .5),
                 "page_p95": pct([r.get("page_ms") for r in sel], .95),
                 "create_window_ms_p95": pct([sum(s["ms"] for s in r.get("spans") or [] if s.get("name") == "cef.create_window") or None
@@ -525,7 +543,7 @@ def main():
               "cef": {k: cef.get(k) for k in ("spare_window", "start_steps", "likely", "state") if k in cef}}
     print("", flush=True)
     result["arms"] = {metric: bench_arms.report("cef-tab", metric, "ms", arm_samples(rows, metric), out=lambda line: print(line, flush=True))
-                      for metric in ("visible_ms", "page_ms", "key_ms")}
+                      for metric in ("visible_ms", "focus_ms", "typed_ms", "page_ms", "key_ms")}
     result["headline"] = {"metric": "visible_ms", "arm": result["arms"]["visible_ms"]["headline"], "rule": bench_arms.RULE}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | chrome p95 | page p50 | page p95 | create_window p95 | "
@@ -533,6 +551,9 @@ def main():
     for name, s in result["summary"].items():
         print(f"| {name} | {s['n']} | {s['visible_p50']} | {s['visible_p95']} | {s['visible_frame_p95']} | {s['chrome_p95']} | {s['page_p50']} | "
               f"{s['page_p95']} | {s['create_window_ms_p95']} | {s['tab_add_ms_p95']} | {s['refresh_ms']} |")
+    print("\n| session/case | focus p50 | focus p95 | typed p50 | typed p95 | typed lost |\n|---|---|---|---|---|---|")
+    for name, s in result["summary"].items():
+        print(f"| {name} | {s['focus_p50']} | {s['focus_p95']} | {s['typed_p50']} | {s['typed_p95']} | {s['typed_lost']} |")
     over = [k for k, v in result["summary"].items() if v["missed"] or (v["visible_p95"] or 1e9) > opts.budget_ms]
     print("CEF-TAB", f"OVER {opts.budget_ms} ms: " + ", ".join(over) if over else "WITHIN", flush=True)
     if opts.json:

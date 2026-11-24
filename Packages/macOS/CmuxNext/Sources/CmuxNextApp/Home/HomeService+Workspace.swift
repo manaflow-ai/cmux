@@ -32,18 +32,17 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
-        homeEnsureGeneration &+= 1
-        let generation = homeEnsureGeneration
-        homeEnsureInFlight = true
+        let generation = ensure.begin()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
+            defer { self?.ensureOwner.end(generation) }
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
-                settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
-                async let chiefTab: Void = ensureChiefTab(connection, home: home) // beside the dock steps: Home's first page waits for both
+                ensure.settle(generation); DebugTimings.markLaunch("home.ensure_home")
+                async let chiefTab: Void = ensureChiefTab(connection, home: home, generation: generation) // beside the dock steps: Home's first page waits for both
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
@@ -52,31 +51,11 @@ extension HomeService {
                 DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {
-                self?.settleHomeEnsure(generation)
+                self?.ensure.settle(generation)
                 self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
-    }
-
-    private func settleHomeEnsure(_ generation: Int) {
-        if homeEnsureGeneration == generation { homeEnsureInFlight = false }
-    }
-
-    /// Returns once no `ensure_home` is in flight (at once when none is).
-    /// Each request has the connection's timeout, so this never outlives it.
-    func awaitHomeEnsured() async {
-        for await inFlight in ObservationStream({ self.homeEnsureInFlight }) where !inFlight { return }
-    }
-
-    /// The Chief owner's connection, once it serves conversations (this task
-    /// is cancelled by the next local connection).
-    private func chiefConnection() async -> DaemonConnection? {
-        let chief = chief
-        for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
-            if let connection { return connection }
-        }
-        return nil
     }
 
     /// The chief conversation (``HomeChiefName/conversation(_:listed:user:mux:mark:renameFailed:)``).
@@ -110,7 +89,7 @@ extension HomeService {
         ensureHomeWorkspace(connection)
     }
 
-    private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
+    private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID, generation: Int) async throws {
         let local = services.machines.local
         guard local.supports(DaemonCapability.conversationTabs.rawValue) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
@@ -138,7 +117,7 @@ extension HomeService {
         let owner: DaemonConnection?
         if shown == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
-            owner = await chiefConnection()
+            owner = await ensureOwner.connection(of: chief, generation: generation) // its connect lets this go on (HomeService.start)
             guard owner != nil, !Task.isCancelled else { return }; DebugTimings.markLaunch("home.chief_owner_ready")
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil

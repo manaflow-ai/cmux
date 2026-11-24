@@ -114,8 +114,11 @@ const UNREACHABLE =
 /// they count only when no sign-in or key is named beside them. Not "broken pipe": an agent that quit.
 const DROPPED =
   /stream disconnected|error sending request|connection (?:aborted|lost)|upstream connect error|premature close|other side closed|gateway timeout/i;
+/// A key the provider no longer accepts, including one it expired (OpenCode Go: "This API key has
+/// expired … Signing in again will not renew this key", `api_key_expired`): a new key fixes it, a
+/// sign-in does not.
 const INVALID_KEY =
-  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY/i;
+  /invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY|api[ _-]?key (?:has |is )?(?:expired|revoked)|expired api[ _-]?key|api_key_expired/i;
 const SUBSCRIPTION =
   /not logged in|login required|please (?:run )?\/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|invalid_rapt|sign(?:ed)? ?in again/i;
 const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;

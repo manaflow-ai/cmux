@@ -42,11 +42,14 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
+use crate::store::LibraryMark;
 use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+mod collection;
+pub mod expire;
 pub mod keys;
 pub mod overlay;
 mod put;
@@ -59,7 +62,7 @@ use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
 pub use text::thumbnail;
-use text::{one_line, redact_serde, slug, unique_name};
+use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
@@ -101,6 +104,9 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
+    /// When it was last turned on (local only; [`expire`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
     /// stack key `code:web` ([`code`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -330,6 +336,69 @@ impl Customize {
         let mut text = serde_json::to_string_pretty(library).map_err(std::io::Error::other)?;
         text.push('\n');
         cmux_config::fsio::write_atomic(&self.library_path(), text.as_bytes())?;
+        // The current generation remembers what is on now, so a restore to
+        // it turns the library back to this.
+        let on = on_names(&library.entries);
+        let mut index = self.store().index()?;
+        if let Some(n) = index.current
+            && let Some(row) = index.generations.iter_mut().find(|row| row.n == n)
+            && row.library_on.as_ref() != Some(&on)
+        {
+            row.library_on = Some(on);
+            self.store().put_index(&index)?;
+        }
+        Ok(())
+    }
+
+    /// The library now, as a try-on and a generation remember it. `None`
+    /// when it cannot be read.
+    pub(crate) fn library_mark(&self) -> Option<LibraryMark> {
+        let library = self.read_library().ok()?;
+        Some(LibraryMark {
+            names: library
+                .entries
+                .iter()
+                .filter(|entry| entry.code.is_none())
+                .map(|entry| entry.name().to_owned())
+                .collect(),
+            on: on_names(&library.entries),
+        })
+    }
+
+    /// Turns the library to match a restore: every entry (not code) is on
+    /// exactly when `on` names it. With `names` (the library before a
+    /// try-on), an entry an apply saved since goes and the rest go back to
+    /// their places. Writes nothing when nothing changes. The caller holds
+    /// the store's lock.
+    pub(crate) fn library_follow_locked(
+        &self,
+        on: &[String],
+        names: Option<&[String]>,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        let mut library = self.read_library()?;
+        let before = library.entries.clone();
+        if let Some(names) = names {
+            let had = |entry: &Entry| names.iter().any(|name| name == entry.name());
+            // Only what an apply saved: an import or a code entry came in
+            // by itself and stays.
+            library
+                .entries
+                .retain(|entry| entry.code.is_some() || entry.generation.is_none() || had(entry));
+            library.entries.sort_by_key(|entry| {
+                names.iter().position(|name| name == entry.name()).map_or(0, |at| at + 1)
+            });
+        }
+        for entry in library.entries.iter_mut().filter(|entry| entry.code.is_none()) {
+            let was = entry.on;
+            entry.on = on.iter().any(|name| name == entry.name());
+            if entry.on && !was {
+                entry.on_ms = Some(now_ms);
+            }
+        }
+        if library.entries != before {
+            self.write_library(&mut library)?;
+        }
         Ok(())
     }
 
@@ -415,6 +484,7 @@ impl Customize {
         {
             let mut entry = library.entries.remove(at);
             entry.on = true;
+            entry.on_ms = Some(now_ms);
             let name = entry.name().to_owned();
             library.entries.insert(0, entry);
             self.write_library(&mut library)?;
@@ -445,6 +515,7 @@ impl Customize {
                 profile,
                 added_ms: Some(now_ms),
                 generation: Some(generation.n),
+                on_ms: Some(now_ms),
                 code: None,
             },
         );
@@ -470,6 +541,7 @@ impl Customize {
                 )));
             }
             entry.on = on;
+            entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
             Ok(())
         })
     }
@@ -529,6 +601,7 @@ impl Customize {
                     profile,
                     added_ms,
                     generation: None,
+                    on_ms: layer.has_web().then_some(now_ms),
                     code: Some(layer),
                 },
             );
@@ -640,7 +713,7 @@ impl Customize {
             .entries
             .into_iter()
             .filter(|entry| !only_on || entry.on)
-            .map(|entry| Entry { added_ms: None, generation: None, ..entry })
+            .map(|entry| Entry { added_ms: None, generation: None, on_ms: None, ..entry })
             .collect();
         Ok(Collection {
             version: COLLECTION_VERSION,
@@ -711,6 +784,7 @@ impl Customize {
                     profile,
                     added_ms: Some(now_ms),
                     generation: None,
+                    on_ms: (turn_on && entry.on).then_some(now_ms),
                     code: entry.code.clone(),
                 });
             }
@@ -724,57 +798,6 @@ impl Customize {
             Ok(())
         })?;
         Ok(Imported { added, already, renamed, change })
-    }
-
-    /// Reads a collection from its text, checking only its shape; import
-    /// checks every profile.
-    pub fn parse_collection(text: &str) -> Result<Collection, Error> {
-        if text.len() > MAX_COLLECTION_BYTES {
-            return Err(Error::Library(format!(
-                "a collection is at most {} MiB",
-                MAX_COLLECTION_BYTES / 1024 / 1024
-            )));
-        }
-        let probe: Value = serde_json::from_str(text).map_err(|error| {
-            Error::Library(format!(
-                "not a cmux collection (line {}, column {})",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        // A single profile is a collection of one.
-        if probe.get("cmuxProfile").is_some() {
-            let profile: Profile = serde_json::from_value(probe)
-                .map_err(|_| Error::Library("not a cmux profile".to_owned()))?;
-            return Ok(Collection {
-                version: COLLECTION_VERSION,
-                name: profile.name.clone(),
-                description: String::new(),
-                entries: vec![Entry {
-                    on: true,
-                    source: "import".to_owned(),
-                    words: Vec::new(),
-                    thumbnail: Thumbnail::default(),
-                    profile,
-                    added_ms: None,
-                    generation: None,
-                    code: None,
-                }],
-            });
-        }
-        match probe.get("cmuxCollection").and_then(Value::as_u64) {
-            Some(1) => {}
-            Some(n) => {
-                return Err(Error::Library(format!(
-                    "this collection is format {n}; this cmux reads format {COLLECTION_VERSION}"
-                )));
-            }
-            None => return Err(Error::Library("not a cmux collection".to_owned())),
-        }
-        // Where it stops reading, never what it read there.
-        serde_json::from_value(probe).map_err(|error| {
-            Error::Library(format!("not a cmux collection: {}", redact_serde(&error.to_string())))
-        })
     }
 
     /// Every entry of `collection` is one `use` would take, and the set is
@@ -1356,4 +1379,13 @@ fn find<'a>(entries: &'a mut [Entry], name: &str) -> Result<&'a mut Entry, Error
         };
         Error::Library(format!("there is no library entry {name:?}; {hint}"))
     })
+}
+
+/// The names of the entries that are on (code entries left out).
+fn on_names(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|entry| entry.on && entry.code.is_none())
+        .map(|entry| entry.name().to_owned())
+        .collect()
 }

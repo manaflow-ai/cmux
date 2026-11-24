@@ -256,7 +256,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
-    case tabState(refresh: Bool)
+    /// `terminalSwitch`: also answer whether the chat is half of a terminal and chat pair (its "..." asks as it
+    /// opens, and once as the chat loads; never on a hover, since that answer walks every machine's agents).
+    case tabState(refresh: Bool, terminalSwitch: Bool = false)
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)

@@ -100,6 +100,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
             ),
             SettingDescriptor(
+                ThemeFileExceptionsSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.themeFileExceptions", "Changed Over Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFileExceptions.help", "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."),
+                kind: .stringList,
+                default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
+                keywords: ["theme file", "override", "exception"]
+            ).hiddenFromSettingsPage("bookkeeping of the rows changed over the theme file; each row's note says so").hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
+            SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -264,6 +274,16 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(ReducedBackgroundsSetting.fallback),
                 keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
+            ),
+            SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
             ),
             SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,

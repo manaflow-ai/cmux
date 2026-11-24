@@ -1735,7 +1735,8 @@ struct Attempt {
 #[derive(Debug, PartialEq, Eq)]
 enum Waited {
     Elapsed,
-    /// The wall clock jumped past the monotonic one: the machine resumed.
+    /// The machine resumed: the wall clock jumped past the monotonic one, or
+    /// the monotonic clock moved past the relay's retirement between two looks.
     Resumed,
     Shutdown,
 }
@@ -1785,7 +1786,11 @@ async fn wait_unless_resumed(
             }
             _ = interval.tick() => false,
         };
-        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+        // A wall-clock step past the monotonic one, or a monotonic gap past
+        // the relay's retirement between two looks a second apart (a pause
+        // where every guest clock kept running).
+        let look = clocks.look(Instant::now(), wall());
+        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
             return Waited::Resumed;
         }
         if elapsed {
@@ -1874,7 +1879,8 @@ async fn run_registration_once(
     }
     let mut socket = control.socket;
     // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
-    // or a resume's wall-clock jump, finds a dead registration in seconds.
+    // or a resume (a wall-clock jump, or a monotonic gap past the relay's
+    // 45 s between two checks), finds a dead registration in seconds.
     let mut liveness = registration_liveness(control.lease_seconds);
     let mut renew_at = control.renew_at;
     // Make-before-break: before the ticket expires a second control socket

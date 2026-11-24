@@ -23,7 +23,7 @@ not followed, so the CEF framework's top-level links count once) and, with
 each component, each Mach-O binary split into code, unwind tables, symbols and
 signature, the bytes by kind (binaries, JS, CSS, HTML, fonts, images, wasm,
 localizations, licenses), identical files shipped more than once, and the
-largest files, and the app executable's code by language (Swift, Rust, C++,
+largest files, and the app's code by language (Swift, Rust, C++,
 Zig, C), read from the function map the app ships for in-app symbolication
 (Contents/Resources/cmux-symbols.bin, written by scripts/write-app-symbol-map.py).
 Its DMG column compresses every file on its own in 1 MiB LZMA
@@ -443,6 +443,19 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
+# cmux NEXT's code is this framework behind a stub executable (Packages/macOS/CmuxNext/Package.swift,
+# CMUX-629); a live code build links it into the executable instead.
+APP_CODE_FRAMEWORK = "Contents/Frameworks/CmuxNextApp.framework"
+APP_CODE_BINARY = f"{APP_CODE_FRAMEWORK}/Versions/A/CmuxNextApp"
+
+
+def app_code_binary(app: Path) -> str:
+    """The binary that holds the app's code, which cmux-symbols.bin maps: the CmuxNextApp
+    framework's, or the executable when the framework is absent (a static build)."""
+    p = app / APP_CODE_BINARY
+    return APP_CODE_BINARY if p.is_file() and not p.is_symlink() else app_executable(app)
+
+
 def app_executable(app: Path) -> str:
     """Contents/MacOS/<CFBundleExecutable>, or the app's name when Info.plist does not say."""
     try:
@@ -520,7 +533,7 @@ def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict
     symbol_map = app / SYMBOL_MAP
     languages = code_by_language(symbol_map.read_bytes()) if symbol_map.is_file() else None
     if languages:
-        out["code_by_language"] = {"binary": app_executable(app), "source": SYMBOL_MAP, "bytes": languages}
+        out["code_by_language"] = {"binary": app_code_binary(app), "source": SYMBOL_MAP, "bytes": languages}
     if dmg is not None:
         out["dmg"] = dmg.name
         out["dmg_bytes"] = dmg.stat().st_size
@@ -568,7 +581,7 @@ WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-
 CATEGORIES = (
     ("cef", "CEF (Chromium framework and its helper apps)"),
     ("cmux_tui", "cmux-tui (Resources/bin/cmux: cmux, acpmux, cmux-tui)"),
-    ("swift_app", "Swift app (Contents/MacOS, Rust FFI linked in)"),
+    ("swift_app", "Swift app (Contents/MacOS and CmuxNextApp.framework, Rust FFI linked in)"),
     ("other_executables", "Other executables (Rust helpers, Computer Use, remote browser host, ghostty)"),
     ("other_frameworks", "Other frameworks (WebRTC, Sentry, ...)"),
     ("webviews", "Webviews (React pages, agent pane, markdown viewer)"),
@@ -582,7 +595,7 @@ def category_of(rel: str, is_macho: bool) -> str:
         return "cef"
     if rel == "Contents/Resources/bin/cmux":
         return "cmux_tui"
-    if rel.startswith("Contents/MacOS/"):
+    if rel.startswith(("Contents/MacOS/", APP_CODE_FRAMEWORK + "/")):
         return "swift_app"
     if is_macho and rel.startswith(("Contents/Resources/", "Contents/Helpers/", "Contents/Library/",
                                     "Contents/PlugIns/", "Contents/XPCServices/")):

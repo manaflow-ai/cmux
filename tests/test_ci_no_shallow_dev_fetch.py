@@ -72,7 +72,6 @@ OWN_REPOSITORY = {
         "clean_merge_tree fetches into a scratch `git init --bare` TemporaryDirectory it just made (#44253)",
     "scripts/cmux-next/base_autofix_pushed_exports.py":
         "remote_history fetches into a scratch `git init --bare` repository it just made, then deletes it",
-    "scripts/cmux-next/build-cua-driver-sdk.sh": "fetches into its own `git init` work directory",
     "scripts/cmux-next/generate-third-party-notices.sh": "fetches into fresh `git init` cache directories",
     "scripts/cmux-next/notices/ghosttykit_repin.py": "fetches into a fresh `git init` cache directory",
     "scripts/cmux-next/notices/vt_link_graph.py": "fetches into a fresh `git init` temp directory",

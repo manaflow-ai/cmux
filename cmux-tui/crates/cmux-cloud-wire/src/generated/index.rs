@@ -15,6 +15,9 @@ pub mod op_names {
     pub const AUTOMATION_LIST: &str = "automation.list";
     pub const AUTOMATION_RUN: &str = "automation.run";
     pub const AUTOMATION_RUNS_LIST: &str = "automation.runs.list";
+    pub const AUTOMATION_SECRET_LIST: &str = "automation.secret.list";
+    pub const AUTOMATION_SECRET_REMOVE: &str = "automation.secret.remove";
+    pub const AUTOMATION_SECRET_SET: &str = "automation.secret.set";
     pub const AUTOMATION_SETTINGS_GET: &str = "automation.settings.get";
     pub const AUTOMATION_SETTINGS_SET: &str = "automation.settings.set";
     pub const AUTOMATION_TELEPORT_ABORT: &str = "automation.teleport.abort";
@@ -260,6 +263,9 @@ pub mod op_names {
         AUTOMATION_LIST,
         AUTOMATION_RUN,
         AUTOMATION_RUNS_LIST,
+        AUTOMATION_SECRET_LIST,
+        AUTOMATION_SECRET_REMOVE,
+        AUTOMATION_SECRET_SET,
         AUTOMATION_SETTINGS_GET,
         AUTOMATION_SETTINGS_SET,
         AUTOMATION_TELEPORT_ABORT,
@@ -508,6 +514,9 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "automation.list" => visitor.visit::<AutomationListOp>(),
         "automation.run" => visitor.visit::<AutomationRunOp>(),
         "automation.runs.list" => visitor.visit::<AutomationRunsListOp>(),
+        "automation.secret.list" => visitor.visit::<AutomationSecretListOp>(),
+        "automation.secret.remove" => visitor.visit::<AutomationSecretRemoveOp>(),
+        "automation.secret.set" => visitor.visit::<AutomationSecretSetOp>(),
         "automation.settings.get" => visitor.visit::<AutomationSettingsGetOp>(),
         "automation.settings.set" => visitor.visit::<AutomationSettingsSetOp>(),
         "automation.teleport.abort" => visitor.visit::<AutomationTeleportAbortOp>(),

@@ -1,4 +1,5 @@
 @testable import CmuxNextMacScreen
+import CmuxNextRemoteView
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -42,6 +43,20 @@ struct MacScreenFrameTimingsTests {
         #expect(timings.dropped == 2, "frames 3 and 4 never showed")
         #expect(timings.intervals.summary == MacScreenRollingSamples.Summary(count: 3, p50: 16, p95: 16, max: 16))
         #expect(timings.present.summary == MacScreenRollingSamples.Summary(count: 4, p50: 1, p95: 4, max: 4))
+    }
+
+    /// A frame on the glass gives the viewer's Decode (release to decoded), Present (decoded to
+    /// the glass) and their sum; times out of order (another clock) are left out.
+    @Test func shownFramesGiveDecodeAndPresentStages() throws {
+        var timings = MacScreenFrameTimings()
+        let ms: UInt64 = 1_000_000
+        timings.shown(RemoteViewerFrameTimes(frame: 1, releasedAtNanos: 100 * ms, decodedAtNanos: 103 * ms, presentedAtNanos: 111 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 2, releasedAtNanos: 200 * ms, decodedAtNanos: 202 * ms, presentedAtNanos: 206 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 3, releasedAtNanos: 0, decodedAtNanos: 302 * ms, presentedAtNanos: 306 * ms))
+        timings.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 400 * ms, decodedAtNanos: 402 * ms, presentedAtNanos: 401 * ms))
+        #expect(timings.decode.summary == MacScreenRollingSamples.Summary(count: 2, p50: 2, p95: 3, max: 3))
+        #expect(timings.glass.summary == MacScreenRollingSamples.Summary(count: 2, p50: 4, p95: 8, max: 8))
+        #expect(timings.decodePresent.summary == MacScreenRollingSamples.Summary(count: 2, p50: 6, p95: 11, max: 11))
     }
 
     /// The counter the pane's decoder ticks keeps the same timings, at most a window of samples.
@@ -115,6 +130,8 @@ struct MacScreenStateControlTests {
         session.frameCounter = counter
         _ = counter.tick(frame: 1)
         _ = counter.tick(frame: 4)
+        let ms: UInt64 = 1_000_000
+        counter.shown(RemoteViewerFrameTimes(frame: 4, releasedAtNanos: 10 * ms, decodedAtNanos: 13 * ms, presentedAtNanos: 21 * ms))
         session.framesCounted(counter)
         // An old transport's late batch is not this session's.
         session.framesCounted(MacScreenFrameCounter())
@@ -126,6 +143,9 @@ struct MacScreenStateControlTests {
         #expect(live["frames_dropped"]?.doubleValue == 2)
         #expect(live["rtt_ms_window"]?.objectValue?["p50"]?.doubleValue == 18)
         #expect(live["frame_interval_ms"]?.objectValue?["count"]?.doubleValue == 1)
+        #expect(live["decode_ms"]?.objectValue?["p50"]?.doubleValue == 3)
+        #expect(live["glass_ms"]?.objectValue?["p50"]?.doubleValue == 8)
+        #expect(live["decode_present_ms"]?.objectValue?["p50"]?.doubleValue == 11)
         #expect(try rows(pages, tab: "other").isEmpty)
         pages.tabClosed("a")
         pages.tabClosed("home")

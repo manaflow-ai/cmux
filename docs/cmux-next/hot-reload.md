@@ -10,6 +10,22 @@ For a tagged Debug app with separate chat and pages servers, use
 
 ## The loop
 
+**The quickest way to run your change: copy your nightly and swap your code in.** In your cmux checkout:
+
+```sh
+cmux app try .              # a fresh copy of cmux NIGHTLY runs beside yours, with your code in
+cmux app try . --extract    # keep the code that went in (branch cmux-try/<copy> and a patch)
+cmux app try . --stop       # quit the copy and delete it
+```
+
+The copy is an APFS clone of `/Applications/cmux NIGHTLY.app` (`--from APP` for another build) with its own
+bundle id, data, socket and daemon, so the cmux you are using is never touched. Your web UI goes in through a dev
+server (each save shows live) and your daemon Rust as the published build of your tree, else a local cargo
+build. It prints the copy's socket; `cmux --app-socket SOCKET ...` drives it. Run it again for a fresh copy with
+your newest code. Dev builds stay available: when the change needs one (Swift, Rust the app links), the command
+says why and prints the fleet build command. It is `scripts/cmux-next/hot-verify.py run`, the same engine as
+`look` below without the screenshots.
+
 Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
 could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
 a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
