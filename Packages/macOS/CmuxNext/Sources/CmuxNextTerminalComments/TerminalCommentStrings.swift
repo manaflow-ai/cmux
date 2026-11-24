@@ -2,7 +2,8 @@ import CmuxNextCompat
 import Foundation
 
 /// The terminal selection comment's text (Resources/TerminalComments.xcstrings).
-public enum TerminalCommentStrings {
+public struct TerminalCommentStrings {
+    public init() {}
     public static var menuTitle: String { text("terminalComments.menuTitle", "Comment…") }
     public static var noChat: String { text("terminalComments.noChat", "This workspace has no agent chat to send the comment to.") }
     public static var gesture: String { text("terminalComments.gesture", "A comment on a terminal selection needs a click or a key in cmux.") }
