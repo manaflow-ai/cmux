@@ -940,7 +940,7 @@ def main():
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--out")
     args = p.parse_args()
-    args.dhat_mark_days = {int(d) for d in args.dhat_mark_days.split(",") if d}
+    args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args
     for path in (args.acpmux, args.tui):
