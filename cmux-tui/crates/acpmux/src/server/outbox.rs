@@ -676,9 +676,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
-        // The same for the hub's gate opening (`mesh_gate.rs`): a relay send that failed
-        // waits behind it with every other one, and they all go when one probe gets through.
-        let opened = hub.mesh.gate().opened();
+        // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
+        // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
+        let opened = hub.mesh.gate().opened.notified();
         tokio::pin!(opened);
         opened.as_mut().enable();
         // This attempt asked the team hub (or its gate kept it from asking).
@@ -930,23 +930,29 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // message's wait never runs past its day; an intent's delays are never cut, so an
                 // intent older than a day after a restart does not spend its retries at once.
                 //
-                // A send the hub's shut gate holds waits for the gate, not its own schedule: until
-                // the gate lets its next probe go (with a little jitter, so the queue does not
-                // race for it) or the hub takes any post, whichever comes first. Twenty sends
-                // refused in one window go together once it opens, in their order (`waits_behind`),
-                // rather than one per window as each own back-off ran out (RFD 0049 R1).
+                // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
+                // opens: the outbox drains as soon as the hub is back, not on each send's own
+                // schedule. Its key makes the post again the same message. One the hub's shut gate
+                // held waits for the gate, not its own schedule: until the gate lets its next probe
+                // go (with a little jitter, so the queue does not race for it) or the hub takes any
+                // post, whichever comes first. Twenty sends refused in one window go together once
+                // it opens, in their order (`waits_behind`), rather than one per window as each own
+                // back-off ran out (RFD 0049 R1).
                 let own = retry_sleep(&delivery, secs, crate::store::now_ms());
-                let behind_gate = relayed && hub.mesh.gate().shut();
+                let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
+                let behind_gate =
+                    !delivery.projection_only() && relayed && hub.mesh.gate().shut();
                 let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
                     Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
                     None => own,
                 };
                 let sleep = tokio::time::sleep(wait);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
                 tokio::select! {
                     () = sleep => {}
                     () = ready, if on_ready => {}
-                    () = opened, if behind_gate => {}
+                    () = opened, if on_open => {}
                 }
             }
         }
