@@ -1,3 +1,5 @@
+import { callbackSearch } from "./search"
+
 /**
  * Reads only the team claim from an integration state's JWT for request routing.
  *
@@ -160,6 +162,20 @@ export const integrationAppHandoff = (search: {
     if (value) query.set(key, value)
   }
   return `${ret}?${query.toString()}`
+}
+
+/**
+ * The callback request's answer when it is an app handoff (``integrationAppHandoff``): a plain 302 to the app's link,
+ * sent by the route's server handler before the router runs. The router's own `redirect()` allows only http(s) and a
+ * few other schemes, so a `cmux://` redirect thrown from `beforeLoad` fails the whole render (HTTP 500) instead.
+ * Undefined for any other callback, which the page renders and finishes as before.
+ */
+export const integrationAppHandoffResponse = (url: string): Response | undefined => {
+  const search = Object.fromEntries(new URL(url).searchParams)
+  const handoff = integrationAppHandoff(callbackSearch(search))
+  if (!handoff) return undefined
+  // The query carries GitHub's one-time code: not cached, and not sent on as a referrer.
+  return new Response(null, { status: 302, headers: { Location: handoff, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
 }
 
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({

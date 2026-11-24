@@ -36,6 +36,35 @@ async fn a_stalled_relay_misses_its_budget_and_is_not_listed_without_a_cache() {
 }
 
 #[tokio::test]
+async fn a_relay_that_never_answers_is_waited_on_once_then_listed_as_unknown_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join(CACHE_FILE);
+    let first = start_with(Some(stalled_relay()), cache.clone(), None, FAR_BUDGET).finish().await;
+    assert_eq!(first.relay.unwrap().state, RemoteState::Missing);
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let far = start_with(Some(stalled_relay()), cache.clone(), None, FAR_BUDGET).finish().await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_millis(100), "a known slow relay was waited on: {took:?}");
+        let relay = far.relay.unwrap();
+        assert_eq!(relay.state, RemoteState::Missing);
+        assert!(relay.rows.is_empty());
+        assert_eq!(
+            relay.line(0).as_deref(),
+            Some(
+                "acpmux: other machines' sessions through sh: no answer yet, refreshing; not listed"
+            )
+        );
+    }
+    // Its first answer is kept and retires the miss: the next ls lists those rows with their asOfMs.
+    write_cache(&cache, "sh", &[json!({"sessionId": "r-1"})], crate::store::now_ms());
+    let far = start_with(Some(stalled_relay()), cache, None, FAR_BUDGET).finish().await;
+    let relay = far.relay.unwrap();
+    assert!(matches!(relay.state, RemoteState::Stale { .. }));
+    assert!(relay.rows[0].get("stale").is_none(), "a kept row is not a down peer's");
+}
+
+#[tokio::test]
 async fn a_fresh_relay_listing_is_kept_and_the_next_ls_serves_it_without_waiting() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join(CACHE_FILE);
@@ -59,7 +88,7 @@ async fn a_fresh_relay_listing_is_kept_and_the_next_ls_serves_it_without_waiting
     let RemoteState::Stale { as_of_ms } = stale.state else { panic!("{:?}", stale.state) };
     assert_eq!(stale.rows.len(), 1);
     assert_eq!(stale.rows[0]["sessionId"], "r-1");
-    assert_eq!(stale.rows[0]["stale"], true);
+    assert!(stale.rows[0].get("stale").is_none());
     assert_eq!(stale.rows[0]["asOfMs"], as_of_ms);
     let line = stale.line(as_of_ms + 180_000).unwrap();
     assert_eq!(
