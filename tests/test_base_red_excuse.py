@@ -1815,7 +1815,7 @@ class Excusing(unittest.TestCase):
                                         steps=[])
         self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
 
-        def run(args):
+        def run(args, *, repo=None):
             # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
             query = next(arg for arg in args if arg.startswith("query="))
             asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
@@ -9307,7 +9307,7 @@ class SweepGitHub(FakeGitHub):
             return copy.deepcopy(self.runs[int(route.rsplit("/", 1)[1])])
         return super().json(route, paginate=paginate)
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         self.graphql += 1
         query = next(arg for arg in args if arg.startswith("query="))
@@ -9373,7 +9373,7 @@ class TreeReuseGitHub(FakeGitHub):
             {"conclusion": job["conclusion"].upper()} for job in self.jobs.values()
             if job["run_id"] == run and job["name"] == name]}
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
@@ -9423,9 +9423,50 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                                                             "feat-cmux-next run 20"):
                     self.judge(TreeReuseGitHub(nodes=nodes, base_conclusion="success"))
 
+    def test_cancelled_flood_uses_repository_scoped_suite_verdicts(self):
+        # The private run's suite IDs are invisible in the judge's checkout. Thirteen cancelled pushes have
+        # no jobs. The fourteenth has a verdict even though its workflow too was superseded (HQ#22832).
+        for conclusion in ("failure", "success"):
+            with self.subTest(conclusion=conclusion):
+                fixture = TreeReuseGitHub(nodes=True, base_conclusion=conclusion)
+                fixture.base_runs = fixture.base_runs[:13] + fixture.base_runs[-1:] + fixture.base_runs[13:24]
+                fixture.base_runs[13]["created_at"] = "2026-11-12T23:46:30Z"
+                for run in fixture.base_runs:
+                    run["conclusion"] = "cancelled"
+                fixture.jobs = {job_id: fixture.jobs[job_id] for job_id in (1, 2)}
+                # Let main pass --repo through the real GraphQL subprocess transport. Other evidence comes from
+                # the fixture. A repo-less query gets an unknown suite, which forces a bounded REST read.
+                suites, fixture.run = fixture.run, excuse.GitHub().run
+                scopes = []
+
+                def gh(argv, *, stdout, stderr, env=None):
+                    self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+                    scope = (env or os.environ).get("GH_REPO")
+                    scopes.append(scope)
+                    reply = suites(argv[1:]) if scope == REPO else json.dumps({"data": {"nodes": [None] * 25}})
+                    stdout.write(reply.encode())
+                    return unittest.mock.Mock(returncode=0)
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.dict(os.environ, {"GH_REPO": "teamleaderleo/leo-workspace",
+                                                           "TAP_TESTS_STATE": "off"}), \
+                        unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                        unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+                if conclusion == "failure":
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertIn("run 20", stdout.getvalue())
+                else:
+                    self.assertEqual(code, 1)
+                    self.assertIn("not red on feat-cmux-next run 20", stderr.getvalue())
+                self.assertEqual([run for run in fixture.job_reads() if run != 10], [20])
+                self.assertTrue(scopes)
+                self.assertEqual(set(scopes), {REPO})
+
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
@@ -9463,7 +9504,7 @@ class SweepLimit(unittest.TestCase):
 
     def test_a_suite_read_that_fails_reads_every_run_as_before(self):
         gh = SweepGitHub(1)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         self.assertEqual(gh.judge(1), SweepGitHub(1, suites=False).judge(1))
         self.assertGreater(len(gh.targets), 30)
 
@@ -14475,7 +14516,7 @@ class StepFixture:
                     found["workflow_runs"] = [run for run in found["workflow_runs"] if run["id"] != 19]
                 return found
 
-            def run(self, args):
+            def run(self, args, *, repo=None):
                 # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
                 assert args[:2] == ["api", "graphql"], args
                 query = next(arg for arg in args if arg.startswith("query="))
@@ -16675,7 +16716,7 @@ class SpawnOwnerGitHub:
     def log(self, repo, job):
         return self.logs[job["id"]]
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))

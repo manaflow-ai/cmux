@@ -9,6 +9,7 @@ mod claim_check;
 #[cfg(unix)]
 mod closed_tmp;
 mod control_asks;
+mod verify;
 
 mod account_usage;
 mod activity;
