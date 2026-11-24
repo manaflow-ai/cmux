@@ -47,7 +47,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";

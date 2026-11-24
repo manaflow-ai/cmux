@@ -25,7 +25,7 @@ public final class PaletteModel {
             // A tree page reads `~` or `/` as a jump, not a filter.
             if jump(for: query) { return }
             queryFrames.edited(scope: nav.top?.scope.rawValue ?? "")
-            send(.setQuery(query))
+            send(.setQuery(query, allowsScopeEntry: usesScopeShortcuts))
         }
     }
 
@@ -220,10 +220,15 @@ public final class PaletteModel {
 
     public var depth: Int { nav.depth }
 
+    var usesScopeShortcuts: Bool {
+        if let current, case .list(let page) = current.kind { return page.usesScopeShortcuts }
+        return true
+    }
+
     /// "@ Tabs   # Workspaces   > Commands   ? All Scopes" for the footer of
     /// the empty root, when prefixes enter scopes.
     public var prefixHints: String? {
-        guard scopeEntry.showsPrefixHints, navigation.config.prefixEntry, scopeChips.isEmpty, query.isEmpty else { return nil }
+        guard usesScopeShortcuts, scopeEntry.showsPrefixHints, navigation.config.prefixEntry, scopeChips.isEmpty, query.isEmpty else { return nil }
         let graph = navigation.graph
         let hints = graph.children(of: .root).compactMap { scope -> String? in
             guard let prefix = scope.prefix else { return nil }
