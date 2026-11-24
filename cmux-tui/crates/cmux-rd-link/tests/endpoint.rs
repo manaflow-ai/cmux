@@ -432,3 +432,25 @@ fn the_route_that_finished_the_handshake_carries_the_session_at_once() {
     pair.run(&world, 3_000);
     assert_eq!(pair.viewer_path(), Some(PathKind::DirectWan));
 }
+
+/// The path the handshake picked had no round trip yet; the first probe answer
+/// on it reports the path again with its RTT, so a carrier that reads the RTT
+/// only from `PathChanged` (the host's send window) learns it.
+#[test]
+fn the_handshake_path_reports_its_round_trip_once_a_probe_answers() {
+    let mut pair = Pair::new();
+    let world = World { lan_works: false, wan_works: true, relay_works: true };
+    while !(pair.viewer.link().is_established() && pair.host.link().is_established()) {
+        assert!(pair.now < 2_000_000, "the link never came up");
+        pair.run(&world, 10);
+    }
+    pair.run(&world, 3_000);
+    let last_rtt = |events: &[EndpointEvent]| {
+        events.iter().rev().find_map(|e| match e {
+            EndpointEvent::PathChanged { route: Some(_), rtt_us, .. } => Some(*rtt_us),
+            _ => None,
+        })
+    };
+    assert!(matches!(last_rtt(&pair.viewer_events), Some(Some(_))), "viewer: no RTT");
+    assert!(matches!(last_rtt(&pair.host_events), Some(Some(_))), "host: no RTT");
+}

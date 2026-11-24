@@ -416,8 +416,18 @@ impl Endpoint {
             entry.unanswered_datagrams = 0;
         }
         let outcome = ProbeOutcome::Answered { rtt_us: now_us.saturating_sub(sent).max(1) };
-        if let Ok(Some(switch)) = self.selector.on_probe(path, outcome) {
-            self.report_switch(switch.to);
+        // The route that finished the handshake carries the session before any
+        // probe has answered, so its `PathChanged` had no round trip. The first
+        // answer on the current path reports it again with one: the host sizes
+        // its send window from it (`path_rtt_us`).
+        let unmeasured = self.selector.current() == Some(path)
+            && self.selector.path(path).is_some_and(|view| view.rtt_us.is_none());
+        match self.selector.on_probe(path, outcome) {
+            Ok(Some(switch)) => self.report_switch(switch.to),
+            Ok(None) if unmeasured && self.selector.current() == Some(path) => {
+                self.report_switch(Some(path));
+            }
+            _ => {}
         }
     }
 
