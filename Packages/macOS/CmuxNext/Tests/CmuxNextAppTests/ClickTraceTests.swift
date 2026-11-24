@@ -42,6 +42,25 @@ import Testing
         #expect(entry.keyWindow == nil)
     }
 
+    /// Nightly 4518008579501 onward trapped in `press` (SIGTRAP, `Int(NaN)`) 3 s after the first window on every
+    /// onboarding walk, so a new person's app quit under them. A point that is no number records, never traps.
+    @Test func aPressAtAPointThatIsNoNumberRecordsInsteadOfTrapping() throws {
+        #expect(ClickTrace.point(.nan) == 0)
+        #expect(ClickTrace.point(.infinity) == 0)
+        #expect(ClickTrace.point(-.infinity) == 0)
+        #expect(ClickTrace.point(CGFloat(Double.greatestFiniteMagnitude)) == Int.max)
+        #expect(ClickTrace.point(-CGFloat(Double.greatestFiniteMagnitude)) == Int.min)
+        #expect(ClickTrace.point(41.6) == 42)
+        _ = NSApplication.shared
+        let trace = ClickTrace(clock: { 100 })
+        let event = try Self.press(at: NSPoint(x: CGFloat.nan, y: CGFloat.nan), timestamp: 9)
+        trace.press(event, window: nil)
+        let entries = trace.entries()
+        try #require(entries.count == 1, "\(entries)")
+        #expect(entries[0].x == 0)
+        #expect(entries[0].y == 0)
+    }
+
     @Test func aGrantLongAfterThePressIsNoClicks() throws {
         _ = NSApplication.shared
         let clock = Clock()
@@ -75,28 +94,6 @@ import Testing
         try #require(entries.count == 2, "\(entries)")
         #expect(entries[0].overlayTook && entries[0].forwardedToNumber == overlay.windowNumber)
         #expect(!entries[1].overlayTook && entries[1].forwardedTo == "NSWindow" && entries[1].forwardedToNumber == parent.windowNumber)
-    }
-
-    /// hq#22239: the screen-share host crashed (SIGTRAP) when sharing started, in `press` converting a press's
-    /// non-finite point to `Int`. A press with no finite point records its line with no x and y.
-    @Test func aPressWithNoFinitePointRecordsNoCoordinatesAndDoesNotTrap() throws {
-        _ = NSApplication.shared
-        let trace = ClickTrace()
-        // AppKit may refuse to build such an event; when it does, the conversion below still covers the class.
-        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: CGFloat.nan, y: CGFloat.infinity),
-                                          modifierFlags: [], timestamp: 7, windowNumber: 0, context: nil, eventNumber: 1,
-                                          clickCount: 1, pressure: 1) {
-            trace.press(event, window: nil)
-            let entries = trace.entries()
-            try #require(entries.count == 1, "\(entries)")
-            if !event.locationInWindow.x.isFinite { #expect(entries[0].x == nil) }
-            if !event.locationInWindow.y.isFinite { #expect(entries[0].y == nil) }
-        }
-        #expect(ClickTrace.points(.nan) == nil)
-        #expect(ClickTrace.points(-.infinity) == nil)
-        #expect(ClickTrace.points(1e300) == nil)
-        #expect(ClickTrace.points(40.4) == 40)
-        #expect(ClickTrace.points(-2.6) == -3)
     }
 
     @Test func theRingKeepsTheNewestPressesInOrder() throws {
