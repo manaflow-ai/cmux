@@ -236,8 +236,7 @@ export class TerminalHistoryStore {
     await this.load();
   }
 
-  async loadMore(turnIndex: number, role: "user" | "assistant"): Promise<void> {
-    const turn = this.snapshot.turns[turnIndex];
+  async loadMore(turn: TranscriptTurn, role: "user" | "assistant"): Promise<void> {
     const offset = role === "user" ? turn?.promptMore : turn?.answerMore;
     if (!this.provider || turn?.pageEnd === undefined || turn.turnIndex === undefined || offset === undefined) return;
     try {

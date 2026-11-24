@@ -142,7 +142,6 @@ export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistory
               identity={key}
               turn={turn}
               store={store}
-              index={i}
               strings={strings}
               highlighted={hitKeys.has(key)}
               rawOffset={
@@ -183,7 +182,6 @@ const Turn = memo(function Turn({
   identity,
   turn,
   store,
-  index,
   strings,
   highlighted,
   rawOffset,
@@ -191,7 +189,6 @@ const Turn = memo(function Turn({
   identity: string;
   turn: TranscriptTurn;
   store: TerminalHistoryStore;
-  index: number;
   strings: Strings;
   highlighted: boolean;
   rawOffset?: number;
@@ -215,7 +212,7 @@ const Turn = memo(function Turn({
                 <button
                   type="button"
                   className="terminal-history-more"
-                  onClick={() => void store.loadMore(index, "user")}
+                  onClick={() => void store.loadMore(turn, "user")}
                 >
                   {strings.t("message.more")}
                 </button>
@@ -242,7 +239,7 @@ const Turn = memo(function Turn({
                 <button
                   type="button"
                   className="terminal-history-more"
-                  onClick={() => void store.loadMore(index, "assistant")}
+                  onClick={() => void store.loadMore(turn, "assistant")}
                 >
                   {strings.t("message.more")}
                 </button>
