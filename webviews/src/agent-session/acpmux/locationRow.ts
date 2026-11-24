@@ -28,7 +28,7 @@ export type PaneChat = { handshaken: boolean; newSession: boolean };
 /// chat is known by the handshake's `newSession`, a harness switch's chat by `switching`, and any
 /// other chat by its session arriving in the snapshot (`showsLocationRow` then reads its turns).
 /// Before that the pane may be an existing chat being restored or opened, its agent service still
-/// starting ("Waiting for the agent service"): its snapshot is empty and looks like a new chat's.
+/// starting: its snapshot is empty and looks like a new chat's.
 /// Leo (2026-10-30): "WHEN I OPEN UP A FUCKING EXISTING TAB I SHOULDN'T FUCKING SEE CHOOSE PROJECT
 /// CHOOSE ENVIRONMENT AT THE TOP OF THE FFUCKING COMPOSER".
 export function paneKnowsNewChat(

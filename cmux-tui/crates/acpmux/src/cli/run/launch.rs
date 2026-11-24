@@ -169,6 +169,19 @@ pub(super) fn successor_meta(args: &NewArgs, meta: &mut Value) {
 /// (`hub/admission.rs`), never a refusal, and running unlike the session it takes over from
 /// (`hub/lineage/successor.rs`).
 pub(crate) fn print_new_warnings(created: &Value) {
+    // Placed on a peer, since this host had no room (`hub/admission_redirect.rs`).
+    if let Some(on) = created.pointer("/_meta/acpmux/placedOn").and_then(Value::as_str) {
+        let why = created.pointer("/_meta/acpmux/placement/why").and_then(Value::as_str);
+        let reason = created.pointer("/_meta/acpmux/placement/reason").and_then(Value::as_str);
+        let here = match reason {
+            Some("busy") => "this host is busy",
+            _ => "this host is at its lane cap",
+        };
+        match why {
+            Some(why) => eprintln!("acpmux: {here}, so it was {why}"),
+            None => eprintln!("acpmux: {here}, so it was placed on {on}"),
+        }
+    }
     for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
         if let Some(w) = created.pointer(at).and_then(Value::as_str) {
             eprintln!("acpmux: warning: {w}");
