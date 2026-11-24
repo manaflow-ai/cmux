@@ -121,6 +121,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -316,6 +318,7 @@ pub(super) fn advertised_capabilities(
         AGENT_CLI_HYBRID_CAPABILITY,
         AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         TERMINAL_SHELL_LINES_CAPABILITY,
+        TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY,
         ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
