@@ -3648,6 +3648,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
     LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
+    # Gated jobs that keep the idle-reading guard (so their Mac fallback runs exactly when it did) but no longer
+    # run on the gateway: the app compile only reads the tip check's verdict, on a plain runner (note-556).
+    READS_ELSEWHERE = {"app-compile-fleet": "cmux-linux"}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -3691,7 +3694,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
         pinned = {name for name, job in self.jobs().items()
                   if (route_text := runs_on_text(job)) is None or any(pin in route_text for pin in self.PINS)}
-        self.assertEqual(pinned, set(self.FALLBACKS),
+        self.assertEqual(pinned, set(self.FALLBACKS) - set(self.READS_ELSEWHERE),
                          "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
 
     def test_the_gateway_is_taken_only_on_an_idle_reading_from_the_same_attempt(self):
@@ -3708,7 +3711,10 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                 with self.subTest(job=name, attempt=attempt, reading=reading):
                     self.assertEqual(bool(evaluate(job["if"], context)), idle or name in self.LINUX_ROUTE)
                     if idle:
-                        self.assertEqual(evaluate(one_runs_on(job), context), reading[1])
+                        if name in self.READS_ELSEWHERE:
+                            self.assertEqual(one_runs_on(job), self.READS_ELSEWHERE[name])
+                        else:
+                            self.assertEqual(evaluate(one_runs_on(job), context), reading[1])
                         continue
                     if name in self.LINUX_ROUTE:
                         # Never the gateway (busy, or judged in another attempt): a Linux runner.
