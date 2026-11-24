@@ -296,16 +296,18 @@ class Host implements GlassHost {
   }
 
   /** While any element is attached, whatever can move it without resizing it (a scroll, a positioner
-   * rewritten on a window resize, a transition or an animation) or take it out of the document (a DOM
-   * change) reads the attached elements again for a few frames (`tick`). Installed by the first
-   * attach, removed with the last. */
+   * rewritten on a window resize, a style or class change on it or an ancestor, a transition or an
+   * animation) or take it out of the document (a DOM change) reads the attached elements again for a
+   * few frames (`tick`). Installed by the first attach, removed with the last. */
   private follow() {
     if (this.stopFollowing) return;
     const kick = () => this.kick();
     const view = this.view;
     const doc = view.document;
     const removal = new view.MutationObserver(kick);
-    removal.observe(doc, { childList: true, subtree: true });
+    // `style` and `class`: a page that moves an element by its inline position, transform or a class
+    // (no transition) changes no size and fires no event, so only the attribute change says it moved.
+    removal.observe(doc, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
     view.addEventListener("scroll", kick, { capture: true, passive: true });
     view.addEventListener("resize", kick);
     for (const type of FOLLOW_EVENTS) doc.addEventListener(type, kick, true);

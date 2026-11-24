@@ -2752,6 +2752,7 @@ mod inventory_watch;
 mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
+mod agent_home;
 mod bg_tasks;
 mod github_prs;
 mod goal;
