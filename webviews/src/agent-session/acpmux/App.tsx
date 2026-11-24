@@ -7983,6 +7983,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : trayAgents.length + childSessions.length;
   if (revealSection && listedAgents > 0) commands.showSubagents = () => revealSection("subagents");
   if (revealSection && backgroundRows > 0) commands.showBackgroundTasks = () => revealSection("tasks");
+  // Command-J G (agentPane.openLastTurnChanges): the last turn that edited files, its diff beside the
+  // chat, as that turn's edited-files card's View changes opens it, wherever the card has scrolled to.
+  const lastEditedTurn = cardEdit.turn;
+  if (!quick && lastEditedTurn)
+    commands.openLastTurnChanges = () =>
+      void diffBeside.current(lastEditedTurn.rowId, undefined, "open").catch(() => false);
   paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
