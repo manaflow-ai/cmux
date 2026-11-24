@@ -22,7 +22,9 @@
   --cv-exit-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
-  --cv-text-dim: var(--agent-soft); /* progress rows */
+  /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
+     The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
+  --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);
@@ -3421,18 +3423,25 @@ body {
 .cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
   position: relative;
 }
-/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) shimmers its words
-   the same way: the copy lies over the sentence, centred on the line as its words are. */
-.cv-tool.cv-background-turn.is-live:not(:focus-within) > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) and the activity line's
+   message going out ("Sending message to tests", ActivityLine.tsx) shimmer their words the same way:
+   the copy lies over the sentence, centred on the line as its words are. */
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live:not(:focus-within)
+  > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   color: var(--cv-text-dim);
 }
-.cv-tool.cv-background-turn.is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   position: relative;
 }
-.cv-tool.cv-background-turn.is-live .cv-row-shimmer__lit {
+.cv-tool.cv-activity-row .cv-row-shimmer .cv-agent-tag {
+  background: none;
+}
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live .cv-row-shimmer__lit {
   display: flex;
   height: 100%;
   align-items: center;
+  /* The sentence's own gap (TranscriptActivityRow.css), so the lit name lies on the chip's name. */
+  gap: var(--cv-tool-gap);
 }
 /* What a background turn's line cites after its words (BackgroundTurnLine.tsx `BackgroundSource`):
    the helper in the rows' muted tone, a link as the background task row's owner is, then the task's
@@ -8593,22 +8602,18 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
-   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock.
-   The activity and Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) keep this look. */
-.cv-waiting {
-  color: var(--cv-text);
-}
-/* The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
-   2026-11-05): a ringed dot in the attention mark's colour, then the words in it on a pill tinted
-   with it. The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
+/* The running turn's line while the chat waits on the person (waitingOn.ts) has no colour of its
+   own: no white, the line's own tone and the live spot's one shimmer, as "Thinking" (Leo,
+   2026-11-22: "this is still white. stop having white things"). It holds still: no clock.
+   The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
+   2026-11-05): a ringed dot in the attention mark's colour, then the words on a pill tinted with it,
+   under the live spot's one shimmer like every status there (Leo, 2026-11-22). The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
 .cv-thinking.cv-waiting {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: var(--acpmux-needs-you-mark);
 }
 .cv-waiting__pill {
   min-width: 0;
@@ -8693,11 +8698,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   animation: none;
 }
 
-/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
-   the cause in the line's text color, the count and error muted, the error the part that gives way. */
+/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`): the
+   cause under the live spot's one shimmer, as "Thinking" (Leo, 2026-11-22: "all in the "thinking"
+   spot should glimmer like that"), the count and error muted, the error the part that gives way. */
 .cv-retrying {
   flex: 0 0 auto;
-  color: var(--cv-text);
 }
 .cv-retrying__error {
   flex: 0 1 auto;

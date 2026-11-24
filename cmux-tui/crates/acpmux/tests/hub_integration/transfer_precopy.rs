@@ -4,6 +4,9 @@
 
 use super::*;
 
+#[path = "transfer_live.rs"]
+mod transfer_live;
+
 /// Two daemons on local stores, as daemons keep them, and a client of each.
 async fn two_local() -> ([std::path::PathBuf; 2], TestClient, TestClient) {
     let dirs = ["a", "b"]
