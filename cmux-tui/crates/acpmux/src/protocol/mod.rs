@@ -274,6 +274,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
+        untyped(method::MUX_GITHUB_REST, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
         // Saved prompts (`prompts.rs`).
