@@ -43,6 +43,14 @@ pub const BLINK: u16 = 0x0040;
 /// Not a protocol-v7 bit (render mode sends underline as its own field): the hybrid stream's
 /// own bit for an underlined cell, from the reserved range.
 pub const UNDERLINE: u16 = 0x0100;
+/// With [`UNDERLINE`]: which underline, also from the reserved range (0 is a single line, so a
+/// viewer that reads only [`UNDERLINE`] draws what it drew before): [`UNDERLINE_DOUBLE`],
+/// [`UNDERLINE_CURLY`], [`UNDERLINE_DOTTED`] or [`UNDERLINE_DASHED`] (SGR `4:2` to `4:5`).
+pub const UNDERLINE_STYLE: u16 = 0x0e00;
+pub const UNDERLINE_DOUBLE: u16 = 0x0200;
+pub const UNDERLINE_CURLY: u16 = 0x0400;
+pub const UNDERLINE_DOTTED: u16 = 0x0600;
+pub const UNDERLINE_DASHED: u16 = 0x0800;
 
 /// One cell's style.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

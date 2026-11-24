@@ -7,6 +7,7 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -14,7 +15,6 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -31,8 +31,8 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  inlineTokenSpans,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -70,12 +70,12 @@ import {
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
-  mentionPath,
   mentionSelection,
-  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
+  mentionPath,
+  mentionWantsFiles,
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
@@ -123,10 +123,10 @@ import {
   readDurableDraftState,
   readsDurableDrafts,
   readPersistedDraft,
-  restoredPrompt,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  restoredPrompt,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -146,7 +146,6 @@ import { usePromptHistory } from "./composer/promptHistory";
 import { PromptText, usePromptFacts } from "./composer/promptText";
 import {
   appendAttachments,
-  SendFilesFailed,
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
@@ -326,16 +325,11 @@ type Props = {
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
   /// `gesture`: a send held for its files (a pasted image still being read) goes with the gesture
   /// `onBindSendGesture` bound at its Enter or click; without one the send binds its own as it goes.
-  /// `filesReady`: the prompt went while some of its files were still read or uploaded; `attachments`
-  /// has stand-ins for them (their ids, names, no bytes) and this is the whole list once they are
-  /// chips. A sender that cannot hold a prompt for them answers false and does nothing else: the
-  /// composer then keeps the prompt until they are ready, as before.
   onSend(
     text: string,
     attachments?: ComposerAttachment[],
     steer?: boolean,
     gesture?: SendGesture,
-    filesReady?: Promise<ComposerAttachment[]>,
   ): boolean | void | Promise<unknown>;
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
@@ -347,6 +341,11 @@ type Props = {
   /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
   /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
   holdsSend?(text: string, late?: boolean): boolean;
+  /// Binds the person's key press or click to a prompt that goes now, ahead of files still
+  /// attaching (composer/sendBehind.ts): only where the send goes straight to the chat open now,
+  /// whose client draws it as sent and sends it once the files are chips. Undefined: the send
+  /// waits for its files, as before.
+  onBindSendAhead?(): SendGesture | undefined;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -726,6 +725,7 @@ function ComposerFrame({
   onSend,
   onBindSendGesture,
   holdsSend,
+  onBindSendAhead,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -1076,7 +1076,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
-    sendWith,
+    goAhead,
     retry,
     revive,
     originalFailures,
@@ -2206,32 +2206,28 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt goes now and shows as
-    // sent, and the file follows it (`sendWith`); the chat sends it once the file is a chip, in its
-    // turn. Only where the chat can hold it so (`onSend`'s `filesReady`); else it waits here for it.
-    const handed = !isCommand && !side && !local && loading > 0 ? sendWith() : undefined;
-    if (handed) {
-      placed = placeInline(typedText.trim(), [...attachments, ...handed.standIns]);
-      prompt = placed.text;
+    // A file dropped, pasted or picked that is still attaching (its path asked of the host, its bytes
+    // streaming to the chat's machine) never holds the send: the prompt goes now with it as a
+    // stand-in, shows as sent, and reaches the agent once the file is its chip (composer/sendBehind.ts;
+    // Leo, 2026-11-17: "I CAN'T EVEN FUCKING SEND A MESSAGE WHILE THE FUCKING THING LOADS").
+    let wentAhead = false;
+    if (pending.length > 0 && !isCommand && onBindSendAhead) {
+      const gesture = kept ?? onBindSendAhead();
+      const ahead = gesture ? goAhead() : undefined;
+      // The gesture bound for this send stays its own, held or not.
+      if (gesture) kept = gesture;
+      if (ahead) {
+        const went = new Set(ahead.map((chip) => chip.id));
+        placed = placeInline(typedText.trim(), [...attachments, ...ahead], {
+          dropped: (id) => !went.has(id) && pending.some((chip) => chip.id === id),
+        });
+        prompt = placed.text;
+        holdForAttachments.cancel();
+        wentAhead = true;
+      }
     }
-    /// The prompt's whole list once the handed chips are made, each in its stand-in's place.
-    const inPlaces = (sent: ComposerAttachment[], made: ReadonlyMap<string, ComposerAttachment>) =>
-      sent.flatMap((attachment) => {
-        const chip = made.get(attachment.id);
-        if (chip) return [{ ...chip, ...(attachment.inline ? { inline: true } : {}) }];
-        return handed?.standIns.some((standIn) => standIn.id === attachment.id) ? [] : [attachment];
-      });
-    const handOff = (sent: ComposerAttachment[]) =>
-      handed?.take().then(
-        (made) => inPlaces(sent, new Map(made.map((chip) => [chip.id, chip]))),
-        // One could not be made: the prompt comes back with the chips that were, never a stand-in;
-        // the rest are the composer's chips already (the failed one with why and its Retry).
-        (error: unknown) => {
-          if (error instanceof SendFilesFailed) error.attachments = inPlaces(sent, error.made);
-          throw error;
-        },
-      );
-    if (!handed && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
+    // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
+    if (!wentAhead && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
       return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
@@ -2272,19 +2268,7 @@ function ComposerFrame({
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     // `/customize …` goes as the ask it stands for (customizeCommand.ts).
-    // A prompt that goes before its files binds this key press or click now: their uploads spend
-    // grants of their own meanwhile (`useSendWhenAttached`).
-    const gesture = handed ? (kept ?? bindHeldSend()) : kept;
-    const filesReady = handOff(sent);
-    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, gesture, filesReady);
-    if (handed && taken !== true) {
-      // The chat could not hold it for its files: they stay here and it waits for them, as before.
-      // (A sender given `filesReady` answers true or false only.)
-      handed.giveBack();
-      keepSendOrigins();
-      holdForAttachments((again) => resumeSend(() => submitNow.current(force, steer, again)), gesture);
-      return false;
-    }
+    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2305,6 +2289,17 @@ function ComposerFrame({
     };
     if (!(taken instanceof Promise)) {
       clear();
+      return true;
+    }
+    // Sent ahead of its files: it already shows as sent in the chat, so the composer is free now
+    // for the next message while the file still goes; a refusal fails its row there, kept
+    // (direct.ts `sendAheadOfFiles`). Only one refused before the chat's client drew it comes back.
+    if (wentAhead) {
+      clear();
+      taken.catch(() => {
+        if (!(field.current?.value() ?? "")) edit(written, written.length);
+        setAttachError(t("composer.stillSending"));
+      });
       return true;
     }
     // The prompt stays in the composer until the host takes it; a refusal keeps it there.
