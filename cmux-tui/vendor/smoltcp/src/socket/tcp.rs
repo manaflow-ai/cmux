@@ -453,15 +453,23 @@ const RACK_REO_MULT_MAX: u8 = 4;
 /// SACK ones.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Rack {
-    /// `(start, end, first sent at)`, oldest first.
-    tx: [(TcpSeqNumber, TcpSeqNumber, Instant); RACK_TX_LEN],
+    /// `(start, end, last sent at, lost)`, in sequence order. `lost`: the
+    /// time rule declared this record's latest transmission lost and it was
+    /// not sent again since, so its bytes are due whatever `sack_high_rxt`
+    /// says (a lost repair is repaired again).
+    tx: [(TcpSeqNumber, TcpSeqNumber, Instant, bool); RACK_TX_LEN],
     len: usize,
     /// The end of the newest recorded data: only data above it is new.
     high_tx: Option<TcpSeqNumber>,
-    /// Unacknowledged data below this is lost by the time rule.
-    lost_until: Option<TcpSeqNumber>,
     /// Reorder window multiplier, 1..=RACK_REO_MULT_MAX.
     reo_mult: u8,
+}
+
+/// cmux patch: RFC 8985's RACK_sent_after, inverted: `a` (send time, end
+/// sequence) went out before `b`. Segments sent in the same poll share a
+/// timestamp; the lower end sequence went first.
+fn rack_sent_before(a: (Instant, TcpSeqNumber), b: (Instant, TcpSeqNumber)) -> bool {
+    a.0 < b.0 || (a.0 == b.0 && a.1 < b.1)
 }
 
 impl Default for Rack {
@@ -471,10 +479,10 @@ impl Default for Rack {
                 TcpSeqNumber::default(),
                 TcpSeqNumber::default(),
                 Instant::ZERO,
+                false,
             ); RACK_TX_LEN],
             len: 0,
             high_tx: None,
-            lost_until: None,
             reo_mult: 1,
         }
     }
@@ -484,21 +492,34 @@ impl Rack {
     fn clear(&mut self) {
         self.len = 0;
         self.high_tx = None;
-        self.lost_until = None;
     }
 
     /// Note that `[start, end)` was sent at `now`. New data is appended;
-    /// retransmitted data restarts the clock of the records it overlaps.
+    /// retransmitted data restarts the clock of the records it overlaps and
+    /// is in flight again, not lost. A record only partly resent is split
+    /// first (while there is room), so its other bytes keep their clock.
     fn on_send(&mut self, start: TcpSeqNumber, end: TcpSeqNumber, now: Instant) {
         if end <= start {
             return;
         }
         let high = self.high_tx.unwrap_or(start);
         if end <= high {
-            for rec in &mut self.tx[..self.len] {
+            let mut i = 0;
+            while i < self.len {
+                let rec = self.tx[i];
                 if rec.0 < end && start < rec.1 {
-                    rec.2 = now;
+                    if rec.0 < start && self.insert(i, (rec.0, start, rec.2, rec.3)) {
+                        i += 1;
+                        self.tx[i].0 = start;
+                    }
+                    let rec = self.tx[i];
+                    if end < rec.1 && self.insert(i + 1, (end, rec.1, rec.2, rec.3)) {
+                        self.tx[i].1 = end;
+                    }
+                    self.tx[i].2 = now;
+                    self.tx[i].3 = false;
                 }
+                i += 1;
             }
             return;
         }
@@ -507,9 +528,20 @@ impl Rack {
             self.tx.copy_within(1.., 0);
             self.len -= 1;
         }
-        self.tx[self.len] = (from, end, now);
+        self.tx[self.len] = (from, end, now, false);
         self.len += 1;
         self.high_tx = Some(end);
+    }
+
+    /// Put `rec` at `at`, if there is room.
+    fn insert(&mut self, at: usize, rec: (TcpSeqNumber, TcpSeqNumber, Instant, bool)) -> bool {
+        if self.len == RACK_TX_LEN {
+            return false;
+        }
+        self.tx.copy_within(at..self.len, at + 1);
+        self.tx[at] = rec;
+        self.len += 1;
+        true
     }
 
     fn prune(&mut self, una: TcpSeqNumber) {
@@ -534,6 +566,18 @@ struct SackScan {
     lost_bytes: usize,
     /// A hole is lost by the duplicate threshold, not only by early retransmit.
     congestion: bool,
+}
+
+impl SackScan {
+    /// `[from, to)` is lost and due; ranges come lowest first.
+    fn add_lost(&mut self, from: TcpSeqNumber, to: TcpSeqNumber) {
+        self.lost_bytes += to - from;
+        match &mut self.next_retransmit {
+            None => self.next_retransmit = Some((from, to - from)),
+            Some((start, len)) if *start + *len == from => *len += to - from,
+            Some(_) => {}
+        }
+    }
 }
 
 impl Timer {
@@ -1491,8 +1535,6 @@ impl<'a> Socket<'a> {
             .is_some_and(|&(_, end)| end >= self.remote_last_seq);
         if sacked_above >= SACK_DUP_THRESH * mss
             || ranges_above >= SACK_DUP_THRESH
-            // RACK: out longer than a round trip while later data arrived.
-            || self.rack.lost_until.is_some_and(|l| start < l)
             // Three duplicate ACKs with no blocks: the head is lost (RFC 5681).
             || (start == self.local_seq_no && self.local_rx_dup_acks >= SACK_DUP_THRESH as u8)
         {
@@ -1537,18 +1579,30 @@ impl<'a> Socket<'a> {
             // resending a higher hole first would move it past the lower one
             // and leave that hole to the probe and the RTO once it is lost.
             if hole_start < start {
-                let Some(congestion) =
-                    self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
-                else {
+                let rule = self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i);
+                // What the rule leaves out (all of the hole when it does not
+                // apply, what was resent already when it does): RACK's lost
+                // records, a resend that was itself lost included. Only
+                // those records' bytes: a later one in the same hole may
+                // still be inside its reorder window.
+                let rack_to = match rule {
+                    Some(_) => hole_start.max(high_rxt).min(start),
+                    None => start,
+                };
+                for &(r_start, r_end, _, lost) in &self.rack.tx[..self.rack.len] {
+                    let (from, to) = (r_start.max(hole_start), r_end.min(rack_to));
+                    if lost && from < to {
+                        scan.congestion = true;
+                        scan.add_lost(from, to);
+                    }
+                }
+                let Some(congestion) = rule else {
                     break;
                 };
                 scan.congestion |= congestion;
                 let from = hole_start.max(high_rxt);
                 if from < start {
-                    scan.lost_bytes += start - from;
-                    if scan.next_retransmit.is_none() {
-                        scan.next_retransmit = Some((from, start - from));
-                    }
+                    scan.add_lost(from, start);
                 }
             }
             sacked_above -= end - start;
@@ -1579,7 +1633,12 @@ impl<'a> Socket<'a> {
     /// and the congestion window has room (the head is always allowed, as a
     /// fast retransmit is).
     fn sack_retransmit_due(&self) -> Option<(TcpSeqNumber, usize)> {
-        if !self.sack_active() || self.sack_recovery_point.is_none() || self.tx_buffer.is_empty() {
+        // A held connection resends nothing, whatever an ACK says.
+        if self.retransmit_paused
+            || !self.sack_active()
+            || self.sack_recovery_point.is_none()
+            || self.tx_buffer.is_empty()
+        {
             return None;
         }
         let scan = self.sack_scan();
@@ -1604,15 +1663,16 @@ impl<'a> Socket<'a> {
         Duration::from_millis(self.rtte.srtt as u64 / 4 * self.rack.reo_mult as u64)
     }
 
-    /// cmux patch: the send time of the newest SACKed data, which any
-    /// unSACKed data sent before it is judged against.
-    fn rack_delivered_ts(&self) -> Option<Instant> {
+    /// cmux patch: the send time and end of the most recently sent SACKed
+    /// data (RACK.xmit_ts and RACK.end_seq), which any unSACKed data sent
+    /// before it is judged against.
+    fn rack_delivered(&self) -> Option<(Instant, TcpSeqNumber)> {
         let ranges = self.sack_scoreboard.ranges();
         self.rack.tx[..self.rack.len]
             .iter()
-            .filter(|&&(_, end, _)| ranges.iter().any(|&(s, e)| s < end && end <= e))
-            .map(|&(_, _, ts)| ts)
-            .max()
+            .filter(|&&(_, end, _, _)| ranges.iter().any(|&(s, e)| s < end && end <= e))
+            .map(|&(_, end, ts, _)| (ts, end))
+            .reduce(|a, b| if rack_sent_before(a, b) { b } else { a })
     }
 
     /// cmux patch: the time at which `ts`-sent data counts as lost.
@@ -1620,27 +1680,32 @@ impl<'a> Socket<'a> {
         ts + Duration::from_millis(self.rtte.srtt as u64) + self.rack_reo_wnd()
     }
 
-    /// cmux patch: RACK's loss rule (RFC 8985 6.2). Returns true when the lost
-    /// frontier moved. A segment is lost when later-sent data was SACKed and
-    /// it has been out for srtt plus the reorder window.
+    /// cmux patch: RACK's loss rule (RFC 8985 6.2). Returns true when it
+    /// declared a record lost. A segment is lost when later-sent data was
+    /// SACKed and it has been out for srtt plus the reorder window.
     fn rack_update(&mut self, now: Instant) -> bool {
         if !self.sack_active() || !self.rtte.have_measurement {
             return false;
         }
         self.rack.prune(self.local_seq_no);
-        let before = self.rack.lost_until;
-        let mut lost_until = None;
-        if let Some(delivered) = self.rack_delivered_ts() {
-            let ranges = self.sack_scoreboard.ranges();
-            for &(_, end, ts) in &self.rack.tx[..self.rack.len] {
-                let sacked = ranges.iter().any(|&(s, e)| s < end && end <= e);
-                if !sacked && ts < delivered && self.rack_expiry(ts) <= now {
-                    lost_until = Some(end);
-                }
+        let Some(delivered) = self.rack_delivered() else {
+            return false;
+        };
+        let ranges = self.sack_scoreboard.ranges();
+        let mut declared = false;
+        for i in 0..self.rack.len {
+            let (_, end, ts, lost) = self.rack.tx[i];
+            let sacked = ranges.iter().any(|&(s, e)| s < end && end <= e);
+            if !lost
+                && !sacked
+                && rack_sent_before((ts, end), delivered)
+                && self.rack_expiry(ts) <= now
+            {
+                self.rack.tx[i].3 = true;
+                declared = true;
             }
         }
-        self.rack.lost_until = lost_until;
-        lost_until.is_some_and(|l| before.is_none_or(|b| l > b))
+        declared
     }
 
     /// cmux patch: when RACK next has to look: the earliest expiry of
@@ -1650,17 +1715,17 @@ impl<'a> Socket<'a> {
         if !self.sack_active() || !self.rtte.have_measurement {
             return None;
         }
-        let delivered = self.rack_delivered_ts()?;
+        let delivered = self.rack_delivered()?;
         let ranges = self.sack_scoreboard.ranges();
         self.rack.tx[..self.rack.len]
             .iter()
-            .filter(|&&(_, end, ts)| {
-                ts < delivered
+            .filter(|&&(_, end, ts, lost)| {
+                !lost
+                    && rack_sent_before((ts, end), delivered)
                     && end > self.local_seq_no
-                    && self.rack.lost_until.is_none_or(|l| end > l)
                     && !ranges.iter().any(|&(s, e)| s < end && end <= e)
             })
-            .map(|&(_, _, ts)| self.rack_expiry(ts))
+            .map(|&(_, _, ts, _)| self.rack_expiry(ts))
             .min()
     }
 
@@ -11994,11 +12059,88 @@ mod test {
     #[test]
     fn test_rack_does_not_resend_data_sent_after_what_was_delivered() {
         let mut s = socket_racking();
-        // Segment 0 was delivered and segment 1 sent after it is only late.
-        send!(s, time 150, sack_ack(0, [sack_block(0, 6), None, None]));
-        recv_nothing!(s, time 150);
+        // Segment 1 went out again at 110 ms (a probe, say), after segment 2
+        // (sent at 40 ms) did.
+        s.rack.tx[1].2 = Instant::from_millis(110);
+        // Segment 2 arrives, out of order: segments 0 and 1 are outstanding
+        // below it and 3 to 5 above it.
+        send!(s, time 300, sack_ack(0, [sack_block(12, 18), None, None]));
+        assert_eq!(s.sack_scoreboard.ranges(), &[(sack_seq(12), sack_seq(18))]);
+        // Segment 0, sent before segment 2, is lost and resent. Segment 1 is
+        // out longer than srtt + the reorder window too, but its latest
+        // transmission went after segment 2's: segment 2 says nothing of it.
+        recv!(s, time 300, sack_resent(0));
+        recv_nothing!(s, time 300);
+        // Data sent after segment 2 is not waiting on the clock either.
         assert_eq!(s.rack_deadline(), None);
-        assert_eq!(s.sack_recovery_point, None);
+    }
+
+    #[test]
+    fn test_rack_resends_only_the_records_whose_window_expired() {
+        let mut s = socket_racking();
+        // The path now takes bigger segments: a resend could cover the hole.
+        s.remote_mss = 60;
+        // Segment 3 (sent at 60 ms) arrived; 0, 1 and 2 are one hole.
+        send!(s, time 110, sack_ack(0, [sack_block(18, 24), None, None]));
+        // Only segment 0 has been out past srtt + the reorder window (100
+        // ms); 1 (sent at 20 ms) is due at 120 ms, 2 at 140 ms.
+        recv!(s, time 110, sack_resent(0));
+        recv_nothing!(s, time 110);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(120)));
+        recv_nothing!(s, time 119);
+        recv!(s, time 120, sack_resent(6));
+        recv_nothing!(s, time 120);
+        recv!(s, time 140, sack_resent(12));
+        recv_nothing!(s, time 140);
+    }
+
+    #[test]
+    fn test_rack_orders_a_burst_sent_at_once_by_sequence() {
+        // All six segments went out in the same poll, at 0 ms.
+        let mut s = socket_sacking();
+        s.rtte.have_measurement = true;
+        s.rtte.srtt = 80;
+        // The second arrived: the first, sent before it in that burst, is
+        // lost once out srtt + the reorder window.
+        send!(s, time 50, sack_ack(0, [sack_block(6, 12), None, None]));
+        recv_nothing!(s, time 50);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(100)));
+        recv!(s, time 100, sack_resent(0));
+        recv_nothing!(s, time 100);
+    }
+
+    #[test]
+    fn test_rack_resends_a_lost_repair_again() {
+        // Five segments at 0 ms; all but the first arrive, so it is resent
+        // at once (the duplicate threshold) and `sack_high_rxt` passes it.
+        let mut s = socket_sacking_with(CongestionControl::None, 30);
+        s.rtte.have_measurement = true;
+        s.rtte.srtt = 80;
+        send!(s, time 90, sack_ack(0, [sack_block(6, 30), None, None]));
+        recv!(s, time 90, sack_resent(0));
+        recv_nothing!(s, time 90);
+        // New data goes out after the repair, and arrives; the repair does
+        // not. It is lost once out srtt + the reorder window, at 190 ms.
+        s.send_slice(&SACK_DATA[30..36]).unwrap();
+        recv!(s, time 100, sack_resent(30));
+        send!(s, time 150, sack_ack(0, [sack_block(6, 36), None, None]));
+        recv_nothing!(s, time 150);
+        assert_eq!(s.rack_deadline(), Some(Instant::from_millis(190)));
+        recv!(s, time 190, sack_resent(0));
+        recv_nothing!(s, time 190);
+    }
+
+    #[test]
+    fn test_rack_resends_nothing_while_retransmission_is_paused() {
+        let mut s = socket_racking();
+        s.set_retransmit_paused(true);
+        // A SACK arrives during the hold, past segment 0's reorder window.
+        send!(s, time 110, sack_ack(0, [sack_block(6, 12), None, None]));
+        recv_nothing!(s, time 110);
+        recv_nothing!(s, time 200);
+        // Back: resent from the oldest unacknowledged byte.
+        s.set_retransmit_paused(false);
+        recv!(s, time 300, sack_resent(0));
     }
 
     #[test]

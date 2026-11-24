@@ -62,9 +62,15 @@ lost once it was sent more than srtt + a reorder window ago while data sent
 LATER was SACKed, without waiting for three duplicate ACKs or three segments'
 worth of SACKed bytes (which tiny keystroke segments never reach in time). The
 reorder window is srtt/4, times a multiplier (up to 4) that grows each time a
-DSACK block shows a retransmission was spurious. A timer in `poll_at` and
-`dispatch` re-evaluates at the earliest expiry. A retransmission restarts the
-clock of the records it overlaps; an RTO forgets the records. Upstreaming: this
+DSACK block shows a retransmission was spurious. Send order is (send time, end
+sequence), so segments sent in the same poll are ordered by sequence (RFC 8985's
+RACK.end_seq). Only the expired records' bytes are lost, not the whole hole they
+sit in. A timer in `poll_at` and `dispatch` re-evaluates at the earliest expiry.
+A retransmission restarts the clock of the records it overlaps (splitting one
+it only partly covers) and makes them in flight again; when RACK declares that
+retransmission lost too, its bytes are due again even below `sack_high_rxt`. A
+retransmission pause (tunnel hold) also stops SACK and RACK resends. An RTO
+forgets the records. Upstreaming: this
 is RACK without min-RTT filtering (srtt stands in) and without RACK's own
 reorder-window decay; smoltcp's tail-loss probe is the TLP half already.
 As a receiver, an ACK now carries up to three SACK blocks, not one: the block of
