@@ -125,7 +125,8 @@ import Testing
         #expect(!h.services.registry.perform("sidebar.spaces.show"))
         #expect(h.saved("showSpaces") == nil)
 
-        // Settings' Show Spaces switch (the way back on) writes the key.
+        // The way back on is the `sidebar.showSpaces` setting (Settings' switch, the palette's settings scope, cmux.json);
+        // here cmux.json gets the key, as the switch writes it.
         try Data(#"{"sidebar":{"showSpaces":true}}"#.utf8).write(to: h.url)
         await h.services.settings?.reload()
         await h.until { !h.sidebar.profileBar.isHidden && h.saved("showSpaces") == true }
