@@ -1,0 +1,48 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "mobile.upload.metered.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Send %@ MB over cellular?"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ MB über Mobilfunk senden?"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoyer %@ Mo via le réseau cellulaire ?"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "هل تريد إرسال %@ م.ب. عبر الشبكة الخلوية؟"}},
+        "es": {"stringUnit": {"state": "translated", "value": "¿Enviar %@ MB con datos móviles?"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "要透過行動網路傳送 %@ MB 嗎？"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "要通过蜂窝网络发送 %@ MB 吗？"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "셀룰러 데이터로 %@MB를 보낼까요?"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "モバイル通信で %@ MB を送信しますか？"}}
+      }
+    },
+    "mobile.upload.metered.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Send"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoyer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إرسال"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Enviar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "傳送"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "发送"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "보내기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "送信"}}
+      }
+    },
+    "mobile.upload.metered.wait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Wait for Wi-Fi"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf WLAN warten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Attendre le Wi-Fi"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "انتظار شبكة Wi-Fi"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Esperar a tener Wi-Fi"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待 Wi-Fi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待 Wi-Fi"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Wi-Fi 기다리기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Wi-Fi を待つ"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

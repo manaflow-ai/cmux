@@ -57,8 +57,8 @@ public final class NetworkPathMonitor: @unchecked Sendable {
         let state = FilterBox()
         monitor.pathUpdateHandler = { path in
             #if canImport(CmuxMobileLinkFFI)
-            // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
-            setCellularPath(cellular: path.usesInterfaceType(.cellular))
+            Self.updateMeteredPath(cellular: path.usesInterfaceType(.cellular),
+                                   constrained: path.isExpensive || path.isConstrained)
             #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)
@@ -72,6 +72,16 @@ public final class NetworkPathMonitor: @unchecked Sendable {
     deinit {
         monitor.cancel()
     }
+
+    #if canImport(CmuxMobileLinkFFI)
+    static func updateMeteredPath(cellular: Bool, constrained: Bool) {
+        // Set the incoming metered flag before clearing the outgoing one. Moving
+        // between cellular and Low Data Mode Wi-Fi must never briefly open the gate.
+        if cellular { setCellularPath(cellular: true) }
+        setConstrainedPath(constrained: constrained)
+        if !cellular { setCellularPath(cellular: false) }
+    }
+    #endif
 
     /// The interfaces in order of preference and their gateways: a new
     /// Wi-Fi network keeps the interface (`en0`) but changes the gateway.

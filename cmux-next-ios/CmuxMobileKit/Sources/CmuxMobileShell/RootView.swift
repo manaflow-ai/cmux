@@ -194,6 +194,7 @@ public struct RootView: View {
                         : .opacity.combined(with: .scale(scale: 0.92)).animation(theme.motion.snap.animation.unlessReduceMotion))
             }
         }
+        .modifier(MeteredBulkAlert())
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Back in the app: a keyboard the tracker holds as up while nothing

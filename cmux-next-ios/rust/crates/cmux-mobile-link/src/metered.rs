@@ -48,6 +48,10 @@ pub struct MeteredBulk {
     pub consent: bool,
     /// Bulk bytes held for consent (0 when the gate is open).
     pub waiting_bytes: u64,
+    /// The person chose to wait for Wi-Fi for this waiting batch.
+    pub deferred: bool,
+    /// Monotonic change cursor for race-free observers.
+    pub revision: u64,
 }
 
 impl MeteredBulk {
@@ -64,12 +68,17 @@ pub struct Gate {
     pub metered: bool,
     pub consent: bool,
     pub waiting: bool,
+    pub deferred: bool,
 }
 
 static CONSTRAINED: AtomicBool = AtomicBool::new(false);
 static CONSENT: AtomicBool = AtomicBool::new(false);
+/// The person chose to wait for Wi-Fi for the current waiting batch.
+static DEFERRED: AtomicBool = AtomicBool::new(false);
 /// Bytes queued on consent channels across this process's links (held or about to go).
 static QUEUED: AtomicU64 = AtomicU64::new(0);
+/// Monotonic cursor for genuine gate events.
+static REVISION: AtomicU64 = AtomicU64::new(0);
 static GATE: LazyLock<watch::Sender<Gate>> = LazyLock::new(|| watch::channel(Gate::default()).0);
 
 /// Whether the phone is metered now.
@@ -87,7 +96,14 @@ pub fn state() -> MeteredBulk {
     let metered = is_metered();
     let consent = CONSENT.load(Ordering::Acquire);
     let allowed = !metered || consent;
-    MeteredBulk { metered, consent, waiting_bytes: if allowed { 0 } else { QUEUED.load(Ordering::Acquire) } }
+    let waiting_bytes = if allowed { 0 } else { QUEUED.load(Ordering::Acquire) };
+    MeteredBulk {
+        metered,
+        consent,
+        waiting_bytes,
+        deferred: DEFERRED.load(Ordering::Acquire) && metered && waiting_bytes > 0,
+        revision: REVISION.load(Ordering::Acquire),
+    }
 }
 
 /// Changes when the gate opens or closes or bytes start or stop waiting.
@@ -106,7 +122,19 @@ pub fn set_constrained_path(constrained: bool) {
 /// the phone leaves it; `false` holds again. Kept only while metered.
 pub fn set_metered_bulk_consent(consent: bool) {
     CONSENT.store(consent && is_metered(), Ordering::Release);
+    if consent {
+        DEFERRED.store(false, Ordering::Release);
+    }
     refresh();
+}
+
+/// The person chose to wait for Wi-Fi for this waiting batch.
+pub fn defer_metered_bulk() {
+    let now = state();
+    if now.metered && !now.consent && now.waiting_bytes > 0 {
+        DEFERRED.store(true, Ordering::Release);
+        publish();
+    }
 }
 
 /// Recompute the gate after a network or consent change (also called by `set_cellular_path`):
@@ -114,17 +142,29 @@ pub fn set_metered_bulk_consent(consent: bool) {
 pub(crate) fn refresh() {
     if !is_metered() {
         CONSENT.store(false, Ordering::Release);
+        DEFERRED.store(false, Ordering::Release);
     }
     publish();
 }
 
 fn publish() {
+    if (!is_metered() || QUEUED.load(Ordering::Acquire) == 0) && DEFERRED.load(Ordering::Acquire) {
+        DEFERRED.store(false, Ordering::Release);
+    }
     let now = state();
-    let gate = Gate { metered: now.metered, consent: now.consent, waiting: now.waiting_bytes > 0 };
+    let gate = Gate {
+        metered: now.metered,
+        consent: now.consent,
+        waiting: now.waiting_bytes > 0,
+        deferred: now.deferred,
+    };
     GATE.send_if_modified(|old| {
-        let changed = *old != gate;
+        if *old == gate {
+            return false;
+        }
         *old = gate;
-        changed
+        REVISION.fetch_add(1, Ordering::AcqRel);
+        true
     });
 }
 
@@ -170,9 +210,13 @@ mod tests {
 
     #[test]
     fn the_state_is_open_when_not_metered() {
-        let state = MeteredBulk { metered: false, consent: false, waiting_bytes: 0 };
+        let state = MeteredBulk { metered: false, consent: false, waiting_bytes: 0, ..Default::default() };
         assert!(state.allowed());
-        assert!(!MeteredBulk { metered: true, consent: false, waiting_bytes: 0 }.allowed());
-        assert!(MeteredBulk { metered: true, consent: true, waiting_bytes: 0 }.allowed());
+        assert!(
+            !MeteredBulk { metered: true, consent: false, waiting_bytes: 0, ..Default::default() }.allowed()
+        );
+        assert!(
+            MeteredBulk { metered: true, consent: true, waiting_bytes: 0, ..Default::default() }.allowed()
+        );
     }
 }

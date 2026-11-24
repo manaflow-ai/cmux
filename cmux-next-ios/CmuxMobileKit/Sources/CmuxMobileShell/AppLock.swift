@@ -195,7 +195,7 @@ struct AppLock: ViewModifier {
 }
 
 /// Reports the window scene its view lands in.
-private struct SceneReader: UIViewRepresentable {
+struct SceneReader: UIViewRepresentable {
     let found: @MainActor (UIWindowScene) -> Void
 
     func makeUIView(context: Context) -> ReaderView {

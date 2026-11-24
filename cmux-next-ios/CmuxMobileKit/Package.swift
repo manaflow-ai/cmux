@@ -223,7 +223,8 @@ let package = Package(
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
         .testTarget(name: "CmuxMobileVoiceTests", dependencies: [

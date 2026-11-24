@@ -5371,6 +5371,14 @@ public struct MeteredBulkState: Equatable, Hashable {
      * Upload bytes held for consent (0 when uploads may go).
      */
     public var waitingBytes: UInt64
+    /**
+     * The person chose to wait for Wi-Fi for this waiting batch.
+     */
+    public var deferred: Bool
+    /**
+     * Monotonic change cursor for race-free observers.
+     */
+    public var revision: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5383,10 +5391,18 @@ public struct MeteredBulkState: Equatable, Hashable {
          */consent: Bool, 
         /**
          * Upload bytes held for consent (0 when uploads may go).
-         */waitingBytes: UInt64) {
+         */waitingBytes: UInt64, 
+        /**
+         * The person chose to wait for Wi-Fi for this waiting batch.
+         */deferred: Bool, 
+        /**
+         * Monotonic change cursor for race-free observers.
+         */revision: UInt64) {
         self.metered = metered
         self.consent = consent
         self.waitingBytes = waitingBytes
+        self.deferred = deferred
+        self.revision = revision
     }
 
     
@@ -5407,7 +5423,9 @@ public struct FfiConverterTypeMeteredBulkState: FfiConverterRustBuffer {
             try MeteredBulkState(
                 metered: FfiConverterBool.read(from: &buf), 
                 consent: FfiConverterBool.read(from: &buf), 
-                waitingBytes: FfiConverterUInt64.read(from: &buf)
+                waitingBytes: FfiConverterUInt64.read(from: &buf), 
+                deferred: FfiConverterBool.read(from: &buf), 
+                revision: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -5415,6 +5433,8 @@ public struct FfiConverterTypeMeteredBulkState: FfiConverterRustBuffer {
         FfiConverterBool.write(value.metered, into: &buf)
         FfiConverterBool.write(value.consent, into: &buf)
         FfiConverterUInt64.write(value.waitingBytes, into: &buf)
+        FfiConverterBool.write(value.deferred, into: &buf)
+        FfiConverterUInt64.write(value.revision, into: &buf)
     }
 }
 
@@ -8574,6 +8594,14 @@ public func connectWithOptions(baseUrl: String, token: String, teamId: String, d
         )
 }
 /**
+ * The person chose to wait for Wi-Fi for this waiting upload batch.
+ */
+public func deferMeteredBulk()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_defer_metered_bulk($0
+    )
+}
+}
+/**
  * Milliseconds from now until the next keepalive beat of `period_ms`, for
  * the app's own timers (presence, Cloud Chief, the link heartbeat), so
  * they share the Rust keepalives' instants.
@@ -8590,11 +8618,11 @@ public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
  * changes, or upload bytes start or stop waiting; never per byte) and
  * return the new state. Loop on it to show and hide the consent prompt.
  */
-public func meteredBulkChanged()async  -> MeteredBulkState  {
+public func meteredBulkChanged(afterRevision: UInt64)async  -> MeteredBulkState  {
     return
         try!  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_func_metered_bulk_changed(
+                uniffi_cmux_mobile_link_ffi_fn_func_metered_bulk_changed(FfiConverterUInt64.lower(afterRevision)
                 )
             },
             pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
@@ -8941,10 +8969,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 39046) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_defer_metered_bulk() != 65514) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_metered_bulk_changed() != 59852) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_metered_bulk_changed() != 33110) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_metered_bulk_state() != 52254) {
