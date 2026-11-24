@@ -24,15 +24,20 @@
 //!   `public`); the variables above win over it.
 //!
 //! A private store with no keys is left out at once (it would only answer 403). A store that
-//! answers 401 or 403 at run time is dropped for the rest of the fill on that first answer, not
-//! after three failures.
+//! answers 401, or 403 for wrong keys, at run time is dropped for the rest of the fill on that
+//! first answer, not after three failures; a 403 `AccessDenied` is a miss (what AWS answers for an
+//! object it lacks when the key may not list the bucket).
+//!
+//! `cmux-projection s3-push` fills a bucket ([`Store::push`], [`Config::push_target`]): a signed
+//! `HEAD` per blob, and a signed `PUT` of the blobs the bucket lacks, each checked against its id
+//! first.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest as _, Sha256};
 
-/// The SHA-256 of an empty body, the payload hash of a signed `GET`.
-const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+/// The SHA-256 of an empty body, the payload hash of a signed `GET` or `HEAD`.
+pub const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /// SigV4 keys.
 #[derive(Clone, PartialEq, Eq)]
@@ -96,10 +101,12 @@ pub fn http_base(value: &str) -> Option<String> {
     Some(value.trim_end_matches('/').to_owned())
 }
 
-/// The `(scheme, authority, path)` of an `http(s)` URL; the authority keeps a non-default port.
+/// The `(scheme, authority, path)` of an `http(s)` URL; the authority keeps a non-default port and
+/// is lowercased, as the HTTP client sends (and so the store checks) it.
 fn split_url(url: &str) -> Option<(&str, String, String)> {
     let (scheme, rest) = url.split_once("://")?;
     let (authority, path) = rest.split_once('/').map_or((rest, ""), |(host, path)| (host, path));
+    let authority = authority.to_ascii_lowercase();
     let authority = match (scheme, authority.rsplit_once(':')) {
         ("https", Some((host, "443"))) | ("http", Some((host, "80"))) => host.to_owned(),
         _ => authority.to_owned(),
@@ -107,6 +114,15 @@ fn split_url(url: &str) -> Option<(&str, String, String)> {
     let path = path.trim_matches('/');
     let path = if path.is_empty() { String::new() } else { format!("/{path}") };
     Some((scheme, authority, path))
+}
+
+/// `Err` when `path` holds a `.` or `..` segment: the HTTP client folds those out of the path it
+/// sends, so a signature over them would never match (and `..` would leave the prefix).
+fn plain_path(path: &str) -> Result<(), String> {
+    if path.split('/').any(|segment| segment == "." || segment == "..") {
+        return Err(format!("{path:?} has a . or .. segment"));
+    }
+    Ok(())
 }
 
 fn truthy(value: &str) -> bool {
@@ -119,6 +135,7 @@ impl Config {
     pub fn public(tier: &'static str, base: &str) -> Option<Self> {
         let base = format!("{}/objects", http_base(base)?);
         let (_, host, path) = split_url(&base)?;
+        plain_path(&path).ok()?;
         Some(Self { tier, base, host, path, region: String::new(), keys: None })
     }
 
@@ -142,8 +159,9 @@ impl Config {
         let (host, path) = if path_style {
             (authority, format!("{root}/{bucket}{prefix}"))
         } else {
-            (format!("{bucket}.{authority}"), format!("{root}{prefix}"))
+            (format!("{bucket}.{authority}").to_ascii_lowercase(), format!("{root}{prefix}"))
         };
+        plain_path(&path)?;
         let base = format!("{scheme}://{host}{path}");
         let region = if region.trim().is_empty() { "us-east-1" } else { region.trim() };
         let keys = if public { None } else { keys };
@@ -211,11 +229,7 @@ impl Config {
     /// is logged once.
     #[must_use]
     pub fn from_env() -> Vec<Self> {
-        let file: serde_json::Value = std::env::var("CMUX_PROJECTION_S3_CONFIG")
-            .ok()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default();
+        let file = config_file();
         let lookup = |name: &str| std::env::var(name).ok().or_else(|| from_file(&file, name));
         let (stores, skipped) = Self::all(&lookup);
         for why in skipped {
@@ -224,24 +238,94 @@ impl Config {
         stores
     }
 
+    /// The bucket `cmux-projection s3-push --to BASE` writes to: the configured store whose
+    /// `base` is BASE when one has keys, else BASE (everything before `/<id>`, path or virtual
+    /// style) signed with the S3 keys and region the chain reads (`CMUX_PROJECTION_S3_*`, else
+    /// `AWS_*`). `Err` says why it is unusable; a push always needs keys.
+    pub fn push_target(to: &str, lookup: Lookup<'_>) -> Result<Self, String> {
+        let base = http_base(to).ok_or_else(|| format!("--to {to:?} is not http(s)"))?;
+        let (stores, _) = Self::all(lookup);
+        if let Some(store) =
+            stores.into_iter().find(|store| store.base == base && store.keys.is_some())
+        {
+            return Ok(store);
+        }
+        let get = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+        let keys = keys(
+            get("CMUX_PROJECTION_S3_ACCESS_KEY_ID").or_else(|| get("AWS_ACCESS_KEY_ID")),
+            get("CMUX_PROJECTION_S3_SECRET_ACCESS_KEY").or_else(|| get("AWS_SECRET_ACCESS_KEY")),
+            get("CMUX_PROJECTION_S3_SESSION_TOKEN").or_else(|| get("AWS_SESSION_TOKEN")),
+        )
+        .ok_or_else(|| {
+            "no access keys: CMUX_PROJECTION_S3_ACCESS_KEY_ID and \
+             CMUX_PROJECTION_S3_SECRET_ACCESS_KEY, or AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+                .to_owned()
+        })?;
+        let (_, host, path) =
+            split_url(&base).ok_or_else(|| format!("--to {to:?} is not a URL"))?;
+        plain_path(&path)?;
+        let region = get("CMUX_PROJECTION_S3_REGION").unwrap_or_else(|| {
+            if host.ends_with(".r2.cloudflarestorage.com") { "auto" } else { "us-east-1" }
+                .to_owned()
+        });
+        Ok(Self {
+            tier: "s3",
+            base,
+            host,
+            path,
+            region: region.trim().to_owned(),
+            keys: Some(keys),
+        })
+    }
+
+    /// [`Config::push_target`] read from the process environment and `CMUX_PROJECTION_S3_CONFIG`.
+    pub fn push_target_from_env(to: &str) -> Result<Self, String> {
+        let file = config_file();
+        Self::push_target(to, &|name: &str| {
+            std::env::var(name).ok().or_else(|| from_file(&file, name))
+        })
+    }
+
     /// The signed headers of `GET <base>/<id>` at `now` (none for a public bucket).
     #[must_use]
     pub fn headers(&self, oid: &str, now: SystemTime) -> Vec<(String, String)> {
+        self.signed("GET", oid, EMPTY_SHA256, now)
+    }
+
+    /// The signed headers of `METHOD <base>/<id>` at `now` for a body whose SHA-256 is `payload`
+    /// (hex; [`EMPTY_SHA256`] for `GET` and `HEAD`, the blob's for `PUT`); none for a public bucket.
+    #[must_use]
+    pub fn signed(
+        &self,
+        method: &str,
+        oid: &str,
+        payload: &str,
+        now: SystemTime,
+    ) -> Vec<(String, String)> {
         let Some(keys) = &self.keys else { return Vec::new() };
         let mut headers = vec![
             ("host".to_owned(), self.host.clone()),
-            ("x-amz-content-sha256".to_owned(), EMPTY_SHA256.to_owned()),
+            ("x-amz-content-sha256".to_owned(), payload.to_owned()),
             ("x-amz-date".to_owned(), amz_date(now)),
         ];
         if let Some(token) = &keys.session_token {
             headers.push(("x-amz-security-token".to_owned(), token.clone()));
         }
         let path = format!("{}/{oid}", self.path);
-        let authorization = authorization(keys, &self.region, "GET", &path, "", &headers);
+        let authorization = authorization(keys, &self.region, method, &path, "", &headers);
         headers.retain(|(name, _)| name != "host");
         headers.push(("authorization".to_owned(), authorization));
         headers
     }
+}
+
+/// The `CMUX_PROJECTION_S3_CONFIG` file's settings (`null` when it is unset or unreadable).
+fn config_file() -> serde_json::Value {
+    std::env::var("CMUX_PROJECTION_S3_CONFIG")
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
 }
 
 /// A setting of the `CMUX_PROJECTION_S3_CONFIG` file, by its variable's name.
@@ -284,6 +368,12 @@ pub fn amz_date(now: SystemTime) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The SHA-256 of `bytes` in hex: what a signed `PUT` declares as its payload.
+#[must_use]
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    hex(&Sha256::digest(bytes))
 }
 
 /// HMAC-SHA256 (RFC 2104).
@@ -376,6 +466,17 @@ pub enum Fetched {
     Denied(u16),
 }
 
+/// What one [`Store::push`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Pushed {
+    Stored,
+    /// The bucket already held it (its `HEAD` answered 2xx), so nothing was sent.
+    Had,
+    /// The `PUT` was answered 401 or 403: the keys may not write, so no other blob would be
+    /// stored either.
+    Denied(u16),
+}
+
 /// A configured store and its client.
 pub struct Store {
     pub config: Config,
@@ -384,8 +485,9 @@ pub struct Store {
 
 impl Store {
     pub fn new(config: Config) -> anyhow::Result<Self> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        // The person configured this endpoint (CMUX_PROJECTION_S3_*), so the egress gate lets it through.
+        cmux_egress::allow_named(&config.base);
+        let client = cmux_egress::blocking_client_builder("cmux_projection::s3")
             .connect_timeout(Duration::from_millis(500))
             .timeout(Duration::from_secs(20))
             .build()?;
@@ -408,7 +510,16 @@ impl Store {
         }
         match request.send() {
             Ok(response) => match response.status().as_u16() {
-                401 | 403 => Fetched::Denied(response.status().as_u16()),
+                401 => Fetched::Denied(401),
+                // AWS answers `AccessDenied` for an object it lacks when the key may read objects
+                // but not list the bucket (a read-only `GetObject` key): a miss. Any other 403
+                // (`SignatureDoesNotMatch`, `InvalidAccessKeyId`, ...) refuses every blob.
+                403 => match response.text() {
+                    Ok(body) if body.contains("<Code>AccessDenied</Code>") => {
+                        Fetched::Answer(Answer::Absent)
+                    }
+                    _ => Fetched::Denied(403),
+                },
                 404 => Fetched::Answer(Answer::Absent),
                 429 | 503 => Fetched::Answer(Answer::Busy),
                 status if (200..300).contains(&status) => Fetched::Answer(
@@ -419,7 +530,37 @@ impl Store {
             Err(_) => Fetched::Answer(Answer::Failed),
         }
     }
+
+    /// Stores `bytes` as blob `oid` unless the bucket holds it already (one `HEAD`). Refuses
+    /// bytes that do not hash to `oid` before any request, so the bucket never holds a wrong
+    /// object under a right name. A `HEAD` that does not answer 2xx (404, or 403 from a bucket
+    /// whose keys may not list) is followed by the `PUT`.
+    pub fn push(&self, oid: &str, bytes: &[u8]) -> anyhow::Result<Pushed> {
+        anyhow::ensure!(crate::peers::verify(oid, bytes), "{oid}: the bytes do not hash to it");
+        let url = format!("{}/{oid}", self.config.base);
+        let mut head = self.client.head(&url);
+        for (name, value) in self.config.signed("HEAD", oid, EMPTY_SHA256, SystemTime::now()) {
+            head = head.header(name, value);
+        }
+        if head.send().is_ok_and(|response| response.status().is_success()) {
+            return Ok(Pushed::Had);
+        }
+        let payload = sha256_hex(bytes);
+        let mut put = self.client.put(&url).timeout(PUT_TIMEOUT).body(bytes.to_vec());
+        for (name, value) in self.config.signed("PUT", oid, &payload, SystemTime::now()) {
+            put = put.header(name, value);
+        }
+        let response = put.send().map_err(|error| anyhow::anyhow!("PUT {url}: {error}"))?;
+        match response.status().as_u16() {
+            status @ (401 | 403) => Ok(Pushed::Denied(status)),
+            status if (200..300).contains(&status) => Ok(Pushed::Stored),
+            status => anyhow::bail!("PUT {url}: HTTP {status}"),
+        }
+    }
 }
+
+/// How long one `PUT` may take: a large blob over a slow uplink, not the 20 s a `GET` gets.
+const PUT_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[cfg(test)]
 #[path = "s3_tests.rs"]

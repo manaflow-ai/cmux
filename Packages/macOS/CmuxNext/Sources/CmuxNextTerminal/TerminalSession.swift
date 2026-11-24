@@ -316,6 +316,9 @@ public final class TerminalSession {
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
         (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
+
+    /// The viewport rows a wrapped link's underlines are drawn on.
+    public var linkUnderlineRowsForTesting: [Int] { surfaceView.linkPointer.underlinedRowsForTesting }
     #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
