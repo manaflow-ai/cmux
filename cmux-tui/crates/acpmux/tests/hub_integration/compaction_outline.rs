@@ -12,13 +12,34 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     records_after(c, id, kind, 0).await
 }
 
-/// The same, of the records after `after` (a long chat's whole log is not re-read each poll).
+/// The same, of the records after `after`, read page by page (a page is capped).
 async fn records_after(c: &mut TestClient, id: &str, kind: &str, after: u64) -> Vec<Value> {
-    let page = c
-        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": after, "limit": 100000}))
-        .await
-        .unwrap();
-    page["events"].as_array().unwrap().iter().filter(|e| e["kind"] == kind).cloned().collect()
+    records_cursor(c, id, kind, &mut after.clone()).await
+}
+
+/// The records of this kind after `*cursor`; the cursor moves to the last record read, so the
+/// next call reads only what came since.
+async fn records_cursor(c: &mut TestClient, id: &str, kind: &str, cursor: &mut u64) -> Vec<Value> {
+    let mut found = Vec::new();
+    loop {
+        let page = c
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "afterSeq": *cursor, "limit": 5000}),
+            )
+            .await
+            .unwrap();
+        let events = page["events"].as_array().unwrap();
+        found.extend(events.iter().filter(|e| e["kind"] == kind).cloned());
+        match events.last().and_then(|e| e["seq"].as_u64()) {
+            Some(last) => *cursor = last,
+            None => break,
+        }
+        if page["hasMore"].as_bool() != Some(true) {
+            break;
+        }
+    }
+    found
 }
 
 /// Waits for the `compaction_outline` record number `n` (1 is the first) of `id`.
@@ -28,9 +49,10 @@ async fn outline_record(c: &mut TestClient, id: &str, n: usize) -> Value {
 
 async fn outline_record_after(c: &mut TestClient, id: &str, n: usize, after: u64) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(900);
+    let (mut cursor, mut seen) = (after, Vec::new());
     loop {
-        let found = records_after(c, id, "compaction_outline", after).await;
-        if let Some(r) = found.get(n - 1) {
+        seen.extend(records_cursor(c, id, "compaction_outline", &mut cursor).await);
+        if let Some(r) = seen.get(n - 1) {
             return r.clone();
         }
         assert!(tokio::time::Instant::now() < deadline, "no compaction_outline record came");
@@ -45,7 +67,8 @@ async fn say(c: &mut TestClient, id: &str, text: &str) {
 }
 
 #[tokio::test]
-async fn a_compaction_summary_is_followed_by_the_outline_of_the_turns_it_covers_and_each_reads_back() {
+async fn a_compaction_summary_is_followed_by_the_outline_of_the_turns_it_covers_and_each_reads_back()
+ {
     let (dirs, mut c, _other) = two_local().await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
@@ -65,7 +88,12 @@ async fn a_compaction_summary_is_followed_by_the_outline_of_the_turns_it_covers_
     let asks: Vec<&str> = turns.iter().map(|t| t["ask"].as_str().unwrap()).collect();
     assert_eq!(
         asks,
-        ["alpha: first question", "tool-turn: 2000", "chunks: 40", "compact-summary: the summary text"]
+        [
+            "alpha: first question",
+            "tool-turn: 2000",
+            "chunks: 40",
+            "compact-summary: the summary text"
+        ]
     );
     let last_line = msg["lastLine"].as_u64().unwrap();
     for t in turns {
@@ -119,12 +147,18 @@ async fn a_compaction_summary_is_followed_by_the_outline_of_the_turns_it_covers_
     assert_eq!(newest["turns"][0]["ask"], "beta: after the compaction");
     assert_eq!(newest["olderTurns"], 4);
     let first_line = newest["turns"][0]["range"].as_str().unwrap();
-    let first_line: u64 = first_line.rsplit_once('@').unwrap().1.split('-').next().unwrap().parse().unwrap();
-    let older = c.request(READ, json!({"sessionId": id, "limit": 1, "before": first_line})).await.unwrap();
+    let first_line: u64 =
+        first_line.rsplit_once('@').unwrap().1.split('-').next().unwrap().parse().unwrap();
+    let older =
+        c.request(READ, json!({"sessionId": id, "limit": 1, "before": first_line})).await.unwrap();
     assert_eq!(older["turns"][0]["ask"], "compact-summary: the summary text");
 
     // A record newer than the pack is read from the log; a record that is not there is refused.
-    let seqs: Vec<u64> = records(&mut c, &id, "user_message").await.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+    let seqs: Vec<u64> = records(&mut c, &id, "user_message")
+        .await
+        .iter()
+        .map(|e| e["seq"].as_u64().unwrap())
+        .collect();
     let beta = c.request(READ, json!({"sessionId": id, "seq": seqs[4]})).await.unwrap();
     assert!(beta["text"].as_str().unwrap().contains("beta: after the compaction"));
     let missing = c.request(READ, json!({"sessionId": id, "seq": 99_999_999u64})).await;
@@ -135,11 +169,7 @@ async fn a_compaction_summary_is_followed_by_the_outline_of_the_turns_it_covers_
 
     // The record is read by every reader of the log, drawn by none: the transcript fold takes
     // it as it takes any mux record it does not list.
-    let page = c
-        .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 100000}))
-        .await
-        .unwrap();
-    assert!(page["events"].as_array().unwrap().iter().any(|e| e["kind"] == "compaction_outline"));
+    assert!(!records(&mut c, &id, "compaction_outline").await.is_empty());
     for d in dirs {
         let _ = std::fs::remove_dir_all(d);
     }
@@ -186,7 +216,7 @@ async fn a_50_mb_chat_reads_its_outline_a_digest_and_a_record_in_milliseconds() 
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     // About 0.67 MB of log a prompt (`a_50_mb_chat_starts_on_a_second_daemon_from_its_tail`).
-    for n in 0..8 {
+    for n in 0..80 {
         c.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "chunks: 2500"))
             .await
             .unwrap();
@@ -194,11 +224,10 @@ async fn a_50_mb_chat_reads_its_outline_a_digest_and_a_record_in_milliseconds() 
     let started = std::time::Instant::now();
     say(&mut c, &id, "compact-summary: the summary").await;
     let turn_ms = started.elapsed().as_millis();
-    let after = records(&mut c, &id, "user_message").await.last().unwrap()["seq"].as_u64().unwrap() - 1;
-    let outline = outline_record_after(&mut c, &id, 1, after).await;
+    let outline = outline_record(&mut c, &id, 1).await;
     let record_ms = started.elapsed().as_millis();
     let turns = outline["msg"]["turns"].as_array().unwrap();
-    assert_eq!(turns.len(), 9, "{}", outline["msg"]);
+    assert_eq!(turns.len(), 81, "{}", outline["msg"]);
 
     let mut timed = Vec::new();
     let mut time = |what: &str, ms: u128| timed.push(format!("{what} {ms} ms"));

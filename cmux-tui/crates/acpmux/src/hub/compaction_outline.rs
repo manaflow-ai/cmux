@@ -68,19 +68,21 @@ fn packed_through(m: &pack::Manifest) -> u64 {
 impl Hub {
     /// After a `compaction_summary` the log took at `summary_seq`: packs the log through it and
     /// appends the outline of the turns it covers (module doc), on a thread of its own.
-    pub(in crate::hub) fn outline_compaction(self: &Arc<Self>, session: &Arc<Session>, summary_seq: u64) {
+    pub(in crate::hub) fn outline_compaction(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        summary_seq: u64,
+    ) {
         let (hub, session) = (self.clone(), session.clone());
         let spawned =
             std::thread::Builder::new().name("acpmux-compaction-outline".into()).spawn(move || {
                 lower_this_thread();
-                let t0 = std::time::Instant::now(); eprintln!("DIAG outline thread start");
-                let r = hub.compaction_outline_record(&session, summary_seq); eprintln!("DIAG outline thread done {:?} ok={}", t0.elapsed(), r.is_ok());
-                match r {
+                match hub.compaction_outline_record(&session, summary_seq) {
                     Ok(record) => {
                         hub.append(&session, "mux", OUTLINE_KIND, record);
                     }
                     Err(error) => {
-                        eprintln!("DIAG compaction not outlined: {error:#}"); tracing::debug!(session = %session.id, "compaction not outlined: {error:#}");
+                        tracing::debug!(session = %session.id, "compaction not outlined: {error:#}");
                     }
                 }
             });
@@ -90,7 +92,11 @@ impl Hub {
     }
 
     /// The `compaction_outline` record for the summary at `summary_seq`.
-    fn compaction_outline_record(&self, session: &Session, summary_seq: u64) -> anyhow::Result<Value> {
+    fn compaction_outline_record(
+        &self,
+        session: &Session,
+        summary_seq: u64,
+    ) -> anyhow::Result<Value> {
         let store = self.pack_store(&session.id)?;
         let work = transfers_dir().join(format!("outline-{}", uuid::Uuid::now_v7()));
         let packed = {
@@ -151,7 +157,11 @@ impl Hub {
     /// - `range` (`<session>@<first>-<last>`): the digest of that range.
     /// - `seq`: that record whole, `MAX_RECORD_BYTES` from `offset` (0).
     /// - `fresh: true`: packs the chat's newest records first (slow on a large chat).
-    pub(crate) fn history_read(&self, session: &Session, params: &Value) -> Result<Value, RpcError> {
+    pub(crate) fn history_read(
+        &self,
+        session: &Session,
+        params: &Value,
+    ) -> Result<Value, RpcError> {
         let bad = |m: String| RpcError::invalid_params(m);
         let fail = |e: &dyn std::fmt::Display| RpcError::internal(format!("history: {e}"));
         let started = std::time::Instant::now();
@@ -162,7 +172,10 @@ impl Hub {
         let mut answer = if let Some(range) = params.get("range").and_then(Value::as_str) {
             let mut r = pack::RangeId::parse(range).map_err(|e| bad(e.to_string()))?;
             if r.name != session.id {
-                return Err(bad(format!("a chat reads its own history: {} is not {}", r.name, session.id)));
+                return Err(bad(format!(
+                    "a chat reads its own history: {} is not {}",
+                    r.name, session.id
+                )));
             }
             if r.first > r.last || r.first >= pack.manifest.lines {
                 return Err(bad(format!(
@@ -185,7 +198,8 @@ impl Hub {
                 );
                 r.last = read_to;
             }
-            let text = digest::digest(&pack, &r, digest::Limits::default()).map_err(|e| fail(&e))?;
+            let text =
+                digest::digest(&pack, &r, digest::Limits::default()).map_err(|e| fail(&e))?;
             let shown = cut_str(&text, MAX_DIGEST_BYTES);
             let mut out = shown.to_owned();
             let cut = text.len() - shown.len();
@@ -202,7 +216,8 @@ impl Hub {
                 // Newer than the pack: read from the log.
                 None => self.record_line(session, seq).map_err(|e| fail(&format!("{e:#}")))?,
             };
-            let line = line.ok_or_else(|| RpcError::not_found(format!("no record with seq {seq}")))?;
+            let line =
+                line.ok_or_else(|| RpcError::not_found(format!("no record with seq {seq}")))?;
             let text = String::from_utf8_lossy(&line);
             let offset = usize::try_from(num("offset").unwrap_or(0)).unwrap_or(usize::MAX);
             let rest = from_str(&text, offset);
@@ -218,7 +233,12 @@ impl Hub {
         Ok(answer)
     }
 
-    fn outline_answer(&self, session: &Session, pack: &pack::Pack, params: &Value) -> Result<Value, RpcError> {
+    fn outline_answer(
+        &self,
+        session: &Session,
+        pack: &pack::Pack,
+        params: &Value,
+    ) -> Result<Value, RpcError> {
         let fail = |e: &dyn std::fmt::Display| RpcError::internal(format!("history: {e}"));
         let limit = params
             .get("limit")
@@ -231,14 +251,30 @@ impl Hub {
         let mut covered = None;
         if params.get("compacted").and_then(Value::as_bool) == Some(true) {
             let mut newest = None::<u64>;
-            self.store
-                .scan_kinds(&session.id, &[OUTLINE_KIND], &mut |rec| {
-                    newest = rec.msg.get("lastLine").and_then(Value::as_u64).or(newest);
-                    true
-                })
-                .map_err(|e| fail(&format!("{e:#}")))?;
+            // The newest outline sits just after the newest summary, near the pack's end: read
+            // from the pack's last segment on (not the whole log), and the whole log only when
+            // that holds none (a fresh pack, or a chat whose outline is older).
+            let from = pack
+                .manifest
+                .segments
+                .last()
+                .and_then(|s| s.seq.map(|(lo, _)| lo.saturating_sub(1)))
+                .unwrap_or(0);
+            for after in [from, 0] {
+                self.store
+                    .scan_kinds_after(&session.id, after, &[OUTLINE_KIND], &mut |rec| {
+                        newest = rec.msg.get("lastLine").and_then(Value::as_u64).or(newest);
+                        true
+                    })
+                    .map_err(|e| fail(&format!("{e:#}")))?;
+                if newest.is_some() || after == 0 {
+                    break;
+                }
+            }
             let last = newest.ok_or_else(|| {
-                RpcError::not_found("this chat has not compacted (no compaction outline)".to_owned())
+                RpcError::not_found(
+                    "this chat has not compacted (no compaction outline)".to_owned(),
+                )
             })?;
             end = starts.partition_point(|s| *s <= last);
             covered = Some(last);
@@ -255,10 +291,18 @@ impl Hub {
             pack.manifest.lines,
             from + 1,
             end,
-            covered.map_or(String::new(), |l| format!(", those the compaction covers (through line {l})")),
+            covered.map_or(String::new(), |l| format!(
+                ", those the compaction covers (through line {l})"
+            )),
         );
         for t in &turns {
-            text.push_str(&format!("{}\t{}\t{}\t{}\n", t.range, t.at, t.records, t.ask.replace(['\n', '\t'], " ")));
+            text.push_str(&format!(
+                "{}\t{}\t{}\t{}\n",
+                t.range,
+                t.at,
+                t.records,
+                t.ask.replace(['\n', '\t'], " ")
+            ));
         }
         if from > 0 {
             let first = turns.first().map_or(0, |t| t.range.first);
