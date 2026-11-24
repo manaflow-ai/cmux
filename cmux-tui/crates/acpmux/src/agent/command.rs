@@ -151,9 +151,16 @@ fn build_harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
+    let mut plugin_hooks = false;
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let (extra, prompt) =
-            crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
+        let (extra, prompt, hooks) = crate::agent_tools::claude_args_and_hooks_for(
+            false,
+            &profile.env,
+            &owned.1,
+            session_id,
+            cwd,
+        );
+        plugin_hooks = hooks;
         let named = claude_name_args(&profile.env, &owned.1, session_name);
         let mut args = owned.1;
         // acpmux's own servers' instructions, which they then leave out: in the system prompt
@@ -459,9 +466,22 @@ fn build_harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
+    }
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
+    }
+    // The hosted and direct translators take the hook home from this launch. Only the
+    // selected local plugin enables its callbacks, regardless of inherited or profile env.
+    cmd.env_remove(crate::bg_hook::HOME_ENV);
+    if plugin_hooks && !remote_environment {
+        cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
     Ok((cmd, codex))
 }
