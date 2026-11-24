@@ -66,6 +66,10 @@
 #                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
 #                key left the app for the restored terminal's PTY) and terminal_echo (its echo came back): with front=tab,
 #                launch to the first key echoed in the restored terminal (startup-tti). Needs a build with the probe.
+#   record=1     with dmg=build (built --config bench): every measured launch records its windows from the first frame
+#                (`--record-launch`, DebugWindowRecord) and the summary heads each side with its medians as
+#                LR-PERCEIVED SIDE settled_match_ms=... shift_score=... tti_ms=... first_frame_is_final=... recorded=N/M
+#                (launch_shift.py: time to a frame that already looks done, CLS-style shift score, first input taken)
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
 #                LR-HOT-HOST and exit 5. preflight=0 skips it.
@@ -77,6 +81,9 @@
 #                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
 #                request moves focus). It takes no front=tab: that launch reopens a terminal, which would take the keys
 #                and run them as a command. Default keys=0: no keys.
+#   video=1      a screen video of the measured launches (screencapture -v of the console session, Screen Recording
+#                granted to the step's process): launches.mov in report.tgz, its first frame at video-start.txt's
+#                VIDEO_START_EPOCH_MS; each LR-RUN row's start_epoch_ms places its launch in it. Default video=0.
 #   preflight_wait=S  a hot host is checked again every 60 s for up to S s (default 900) before it fails the step: an
 #                indexer's batch (mediaanalysisd at 70-200 %) often ends in minutes, and the builds before it took ~20.
 #   guest=1      a run on a person's own Mac while they work on it, beside their running NIGHTLY (Leo, 2026-11-20: "why
@@ -106,11 +113,13 @@
 # measured launch must land exactly where the person was, Home included. Each case's expectation is one entry of
 # EXPECT in launch-ready-summary.py (LR-CASE, LR-REOPENED SIDE N/M):
 #   state=fresh  the same as state=bare: no saved state, so Home
-#   front=home|tab  with state=kept (and any kept case below): the priming launch's front is made Home (a workspace
-#                made, then Home shown) or a terminal tab (a workspace made and left in front) by launch-ready-seed.py
-#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab). With session=stress3
-#                the stress seed leaves the same front: Home, or its last workspace's terminal tab (front=tab: typing into a
-#                restored terminal of a large session, type=1 windows=1 workspaces=120)
+#   front=home|tab|chat  with state=kept (and any kept case below): the priming launch's front is made Home (a
+#                workspace made, then Home shown), a terminal tab (a workspace made and left in front) or an agent chat
+#                tab (palette.newAgentChat in that workspace, left in front) by launch-ready-seed.py --front, and every
+#                measured launch must reopen that front: Home, or that (workspace, tab). front=chat is the case where
+#                Chromium starts at launch, so launch-ready-cef.py's cef.* marks time it against the first frame. With
+#                session=stress3 the stress seed leaves the same front: Home, or its last workspace's terminal tab
+#                (front=tab: typing into a restored terminal of a large session, type=1 windows=1 workspaces=120)
 #   case=update  with base= (dmg=build): base is the old copy, head the new one, both at head's path with head's home.
 #                The priming launch and one launch before each measured one run the old copy (its state, its front);
 #                then the copy is replaced by head's, whose first launch is measured (copy=fresh's first exec). It
@@ -132,7 +141,7 @@ main() {
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_LAYOUT=0 LR_TYPE=0
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_VIDEO=0 LR_LAYOUT=0 LR_TYPE=0 LR_RECORD=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -151,8 +160,9 @@ main() {
       case=update) LR_CASE=update ;;
       daemon=warm|daemon=cold) LR_DAEMON="${arg#daemon=}" ;;
       snapshot=own|snapshot=unknown) LR_SNAPSHOT="${arg#snapshot=}" ;;
-      front=home|front=tab) LR_FRONT="${arg#front=}" ;;
+      front=home|front=tab|front=chat) LR_FRONT="${arg#front=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
+      video=0|video=1) LR_VIDEO="${arg#video=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -168,11 +178,14 @@ main() {
       layout=0|layout=1|layout=movequit) LR_LAYOUT="${arg#layout=}" ;;
       guest=0|guest=1) LR_GUEST="${arg#guest=}" ;;
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
+      record=0|record=1) LR_RECORD="${arg#record=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
   [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout= takes dmg=build (the sidebar edge needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 0 || "$dmg" == build ]] || { echo "record= takes dmg=build (--record-launch needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 1 && "$LR_LAYOUT" != movequit ]] && config=bench
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$LR_LAYOUT" == movequit ]] && config=debug
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
@@ -213,6 +226,7 @@ main() {
   cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
 
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
+  cp scripts/cmux-next/launch_shift.py "$out/launch_shift.py" # summary.py's PERCEIVED numbers (record=1)
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   cp scripts/measure/launch-ready-cef.py "$out/cef.py"
   echo "LR session $session workspaces ${workspaces:-add60} windows $windows prerun $prerun copy $copy machines $machines engines ${engines:-none}"
@@ -313,6 +327,14 @@ main() {
     if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
   done
   if [[ "$LR_CASE" == update ]]; then sides=(head); fi
+  local rec=""
+  if [[ "$LR_VIDEO" == 1 ]]; then
+    screencapture -v -x -V 3600 "$out/launches.mov" >"$out/video.log" 2>&1 &
+    rec=$!
+    echo "VIDEO_START_EPOCH_MS $(perl -MTime::HiRes=time -e 'printf "%d", time*1000')" >"$out/video-start.txt"
+    sleep 2
+    kill -0 "$rec" 2>/dev/null && echo "LR-VIDEO recording $out/launches.mov" || { echo "LR-VIDEO recorder did not start"; cat "$out/video.log"; rec=""; }
+  fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
@@ -324,6 +346,11 @@ main() {
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
+  if [[ -n "$rec" ]]; then # only the recorder this run started, by PID
+    kill -INT "$rec" 2>/dev/null
+    for _ in $(seq 1 30); do kill -0 "$rec" 2>/dev/null || break; sleep 1; done
+    echo "LR-VIDEO $(ls -la "$out/launches.mov" 2>&1)"
+  fi
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   end_left "$out/"
   # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
@@ -415,7 +442,7 @@ probe() {
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $(probe_mode "$label") $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) \
-    $([[ "$LR_TYPE" == 1 ]] && echo type) $([[ "${LR_GUEST:-0}" == 1 ]] && echo guest) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $([[ "$LR_TYPE" == 1 ]] && echo type) $([[ "${LR_RECORD:-0}" == 1 && "$label" == run* ]] && echo record) $([[ "${LR_GUEST:-0}" == 1 ]] && echo guest) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
@@ -680,10 +707,10 @@ case_args_ok() {
   [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
     || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
   # keys=1 types into Home's box from the window on; front=tab's launch reopens a terminal, which takes the keys and
-  # runs them as a command at Return. front=home and the default front are Home's: no conflict (the priming launch,
-  # where front= seeds, types nothing).
-  [[ "${LR_KEYS:-0}" != 1 || "$LR_FRONT" != tab ]] \
-    || { echo "keys=1 types into Home: it takes no front=tab (a terminal in front would take the keys)" >&2; return 1; }
+  # runs them as a command at Return, and front=chat's reopens a chat, whose composer takes them. front=home and the
+  # default front are Home's: no conflict (the priming launch, where front= seeds, types nothing).
+  [[ "${LR_KEYS:-0}" != 1 || ( "$LR_FRONT" != tab && "$LR_FRONT" != chat ) ]] \
+    || { echo "keys=1 types into Home: it takes no front=tab or front=chat (a terminal or chat in front would take the keys)" >&2; return 1; }
   return 0
 }
 
