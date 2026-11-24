@@ -332,20 +332,17 @@ fn predefined(name: &str) -> bool {
 pub fn expression_secrets(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = text;
-    while let Some(start) = rest.find("${{") {
-        let after = &rest[start + 3..];
-        let end = after.find("}}").unwrap_or(after.len());
-        let mut inner = &after[..end];
-        while let Some(pos) = inner.find("secrets.") {
-            let tail = &inner[pos + 8..];
+    while let Some((_, after)) = rest.split_once("${{") {
+        let (mut inner, next) = after.split_once("}}").unwrap_or((after, ""));
+        while let Some((_, tail)) = inner.split_once("secrets.") {
             let name: String =
                 tail.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
             if is_env_name(&name) && !predefined(&name) {
                 push_unique(&mut out, name.clone());
             }
-            inner = &tail[name.len()..];
+            inner = tail.get(name.len()..).unwrap_or_default();
         }
-        rest = &after[end..];
+        rest = next;
     }
     out
 }

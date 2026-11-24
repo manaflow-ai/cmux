@@ -71,7 +71,7 @@ pub fn codespaces_plan(list_json: &str, secrets_json: Option<&str>) -> Result<Pl
             // The API says only whether there are uncommitted files: at least one.
             dirty_files: u32::from(uncommitted),
             unpushed_commits: if ahead > 0 {
-                ahead.min(u64::from(u32::MAX)) as u32
+                u32::try_from(ahead).unwrap_or(u32::MAX)
             } else {
                 u32::from(unpushed_flag)
             },
@@ -178,7 +178,8 @@ pub fn gitpod_plan(label: &str, repo_url: Option<&str>, gitpod_yml: &str) -> Res
                 }
             }
             if let Some(cmd) = yaml_str(&task["command"]) {
-                let name = yaml_str(&task["name"]).unwrap_or_else(|| format!("task {}", i + 1));
+                let name = yaml_str(&task["name"])
+                    .unwrap_or_else(|| format!("task {}", i.saturating_add(1)));
                 project.notes.push(format!("{name} starts with: {}", cmd.trim()));
             }
             if let Some(env) = task["env"].as_hash() {

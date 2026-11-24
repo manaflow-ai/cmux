@@ -7,7 +7,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::project_files::{
-    checkout_source, dotenv_keys, folder_name, looks_secret, parse_jsonc, repo_at, value_has_login,
+    at, checkout_source, dotenv_keys, folder_name, looks_secret, parse_jsonc, repo_at,
+    value_has_login,
 };
 use crate::plan::{Plan, Project, SourceKind, machine_name};
 
@@ -66,11 +67,11 @@ pub fn project(root: &Path) -> Option<Project> {
                 let setup = &mut project.machine.setup;
                 setup.push(ENSURE_DEVBOX.into());
                 setup.push("devbox install".into());
-                let packages = packages(&json["packages"]);
+                let packages = packages(at(&json, &["packages"]));
                 if !packages.is_empty() {
                     project.notes.push(format!("devbox packages: {}", packages.join(", ")));
                 }
-                if let Value::Object(env) = &json["env"] {
+                if let Value::Object(env) = at(&json, &["env"]) {
                     for (k, v) in env {
                         let Some(v) = v.as_str() else { continue };
                         if looks_secret(k) || value_has_login(v) {
@@ -80,7 +81,7 @@ pub fn project(root: &Path) -> Option<Project> {
                         }
                     }
                 }
-                if !json["shell"]["init_hook"].is_null() {
+                if !at(&json, &["shell", "init_hook"]).is_null() {
                     project.notes.push(
                         "devbox's init_hook runs when you enter devbox shell, as before".into(),
                     );
