@@ -101,11 +101,13 @@ impl Driver {
         let result = if fresh {
             self.tunn.encapsulate(&[], &mut self.scratch)
         } else {
-            self.initiated_at = Some(Instant::now());
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         };
         if let TunnResult::WriteToNetwork(packet) = result {
             self.underlay.send(packet);
+            if !fresh {
+                self.initiated_at = Some(Instant::now());
+            }
         }
         self.schedule.on_activity(Instant::now());
     }
