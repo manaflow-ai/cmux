@@ -63,10 +63,12 @@ class LoadingPlaceholderCheck(unittest.TestCase):
             ('ProgressView("Working")\n', "spinner"),
             (".redacted(reason: .placeholder)\n", "redacted"),
             ("RowSkeleton()\n", "skeleton"),
-            ("ShimmerBar()\n", "skeleton"),
             ('Text("Updating…")\n', "loading-text"),
             ('Text("Connecting to your Mac...")\n', "loading-text"),
-            ('Text("Waiting for the Mac")\n', "loading-text"),
+            ('Text("Waiting for the Mac…")\n', "loading-text"),
+            ('CmuxSpinner(label: Text("x"))\n', "spinner"),
+            ('Text("Loading members")\n', "loading-text"),
+            ("skeleton(caption)\n", "skeleton"),
         ]:
             with self.subTest(line=line):
                 self.setUp()
@@ -92,6 +94,21 @@ class LoadingPlaceholderCheck(unittest.TestCase):
             with self.subTest(rel=rel):
                 r = self.run_check(rel, "ProgressView()\n")
                 self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_real_states_pass(self) -> None:
+        for line in (
+            'Text("Waiting for approval")\n',
+            'WorkingLabel().cmuxMobileShimmer()\n',
+            "struct SkeletonList: View {\n",
+            'case .loading: "Loading"\n',
+            "ProgressView(value: page.progress)\n",
+            "private func skeleton(_ caption: String) -> some View {\n",
+        ):
+            with self.subTest(line=line):
+                self.setUp()
+                r = self.run_check(VIEW, line)
+                self.assertEqual(r.returncode, 0, r.stdout)
+                self.tearDown()
 
     def test_comment_lines_pass(self) -> None:
         r = self.run_check(VIEW, "// no ProgressView() here, we draw cached rows\n")

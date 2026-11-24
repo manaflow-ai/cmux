@@ -13,11 +13,12 @@ already on the base is not this change's to fix. The inventory of those lives in
 cmux-next-ios/design/placeholder-inventory.md. An added line fails when it draws
 one of these:
 
-  spinner        ProgressView(...)  (a bare spinner, also with a label)
+  spinner        ProgressView(...) or CmuxSpinner(...) (not ProgressView(value:), a bar)
   redacted       .redacted(reason: .placeholder)
-  skeleton       Skeleton / Shimmer / shimmer views
-  loading-text   a string literal reading "Loading…", "Updating…", "Connecting…",
-                 "Fetching…", "Syncing…" or "Waiting for …"
+  skeleton       a Skeleton view drawn (SkeletonList(...), RowSkeleton(...))
+  loading-text   "Loading <thing>" / "Fetching|Syncing|Refreshing <thing>", or any
+                 "Updating|Connecting|Waiting for …" ending in an ellipsis
+                 ("Loading members", "Connecting…"; "Waiting for approval" passes)
 
 A real wait with nothing cached to show (first sign-in, a send in flight, a
 download the person started) may keep its indicator. To keep it, put
@@ -39,14 +40,18 @@ ROOTS = ("cmux-next-ios/", "Packages/iOS/")
 SKIP_PARTS = ("/Tests/", "/UITests/", "Tests.swift", "/.build/", "Preview", "Gallery")
 
 RULES: list[tuple[str, re.Pattern[str]]] = [
-    ("spinner", re.compile(r"\bProgressView\s*\(")),
+    # ProgressView(value:) is a determinate bar for a download the person started, not a wait.
+    ("spinner", re.compile(r"\b(ProgressView\s*\((?!\s*value:)|CmuxSpinner\s*\()")),
     ("redacted", re.compile(r"\.redacted\s*\(\s*reason:\s*\.placeholder")),
-    ("skeleton", re.compile(r"\b[A-Za-z]*(Skeleton|Shimmer)[A-Za-z]*\b|\.shimmer\w*\s*\(")),
+    # A skeleton view being drawn (its construction), not the type's definition or a
+    # shimmer over real text (an agent's "Working" label is live state, not a placeholder).
+    ("skeleton", re.compile(r"(?<!func )(?<!init)\b[A-Za-z]*[Ss]keleton[A-Za-z]*\s*\((?!\s*\)\s*->)")),
+    # Placeholder copy ends in an ellipsis; "Waiting for approval" is a real state.
     (
         "loading-text",
         re.compile(
-            r'"(Loading|Updating|Connecting|Fetching|Syncing|Refreshing|Waiting for)\b[^"]*(…|\.\.\.)?"',
-            re.IGNORECASE,
+            r'"((Loading|Fetching|Syncing|Refreshing) \w[^"]*'
+            r'|(Loading|Updating|Connecting|Fetching|Syncing|Refreshing|Waiting for)\b[^"]*(…|\.\.\.))"'
         ),
     ),
 ]
