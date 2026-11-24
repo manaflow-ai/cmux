@@ -31,5 +31,8 @@ exports:
                        '_AXValueGetType',
                        '_AXValueGetTypeID',
                        '_AXValueGetValue',
+                       '_CGEventGetIntegerValueField',
+                       '_CGEventTapCreateForPid',
+                       '_CGEventTapEnable',
                        '_kAXTrustedCheckOptionPrompt' ]
 ...
