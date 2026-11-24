@@ -161,7 +161,7 @@ test("recap-only wrap-ups after a question never unpin it", () => {
   const recap = (id: string, superseded?: boolean): AcpmuxRow => ({
     ...line(id, "nextStep"),
     nextStep: {
-      ask: { tag: "wrap_up", recap: "Waiting on CI.", question: "", options: [] },
+      ask: { tag: "wrap_up", recap: "Waiting on CI.", question: "", options: [], rest: "" },
       ...(superseded && { superseded }),
     },
   });
