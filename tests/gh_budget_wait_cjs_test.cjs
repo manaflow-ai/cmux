@@ -35,7 +35,20 @@ function fakeGithub(failures) {
   return { github, calls };
 }
 
-function harness(failures, env = {}) {
+function fakeSpare(failures) {
+  const calls = [];
+  return {
+    calls,
+    async request(options) {
+      calls.push(options);
+      const next = failures.shift();
+      if (next) throw next;
+      return { status: 200, data: { spare: true } };
+    },
+  };
+}
+
+function harness(failures, env = {}, spare = undefined) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-budget-wait-js-'));
   const { github, calls } = fakeGithub(failures);
   const slept = [];
@@ -46,6 +59,7 @@ function harness(failures, env = {}) {
     env: { RUNNER_TEMP: tmp, ...env },
     sleep: async (ms) => { slept.push(ms / 1000); },
     now: () => 1_000_000,
+    spare,
   });
   const waited = () => {
     const file = path.join(tmp, 'gh-budget-wait', 'waited');
@@ -118,6 +132,51 @@ test('the job total bounds every wait', async () => {
   await assert.rejects(h.github.request(req), /Bad Gateway/);
   assert.deepStrictEqual(h.slept, [10, 15]);
   assert.match(h.notes.error[0], /25s of waiting is spent/);
+  h.cleanup();
+});
+
+const dry = () => httpError(403, 'API rate limit exceeded for installation ID 1',
+  { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(1_000_000 + 600) });
+const read = { method: 'GET', url: '/repos/{owner}/{repo}/git/ref/{ref}', owner: 'o', repo: 'r', ref: 'heads/x', request: { hook: 'first client' } };
+
+test('a rate-limited GET is read on the spare token, with no wait', async () => {
+  const spare = fakeSpare([]);
+  const h = harness([dry()], {}, spare);
+  const result = await h.github.request(read);
+  assert.deepStrictEqual(result.data, { spare: true });
+  assert.deepStrictEqual(h.slept, []);
+  assert.strictEqual(h.calls.length, 1);
+  assert.strictEqual(spare.calls.length, 1);
+  assert.strictEqual(spare.calls[0].request, undefined, 'the first client\'s hook must not ride along');
+  assert.strictEqual(spare.calls[0].ref, 'heads/x');
+  h.cleanup();
+});
+
+test('a spare that is dry too falls back to the wait, once', async () => {
+  const spare = fakeSpare([dry()]);
+  const h = harness([dry(), dry()], {}, spare);
+  const result = await h.github.request(read);
+  assert.deepStrictEqual(result.data, { ok: true });
+  assert.deepStrictEqual(h.slept, [605, 605]);
+  assert.strictEqual(spare.calls.length, 1);
+  h.cleanup();
+});
+
+test('a write never moves to the spare token', async () => {
+  const spare = fakeSpare([]);
+  const h = harness([dry()], {}, spare);
+  await h.github.request(req);
+  assert.strictEqual(spare.calls.length, 0);
+  assert.deepStrictEqual(h.slept, [605]);
+  h.cleanup();
+});
+
+test('a server error does not use the spare token', async () => {
+  const spare = fakeSpare([]);
+  const h = harness([httpError(502, 'Bad Gateway')], {}, spare);
+  await h.github.request(read);
+  assert.strictEqual(spare.calls.length, 0);
+  assert.deepStrictEqual(h.slept, [10]);
   h.cleanup();
 });
 
