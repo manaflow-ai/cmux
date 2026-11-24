@@ -32,7 +32,7 @@ done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
   [[ "$cores" =~ ^[1-9][0-9]*$ ]] || { echo "replay-under-load.sh: --cores takes a positive count" >&2; exit 2; }
   export REPLAY_UNDER_LOAD_PINNED=1
-  exec taskset -c "0-$((cores - 1))" "$0" --out "$out" "${bench_args[@]}"
+  exec taskset -c "0-$((cores - 1))" "$0" --out "$out" ${bench_args[@]+"${bench_args[@]}"}
 fi
 mkdir -p "$(dirname "$out")"
 work="$(mktemp -d)"
@@ -76,7 +76,7 @@ sleep 10
 ) &
 sampler=$!
 status=0
-bun bench/replay-under-load.bench.ts --out "$work/bench.json" "${bench_args[@]}" >"$work/bench.log" 2>&1 || status=1
+bun bench/replay-under-load.bench.ts --out "$work/bench.json" ${bench_args[@]+"${bench_args[@]}"} >"$work/bench.log" 2>&1 || status=1
 kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
 read -r load1 _ </proc/loadavg
 tail -3 "$work/bench.log"
