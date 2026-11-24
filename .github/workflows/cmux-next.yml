@@ -4992,6 +4992,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-59
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-265
