@@ -157,7 +157,10 @@ extension DeepLink {
     /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
     /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
     /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
-    /// Models for Cloud (``cloudRoute(row:)``). Nil for any other URL.
+    /// Models for Cloud (``cloudRoute(row:)``). `cmux://settings/integrations` (or `/connections`) is
+    /// Settings > Integrations, where a connector's sign-in returns (`?connected=` or `?error=` are left
+    /// to the page's own refresh).
+    /// Nil for any other URL.
     public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
@@ -168,6 +171,7 @@ extension DeepLink {
         case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
         case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
         case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
+        case "/integrations", "/integrations/", "/connections", "/connections/": return "#/settings/integrations"
         default: return nil
         }
     }
