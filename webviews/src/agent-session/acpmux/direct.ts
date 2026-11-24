@@ -1404,6 +1404,9 @@ export class AcpmuxDirectClient {
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
   private queuedSends = new Set<string>();
+  /// This pane's steers acpmux holds until the turn they go into shows (`queued.steerOnStart`): each
+  /// keeps its transcript bubble, never a queue row, and the bubble goes only if acpmux drops it.
+  private startSteers = new Set<string>();
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
   private waitingSteers: readonly { rowId: string; promptId?: string }[] = [];
@@ -3050,6 +3053,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptInputs.clear();
     this.retryInputs.clear();
     this.queuedSends.clear();
+    this.startSteers.clear();
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
@@ -8433,6 +8437,16 @@ export class AcpmuxDirectClient {
       // draws as that turn's line once the agent takes it (`bgDoneNotice`), never pinned under the
       // running turn (Lucas, 2026-11-14).
       if (bgDoneNotice(msg)) return;
+      // The person's steer, sent before its turn showed: acpmux holds it until the turn shows, then
+      // steers it in. Its bubble stays where it was sent; it never passes through the queue (Leo,
+      // 2026-11-24: "it looks like it goes through the queue and THEN goes properly... whih is
+      // wrong. my mode is steer right now").
+      if (id && msg.steerOnStart === true && this.optimisticPromptRows.has(id)) {
+        this.startSteers.add(id);
+        this.setDelivery(id, { state: "delivered", acceptedAt: event.at });
+        this.promptAccepts.get(id)?.();
+        return;
+      }
       if (id) {
         this.dropDeferredSteer(id, String(msg.text ?? ""));
         this.queueAuthors.set(id, promptAuthor(msg) ?? null);
@@ -8492,6 +8506,15 @@ export class AcpmuxDirectClient {
       event.kind === "queue_declined"
     ) {
       const id = String(msg.promptId ?? "");
+      // A held steer acpmux let go: dequeued, its echo takes the bubble; refused, the bubble says
+      // so with Retry (`failLostPrompt`); removed or declined, the bubble goes with it.
+      if (this.startSteers.delete(id) && event.kind !== "dequeued") {
+        if (event.kind === "prompt_refused") this.failStartSteer(id, msg.error);
+        else {
+          settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
+          this.optimisticPromptTexts.delete(id);
+        }
+      }
       this.queue = this.queue.filter((entry) => entry.id !== id);
       this.queueAuthors.delete(id);
       this.queueEdited.delete(id);
@@ -14315,6 +14338,37 @@ export class AcpmuxDirectClient {
   /// The lost prompt drawn by `drawLostPrompt` never showed in acpmux's record: its row fails with
   /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
   /// line apart from the row while the row still looks sent. False when there is no such row.
+  /// A steer acpmux held for its turn (`startSteers`), then refused: its bubble, already delivered,
+  /// says so with Retry, as a send that failed does.
+  private failStartSteer(promptId: string, error: unknown): void {
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row) return;
+    const message = typeof error === "string" && error ? error : translate("transport.refused");
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    const delivery: PromptDelivery = {
+      ...entry.delivery,
+      state: "failed",
+      failedAt: Date.now(),
+      hop: "acpmux",
+      error: message,
+    };
+    entry.delivery = delivery;
+    this.rows.set(entry.rowId, {
+      ...row,
+      pending: false,
+      failed: true,
+      error: failedSendText(new Error(message), false, attachments),
+      delivery,
+      version: row.version + 1,
+    });
+    this.failedPrompts.set(entry.rowId, {
+      input: this.optimisticPromptInputs.get(promptId) ?? row.text ?? "",
+      attachments,
+      promptId,
+    });
+  }
+
   failLostPrompt(promptId: string, error: unknown): boolean {
     const entry = this.deliveries.get(promptId);
     const row = entry ? this.rows.get(entry.rowId) : undefined;

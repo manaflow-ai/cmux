@@ -805,6 +805,12 @@ impl Hub {
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
         }
+        // The person's steer that came before its turn showed (`turns.rs` `steer_on_start`): a
+        // client draws it as the steer it is, a bubble in the transcript, never a queue row it
+        // leaves a moment later (Leo, 2026-11-24: "my mode is steer right now").
+        if p.steer_on_start {
+            queued.set("steerOnStart", json!(true));
+        }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {
             queued.set("awaitingOwner", json!(true));

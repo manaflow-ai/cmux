@@ -65,6 +65,11 @@ async fn the_persons_steer_sent_as_a_turn_starts_steers_into_it_not_the_queue() 
     let steer = send(&hub, &s, "sos-b", "steer this in", true, Some(tx));
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_eq!(accepted["queued"], json!(true), "{accepted}");
+    // Its `queued` record says it is a steer, so a client keeps its bubble and draws no queue row.
+    let records = hub.events(&s.id, 0, 100_000).unwrap();
+    let queued = records.iter().find(|r| r.kind == "queued" && r.msg["promptId"] == "sos-b");
+    let queued = queued.expect("the steer's queued record");
+    assert_eq!(queued.msg["steerOnStart"], json!(true), "{}", queued.msg);
 
     // The first turn shows and runs until it is stopped: the steer goes into it, at once.
     release.send(()).unwrap();
