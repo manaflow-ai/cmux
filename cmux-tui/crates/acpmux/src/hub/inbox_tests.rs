@@ -1427,8 +1427,10 @@ fn the_one_pass_trim_lets_go_of_what_the_removing_loop_did() {
     }
     for (len, stride) in [(KEEP, 1), (KEEP + 1, 1), (KEEP + 40, 3), (3 * KEEP, 2), (3 * KEEP, 7)] {
         let make = || {
-            let mut inbox = Inbox::default();
-            inbox.in_flight = Some(("notice".into(), vec!["m-5".into(), "m-6".into()]));
+            let mut inbox = Inbox {
+                in_flight: Some(("notice".into(), vec!["m-5".into(), "m-6".into()])),
+                ..Inbox::default()
+            };
             for n in 0..len {
                 let thread = format!("t-{}", n % 5);
                 let mut i = item(&format!("m-{n}"), &thread, "a", PromptClass::Fyi, n as u64, "x");
