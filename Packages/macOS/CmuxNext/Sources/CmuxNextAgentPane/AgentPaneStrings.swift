@@ -385,6 +385,22 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .localizedModule)
     }
 
+    static var repositoryURLInvalidMessage: String {
+        String(localized: "agentPane.repo.invalidURL", defaultValue: "Enter an HTTPS repository URL.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLCredentialsMessage: String {
+        String(localized: "agentPane.repo.credentials", defaultValue: "Use a URL without credentials, query parameters, or a fragment.", bundle: .localizedModule)
+    }
+
+    static var repositoryDestinationTakenMessage: String {
+        String(localized: "agentPane.repo.destinationTaken", defaultValue: "Another folder already uses this clone location.", bundle: .localizedModule)
+    }
+
+    static var repositoryCloneFailedMessage: String {
+        String(localized: "agentPane.repo.cloneFailed", defaultValue: "Couldn’t clone the repository. Check the URL and your Git access, then try again.", bundle: .localizedModule)
+    }
+
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
     static func gitHubCloneFailedMessage(_ repo: String) -> String {
         String(format: String(localized: "agentPane.github.localCloneFailed",

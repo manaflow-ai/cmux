@@ -993,6 +993,30 @@ export default pinKindsHead(
           { isWorking: true },
         ),
       },
+      "hat-context-menu-bottom": {
+        note: "Right-click the finished task beside its time and checkmark. In the Mac app, the chat menu opens above the pointer.",
+        height: 480,
+        snapshot: rowsChat([
+          agent("Review the remaining changes", 4),
+          agent("Check the fix and ask its owner to land it", 2, "completed", { ran: 119 / 60 }),
+        ]),
+        play: async (ctx) => {
+          await openTray(ctx);
+          const label = {
+            selector: '.acpmux-running-tray .acpmux-agent-line[data-status="done"] .acpmux-summary-agent__name',
+          };
+          await ctx.waitFor(() => ctx.document.querySelector(label.selector));
+          const target = ctx.find(label);
+          if (target.getBoundingClientRect().top < ctx.document.documentElement.clientHeight / 2)
+            throw new Error("The finished task must sit in the bottom half of the pane.");
+          // The finished row has no Stop menu. Its right-click must reach the native chat menu.
+          const gestures: Event[] = [];
+          target.addEventListener("contextmenu", (event) => gestures.push(event), { once: true });
+          await ctx.contextMenu(label);
+          if (!gestures.length || gestures[0]!.defaultPrevented)
+            throw new Error("The finished task must pass its right-click through to the chat menu.");
+        },
+      },
       // Tucked away (Settings > Agent Chat > Tuck Away Running Tray, TrayPullTab.tsx): the tab on the
       // composer's top edge still flags what needs the person (Leo said "Yes", 2026-11-04, to "the
       // tucked state, the hover tab with its dot or count"), and sits at the middle, left or right
@@ -1037,7 +1061,7 @@ export default pinKindsHead(
                 throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
               if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
                 throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
-              if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              if (!waits && ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count !== "3")
                 throw new Error("the tab counts the three that run");
             },
             snapshot: (() => {
