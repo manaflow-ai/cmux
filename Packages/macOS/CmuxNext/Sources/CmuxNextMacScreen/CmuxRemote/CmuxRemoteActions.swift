@@ -92,7 +92,10 @@ extension CmuxRemoteActionEnvironment {
             guard let window = environment.window() else { return .refused(L.t("macScreen.setup.noWindow", "Open a cmux window to share this Mac.")) }
             return CmuxRemoteSharingSetup(host: environment.screenHost, consent: environment.shareConsent).begin(in: window, invocation: invocation)
         })
-        _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { _ in
+        _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { invocation in
+            // The person's own Stop is their off: the join default no longer turns sharing back on here.
+            // The CLI's and agents' stops are not (`cmux remote-host share off` then `on` needs no sheet).
+            if invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction() { CmuxRemoteShareConsent.recordDecline() }
             // Stop locally on this turn, even when the hub cannot be reached.
             environment.screenHost.stopSession(reason: .hostStopped, immediately: true)
             return .applied(result: {

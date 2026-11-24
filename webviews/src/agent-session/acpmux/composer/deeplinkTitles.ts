@@ -6,6 +6,7 @@ import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/
 import type { CmuxLinkInfo } from "../chips/cmuxLinkResolve";
 import { deeplinksKey } from "./deeplinkTokens";
 import { TOOL_HREF_PREFIX } from "../toolMentions";
+import { focusRoute } from "../../../ui/focusRoute";
 
 // A cmux link in the draft drawn as what it names, as the sent message draws it
 // (chips/CmuxLinkChip.tsx; Leo, 2026-11-08: "when I paste the URL link, when I do the right-click
@@ -20,8 +21,14 @@ import { TOOL_HREF_PREFIX } from "../toolMentions";
 // The chip acts as one character: ArrowLeft and ArrowRight step over it, Backspace and Delete take
 // the whole link, and an edit that would run text into it (a paste or a typed word right after it,
 // an attachment, a second link) leaves a space between, so the chip never turns back into its URL
-// (Leo: "after I paste in another thing, it just becomes unformatted again"). A selection or caret
-// inside the link (a drag, a value set from outside) still brings its text back to edit.
+// (Leo: "after I paste in another thing, it just becomes unformatted again"). A caret or selection end
+// inside the link (a value set from outside) still brings its text back to edit. The pointer treats
+// the chip as one character (Lucas, 2026-11-23/24: "when trying to select text it looks very weird",
+// "make it work like this", a Codex recording): a press on its left half puts the caret before it,
+// on its right half after it, a drag from there steps over it whole, and a double-click selects it.
+// The press is the plugin's, not the browser's: the link's characters are hidden, so WebKit placed a
+// press on the chip at either end, and a drag from a selected chip moved the draft (drag and drop).
+// A selection across the chip draws it as selected text (markdownField.css, `data-selected`).
 // The links come from deeplinkTokens.ts's decorations, so nothing reads the draft again here.
 
 /// The class a titled link's chip draws with (markdownField.css).
@@ -44,10 +51,14 @@ export type DeeplinkTitles = {
   image?(info: CmuxLinkInfo): string | undefined;
 };
 
-/// A link drawn as its chip: its range in the draft and its text there.
-type Chip = { from: number; to: number; text: string };
+/// A link drawn as its chip: its range in the draft, its text there, and whether a selection covers it.
+type Chip = { from: number; to: number; text: string; selected: boolean };
 
-const key = new PluginKey<number>("acpmuxDeeplinkTitles");
+/// `version` counts redraws asked from outside (a rename, a composition's end); `typed` is whether the
+/// last change to the caret was an edit (typing, a paste) and not a click, an arrow or a drag.
+type TitlesState = { version: number; typed: boolean };
+
+const key = new PluginKey<TitlesState>("acpmuxDeeplinkTitles");
 
 /// What ends a link (deeplinks.ts): a space, a bracket, or a leaf (an attachment, a line break).
 const LINK_END = /[\s<>()"'`[\]￼]/;
@@ -99,22 +110,49 @@ function chipStart(icon: string | undefined, image = false): HTMLElement {
   return start;
 }
 
+/// Whether the caret was last moved by typing: an edit that ends at the caret (a letter, a paste) is;
+/// a click, an arrow or a drag that moves it is not; an edit elsewhere (an attachment taken out) and a
+/// caret put back where it was (a focus restored) leave it as it was.
+function typedAfter(tr: Transaction, before: EditorState, typed: boolean): boolean {
+  const { head, empty } = tr.selection;
+  if (tr.docChanged) {
+    let atCaret = false;
+    tr.mapping.maps.forEach((map, index) =>
+      map.forEach((_oldStart, _oldEnd, _newStart, newEnd) => {
+        if (tr.mapping.slice(index + 1).map(newEnd) === head) atCaret = true;
+      }),
+    );
+    return atCaret || typed;
+  }
+  if (!tr.selectionSet) return typed;
+  return empty && head === before.selection.head && before.selection.empty ? typed : false;
+}
+
 /// Draws each known link in the draft as its chip. `titles` undefined draws nothing.
 export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin {
   let cached:
-    | { links: DecorationSet; head: number; anchor: number; version: number; set: DecorationSet; chips: Chip[] }
+    | {
+        links: DecorationSet;
+        head: number;
+        anchor: number;
+        version: number;
+        typed: boolean;
+        set: DecorationSet;
+        chips: Chip[];
+      }
     | undefined;
   const decorate = (state: EditorState): { set: DecorationSet; chips: Chip[] } => {
     const links = deeplinksKey.getState(state);
     if (!titles || !links) return { set: DecorationSet.empty, chips: [] };
-    const version = key.getState(state) ?? 0;
-    const { head, anchor } = state.selection;
+    const { version, typed } = key.getState(state) ?? { version: 0, typed: false };
+    const { head, anchor, from, to, empty } = state.selection;
     if (
       cached &&
       cached.links === links &&
       cached.head === head &&
       cached.anchor === anchor &&
-      cached.version === version
+      cached.version === version &&
+      cached.typed === typed
     )
       return cached;
     const found = links.find(undefined, undefined, (spec) => typeof spec.deeplink === "string");
@@ -122,10 +160,11 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
     const chips: Chip[] = [];
     for (const link of found) {
       const href = link.spec.deeplink as string;
-      // The caret or a selection inside the link: its text, to edit. A tool's word (`@computer-use`,
-      // toolMentions.ts) also stays text while the caret is at its end: it may still be typed on
-      // (`@computer-user`), and a badge there would get a space put after it (`keepChips`).
-      const tool = href.startsWith(TOOL_HREF_PREFIX) && (head === link.to || anchor === link.to);
+      // The caret or a selection end inside the link: its text, to edit. A tool's word (`@computer-use`,
+      // toolMentions.ts) also stays text while it is being typed, the caret at its end: it may still be
+      // typed on (`@computer-user`), and a badge there would get a space put after it (`keepChips`).
+      // A caret put there by a click or an arrow, or a drag that starts there, keeps the badge.
+      const tool = href.startsWith(TOOL_HREF_PREFIX) && empty && typed && head === link.to;
       const inside = (head > link.from && head < link.to) || (anchor > link.from && anchor < link.to);
       if (inside || tool) continue;
       const info = titles.known(href);
@@ -133,6 +172,7 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       const title = titles.label(info);
       const image = titles.image?.(info);
       const icon = image ? `url("${image}")` : titles.icon?.(info);
+      const selected = !empty && from <= link.from && to >= link.to;
       decorations.push(
         // After the position before the link (side 1): the caret there stands before the chip.
         Decoration.widget(link.from, () => chipStart(icon, image !== undefined), {
@@ -141,16 +181,134 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
         }),
         Decoration.inline(link.from, link.to, { class: TITLED_LINK_CLASS }),
         // Before the position after the link (side -1): the caret there stands after the chip.
+        // Its key leaves out `selected`: a new element under a drag lost WebKit's place in it. The
+        // plugin's view marks the element instead (`markSelected`).
         Decoration.widget(link.to, () => chipElement(title, info.kind, href, icon), {
           side: -1,
           key: `${href}\n${title}\n${info.kind}\n${icon ?? ""}`,
+          selected,
         }),
       );
-      chips.push({ from: link.from, to: link.to, text: state.doc.textBetween(link.from, link.to, undefined, "￼") });
+      chips.push({
+        from: link.from,
+        to: link.to,
+        text: state.doc.textBetween(link.from, link.to, undefined, "￼"),
+        selected,
+      });
     }
     const set = decorations.length ? DecorationSet.create(state.doc, decorations) : DecorationSet.empty;
-    cached = { links, head, anchor, version, set, chips };
+    cached = { links, head, anchor, version, typed, set, chips };
     return cached;
+  };
+
+  /// Marks each chip's title end a selection covers (markdownField.css draws it as selected text).
+  const markSelected = (view: EditorView) => {
+    const { chips } = decorate(view.state);
+    for (const end of view.dom.querySelectorAll<HTMLElement>(`.${TITLED_CLASS}`)) {
+      const at = view.posAtDOM(end, 0);
+      const on = chips.some((chip) => chip.to === at && chip.selected);
+      if (on !== "selected" in end.dataset) {
+        if (on) end.dataset.selected = "";
+        else delete end.dataset.selected;
+      }
+    }
+  };
+
+  /// The chip a pointer is over (its front or its title end), and the boxes it is drawn in.
+  const chipUnder = (view: EditorView, target: EventTarget | null) => {
+    if (!(target instanceof Element)) return undefined;
+    const part = target.closest(`.${TITLED_START_CLASS}, .${TITLED_CLASS}`);
+    if (!part || !view.dom.contains(part)) return undefined;
+    const front = part.classList.contains(TITLED_START_CLASS);
+    const at = view.posAtDOM(part, 0);
+    const chip = decorate(view.state).chips.find((each) => (front ? each.from : each.to) === at);
+    if (!chip) return undefined;
+    // Its two parts, drawn as one chip: the front (the icon) and the title end (the wash and title).
+    const rects: DOMRect[] = [];
+    for (const each of view.dom.querySelectorAll(`.${TITLED_START_CLASS}, .${TITLED_CLASS}`)) {
+      const edge = each.classList.contains(TITLED_START_CLASS) ? chip.from : chip.to;
+      if (view.posAtDOM(each, 0) === edge) rects.push(...each.getClientRects());
+    }
+    return rects.length ? { chip, rects } : undefined;
+  };
+
+  /// The end of a chip a pointer at `x`, `y` stands at: before it on its left half, after it on its
+  /// right. A title that wraps is halved on the pointer's line alone.
+  const sideOf = (hit: { chip: Chip; rects: DOMRect[] }, x: number, y: number) => {
+    const line = hit.rects.filter((rect) => y >= rect.top && y <= rect.bottom);
+    const rects = line.length ? line : hit.rects;
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const right = Math.max(...rects.map((rect) => rect.right));
+    return x < (left + right) / 2 ? hit.chip.from : hit.chip.to;
+  };
+
+  /// The draft position under a dragging pointer: a chip as one character, never inside its word.
+  /// Past the field's edge it is the field's nearest point (as a drag of selected text goes on outside
+  /// it), and that point is tested for a chip too: the field's first chip starts at its left edge, so
+  /// a drag out past it to the left ended after it and dropped it from the selection.
+  const posAtPointer = (view: EditorView, event: MouseEvent): number | undefined => {
+    const box = view.dom.getBoundingClientRect();
+    const left = Math.min(Math.max(event.clientX, box.left + 1), box.right - 1);
+    const top = Math.min(Math.max(event.clientY, box.top + 1), box.bottom - 1);
+    const under =
+      left === event.clientX && top === event.clientY ? event.target : view.root.elementFromPoint(left, top);
+    const hit = chipUnder(view, under);
+    if (hit) return sideOf(hit, left, top);
+    const pos = view.posAtCoords({ left, top })?.pos;
+    if (pos === undefined) return undefined;
+    const chip = decorate(view.state).chips.find((each) => pos > each.from && pos < each.to);
+    if (!chip) return pos;
+    return pos - chip.from < chip.to - pos ? chip.from : chip.to;
+  };
+
+  /// A press in a draft with a chip: the caret under the pointer (on a chip, at its nearer end), then a
+  /// drag selects from there, the chip as one character. WebKit's own drag went wrong across a chip
+  /// (out past it to the left it selected the end of the line), so the plugin moves the selection for
+  /// a single press anywhere in the draft's text; a draft without a chip keeps the browser's, as do a
+  /// double or triple press on text (a word, a paragraph) and a press on an attachment.
+  const press = (view: EditorView, event: MouseEvent): boolean => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.detail > 2) return false;
+    if (!decorate(view.state).chips.length) return false;
+    const hit = chipUnder(view, event.target);
+    if (!hit) {
+      if (event.detail !== 1) return false;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || target.closest('[contenteditable="false"]')) return false;
+    }
+    const at = hit ? sideOf(hit, event.clientX, event.clientY) : posAtPointer(view, event);
+    if (at === undefined) return false;
+    event.preventDefault();
+    // The press's own focus went with its default (prevented, so WebKit draws no selection of its own).
+    focusRoute(view, "person", "a press in the draft takes the caret there");
+    const { selection } = view.state;
+    if (hit && event.detail === 2) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, hit.chip.from, hit.chip.to)));
+      return true;
+    }
+    const anchor = event.shiftKey && selection instanceof TextSelection ? selection.anchor : at;
+    // `between`: a position between blocks (their gap, a rule, below the last) moves into text.
+    const select = (head: number) => {
+      const { state } = view;
+      const next = TextSelection.between(state.doc.resolve(anchor), state.doc.resolve(head));
+      if (!next.eq(state.selection)) view.dispatch(state.tr.setSelection(next).scrollIntoView());
+    };
+    select(at);
+    // The positions are this draft's: a key pressed with the button down ends the drag.
+    const doc = view.state.doc;
+    const page = view.dom.ownerDocument;
+    const stop = () => {
+      page.removeEventListener("mousemove", move, true);
+      page.removeEventListener("mouseup", stop, true);
+    };
+    const move = (moved: MouseEvent) => {
+      // A release outside the window never reached the page: no button down is the drag's end too.
+      if (view.isDestroyed || moved.buttons === 0 || view.state.doc !== doc) return stop();
+      const head = posAtPointer(view, moved);
+      if (head !== undefined) select(head);
+    };
+    page.addEventListener("mousemove", move, true);
+    page.addEventListener("mouseup", stop, true);
+    return true;
   };
 
   /// The chip whose `edge` ("from" or "to") is at `pos`.
@@ -254,8 +412,12 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
   return new Plugin({
     key,
     state: {
-      init: () => 0,
-      apply: (tr, value) => (tr.getMeta(key) ? value + 1 : value),
+      init: (): TitlesState => ({ version: 0, typed: false }),
+      apply: (tr, value, before): TitlesState => {
+        const version = tr.getMeta(key) ? value.version + 1 : value.version;
+        const typed = typedAfter(tr, before, value.typed);
+        return version === value.version && typed === value.typed ? value : { version, typed };
+      },
     },
     view: (view) => {
       // A rename, a new chat or a closed workspace redraws the chips (one transaction per change).
@@ -271,7 +433,9 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
         }, 0);
       };
       view.dom.addEventListener("compositionend", ended);
+      markSelected(view);
       return {
+        update: (next) => markSelected(next),
         destroy: () => {
           stop?.();
           clearTimeout(settling);
@@ -283,6 +447,7 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
     props: {
       decorations: (state) => decorate(state).set,
       handleKeyDown,
+      handleDOMEvents: { mousedown: press },
     },
   });
 }
