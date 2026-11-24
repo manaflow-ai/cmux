@@ -330,7 +330,12 @@ fn a_large_single_turn_reply_is_bounded_without_dropping_events() {
             proposed: None,
         });
     }
-    let raw = page_reply(&session, 1, ClaudePage { turns: vec![turn], start: 0, read: 1 }, None);
+    let raw = page_reply(
+        &session,
+        1,
+        ClaudePage { turns: vec![turn], start: 0, read: 1, compactions: Vec::new() },
+        None,
+    );
     assert!(result_bytes(&raw) > MAX_MESSAGE_BYTES - (1 << 20));
     let event_count = raw["events"].as_array().unwrap().len();
     let bounded = fit_reply(raw);
