@@ -59,6 +59,14 @@
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. SOURCES=1 prints each round's layout-shift entries with the boxes
 // that moved (from and to: x, y, width, height). One `FIRST_LOAD_JSON {...}` line carries every number.
+// Restart to settled (Leo, 2026-11-22: "you guys need to be able to simulate the update/restart and the connection
+// speed and what is actually displayed"): LINK=local|rtt50|rtt200|throttled (bench/link-profiles.json) puts the
+// bridge's socket on a simulated link (bench/linkModel.ts: the connect costs a round trip, each frame waits for its
+// pipe and half a round trip); the copy and the kept tail are the app's own and do not cross it. Each mode then
+// prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
+// newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
+// bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
+// NO_TAIL=1 serves no kept tail; NO_COPY=1 no saved copy (with NO_TAIL=1, an update's revive: nothing kept); WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -81,6 +89,8 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
+import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
+import { restartSettled } from "./restartSettled";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
@@ -118,9 +128,21 @@ for (const [name, value] of [
   ["ACPMUX_DOWN_MS", DOWN_MS],
 ] as const)
   if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
+/// LINK=local|rtt50|rtt200|throttled (bench/link-profiles.json): the link between the app and the daemon. The
+/// bridge's socket goes through it (bench/linkModel.ts): its connect costs a round trip, and every frame each way
+/// waits for the pipe and half a round trip. The copy and the kept tail are the app's own, so they do not cross it.
+const LINK_NAME = process.env.LINK ?? "local";
+const NO_TAIL = process.env.NO_TAIL === "1";
+/// NO_COPY=1 serves no saved copy in any mode: an update's relaunch, whose copy another build wrote, so the page
+/// refuses it. With NO_TAIL=1 that is a revive after an update: nothing of the chat is in the page or the host.
+const NO_COPY = process.env.NO_COPY === "1";
+const WIRE_TRACE = process.env.WIRE_TRACE === "1";
+const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
-const RECORD_MS = DOWN_MS + 4000;
+/// A slow LINK adds its round trips and the attach's bytes on the wire: ten round trips and 6 s more on a
+/// throttled one.
+const RECORD_MS = DOWN_MS + 4000 + 10 * LINK.rttMs + (LINK.bps > 0 ? 6000 : 0);
 /// A refused handshake backs off to 30 s (hostRetry.ts `REFUSED_RETRY_MAX_MS`): 250 ms doubling with jitter,
 /// so the ask after DOWN_MS can come up to that long again later.
 const recordMs = (mode: Mode) => (isRefused(mode) ? 2 * DOWN_MS + 5000 : RECORD_MS);
@@ -135,11 +157,17 @@ const SETTLE_QUIET_MS = 600;
 const TRANSPORT = process.env.TRANSPORT ?? "bridge";
 if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSPORT must be bridge or websocket");
 const BRIDGE = TRANSPORT === "bridge";
+if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRANSPORT=bridge");
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
 /// printed as the functions with the most self time over all rounds (an unminified build).
 const PROFILE = process.env.PROFILE === "1";
+/// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
+/// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
+/// derived bound for open_recent and restart (settled-page.bench.ts `fromRestartBench`).
+const BOUND = process.env.BOUND === "1";
+const BOUND_DRAWS = Number(process.env.BOUND_DRAWS ?? 3);
 const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
@@ -483,7 +511,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   const read = (): Frame => {
     // A copy still waiting for its sheets is laid out hidden (paint.ts) and paints nothing: not on top.
     const drawn = document.querySelector<HTMLElement>(hostTag);
-    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     // Under a copy the live root is held clear until the swap (chatSnapshot/paint.ts); with no copy over
     // it, a clear root shows nothing of the chat.
@@ -638,11 +666,56 @@ type Round = {
   socketOpenedMs: number | null;
   initializeAnsweredMs: number | null;
   attachAnsweredMs: number | null;
+  /// BOUND=1: the settled page drawn from scratch, ms (median of BOUND_DRAWS draws); else null.
+  boundMs: number | null;
   /// How many times the page asked for a socket, and when it made the ask that opened one (ms from
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
+  /// Bytes the daemon sent the page over the link this round.
+  bytesDown: number;
 };
+
+/** The settled page served as a static page (BOUND=1): the settled DOM, scripts removed, at the app's own origin
+ *  (its stylesheets, fonts), the scroll offset restored by an inline script before the first paint; ms from navigation
+ *  to its first contentful paint, the median of BOUND_DRAWS loads in fresh pages of the same context. No restart can
+ *  show the settled page sooner than its own HTML loads and paints. */
+async function drawBound(page: Page): Promise<number> {
+  const html = await page.evaluate(() => {
+    const clone = document.documentElement.cloneNode(true) as HTMLElement;
+    for (const node of clone.querySelectorAll("script")) node.remove();
+    const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+    const restore = document.createElement("script");
+    restore.textContent = `{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop}}`;
+    clone.querySelector("body")?.append(restore);
+    return `<!doctype html>${clone.outerHTML}`;
+  });
+  const at = new URL("/__settled-bound.html", page.url()).href;
+  const draws: number[] = [];
+  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1) {
+    const one = await page.context().newPage();
+    await one.setViewportSize(page.viewportSize() ?? RELAUNCH_VIEWPORT);
+    try {
+      await one.route(at, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      await one.goto(at, { waitUntil: "load" });
+      draws.push(
+        await one.evaluate(
+          () =>
+            new Promise<number>((resolve) => {
+              const paint = () =>
+                performance.getEntriesByName("first-contentful-paint")[0]?.startTime ??
+                performance.getEntriesByType("paint").at(-1)?.startTime;
+              requestAnimationFrame(() => setTimeout(() => resolve(paint() ?? performance.now()), 0));
+            }),
+        ),
+      );
+    } finally {
+      await one.close();
+    }
+  }
+  draws.sort((a, b) => a - b);
+  return draws[Math.floor(draws.length / 2)]!;
+}
 
 const releases: [string, () => unknown][] = [];
 const release = async () => {
@@ -653,8 +726,9 @@ try {
   /// acpmux is unavailable until `downUntil` (epoch ms) in `downMode`; up otherwise.
   let downMode: Mode | undefined;
   let downUntil = 0;
+  let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
+  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -680,6 +754,10 @@ try {
         if (servingSpare)
           spareCalls.push(
             `${message.method}${message.params?.sessionId ? ` ${String(message.params.sessionId)}` : ""}`,
+          );
+        if (WIRE_TRACE)
+          console.log(
+            `wire ${Date.now() - wireT0} ms ${message.method} ${JSON.stringify(message.params ?? {}).slice(0, 160)}`,
           );
         const result = answer(message.method, message.params);
         const reply = () => {
@@ -723,16 +801,28 @@ try {
   // Only these presentation sources differ; the page host, daemon fixture and frame recorder stay fixed.
   const sourceRef = process.env.PANE_SOURCE_REF;
   const priorSources = new Map<string, string>();
-  if (sourceRef)
-    for (const file of ["App.tsx", "direct.ts", "hostRetry.ts"])
+  // Every pane source under src/agent-session that differs from the ref is read at the ref (a file the
+  // ref lacks stays, unread by the ref's sources), so one run builds the before of a whole change.
+  if (sourceRef) {
+    const changed = execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=MD", sourceRef, "--", "src/agent-session", "src/ui"],
+      { cwd: webviews, encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: webviews, encoding: "utf8" }).trim();
+    for (const file of changed)
       priorSources.set(
-        path.join(webviews, "src/agent-session/acpmux", file),
-        execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
+        path.join(top, file),
+        execFileSync("git", ["show", `${sourceRef}:${file}`], {
           cwd: webviews,
           encoding: "utf8",
           maxBuffer: 8 * 1024 * 1024,
         }),
       );
+    console.log(`pane sources read at ${sourceRef}: ${changed.join(", ") || "none"}`);
+  }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
   await build({
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
@@ -742,7 +832,23 @@ try {
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    // At PANE_SOURCE_REF too: the boot script is a pane source like the bundle's.
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+      plugins: [
+        {
+          name: "immutable-pane-baseline",
+          setup: (builder) => {
+            builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
+              const contents = priorSources.get(args.path);
+              return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
+            });
+          },
+        },
+      ],
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -756,6 +862,17 @@ try {
       "Object.assign(globalThis, { captureMiss, captureSnapshot });\n",
   );
   const captureScript = await bundle(captureEntry);
+  // The app's host is there before any page script runs (its WebKit handlers, or the page host's): the
+  // dev host stands in for it from the document's start here, not from the bundle's dev entry (dev.tsx,
+  // which installs it only when the bundle ran and leaves one already there), so a page script that
+  // asks the host first (boot.ts) is answered as in the app.
+  const hostEntry = path.join(work, "host-entry.ts");
+  fs.writeFileSync(
+    hostEntry,
+    `import { devHostParams, installDevHost } from ${JSON.stringify(path.join(webviews, "src/dev-host/host.ts"))};\n` +
+      "const params = devHostParams(location.hash);\nif (params) installDevHost(params);\n",
+  );
+  const hostScript = await bundle(hostEntry);
 
   // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
   // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
@@ -835,9 +952,9 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
   /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
-  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&newtab&new`;
+  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&newtab&new`;
   const browser: Browser =
     ENGINE === "webkit"
       ? await webkit.launch({ headless: true })
@@ -865,6 +982,7 @@ try {
   /// `cmuxAcpmuxTransport.receive`, in order.
   const serveBridge = async (page: Page) => {
     const sockets = new Map<number, WebSocket>();
+    const pipes = new Map<number, { up: LinkPipe; down: LinkPipe }>();
     let next = 0;
     let delivery = Promise.resolve();
     const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
@@ -879,12 +997,19 @@ try {
         .catch(() => undefined);
     };
     page.on("close", () => {
+      for (const { up, down } of pipes.values()) {
+        up.close();
+        down.close();
+      }
+      pipes.clear();
       for (const socket of sockets.values()) socket.close();
       sockets.clear();
     });
     await page.exposeFunction("__benchTransport", async (method: string, params: Record<string, unknown>) => {
       if (method === "transport.open") {
         const connection = (next += 1);
+        // LINK: the socket's connect costs one round trip of the simulated link before the daemon sees it.
+        await connectDelay(LINK);
         const socket = new WebSocket(`ws://127.0.0.1:${daemon.port}/`);
         const opened = await new Promise<boolean>((resolve) => {
           socket.addEventListener("open", () => resolve(true), { once: true });
@@ -893,20 +1018,41 @@ try {
         });
         if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
         sockets.set(connection, socket);
-        socket.addEventListener("message", (event) => push({ connection, frames: [String(event.data)] }));
+        // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
+        const down = new LinkPipe(LINK);
+        const up = new LinkPipe(LINK);
+        pipes.set(connection, { up, down });
+        socket.addEventListener("message", (event) => {
+          const frame = String(event.data);
+          load.bytesDown += Buffer.byteLength(frame);
+          down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
+        });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
-          push({ connection, closed: { code: event.code, reason: event.reason } });
+          // The close is the last thing down the pipe; then the pipe stops.
+          down.send("", () => {
+            push({ connection, closed: { code: event.code, reason: event.reason } });
+            down.close();
+            up.close();
+          });
+          pipes.delete(connection);
         });
         return { ok: true, value: { connection } };
       }
       const socket = sockets.get(Number(params.connection));
       if (method === "transport.send") {
         if (!socket) return { ok: false, code: "transport.closed", message: "closed" };
-        for (const frame of (params.frames as string[] | undefined) ?? []) socket.send(frame);
+        const pipe = pipes.get(Number(params.connection));
+        for (const frame of (params.frames as string[] | undefined) ?? [])
+          if (pipe) pipe.up.send(frame, (sent) => socket.readyState === WebSocket.OPEN && socket.send(sent));
+          else socket.send(frame);
         return { ok: true, value: null };
       }
       sockets.delete(Number(params.connection));
+      const pipe = pipes.get(Number(params.connection));
+      pipes.delete(Number(params.connection));
+      pipe?.up.close();
+      pipe?.down.close();
       socket?.close();
       return { ok: true, value: null };
     });
@@ -916,6 +1062,8 @@ try {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    // After installHost, whose setter wraps the handlers it installs.
+    await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -964,6 +1112,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -1101,9 +1260,11 @@ try {
         socketOpenedMs: null,
         initializeAnsweredMs: null,
         attachAnsweredMs: null,
+        boundMs: null,
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
+        bytesDown: 0,
       };
     } finally {
       servingSpare = false;
@@ -1112,7 +1273,7 @@ try {
   };
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+    servedCopy = NO_COPY || ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
@@ -1126,23 +1287,38 @@ try {
         if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
         await prepare(
           one,
-          mode === "reopen-no-copy" ? null : keptTail,
+          mode === "reopen-no-copy" || NO_TAIL ? null : keptTail,
           windowMs,
           mode.startsWith("native-ready") ? DOWN_MS : 0,
           isRefused(mode) ? DOWN_MS : 0,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (WIRE_TRACE) {
+        // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
+        const launch = await page.evaluate(
+          () =>
+            (
+              window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: Record<string, number> } } }
+            ).cmuxAcpmuxDebug?.perfStats().launch ?? {},
+        );
+        const marks = Object.entries(launch)
+          .filter(([name]) => name.endsWith("_epoch_ms"))
+          .map(([name, at]) => `${name.replace(/_epoch_ms$/, "")} ${at - wireT0}`)
+          .join(", ");
+        console.log(`wire page marks (ms from the round's start): ${marks}`);
+      }
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
@@ -1161,6 +1337,7 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await drawBound(page) : null;
       return {
         mode,
         metrics: classifyFrames(got.frames),
@@ -1178,7 +1355,9 @@ try {
         socketOpenedMs: since(load.socketOpenedAt),
         initializeAnsweredMs: since(load.initializeAnsweredAt),
         attachAnsweredMs: since(load.attachAnsweredAt),
+        boundMs,
         asks: got.asks.length,
+        bytesDown: load.bytesDown,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
           const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
@@ -1216,7 +1395,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1329,6 +1509,28 @@ try {
       `restart split [${mode}] (medians, ms from navigation): daemon ready ${ms(split.daemonReady)}, socket open ${ms(split.socket)}, attach answered ${ms(split.attach)}, first content ${ms(split.firstContent)}, live ${ms(split.live)}`,
     );
     json[`${mode}.split`] = split;
+    // Restart to settled (bench/restartSettled.ts), what scripts/measure/restart-settled-linux.sh sets beside the
+    // terminal's reattach under the same LINK: medians over the rounds.
+    const settled = rounds.map((r) => restartSettled(r.frames, r.metrics, r.liveLatestMs));
+    const settledRow = {
+      link: LINK_NAME,
+      mode,
+      downMs: DOWN_MS,
+      turns: TURNS,
+      engine: ENGINE,
+      rounds: rounds.length,
+      firstContentMs: median(settled.map((one) => one.firstContentMs).filter((v): v is number => v !== null)),
+      settledMs: median(settled.map((one) => one.settledMs).filter((v): v is number => v !== null)),
+      notSettled: settled.filter((one) => one.settledMs === null).length,
+      liveMs: split.live,
+      attachMs: split.attach,
+      shifts: median(settled.map((one) => one.shifts)),
+      shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
+      bytesDown: median(rounds.map((r) => r.bytesDown)),
+      settledEach: settled.map((one) => one.settledMs),
+    };
+    console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
+    json[`${mode}.settled`] = settledRow;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
@@ -1366,6 +1568,13 @@ try {
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
@@ -1400,6 +1609,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,

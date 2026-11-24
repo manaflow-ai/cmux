@@ -4,7 +4,7 @@
 //! arm of `handle_command_with_cancellation`.
 
 use super::size_state_for_client;
-use crate::panic_free::RecoverPoison;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 use super::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
@@ -18,6 +18,7 @@ use super::MessageWriter;
 use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
+use super::TERMINAL_RESUME_CAPABILITY;
 use super::VtStateMessage;
 use super::agent_cli_hybrid;
 use super::agent_cli_hybrid::{HybridOut, HybridViewer};
@@ -47,7 +48,8 @@ use super::terminal_colors_json;
 use super::terminal_snapshot;
 use super::wait_for_initial_browser_resize;
 use super::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 use crate::Mux;
 use crate::RenderAttachFrame;
@@ -192,6 +194,7 @@ pub(super) fn attach_surface(
     output_coalesce_ms: Option<u32>,
     replay_history_start: Option<u64>,
     (hybrid_stream, hybrid_frame): (Option<String>, Option<u64>),
+    (resume_offset, resume_generation): (Option<u64>, Option<String>),
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
     let hybrid_declared =
@@ -201,6 +204,9 @@ pub(super) fn attach_surface(
     let shell_lines = hybrid_declared
         && hybrid_lean
         && mux.control_clients.supports_capability(client, TERMINAL_SHELL_LINES_CAPABILITY);
+    // `terminal-full-screen-frames-v1`: a full-screen program as frames too (agent_cli_hybrid.rs).
+    let full_screen_frames = shell_lines
+        && mux.control_clients.supports_capability(client, TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY);
     let hybrid_resume =
         agent_cli_hybrid::resume_request(hybrid_declared, hybrid_stream, hybrid_frame)?;
     anyhow::ensure!(
@@ -212,6 +218,10 @@ pub(super) fn attach_surface(
             start: replay_history_start,
             rows: u64::from(rows),
         });
+    anyhow::ensure!(
+        resume_offset.is_some() == resume_generation.is_some(),
+        "attach-surface resume_offset and resume_generation must be supplied together"
+    );
     let initial_size = match (cols, rows) {
         (Some(cols), Some(rows)) => Some((cols, rows)),
         (None, None) => None,
@@ -232,6 +242,7 @@ pub(super) fn attach_surface(
             })?;
             let terminal = TerminalPublicId::parse(terminal)
                 .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+            mux.wake_lazy_terminal(&terminal);
             mux.resource_surface_for_terminal(&terminal)
                 .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
         }
@@ -285,8 +296,12 @@ pub(super) fn attach_surface(
     } else {
         Adapter::Pty
     };
-    let shell_viewer = shell_lines && adapter == Adapter::Lines;
-    let hybrid = adapter == Adapter::Agent || shell_viewer;
+    // A viewer that asked for full-screen frames gets any terminal as an agent CLI's: frames
+    // throughout, the alternate screen and input modes as bytes, never the PTY bytes.
+    let shell_viewer = shell_lines && adapter == Adapter::Lines && !full_screen_frames;
+    let hybrid = adapter == Adapter::Agent
+        || shell_viewer
+        || (full_screen_frames && adapter == Adapter::Lines);
     // Only the plain byte attach coalesces; render mode keeps its own frames.
     let coalesce_interval = if !hybrid
         && surface.kind() == SurfaceKind::Pty
@@ -527,16 +542,43 @@ pub(super) fn attach_surface(
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
     );
-    let attach = match surface.attach_stream_with_window(
-        lifecycle.clone(),
-        history_window,
-        mux.control_clients.supports_capability(client, ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY),
-    ) {
-        Ok(attach) => attach,
-        Err(error) => {
-            lifecycle.cancel();
-            rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-            return Err(error.into());
+    // `terminal-resume-v1`: the plain byte stream carries its position; a
+    // viewer that holds one gets only the bytes it missed when the daemon
+    // still has them.
+    let resume_wire = !hybrid
+        && surface.kind() == SurfaceKind::Pty
+        && (resume_offset.is_some()
+            || mux.control_clients.supports_capability(client, TERMINAL_RESUME_CAPABILITY));
+    let resumed = match (resume_wire, &resume_generation, resume_offset) {
+        (true, Some(generation), Some(offset)) => {
+            surface.attach_resume_stream(lifecycle.clone(), generation, offset, initial_size)
+        }
+        _ => None,
+    };
+    let resume_asked = resume_wire && resume_offset.is_some();
+    let (attach, resume_missing) = match resumed {
+        Some(resumed) => (resumed.attach, Some(resumed.missing)),
+        None => {
+            let attach = match surface.attach_stream_with_window(
+                lifecycle.clone(),
+                history_window,
+                mux.control_clients
+                    .supports_capability(client, ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY),
+            ) {
+                Ok(attach) => attach,
+                Err(error) => {
+                    lifecycle.cancel();
+                    rollback_failed_attach(
+                        mux,
+                        client,
+                        surface_id,
+                        outbound_stream.id,
+                        size_rollback,
+                    );
+                    return Err(error.into());
+                }
+            };
+            (attach, None)
         }
     };
     let shape = AttachWireShape {
@@ -546,6 +588,7 @@ pub(super) fn attach_surface(
         pending_sequence: mux
             .control_clients
             .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
+        stamp: None,
     };
     let (replay, pending_sequence) = if shape.pending_sequence || attach.pending_sequence.is_empty()
     {
@@ -564,7 +607,10 @@ pub(super) fn attach_surface(
         pending_sequence,
         history_rows_omitted: attach.history_rows_omitted,
         history_rows_skipped: attach.history_rows_skipped,
+        stamp: resume_wire.then_some(attach.stamp),
+        resume: resume_asked.then_some("gap"),
     };
+    let attach_stamp = attach.stamp;
     let mut hybrid_viewer = None;
     let sent = if hybrid {
         let started = HybridViewer::start(
@@ -573,7 +619,12 @@ pub(super) fn attach_surface(
             attach.rows,
             &[&*attach.replay, &*attach.pending_sequence].concat(),
             hybrid_resume,
-            agent_cli_hybrid::Wants { lean: hybrid_lean, shell: shell_viewer, lines: shell_lines },
+            agent_cli_hybrid::Wants {
+                lean: hybrid_lean,
+                shell: shell_viewer,
+                lines: shell_lines,
+                display_frames: full_screen_frames && adapter == Adapter::Lines,
+            },
         );
         let (mut viewer, first) = match started {
             Ok(started) => started,
@@ -622,6 +673,19 @@ pub(super) fn attach_surface(
         };
         hybrid_viewer = Some(viewer);
         sent
+    } else if let Some(missing) = &resume_missing {
+        // An exact resume: the bytes after the viewer's offset, no replay.
+        writer.send_initial(
+            &json!({
+                "event": "output",
+                "surface": surface_id,
+                "data": base64::engine::general_purpose::STANDARD.encode(missing),
+                "offset": attach.stamp.offset,
+                "generation": attach.stamp.generation(),
+                "resume": "exact",
+            }),
+            &outbound_stream,
+        )
     } else {
         writer.send_initial_vt_state(&initial, &outbound_stream)
     };
@@ -664,6 +728,8 @@ pub(super) fn attach_surface(
         let mut hybrid = hybrid_viewer;
         let mut hybrid_out: Vec<HybridOut> = Vec::new();
         let mut ready: Vec<AttachFrame> = Vec::new();
+        // `terminal-resume-v1`: the position each frame leaves the stream at.
+        let mut position = resume_wire.then_some(attach.stamp);
         'stream: while writer.is_open()
             && outbound_stream.is_open()
             && !attach.lifecycle.is_canceled()
@@ -683,7 +749,14 @@ pub(super) fn attach_surface(
                             let _ = viewer.take(frame, now, &mut hybrid_out);
                         }
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
-                        (None, None) => ready.push(frame),
+                        (None, None) => {
+                            // The writer is free now: the reads that queued while it was
+                            // busy go out as one event, at once (no timer).
+                            attach_output_coalesce::push_merged(frame, &mut ready);
+                            while let Ok(next) = attach.stream.try_recv() {
+                                attach_output_coalesce::push_merged(next, &mut ready);
+                            }
+                        }
                     }
                     false
                 }
@@ -729,6 +802,18 @@ pub(super) fn attach_surface(
                 }
             }
             for frame in ready.drain(..) {
+                let mut shape = shape;
+                if let Some(position) = position.as_mut() {
+                    match &frame {
+                        AttachFrame::Output(output) => position.offset += output.len() as u64,
+                        AttachFrame::OutputWithColors { output, .. } => {
+                            position.offset += output.len() as u64;
+                            position.epoch += 1;
+                        }
+                        _ => position.epoch += 1,
+                    }
+                    shape.stamp = Some(*position);
+                }
                 if let Err(error) = writer.send_attach_frame_backpressured(
                     surface_id,
                     &frame,
@@ -770,5 +855,11 @@ pub(super) fn attach_surface(
             size_rollback,
         },
     )?;
-    Ok(attach_response(mux, surface_id, client, lease))
+    let mut response = attach_response(mux, surface_id, client, lease);
+    if resume_asked {
+        response.insert("resume", json!(if resume_missing.is_some() { "exact" } else { "gap" }));
+        response.insert("through", json!(attach_stamp.offset));
+        response.insert("generation", json!(attach_stamp.generation()));
+    }
+    Ok(response)
 }

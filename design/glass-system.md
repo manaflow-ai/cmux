@@ -45,7 +45,7 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
 5. **Legibility floor.** Primary text keeps 4.5:1 and secondary 3:1 against the glass laid over
    pure black and pure white. If a level fails at its tint, the tint goes up for that level; the
    text never gets thinner. The tooltip already works this way (`TooltipSurface.tintAlpha`).
-   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (64% light,
+   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (68% light,
    68% dark, `glassInk` in the design scale) over the glass, which every glass surface's secondary
    tokens (`--cmux-text-secondary`, `--cmux-text-tertiary`, `--agent-muted`, `--page-text-2/3`,
    the composer placeholder and dim words, and a field's own placeholder) read inside `.ui-glass`.
@@ -56,10 +56,18 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
    `--ds-color-danger/attention/success`) is one ink too: the design scale's `glassInk.status` share
    of its hue (65% light, 55% dark), the rest the theme's text, so "Checks failed" on a dark hover
    card over a white page keeps 3:1 (it was 2.2:1) and "Needs input" on a light one over black keeps
-   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`).
+   it (it was 1.9:1). A solid destructive button keeps the hue (`--glass-hue-danger`). A link
+   (`--agent-link`) and a diff count (`--acpmux-add/del`) mix the same way (a PR card's blue link
+   was 1.5:1 under dark glass on a white page, cmux#48217). A tooltip's tint is fitted to its text
+   at 4.5:1, so inks dimmer than the text get less room there: a status word in a tooltip keeps
+   `glassInk.chipStatus` (35%) of its hue, and the shortcut's keycap hint is the text at
+   `glassInk.keycap` (84%), not the secondary ink (it was 2.6:1). The thread minimap's hover card
+   (`.acpmux-minimap__card`) is a glass level on its own class and reads the same inks.
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
-   40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
+   40% in light and 57% in dark, so a menu (80% over 40%, or dark's clearer 72% over 57%) covers 88%
+   of the text under it in both, not 93%; at 40% the dark menu covered 83% and the chat read through
+   the Model menu (hq#13923).
 7. **Perf budget.** At most two backdrop-filtered surfaces on screen at once, together under about
    a quarter of the window. Never animate a blur radius (animate opacity and transform). No
    `backdrop-filter` on anything that scrolls with content. No `will-change` on a glass parent (it
@@ -82,7 +90,7 @@ PR (cmux#46104's head); after is what ships with it.
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
 | scrim | behind sheets and dialogs | native `Scrim` (`--cmux-scrim`) | unchanged | none | none |
 | composer material | the one hero surface | the popover tint | the popover tint | `blur(24px) saturate(1.8)` | `blur(24px) saturate(1.6)` |
-| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% (88%) | | |
+| see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% / 57% (88% in both) | | |
 | edge | every plain glass | hairline ring | hairline ring plus lit top hairline (60% / 24%) | | |
 
 The chrome's dark tint is 62%, not 55%: at 55% the chrome bar's title fell to 3.8:1 over a white page
@@ -152,6 +160,7 @@ surface takes after this change.
 | Context ring card (`contextCard.css`) | menu | menu | same |
 | Page row menu (`PageMenu.tsx`, `pageBase.css`) | `--ds-glass-menu-*` 78% | menu | 80% / 72% |
 | Hover cards: link preview, PR card, cmux link card, session hover, Home link (`AnchoredCard`) | menu, page blurs the chat in place | menu | 80% / 72% |
+| Chat header tool preview (`HeaderToolPreview.tsx`) | solid elevated surface, no blur (the one solid hover preview left) | menu | the shared hover card (`.ui-card.ui-glass`), 80% / 72%, 32 px; `test/hover-glass-browser.test.ts` reads every hover surface's computed backdrop-filter |
 | Feature tip (`featureTip.css`) | menu; accent look 62%, veil look 45% / 22% | menu | menu part follows; private looks stay (opt-in looks) |
 | Keybindings recorder | menu over a 92% underlay (the text floor) | 5 | none: a recorder over rows keeps its floor |
 | Tooltips, title tooltips, toolbar hints (`Tooltip.tsx`, `titleTooltips.ts`) | host contrast-fitted tint, 32 px, 1.6 | chip, 5 | none (already the rule) |
@@ -177,8 +186,18 @@ surface takes after this change.
 
 ### Floating, native
 
-All on `Glass.makeSurface`, `makeMenuPanel` (menu level plus the 40% veil) or the neutral transient
-material; none changes here. Group editor, tab group editor, palette and its actions menu and
+All on `Glass.makeSurface`, `makeMenuPanel` (menu level plus the theme's veil: 40%, raised in 2% steps to
+at most 90% until the theme's primary text reads at 4.5:1 and its secondary at 3:1 over the glass on the
+window, on white and on black, rule 5; `GlassMenuMaterial.veil(for:)`) or the neutral transient material.
+Icon buttons on that glass (`OverflowButton`, `PlusButton`, `TitlebarBandButton`) fit their glyphs to it
+(`NSView.glassInk`), not to the opaque page: they read 1.35-2.84:1 there (NativeControlContrastAuditTests).
+SwiftUI on a menu panel is hosted in `ThemedHostingView`: it finds the panel in the view tree as it moves, and its
+content's foreground, `.cmuxSecondary` and `.cmuxTertiary` are the theme's text fit to that glass (as
+`NSView.buttonGround`), before the first draw (SwiftUI's own `.secondary` is the primary at a lower opacity: 2.00:1). Text, a toggle's label and a button's label that set no ink take them, and a `cmuxPressFill`
+button knows the glass; in a plain host it finds the panel itself (`MenuGlassProbeView`), a frame late.
+check-overlay-glass.py (`menu-hosting`) refuses a plain `NSHostingView` in a file that builds a menu panel. A web menu's own glass follows the same veil: WebTheme sends `--cmux-menu-clear`
+(`GlassMenuMaterial.webClear`), and glass.css lays the menu tint at 100% - (100% - its level tint) × it
+(test/menu-glass-veil.test.ts); on the App's glass a web menu is the native panel already. Group editor, tab group editor, palette and its actions menu and
 shortcut recorder, `GlassMenu`, web popup host and declarative popups, native tooltip, shortcut hint
 chip, hover card panel and rows, native find pill, dialog card, toasts, agent cursor tag
 (`.hudWindow`), notifications panel, Downloads, Host Pressure, icon picker, native Session Info

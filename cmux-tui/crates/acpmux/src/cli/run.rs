@@ -13,20 +13,23 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod board;
 mod permission;
-pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use permission::{Answer, answer_permission, answer_question};
 pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
 pub(crate) mod fanout;
 pub(crate) mod launch;
 pub(crate) mod ls;
+mod ls_archived;
 mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
+mod move_end;
 mod parent;
 mod send_async;
-mod session_move;
+pub(crate) mod session_move;
+pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;
 
@@ -41,8 +44,15 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
 }
 
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
+    crate::cli::resolve::routed_id(&session_info(client, key, true).await?)
+}
+
+/// Resolve the name and read its record in one request. Identity-only callers can use the
+/// peer's current mirrored row. Detail callers need the owner's full record.
+pub(crate) async fn session_info(client: &Client, key: &str, row_will_do: bool) -> Result<Value> {
     let key = orchestrate::expand_session_key(key)?;
-    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
+    let params = json!({"sessionId": key, "row": row_will_do});
+    match client.request(method::MUX_INFO, params).await.map_err(|e| {
         if e.downcast_ref::<crate::client::DaemonError>()
             .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
         {
@@ -50,20 +60,20 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         } else {
             e
         }
-    });
-    let v = match v {
-        Ok(v) => v,
+    }) {
+        Ok(v) => return Ok(v),
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
-            return Err(match crate::cli::send_relay::listed_row(&key).await {
-                Some(row) => crate::cli::send_relay::listed_refusal(&key, row).into(),
-                None => e,
+            use crate::cli::send_relay::{Lookup, listed_refusal, listed_row, unknown_refusal};
+            return Err(match listed_row(&key).await {
+                Lookup::Listed(row) => listed_refusal(&key, row).into(),
+                Lookup::NotListed => e,
+                Lookup::Unknown(why) => unknown_refusal(&key, e, &why),
             });
         }
-        Err(e) => return Err(e),
-    };
-    crate::cli::resolve::routed_id(&v)
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(all(test, unix))]

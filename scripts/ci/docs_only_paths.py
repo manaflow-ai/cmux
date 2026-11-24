@@ -77,7 +77,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "docs/privacy.md",  # tests/test_outbound_hosts.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
-    "cmux-tui/README.md",  # tests/test_testbox_demo_cleanup.sh -> scripts/blacksmith-testbox-demo.sh
+    "cmux-tui/README.md",  # the Testbox tour named its public fallback here
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
@@ -162,7 +162,7 @@ FILES_API_LIMIT = 3000  # pulls/{n}/files lists at most this many
 LABEL_OPT_INS = ("full-ci", "dev-build")  # ci.yml's labels that ask for CI on a pull request nothing else starts
 DEFAULT_TYPES = ("opened", "synchronize", "reopened")
 LABEL_ACTIONS = ("labeled", "unlabeled")
-# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' size, the size
+# Events the fallback does not listen for. `edited` re-runs only the description checks (pr-checks' PR size, the size
 # budget's `size:` line) at a head its push already covered; listening would start a run for every title or HOLD-line
 # edit of every pull request (tests/test_ci_pr_runs_cancel_superseded.py, pattern pr-edit-fans-out-ci).
 UNCOVERED_TYPES = ("edited",)
@@ -249,7 +249,7 @@ jobs:
     # Into feat-cmux-next a label event for any other label skips with no runner
     # (tests/test_ci_label_events_skip_full_ci.py).
     if: {gate_condition()}
-    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}}}
+    runs-on: ${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}}}
     timeout-minutes: 5
     permissions:
       actions: read

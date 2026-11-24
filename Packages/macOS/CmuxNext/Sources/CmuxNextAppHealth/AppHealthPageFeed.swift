@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextPages
 import CmuxNextWakeups
+import os
 
 /// App health's page and renderer feed (the shared health contract, kinds `page` and `renderer`):
 /// the page views' reports (``PageHealthFeed``) become the health model's signals, and its
@@ -22,6 +23,7 @@ import CmuxNextWakeups
 ///   the first key or click, and the page beats again once it handled it.
 @MainActor
 final class AppHealthPageFeed: PageHealthFeed {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.health")
     private let health: AppHealth
     /// Pages that beat at least once, and the visibility each was last reported with.
     private var shown: [ObjectIdentifier: Bool] = [:]
@@ -80,6 +82,15 @@ final class AppHealthPageFeed: PageHealthFeed {
         shown[key] = visible
         health.visibility(page.healthPartID, visible: visible)
         if renderers.contains(key) { health.visibility(Self.rendererID(page), visible: visible) }
+    }
+
+    func pageNavigationStarted(_ page: PageWebView) {
+        let key = ObjectIdentifier(page)
+        guard shown[key] != nil else { return }
+        // The old document's input died with it, and the new one counts its handled input from 0.
+        lastHandled[key] = 0
+        inputSinceBeat.remove(key)
+        health.event(page.healthPartID, .navigationStarted)
     }
 
     func pageLoaded(_ page: PageWebView) {
@@ -152,6 +163,8 @@ final class AppHealthPageFeed: PageHealthFeed {
 
     static func repair(_ action: AppHealth.Action) async -> Bool {
         guard let page = page(forPart: action.id) else { return false }
+        // Which chat: the page and the daemon tab it shows.
+        logger.notice("health: \(action.action.rawValue, privacy: .public) \(action.id, privacy: .public) is page \(page.descriptor.id, privacy: .public) tab \(page.healthTabKey() ?? "none", privacy: .public)")
         // Unsaved edits a reload would drop: refuse, and the status says the repair did not run.
         guard !page.holdsEdits else { return false }
         switch action.action {

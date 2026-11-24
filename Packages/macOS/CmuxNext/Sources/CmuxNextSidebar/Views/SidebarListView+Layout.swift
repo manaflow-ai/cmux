@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextSignposts
 import CmuxNextWakeups
 import QuartzCore
 
@@ -10,6 +11,8 @@ extension SidebarListViewComponents {
     /// is a user's gesture here, so the model change that follows it may animate too.
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=reload")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         if animated, !fromModel { model.noteUserIntent() }
         reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now
@@ -38,6 +41,8 @@ extension SidebarListViewComponents {
         let plain = shownDrag == nil && external == nil ? spliced?.options ?? removed?.options ?? page?.options ?? options(includeGap: true) : nil
         let layout = spliced?.layout ?? removed?.layout ?? page?.layout
             ?? plain.map { SidebarLayout.make(sections: listSections, metrics: metrics, options: $0) } ?? displayLayout()
+        // A full layout reads every listed row; a splice or a kept page reads none here.
+        if spliced == nil, removed == nil, page == nil { listWork.walked(layout.rows.count) }
         // Focus belongs to a displayed disclosure, so a structural reload clears it before
         // row reuse can configure the same view for a later fold.
         if let key = focusedFold, layout.row(for: key) == nil {
@@ -98,9 +103,14 @@ extension SidebarListViewComponents {
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
-            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
-            o.chatHistory = SidebarChatHistory.shared.state
+            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // stay `sidebar.sessionTree`'s.
+            if DesignSettings.shared.sidebarSections.sessionTree {
+                o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
+                o.chatHistory = SidebarChatHistory.shared.state
+            }
         }
         o.excludedWorkspaces.formUnion(leaving)
         // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
@@ -134,7 +144,9 @@ extension SidebarListViewComponents {
             o.excludedWorkspaces.formUnion(ids)
             o.dragClosesArchive = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
-            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { o.unfoldsAll() }
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, workspace: { model.workspace($0) }, options: o) {
+                o.unfoldsAll()
+            }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
@@ -162,8 +174,8 @@ extension SidebarListViewComponents {
     /// How far left of its members' x `row` starts: a group header's reach over its rail (`SidebarStyle.groupLineX`)
     /// and the line layout's overhang past it (`groupHeaderOverhang`), never past the list's edge; 0 for other rows.
     func railReach(for row: SidebarRow) -> CGFloat {
-        // A plain folder draws no rail: its header keeps the rows' own frame.
-        guard case .group = row.key, !indent.indentsTopLevel else { return 0 }
+        // A plain folder draws no rail, nor does a card (its block wraps the rows): the header keeps the rows' own frame.
+        guard case .group = row.key, !indent.indentsTopLevel, !model.groupHeaderDetails.background.drawsCard else { return 0 }
         let membersX = inset + indentOffset(for: row)
         return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
@@ -179,7 +191,8 @@ extension SidebarListViewComponents {
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
     var indent: SidebarIndent {
-        SidebarIndent(step: SidebarStyle.groupGutter, indentsTopLevel: model.groupHeaderDetails.background.indentsMembers)
+        let folders = model.groupHeaderDetails.background.indentsMembers
+        return SidebarIndent(step: folders ? SidebarStyle.folderMemberStep : SidebarStyle.groupGutter, indentsTopLevel: folders)
     }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
@@ -215,6 +228,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { reportGooeySelection() } // after the rows took their frames: the flare follows the selected row
         let old = displayed
         displayed = layout
         spliceBase = nil // a reload sets it again for its own full layout
@@ -309,7 +323,10 @@ extension SidebarListViewComponents {
         // realized ones (they move to their new slots) and the reopened ones (their view goes). Any other row skips
         // here as before, with no frame computed: frame(for:) over every listed row was O(rows) on each change (m23).
         var framesComputed = 0
-        defer { SidebarPerfCounters.add(.rowFrames, framesComputed) }
+        defer {
+            SidebarPerfCounters.add(.rowFrames, framesComputed)
+            listWork.laidOut(framesComputed)
+        }
         for index in drawnRowIndices(of: layout, in: realize, reopened: reopened) {
             let row = layout.rows[index]
             let target = drawnFrame(for: row)
@@ -495,6 +512,7 @@ extension SidebarListViewComponents {
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
+        listWork.configured()
         view.isHovered = hoveredKey == row.key && drag == nil
         view.isSelected = selectedRowKey == row.key
         switch (row.key, view) {
@@ -508,7 +526,9 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
+            // A built-in (the Chief) keeps its band look here: its picture, status and badge.
+            let info = item.ref.builtIn == nil ? nil : model.resolvedItemInfo[LayoutItemID(item.id)]
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, info: info, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
@@ -545,7 +565,6 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
@@ -571,7 +590,9 @@ extension SidebarListViewComponents {
         let width = Self.rowsWidth(in: scroll)
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
-        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
+        let rowHeight = poolRowHeight ?? metrics.rowHeight
+        poolRowHeight = rowHeight
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: rowHeight)
         updateDocumentHeight()
         revealFirstViewport()
         realizeVisibleRows()
@@ -613,6 +634,7 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews {
             guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
+            listWork.laidOut()
             view.targetSize = target.size
             view.frame = target
         }
@@ -631,11 +653,13 @@ extension SidebarListViewComponents {
         guard !isShiftingViewport else { return }
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
+        defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
+            listWork.laidOut()
             guard target.intersects(realize) else { continue }
             let opening = openingRows[row.key].flatMap { $0.until > CACurrentMediaTime() ? $0 : nil }
             let view = dequeue(row.key, rebinding: opening == nil)

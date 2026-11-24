@@ -4,6 +4,7 @@
     affected_jobs.py route --base SHA [--head HEAD] [--event pull_request] [--labels JSON] [--workflow WF]
     affected_jobs.py inputs --workflow WF --job ID         # every input of one job, one per line
     affected_jobs.py check                                 # each workflow's `paths:` filter holds its jobs' inputs
+    affected_jobs.py gate --base SHA --workflow WF         # whether the change needs route/check (the graph) at all
 
 `route` prints one line per job (`job=true|false  why`) and, under GitHub Actions, writes `job=true|false` to
 $GITHUB_OUTPUT for each job of --workflow (every workflow when it is not given). scripts/ci/affected-jobs.json
@@ -123,7 +124,7 @@ class Route:
 # skips them, unless it carries the full-ci label; the push that lands it runs them (the safety net), and a red
 # there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
 # its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 # A job that runs on a pull request only when its change touches the push paths: the workflow's `changes` job runs
 # cmux-tui-spec-changed.py, which reads the push trigger's own `paths:`, so the push covers every change it runs on.
 PUSH_PATHS_GATE = "needs.changes.outputs.run == 'true'"
@@ -237,7 +238,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         jobs_here = jobs
     result = Route()
     for key in skipped_here:
-        result.pr_skip[key] = event != "pull_request" or base_ref != SKIP_BASE or FULL_LABEL in (labels or [])
+        result.pr_skip[key] = event != "pull_request" or not base_ref.startswith(SKIP_BASE) or FULL_LABEL in (labels or [])
 
     def everything(why: str) -> Route:
         result.everything = why
@@ -315,6 +316,56 @@ def changed_paths(root: Path, base: str, head: str) -> list[str] | None:
     done = subprocess.run(["git", "-C", str(root), "diff", "--no-renames", "--name-only", base, head],
                           capture_output=True, text=True, check=False)
     return None if done.returncode else [p for p in done.stdout.splitlines() if p]
+
+
+# What the graph is read from anywhere in the tree: a crate's manifest and its sources (path dependencies may sit
+# outside cmux-tui/, and an include_str!, a "../" literal or a path module is named in a source).
+GRAPH_GLOBS = ("**/Cargo.toml", "**/*.rs")
+# What `check` reads besides the graph and the routed workflows (pull_request_skip's safety nets).
+CHECK_FILES = (".github/post-merge-batch.json", "scripts/ci/pr_router.json")
+
+
+def gate_globs(root: Path, workflow: str, map_text: str) -> list[str] | None:
+    """The paths a change must touch for `route --workflow WORKFLOW` or `check` to answer anything but "no job of
+    WORKFLOW runs, nothing is missing":
+
+    - WORKFLOW's push `paths:` (the job's own trigger list, which `check` holds to every input of its jobs, so a
+      change outside it is no input of them, and it adds none: a new input is named by a changed source or the map);
+    - every manifest and Rust source (GRAPH_GLOBS: what each routed job's input list is read from);
+    - every workflow the map routes or skips, CHECK_FILES, the map and the router (SELF): what `check` reads.
+
+    None (gate nothing) when WORKFLOW has no push `paths:`."""
+    try:
+        own = workflow_paths((root / workflow).read_text(encoding="utf-8"), "push")
+    except OSError:
+        return None
+    if not own:
+        return None
+    data = json.loads(map_text)
+    listed = set(data["workflows"]) | {name for name, _job in load_pr_skip(map_text)}
+    listed |= {name for name in data.get("pull_request_skip", {}).get("follows", {}) if name != "//"}
+    return ([glob for glob in own if not glob.startswith("!")] + list(GRAPH_GLOBS) + sorted(listed)
+            + list(CHECK_FILES) + [MAP] + list(SELF))
+
+
+def gate(root: Path, changed: list[str] | None, workflow: str, *, event: str = "pull_request",
+         labels: list[str] | None = None, map_text: str | None = None) -> tuple[bool, str]:
+    """Whether the change needs the crate graph at all (`route` and `check` on a full checkout), and why. A pull
+    request whose every changed path is outside gate_globs needs neither: every routed job of WORKFLOW is false and
+    `check` reads the same files as at the base (the feat-cmux-next push still runs both). Everything else (a push, the full-ci label, an unlistable change) needs it."""
+    if event != "pull_request":
+        return True, f"a {event} reads the graph"
+    if FULL_LABEL in (labels or []):
+        return True, f"the {FULL_LABEL} label"
+    if changed is None:
+        return True, "no usable base: the change cannot be listed"
+    globs = gate_globs(root, workflow, map_text if map_text is not None else (root / MAP).read_text(encoding="utf-8"))
+    if globs is None:
+        return True, f"{workflow} has no push paths: filter"
+    hits = [path for path in changed if any(glob_matches(glob, path) for glob in globs)]
+    if hits:
+        return True, f"{hits[0]}" + (f" and {len(hits) - 1} more" if len(hits) > 1 else "") + " is on a routed path"
+    return False, f"none of {len(changed)} changed path(s) is on {workflow}'s paths, a crate's sources or what check reads"
 
 
 def workflow_paths(text: str, event: str) -> list[str] | None:
@@ -547,6 +598,7 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
                                 f"the job's inputs in {MAP}")
     problems += check_pr_skip(root, load_pr_skip((root / MAP).read_text(encoding="utf-8")),
                               {(job.workflow, job.id) for job in jobs})
+    problems += check_follows(root, (root / MAP).read_text(encoding="utf-8"))
     return sorted(set(problems))
 
 
@@ -618,6 +670,42 @@ def post_merge_batch_paths(root: Path, workflow: str) -> list[str] | None:
     return None
 
 
+def check_follows(root: Path, map_text: str) -> list[str]:
+    """Each pull_request_skip.follows gate: the job it follows is in pull_request_skip, and its workflow sets the gate,
+    every time, to that job's skip clause (PR_SKIP_IF) verbatim, so the repair and the check run on the same heads."""
+    data = json.loads(map_text).get("pull_request_skip", {})
+    listed = {(workflow, job_id) for workflow, entry in data.get("workflows", {}).items() for job_id in entry}
+    problems = []
+    for workflow, gates in data.get("follows", {}).items():
+        if workflow == "//":
+            continue
+        path = root / workflow
+        if not path.exists():
+            problems.append(f"{MAP} pull_request_skip.follows names {workflow}, which does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for gate, followed in gates.items():
+            target = tuple(followed.split(" ", 1))
+            if target not in listed:
+                problems.append(f"{workflow}: {gate} follows {followed}, which pull_request_skip does not list")
+            values = re.findall(rf"(?m)^\s+{re.escape(gate)}:\s*(.*?)\s*$", text)
+            if not values:
+                problems.append(f"{workflow} never sets {gate} ({MAP} pull_request_skip.follows)")
+            for value in values:
+                if value != "${{ " + PR_SKIP_IF + " }}":
+                    problems.append(f"{workflow}: {gate} is {value}, not {followed}'s skip clause "
+                                    f"${{{{ {PR_SKIP_IF} }}}}, so the two would run on different heads")
+    return problems
+
+
+def fail_open_reads(if_text: str, job_id: str) -> list[str]:
+    """The parts of IF_TEXT that run when JOB_ID was skipped: `needs.JOB_ID.outputs.Y != 'false'` (an empty
+    output is not 'false') and `needs.JOB_ID.result != 'success'`."""
+    j = re.escape(job_id)
+    pattern = rf"needs\.{j}\.(?:outputs\.[\w-]+\s*!=\s*['\"]false['\"]|result\s*!=\s*['\"]success['\"])"
+    return [m.group(0) for m in re.finditer(pattern, if_text)]
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow is a post-merge batch suite (on every
     path its pull_request trigger starts on) or starts on a feat-cmux-next push, on every
@@ -672,6 +760,17 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
             if job_id not in job_needs(other_block) or (workflow, other) in names:
                 continue
             other_if = job_if(other_block)
+            # A skipped job's outputs are empty and its result is `skipped`: a gate that runs unless they say
+            # otherwise (`needs.X.outputs.Y != 'false'`, `needs.X.result != 'success'`) runs on every pull request
+            # the skip reaches. conformance did, behind contract: 148 of 154 runs on 11-21 needed nothing. Read
+            # before the next test: `github.event_name != 'pull_request' || needs.X...` runs on a pull request.
+            if PR_SKIP_IF not in other_if and "github.event_name != 'pull_request' &&" not in other_if \
+                    and fail_open_reads(other_if, job_id):
+                problems.append(f"{workflow}: job {other} runs unless {job_id} says otherwise "
+                                f"({', '.join(fail_open_reads(other_if, job_id))}), and a pull request skips {job_id}, "
+                                f"so {other} runs on every pull request: carry {PR_SKIP_IF} (list it in {MAP} "
+                                f"pull_request_skip) or read the output as == 'true'")
+                continue
             # A job that never runs on a pull request loses nothing when the pull request skips what it needs.
             if "github.event_name != 'pull_request'" in other_if:
                 continue
@@ -695,6 +794,13 @@ def main(argv: list[str] | None = None) -> int:
     inputs = sub.add_parser("inputs")
     inputs.add_argument("--workflow", required=True)
     inputs.add_argument("--job", required=True)
+    gated = sub.add_parser("gate", help="whether the change needs the crate graph (route, check) at all")
+    gated.add_argument("--base", default="")
+    gated.add_argument("--head", default="HEAD")
+    gated.add_argument("--event", default="pull_request")
+    gated.add_argument("--labels", default="[]", help="the pull request's label names, as a JSON list")
+    gated.add_argument("--workflow", required=True, help="the routed workflow; its job outputs read `false` when the "
+                       "graph is not needed")
     sub.add_parser("check")
     paths = sub.add_parser("paths", help="the paths: globs a workflow's trigger needs for its routed jobs")
     paths.add_argument("--workflow", required=True)
@@ -707,6 +813,25 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"::error::{problem}")
         return 1 if problems else 0
+    if args.command == "gate":
+        try:
+            labels = json.loads(args.labels or "[]")
+        except json.JSONDecodeError:
+            labels = [FULL_LABEL]
+        changed = changed_paths(root, args.base, args.head) if args.event == "pull_request" else None
+        needed, why = gate(root, changed, args.workflow, event=args.event, labels=labels)
+        print(f"graph={'needed' if needed else 'not needed'}  {why}")
+        if "GITHUB_OUTPUT" in os.environ:
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                out.write(f"needed={'true' if needed else 'false'}\n")
+                if not needed:
+                    # What `route` writes when nothing is an input: never empty, which a routed `if:` reads as run.
+                    out.write("router_changed=false\n")
+                    _inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
+                    for job in jobs:
+                        if job.workflow == args.workflow:
+                            out.write(f"{output_key(job.id)}=false\n")
+        return 0
     if args.command == "paths":
         workspace_inputs, jobs = load_map((root / MAP).read_text(encoding="utf-8"))
         with git_tree.GitTree(root) as tree:

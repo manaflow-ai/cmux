@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/adoption_unlogged_tail.rs"]
+mod adoption_unlogged_tail;
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
 #[path = "durable_agents/answer_link_down.rs"]
@@ -24,10 +26,14 @@ mod credential_restart;
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/handoff_gap.rs"]
+mod handoff_gap;
 #[path = "durable_agents/host_crash.rs"]
 mod host_crash;
 #[path = "durable_agents/host_level_move.rs"]
 mod host_level_move;
+#[path = "durable_agents/host_reboot.rs"]
+mod host_reboot;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/idle_subsessions_restart.rs"]
@@ -56,6 +62,12 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/streaming_restart_gap.rs"]
 mod streaming_restart_gap;
+#[path = "durable_agents/take_over_dark_time.rs"]
+mod take_over_dark_time;
+#[path = "durable_agents/take_over_replaced_binary.rs"]
+mod take_over_replaced_binary;
+#[path = "durable_agents/take_over_under_load.rs"]
+mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 #[path = "durable_agents/translator_panic.rs"]
@@ -179,11 +191,25 @@ impl Daemon {
     }
 
     fn start(&mut self) {
+        self.start_with(&[]);
+    }
+
+    /// A new daemon takes this home over while this one runs (`daemon run --take-over`, as each
+    /// cmux NIGHTLY install starts one): the running one hands over and exits, its agents kept.
+    fn take_over(&mut self) {
+        let mut old = self.child.take().expect("a daemon runs");
+        self.start_with(&["--take-over"]);
+        let status = old.wait().unwrap();
+        assert!(status.success(), "the daemon taken over exited badly: {status}");
+    }
+
+    fn start_with(&mut self, extra: &[&str]) {
         assert!(self.child.is_none());
         let mut command = std::process::Command::new(&self.exe);
         daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+            .args(extra)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             // No catalog fetch: a test never reaches the network, and the fetch's
@@ -4342,4 +4368,37 @@ fn log_while_down(daemon: &Daemon, session: &str, kind: &str, msg: Value) {
     let record = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": kind, "msg": msg});
     let mut f = std::fs::OpenOptions::new().append(true).open(last).unwrap();
     writeln!(f, "{record}").unwrap();
+}
+
+/// RFD 0049, leg `disk`, the bench's wakes: a link that breaks because an entry from its host
+/// could not be stored (a full disk; the debug seam `ACPMUX_TEST_UNLOGGED_ONCE`) answers the
+/// prompt open on it at once, with the store's refusal or the link's own error, rather than
+/// leaving it open until the client's 30 s limit. The next prompt reattaches and is answered.
+#[tokio::test]
+async fn a_prompt_open_when_its_link_breaks_on_an_unstored_entry_is_answered_at_once() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "wake-unstored")];
+    let daemon = Daemon::with_env("unstoredwake", "approve-all", &env);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let hi = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", hi.clone()).await;
+    let wake = json!({"sessionId": session, "prompt": [{"type": "text", "text": "wake-unstored"}]});
+    let started = Instant::now();
+    let reply = tokio::time::timeout(Duration::from_secs(1), rpc.reply("session/prompt", wake))
+        .await
+        .unwrap_or_else(|_| panic!("the prompt whose link broke was still open after 1 s"));
+    assert!(
+        reply.get("error").is_some() || reply["result"]["stopReason"].is_string(),
+        "neither an answer nor an error after {:?}: {reply}",
+        started.elapsed()
+    );
+    // Its host still runs: the chat does not read dead while the next request reattaches.
+    let listed = rpc.call("_acpmux/sessions", json!({})).await;
+    let status = listed["sessions"]
+        .as_array()
+        .and_then(|l| l.iter().find(|s| s["sessionId"] == session.as_str()))
+        .map(|s| s["status"].clone());
+    assert_ne!(status, Some(json!("disconnected")), "after the break: {listed}");
+    let again = rpc.reply("session/prompt", hi).await;
+    assert!(again.get("error").is_none(), "the next prompt after the break: {again}");
 }

@@ -101,30 +101,42 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
-    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    /// The connection chip over kept rows, the states Workspaces' banner uses
+    /// (``ConnectionBannerState``). Every state but a Mac known to be offline waits out the shared
+    /// quiet bound (``homeQuiet``): a retry or a redial that answers within it draws nothing over
+    /// the kept rows.
     private var homeBanner: ConnectionBannerState? {
         guard let status = connectionStatus, keptRowsShow else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
-        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        if status.kind != .macOffline, !homeQuiet.isShown { return nil }
         switch status.kind {
         case .macOffline: return .macOffline(mac, identity: homeMacID)
-        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .unreachable, .connecting: return ConnectionBannerState.connectionFailed.identified(homeMacID)
         case .failed: return .refreshFailed(identity: homeMacID)
-        case .connecting: return .connecting(to: mac, identity: homeMacID)
         }
     }
 
+    /// Holds Home's quiet link states (connecting, can't reach, a failed read) for the shared bound
+    /// (``QuietStatusGate/threshold``) before anything is drawn for them.
+    ///
+    /// Leo, 2026-11-23: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it
+    /// to just work."
+    @State private var homeQuiet = QuietStatusGate()
+
     /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    /// A link that is still coming up draws no empty state until the quiet bound (``homeQuiet``);
+    /// a Mac known to be offline shows at once.
     private func showsProblemEmptyState(searching: Bool) -> Bool {
-        connectionStatus != nil && !keptRowsShow && !searching
+        guard let status = connectionStatus, !keptRowsShow, !searching else { return false }
+        return status.kind == .macOffline || homeQuiet.isShown
     }
 
     /// The status the arrival retry last ran for: returning to Home in the same state (from a
     /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
     @State private var autoRetriedFor: String?
 
-    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// Retry (the empty state's, or arriving at Home while it is not live). Nothing new is drawn
+    /// while it runs: the kept rows stay, and the empty state's Retry shows its spinner.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
         homeRetries += 1
@@ -277,7 +289,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             }
             // New Chief's Create was tapped: the new Chief shows at once, as a row with a spinner,
             // until the read after its create and turn-on lands (``ChiefSources/creatingChief``).
@@ -291,7 +303,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     CmuxSpinner().controlSize(.small)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("home.chief.creating")
                 .transition(.opacity)
@@ -316,7 +328,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
             } else if !searching, let status = sources.cloudStatus {
                 // The Cloud Chief could not take the pin: say why.
@@ -332,7 +344,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             } else if !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
@@ -343,7 +355,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.bottom, 8)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.chief.changeError")
             }
             let entries = entries(list)
@@ -356,7 +368,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                        .listRowBackground(theme.colors.bg.color)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
                         // team drawer, and while these are open it closes them instead
                         // (SidebarContainer finds the slid List row, RowSwipeActions).
@@ -387,21 +399,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .padding(.top, 80)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(theme.colors.bg.color)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("home.note.problem")
-                } else {
-                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
                 }
             } else if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
-                case .connecting:
-                    loadingNote(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"),
-                                identifier: "home.note.connecting")
                 case .loading:
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
-                case .updating, .none:
+                case .connecting, .updating, .none:
+                    // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
+                    // cosmic-gray... with the spinner, i want it to just work."): the rows come with the link.
                     EmptyView()
                 }
             }
@@ -420,7 +429,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.vertical, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityIdentifier("home.showHidden")
             }
             // A search over the top of the list waits for the rest before it says "none".
@@ -434,32 +443,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.top, 120)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.empty")
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(theme.colors.bg.color.ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes).
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                HStack(spacing: 6) {
-                    CmuxSpinner().controlSize(.small)
-                    Text("Updating…")
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .capsule)
-                .padding(.bottom, 8)
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("home.note.updating")
-            }
-        }
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
+        // "just show the cache"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
@@ -476,6 +468,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .onChange(of: connectionStatus.map { $0.kind != .macOffline } ?? false, initial: true) { _, quiet in
+            homeQuiet.update(down: quiet)
+        }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
@@ -550,8 +545,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Color.clear
                 .alert("New Chief", isPresented: $namingChief) {
                     TextField("Name", text: $newChiefName)
-                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                        .autocorrectionDisabled()
+                        // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                         .textInputAutocapitalization(.never)
                         .accessibilityIdentifier("home.chief.newName")
                     Button("Cancel", role: .cancel) {}
@@ -607,7 +601,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .buttonStyle(.cmuxPressFill)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         // Trailing only, as every Home row (the drawer keeps the rightward swipe).
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if chief.conversationID != nil {
@@ -638,7 +632,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .buttonStyle(.cmuxPressFill)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         .accessibilityIdentifier("home.chief.cloud.\(chief.id)")
     }
 
@@ -670,7 +664,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// What Home says while the Mac's list is not in (``HomeListNote``).
     private func listNote(searching: Bool) -> HomeListNote {
         HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
-                          macsMayExist: store.activeTeam == nil || !macs.isEmpty,
+                          macsMayExist: HomeListNote.macsMayAnswer(live: store.tracksMacData, macsKnown: store.activeTeam != nil,
+                                                                   anyOnline: macs.contains(where: \.isOnline)),
                           searching: searching, failing: feed.problem != nil || homeIsOffline)
     }
 
@@ -687,7 +682,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .padding(.vertical, 8)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(identifier)
     }
@@ -1019,15 +1014,21 @@ struct HomeTile: View, Identifiable {
     let open: () -> Void
     let menu: AnyView?
 
-    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
-    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
+    /// The bubble's height as laid out (one or two lines; the typing dots).
+    @State private var bubbleHeight: CGFloat = 0
     private var showsBubble: Bool { working || bubble != nil }
+    /// How far the bubble's bottom tucks over the avatar's top edge, as in
+    /// Messages. Only this much: a bubble that reached down over the avatar's
+    /// letters, or up over the row above, read as overlapping labels (iOS
+    /// release bar read-back: "Home offline: no overlapping labels").
+    static let bubbleTuck: CGFloat = 6
 
     var body: some View {
         Button(action: open) {
             tile
                 .frame(maxWidth: .infinity)
-                .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
+                // The bubble's room above the avatar is the tile's own, so it never reaches the row above.
+                .padding(.top, 14 + (showsBubble ? max(0, bubbleHeight - Self.bubbleTuck) : 0))
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -1047,28 +1048,42 @@ struct HomeTile: View, Identifiable {
         return Text("\(name), pinned")
     }
 
+    /// The typing or preview bubble over the avatar's top-leading corner, its
+    /// bottom `bubbleTuck` below the avatar's top. An overlay: it moves
+    /// nothing; the tile's top padding makes its room.
+    @ViewBuilder private var bubbleView: some View {
+        Group {
+            if working {
+                TypingBubble()
+                    .offset(x: -14)
+                    .transition(Self.bubbleTransition)
+            } else if let bubble {
+                Text(bubble)
+                    .font(.caption2)
+                    // A glance, not the message: it stays a small bubble at accessibility sizes too.
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                    .lineLimit(2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 100, alignment: .leading)
+                    .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
+                    // Up to 100 pt wide, though the overlay offers the avatar's 72.
+                    .frame(width: 100, alignment: .leading)
+                    .offset(x: -24)
+                    .transition(Self.bubbleTransition)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bubbleHeight = $0 }
+        .alignmentGuide(.top) { $0[.bottom] - Self.bubbleTuck }
+    }
+
+    private static let bubbleTransition: AnyTransition = .scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity)
+
     private var tile: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                ChiefAvatar(text: avatar, size: 72)
-                if working {
-                    TypingBubble()
-                        .offset(x: -14, y: -18)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                } else if let bubble {
-                    Text(bubble)
-                        .font(.caption2)
-                        // A glance, not the message: it stays a small bubble at accessibility sizes too.
-                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                        .lineLimit(2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: 100, alignment: .leading)
-                        .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
-                        .offset(x: -24, y: -26)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                }
-            }
+            ChiefAvatar(text: avatar, size: 72)
+                .overlay(alignment: .topLeading) { bubbleView }
             HStack(spacing: 4) {
                 if unread {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)

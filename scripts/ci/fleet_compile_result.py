@@ -14,8 +14,16 @@ Prints one word on stdout and exits 0:
   fail   that record failed (a compile verdict, not a fault)
   none   no usable verdict: no record within --no-record seconds, the service down, a record that
          does not match, unavailable, or the --wait deadline passed. The caller compiles as before.
+  superseded  a feat-cmux-next push tip (no --pr) the controller will not check because a newer push
+         tip is checked instead (its check covers this push's commits, and a red there names them).
+         The caller confirms the branch head moved before it skips; a caller that does not know the
+         word compiles as before.
+With --phase app-debug it reads the pull request app compile's own check instead (the build fleet's Debug
+`--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
+when that job is queued or when this read names the pull request, and it never stands for the land Release.
+
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--wait 1500] [--no-record 600]
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug] [--wait 1500] [--no-record 600]
 """
 import argparse
 import json
@@ -26,23 +34,28 @@ import urllib.parse
 import urllib.request
 
 RESULTS = "https://gh-events.cmux.com/compile-checks/v1"
+HOLD_MAX = 90  # under the gateway's ~100 s request limit
 RECIPE = 2
 CONFIGURATION = "release-onone"
+# The phases a read can name, and the configuration each one's record carries.
+PHASES = {"": CONFIGURATION, "app-debug": "debug"}
 
 
-def judge(record, sha, repo):
+def judge(record, sha, repo, configuration=CONFIGURATION):
     """The verdict a record gives this head: pass, fail, pending (still running) or none."""
     if not isinstance(record, dict):
         return "none", "unreadable record"
     if record.get("sha") != sha or record.get("repo") != repo:
         return "none", f"record is for {record.get('repo')}@{record.get('sha')}"
-    if record.get("recipe_version") != RECIPE or record.get("configuration") != CONFIGURATION:
+    if record.get("recipe_version") != RECIPE or record.get("configuration") != configuration:
         return "none", f"record is recipe {record.get('recipe_version')} {record.get('configuration')}"
     state = record.get("state") or ""
     if state in ("pass", "fail"):
         return state, f"tip check {state}: {record.get('log_url') or ''}".strip()
     if state == "unavailable":
         return "none", "the tip check gave no verdict (unavailable)"
+    if state == "superseded":
+        return "superseded", f"a newer push tip is checked instead: {record.get('superseded_by') or 'unnamed'}"
     return "pending", f"tip check {state or 'queued'}"
 
 
@@ -65,13 +78,15 @@ def fetch(url, timeout):
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
-         sleep=time.sleep, gap=30):
+         sleep=time.sleep, gap=30, phase=""):
     """Wait up to `wait` s for this head's verdict; (word, reason)."""
     start = now()
     deadline = start + wait
     q = {"repo": repo}
     if pr:
         q["pr"] = pr
+    if phase:
+        q["phase"] = phase
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
     seen_record = False
@@ -80,12 +95,14 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         left = deadline - now()
         if left <= 1:
             return "none", f"no verdict in {wait} s ({last})"
-        hold = int(min(max(left - 30, 1), 300))
+        # The results service sits behind a gateway that ends a request held about 100 s (HTTP 524),
+        # so a 300 s hold read a healthy service as down and spent its two-minute grace on it.
+        hold = int(min(max(left - 30, 1), HOLD_MAX))
         code, body = fetch(f"{base}&wait={hold}", hold + 15)
         if code == 200:
             down_since = None
             seen_record = True
-            word, last = judge(body, sha, repo)
+            word, last = judge(body, sha, repo, PHASES[phase])
             if word != "pending":
                 return word, last
         elif code == 404:
@@ -109,12 +126,13 @@ def main(argv=None):
     p.add_argument("--pr", default="")
     p.add_argument("--wait", type=int, default=1500)
     p.add_argument("--no-record", type=int, default=600)
+    p.add_argument("--phase", default="", choices=sorted(PHASES))
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
         print(f"fleet compile result: bad sha {a.sha!r}", file=sys.stderr)
         print("none")
         return 0
-    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record)
+    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase)
     print(f"fleet compile result for {a.sha}: {word} ({why})", file=sys.stderr)
     print(word)
     return 0

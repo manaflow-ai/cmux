@@ -4,6 +4,96 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Enroll the calling install's machine as a host in the team directory.
+    HostEnrollOp {
+        name: "host.enroll",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Install],
+        params: HostEnrollParams,
+        result: Host,
+        error: HostEnrollError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostEnrollParams {
+    pub name: String,
+    pub platform: Platform,
+}
+
+wire_errors! {
+    /// The error codes host.enroll declares.
+    HostEnrollError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.
+    HostNetworkBindOp {
+        name: "host.network.bind",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: HostNetworkBindParams,
+        result: HostNetworkBindResult,
+        error: HostNetworkBindError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkBindParams {
+    pub host: HostId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub proof: ServerNetworkProof,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkBindResult {
+    pub host: HostId,
+    pub network: ServerNetworkBinding,
+}
+
+wire_errors! {
+    /// The error codes host.network.bind declares.
+    HostNetworkBindError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the calling host's current directed Native peer policy with a fresh install-key proof. Peers are joined to live backend hosts, owners, installs and original grants; unmatched peers grant no access. This bounded identity snapshot is not a dial credential or a serving-role activation. Receivers still need current authority and service authentication.
+    HostNetworkPolicyOp {
+        name: "host.network.policy",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Install],
+        params: HostNetworkPolicyParams,
+        result: HostNetworkPolicyView,
+        error: HostNetworkPolicyError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HostNetworkPolicyParams {
     pub host: HostId,
@@ -802,89 +892,4 @@ wire_enum! {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParamsGithub {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<IntegrationPolicySetParamsGithubScope>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub require_org_admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub repo_allowlist: Option<Option<Vec<RepoPattern>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allow_workflows: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicySetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub allowed_providers: Option<Option<Vec<IntegrationProvider>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github: Option<IntegrationPolicySetParamsGithub>,
-}
-
-wire_errors! {
-    /// The error codes integration.policy.set declares.
-    IntegrationPolicySetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyLocked = "policy.locked",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
-    IntegrationRevokeOp {
-        name: "integration.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "destructive",
-        principals: [Session],
-        params: IntegrationRevokeParams,
-        result: Connection,
-        error: IntegrationRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationRevokeParams {
-    pub connection: ConnectionId,
-}
-
-wire_errors! {
-    /// The error codes integration.revoke declares.
-    IntegrationRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.
-    InviteAcceptOp {
-        name: "invite.accept",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InviteAcceptParams,
-        result: HomeConversationCommit,
-        error: InviteAcceptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteAcceptParams {
-    pub code: String,
-    pub secret: String,
 }

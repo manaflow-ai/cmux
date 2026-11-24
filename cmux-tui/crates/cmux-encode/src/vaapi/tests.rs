@@ -741,13 +741,18 @@ fn sps_says_no_frame_waits_for_reordering() {
     assert_eq!(r.u(1), 1); // frame_cropping_flag
     assert_eq!((r.ue(), r.ue(), r.ue(), r.ue()), (0, 0, 0, 4));
     assert_eq!(r.u(1), 1); // vui
-    assert_eq!(r.u(8), 0); // no aspect, overscan, signal type, chroma loc, timing, HRD, pic_struct
+    assert_eq!(r.u(2), 0); // no aspect, overscan
+    // video_signal_type: format 5, video range, colour description BT.709 / sRGB / BT.709.
+    assert_eq!((r.u(1), r.u(3), r.u(1), r.u(1)), (1, 5, 0, 1));
+    assert_eq!((r.u(8), r.u(8), r.u(8)), (1, 13, 1), "primaries, transfer, matrix");
+    assert_eq!(r.u(5), 0); // no chroma loc, timing, HRD, pic_struct
     assert_eq!(r.u(1), 1); // bitstream_restriction_flag
     assert_eq!(r.u(1), 1);
     assert_eq!((r.ue(), r.ue(), r.ue(), r.ue()), (0, 0, 15, 15));
     assert_eq!(r.ue(), 0, "max_num_reorder_frames");
     assert_eq!(r.ue(), 1, "max_dec_frame_buffering");
     assert_eq!(r.u(1), 1, "rbsp_stop_one_bit");
+    assert_eq!(crate::color::sps_vui(&enc.sps), Some(crate::color::SCREEN), "the viewers' parser");
     drop(enc);
     let enc = open(intel_like(), &cfg(3840, 2160), false).unwrap();
     assert_eq!(enc.level_idc(), 52, "4K at 60 fps");

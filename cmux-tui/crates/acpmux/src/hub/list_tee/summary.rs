@@ -10,6 +10,8 @@ const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
     "handle",
+    // The chat's own icon (`session_icon.rs`); an image is left to the full summary.
+    "icon",
     "shortName",
     "indicator",
     "titleSource",
@@ -23,6 +25,8 @@ const EXTRA_KEYS: &[&str] = &[
     "preview",
     "subagentsRunning",
     "subagentNames",
+    "recentSubagents",
+    "subagentsSeen",
     "commandsRunning",
     "pullRequests",
     "usageWarnings",
@@ -127,6 +131,8 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
             EXTRA_KEYS.contains(&key.as_str())
                 && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
                 && !(key.as_str() == "handle" && derived_handle(row, value))
+                && !(key.as_str() == "icon"
+                    && value.get("kind").and_then(Value::as_str) == Some("image"))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
@@ -367,12 +373,9 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
         row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
     let mut summary = Summary::new(chat_id);
     summary.origin = peer.to_owned();
-    summary.title = value
-        .get("title")
-        .or_else(|| value.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
+    // A null or empty `title` (a hub row whose machine did not say) falls back to its name.
+    let text = |key: &'static str| value.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+    summary.title = text("title").or_else(|| text("name")).unwrap_or_default().to_owned();
     cut_title(&mut summary.title);
     summary.harness = row.harness().unwrap_or_default().to_owned();
     summary.state = value
@@ -432,7 +435,7 @@ mod tests {
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(config, store);
         hub.wait_store().await;
-        let session = hub.sessions.lock().unwrap().get("fixture").cloned().unwrap();
+        let session = hub.session_get("fixture").unwrap();
         (hub, session)
     }
 

@@ -35,8 +35,9 @@ pub(super) const CARRY_DEADLINE: Duration = Duration::from_secs(30);
 /// link and its retry found it down again (about 2 s on the outbox's schedule).
 pub(super) const CARRY_FROM_ATTEMPT: u32 = 2;
 
-/// The `--relay` name the far daemon records for a carried message.
-const RELAY_NAME: &str = "acpmux-ssh";
+/// The `--relay` name the far daemon records for a carried message: its inbox wakes the chat
+/// for it (`prompt_provenance::waited`).
+const RELAY_NAME: &str = crate::prompt_provenance::SSH_CARRY_RELAY;
 
 /// What one carry did.
 #[derive(Debug)]
@@ -74,6 +75,11 @@ pub(super) fn route(hub: &Hub, target: &str) -> Option<Route> {
     if peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
+    // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
+    // (gcp lane VM, 2026-11-24) failed its publickey on every retry of 416 deliveries.
+    if peer.name == crate::pairing::machine_name() {
+        return None;
+    }
     let destination = crate::peer::ssh_target(&peer.url).ok()?.destination;
     plain_key(&key).then(|| Route { host: peer.name.clone(), destination, key })
 }
@@ -92,7 +98,7 @@ pub(super) struct Message {
 
 /// `request` as ssh carries it, or None when it holds what the far CLI cannot take on stdin (an
 /// attachment, any block but text): the link or the mesh relay keeps it.
-pub(super) fn message(request: &Value, from: Option<&str>, machine: &str) -> Option<Message> {
+pub(super) fn message(request: &Value, from: &Sender, machine: &str) -> Option<Message> {
     let mut texts = Vec::new();
     for block in request.get("prompt").and_then(Value::as_array).into_iter().flatten() {
         match (block.get("type").and_then(Value::as_str), block.get("text").and_then(Value::as_str))
@@ -116,10 +122,20 @@ pub(super) fn message(request: &Value, from: Option<&str>, machine: &str) -> Opt
     if let Some(key) = word("supersede") {
         flags.push(format!("--supersede={key}"));
     }
-    if let Some(from) = from.filter(|f| !f.trim().is_empty()) {
-        flags.push(format!("--from={from}"));
-        flags.push(format!("--relay={RELAY_NAME}"));
-        flags.push(format!("--relayed-from={machine}/{from}"));
+    match from {
+        Sender::Named(from) => {
+            flags.push(format!("--from={from}"));
+            flags.push(format!("--relay={RELAY_NAME}"));
+            flags.push(format!("--relayed-from={machine}/{from}"));
+        }
+        // No name to give, and still not the person's: the relay record alone names this
+        // machine, so the far daemon records another agent's message (`cli/run/standard.rs`
+        // names a relayed send with no `--from` by where it came from).
+        Sender::Program => {
+            flags.push(format!("--relay={RELAY_NAME}"));
+            flags.push(format!("--relayed-from={machine}"));
+        }
+        Sender::Person => {}
     }
     Some(Message { text: texts.join("\n\n"), flags })
 }
@@ -140,24 +156,75 @@ pub(super) fn script(key: &str, flags: &[String]) -> String {
     )
 }
 
-/// The sender a carry names: the session this daemon proved sent it, else the name it gave.
-fn sender(hub: &Hub, delivery: &Delivery) -> Option<String> {
-    delivery.caller.as_deref().map(|id| hub.session_name(id)).or_else(|| {
-        delivery
-            .request
-            .pointer("/_meta/acpmux/fromAgent")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    })
+/// Who a carry says sent a delivery. The far CLI runs under a plain ssh login, which declares a
+/// terminal and holds no caller token: a carry that says nothing is recorded there as the far
+/// machine's owner typing at a terminal (`server/requests/prompt_sender.rs` `owner_terminal`).
+/// So only the person's own send says nothing.
+///
+/// Leo, 2026-11-22, on a lane's messages drawn in his chat as his own bubbles, "you · via CLI on
+/// cosmic-gray": "these shouldn't have been shown like that." The lane's send had proved no
+/// session to its own daemon, the carry named no one for it, and the far record read
+/// `origin: {actor: "person", verified: true}`.
+#[derive(Debug, PartialEq)]
+pub(super) enum Sender {
+    /// A session or a name: the one this daemon proved, else the one the send gave.
+    Named(String),
+    /// A program that is not the person and has no name here: a send that declared no terminal
+    /// or claimed a harness, a relay or a route (`Delivery::not_terminal`, `SENDER_CLAIMS`).
+    Program,
+    /// The person's own send, carried as the far machine's owner's terminal send.
+    Person,
+}
+
+/// The `_meta.acpmux` fields that make a send a program's and never the owner's terminal's, as
+/// `prompt_sender.rs` `claims_a_sender` reads them on a direct send.
+const SENDER_CLAIMS: &[&str] = &[
+    crate::prompt_provenance::FROM_HARNESS,
+    crate::sender_harness::META_KEY,
+    crate::prompt_provenance::FROM_RELAY,
+    "via",
+];
+
+/// Who a carry of `delivery` names, with `name_of` this daemon's name for a session id: the
+/// session it proved, the name the send gave, the session it named without proof (still an
+/// agent's, by the name this daemon has for it), a program with no name, or the person.
+pub(super) fn sender(delivery: &Delivery, name_of: impl Fn(&str) -> String) -> Sender {
+    let mux = delivery.request.pointer("/_meta/acpmux");
+    let said = |key: &str| mux.and_then(|m| m.get(key)).filter(|v| !v.is_null());
+    let named = |name: String| Some(name).filter(|n| !n.trim().is_empty()).map(Sender::Named);
+    let from_agent = || said("fromAgent").and_then(Value::as_str).map(str::to_owned);
+    delivery
+        .caller
+        .as_deref()
+        .and_then(|id| named(name_of(id)))
+        .or_else(|| from_agent().and_then(named))
+        .or_else(|| delivery.unproven_caller.as_deref().and_then(|id| named(name_of(id))))
+        .unwrap_or_else(|| {
+            let program = delivery.caller.is_some()
+                || delivery.unproven_caller.is_some()
+                || delivery.not_terminal
+                || said("fromAgent").is_some()
+                || SENDER_CLAIMS.iter().any(|key| said(key).is_some());
+            if program { Sender::Program } else { Sender::Person }
+        })
 }
 
 /// One ssh carry of `delivery`, when it has a route ([`route`]) and a message ssh carries
 /// ([`message`]); None otherwise (the outbox goes on as before).
 pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> {
     let route = route(hub, &delivery.target)?;
-    let from = sender(hub, delivery);
+    // One host whose ssh login refuses is tried once per cool-down for all its deliveries, not
+    // once per delivery per retry (each a process spawn, a daemon.log line and outbox writes).
+    if COOLDOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .cooling(&route.host, std::time::Instant::now())
+    {
+        return None;
+    }
+    let from = sender(delivery, |id| hub.session_name(id));
     let machine = crate::pairing::machine_name();
-    let message = message(&delivery.request, from.as_deref(), &machine)?;
+    let message = message(&delivery.request, &from, &machine)?;
     let argv = crate::cli::hosts::ssh_argv(&route.destination, &script(&route.key, &message.flags))
         .ok()?;
     let started = std::time::Instant::now();
@@ -178,6 +245,11 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "ssh carry: {why}"
     );
+    COOLDOWN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record(
+        &route.host,
+        matches!(outcome, Carry::NotTaken(_)),
+        std::time::Instant::now(),
+    );
     Some(match outcome {
         Carry::Taken(mut answer) => {
             if let Some(fields) = answer.as_object_mut() {
@@ -187,6 +259,36 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         }
         other => other,
     })
+}
+
+/// The first wait after a host's carry was not taken; each further refusal doubles it up to
+/// [`COOLDOWN_MAX`]. A carry that reached the host (taken or maybe) clears it.
+const COOLDOWN_FIRST: Duration = Duration::from_secs(60);
+const COOLDOWN_MAX: Duration = Duration::from_secs(15 * 60);
+
+static COOLDOWN: std::sync::LazyLock<std::sync::Mutex<Cooldown>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Per host: until when no carry goes to it, and the wait last used.
+#[derive(Default)]
+struct Cooldown(std::collections::HashMap<String, (std::time::Instant, Duration)>);
+
+impl Cooldown {
+    fn cooling(&self, host: &str, now: std::time::Instant) -> bool {
+        self.0.get(host).is_some_and(|(until, _)| now < *until)
+    }
+
+    fn record(&mut self, host: &str, refused: bool, now: std::time::Instant) {
+        if !refused {
+            self.0.remove(host);
+            return;
+        }
+        let wait = self
+            .0
+            .get(host)
+            .map_or(COOLDOWN_FIRST, |(_, last)| last.saturating_mul(2).min(COOLDOWN_MAX));
+        self.0.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
+    }
 }
 
 /// The ssh login itself, bounded by [`CARRY_DEADLINE`], and what it did.
@@ -263,19 +365,48 @@ fn not_connected(stderr: &str) -> bool {
         "Permission denied",
         "Host key verification failed",
         "connect to host",
+        // A relay ProxyCommand (ProxyUseFdpass) reached none of the machine's routes: no login.
+        "proxy dialer did not pass back a connection",
     ];
     NEVER.iter().any(|m| stderr.contains(m))
 }
 
 #[cfg(test)]
 mod tests {
+    /// Duress harness: 416 queued deliveries to one host whose ssh login refuses, each retried
+    /// every 2 s for an hour (the herd a link flap woke). Carries that spawn ssh: one per
+    /// cool-down step, not one per delivery per retry.
+    #[test]
+    fn a_refusing_host_gets_one_carry_per_cool_down_not_one_per_delivery() {
+        let start = std::time::Instant::now();
+        let mut cool = super::Cooldown::default();
+        let mut spawned = 0u32;
+        for tick in 0..1800u64 {
+            let now = start + std::time::Duration::from_secs(tick * 2);
+            for _ in 0..416 {
+                if !cool.cooling("h", now) {
+                    spawned += 1;
+                    cool.record("h", true, now);
+                }
+            }
+        }
+        eprintln!("ssh carries in 1 h for 416 deliveries: {spawned} (was {})", 1800 * 416);
+        // At 0, 60, 180, 420, 900, 1800 and 2700 s (waits 60, 120, 240, 480, then 900): 7.
+        assert_eq!(spawned, 7);
+        // Another host is not held back by this one; a carry that reached a host clears it.
+        assert!(!cool.cooling("other", start));
+        let late = start + std::time::Duration::from_secs(3600);
+        cool.record("h", false, late);
+        assert!(!cool.cooling("h", late));
+    }
+
     use super::*;
 
     #[test]
     fn the_message_goes_on_stdin_and_every_word_is_quoted() {
         let request = json!({"sessionId": "box/lane", "prompt": [{"type": "text", "text": "hi; rm -rf ~"}],
             "_meta": {"acpmux": {"promptId": "p-1", "steer": true, "class": "question"}}});
-        let m = message(&request, Some("co'ord"), "vm-1").unwrap();
+        let m = message(&request, &Sender::Named("co'ord".into()), "vm-1").unwrap();
         assert_eq!(m.text, "hi; rm -rf ~");
         let s = script("lane x", &m.flags);
         assert!(!s.contains("rm -rf"), "{s}");
@@ -292,9 +423,65 @@ mod tests {
     fn an_attachment_or_no_prompt_id_is_not_carried() {
         let image = json!({"prompt": [{"type": "text", "text": "x"}, {"type": "image", "data": ""}],
             "_meta": {"acpmux": {"promptId": "p"}}});
-        assert_eq!(message(&image, None, "m"), None);
+        assert_eq!(message(&image, &Sender::Person, "m"), None);
         let bare = json!({"prompt": [{"type": "text", "text": "x"}]});
-        assert_eq!(message(&bare, None, "m"), None);
+        assert_eq!(message(&bare, &Sender::Person, "m"), None);
+    }
+
+    /// A delivery with `mux` as its request's `_meta.acpmux`.
+    fn delivery(mux: Value) -> Delivery {
+        let request = json!({"sessionId": "box/lane", "prompt": [{"type": "text", "text": "hi"}],
+            "_meta": {"acpmux": mux}});
+        serde_json::from_value(json!({"id": "d-1", "target": "box/lane", "request": request,
+            "state": "queued", "createdAt": 0, "updatedAt": 0}))
+        .unwrap()
+    }
+
+    /// Only the person's own send is carried with no sender: every other one names its sender
+    /// or, with no name to give, this machine as its relay, so the far daemon never records an
+    /// agent's message as its owner's terminal send.
+    #[test]
+    fn only_the_persons_own_send_is_carried_with_no_sender() {
+        let name_of = |id: &str| format!("name-of-{id}");
+        let flags = |d: &Delivery| message(&d.request, &sender(d, name_of), "vm-1").unwrap().flags;
+        let relayed = |flags: &[String]| flags.iter().any(|f| f.starts_with("--relay="));
+
+        let person = delivery(json!({"promptId": "p"}));
+        assert_eq!(sender(&person, name_of), Sender::Person);
+        assert!(!relayed(&flags(&person)), "{:?}", flags(&person));
+
+        let mut proven = delivery(json!({"promptId": "p"}));
+        proven.caller = Some("s1".into());
+        assert_eq!(sender(&proven, name_of), Sender::Named("name-of-s1".into()));
+
+        // The case of 2026-11-22: a stale caller token, so the session is named and unproven.
+        let mut unproven = delivery(json!({"promptId": "p"}));
+        unproven.unproven_caller = Some("s2".into());
+        assert_eq!(sender(&unproven, name_of), Sender::Named("name-of-s2".into()));
+        let f = flags(&unproven);
+        assert!(f.contains(&"--from=name-of-s2".to_owned()), "{f:?}");
+        assert!(f.contains(&"--relayed-from=vm-1/name-of-s2".to_owned()), "{f:?}");
+
+        // An agent's shell that declared no terminal and named no one.
+        let mut no_terminal = delivery(json!({"promptId": "p"}));
+        no_terminal.not_terminal = true;
+        assert_eq!(sender(&no_terminal, name_of), Sender::Program);
+        let f = flags(&no_terminal);
+        assert!(f.contains(&"--relay=acpmux-ssh".to_owned()), "{f:?}");
+        assert!(f.contains(&"--relayed-from=vm-1".to_owned()), "{f:?}");
+        assert!(!f.iter().any(|flag| flag.starts_with("--from=")), "{f:?}");
+
+        // Each claim that makes a direct send a program's does the same for a carried one.
+        for key in ["fromHarness", "senderHarness", "fromRelay", "via"] {
+            let claimed = delivery(json!({"promptId": "p", key: {"harness": "claude-code"}}));
+            assert_eq!(sender(&claimed, name_of), Sender::Program, "{key}");
+            assert!(relayed(&flags(&claimed)), "{key}");
+        }
+        let named = delivery(json!({"promptId": "p", "fromAgent": "vm-9/lane", "via": "x"}));
+        assert_eq!(sender(&named, name_of), Sender::Named("vm-9/lane".into()));
+        // A blank name is no name, and still not the person's.
+        let blank = delivery(json!({"promptId": "p", "fromAgent": "  "}));
+        assert_eq!(sender(&blank, name_of), Sender::Program);
     }
 
     #[test]
@@ -323,6 +510,16 @@ mod tests {
         assert!(matches!(
             outcome(Some(255), "", "Connection to box closed by remote host."),
             Carry::Maybe(_)
+        ));
+        // A parked machine behind a relay ProxyCommand: ssh never logged in, so the message is
+        // still unsent and the mesh relay may carry it (not a maybe-taken that rules it out).
+        assert!(matches!(
+            outcome(
+                Some(255),
+                "",
+                "mm_receive_fd: recvmsg: expected received 1 got 0\nproxy dialer did not pass back a connection"
+            ),
+            Carry::NotTaken(_)
         ));
         assert!(matches!(outcome(Some(127), "", "acpmux: not found"), Carry::NotTaken(_)));
         assert!(matches!(outcome(Some(4), "", "no session"), Carry::NotTaken(_)));

@@ -38,6 +38,97 @@ fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     assert_eq!(refused(line("never-mounted")), "projection.unknown");
 }
 
+#[test]
+fn a_revision_the_machine_cannot_fetch_is_refused_with_its_own_code() {
+    let reference = |origin: &str| RevisionRef {
+        root: "0".repeat(64),
+        origin: origin.into(),
+        grant: "csg_x".into(),
+    };
+    // Not https: the machine never sends the grant over it.
+    assert_eq!(
+        fetch_revision(&reference("http://store.example")).err().unwrap().0,
+        "projection.revision_unavailable"
+    );
+    // A store that does not answer.
+    assert_eq!(
+        fetch_revision(&reference("http://127.0.0.1:1")).err().unwrap().0,
+        "projection.revision_unavailable"
+    );
+}
+
+#[test]
+fn a_revision_in_the_store_is_fetched_and_assembled() {
+    use std::io::{BufRead as _, Write as _};
+
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+
+    let items: Vec<Item> = (0..3000)
+        .map(|n| Item {
+            path: format!("d{:02}/s{}/file-{n:05}-with-a-long-enough-name.rs", n % 40, n % 3),
+            kind: Kind::File,
+            mode: 0o644,
+            size: n,
+            mtime_ns: 5,
+            link: None,
+        })
+        .collect();
+    let manifest = Manifest::build(1, items).unwrap();
+    let split = cmux_projection::revision::split(&manifest).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let pieces: std::collections::HashMap<String, Vec<u8>> =
+        split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
+    let served = std::thread::spawn(move || {
+        // One request per connection, until the test drops the last reference.
+        for conn in listener.incoming().flatten() {
+            let mut reader = std::io::BufReader::new(conn.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap_or(0);
+            let sha =
+                line.split_whitespace().nth(1).and_then(|p| p.rsplit('/').next()).unwrap_or("");
+            let mut authed = false;
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                    break;
+                }
+                authed |= header.to_ascii_lowercase().starts_with("authorization:")
+                    && header.contains("csg_good");
+            }
+            let mut conn = conn;
+            let _ = match pieces.get(sha) {
+                Some(bytes) if authed => {
+                    let mut out = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        bytes.len()
+                    )
+                    .into_bytes();
+                    out.extend_from_slice(bytes);
+                    conn.write_all(&out)
+                }
+                _ => conn.write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                ),
+            };
+        }
+    });
+    let origin = format!("http://127.0.0.1:{port}");
+    let fetched = fetch_revision(&RevisionRef {
+        root: split.root.clone(),
+        origin: origin.clone(),
+        grant: "csg_good".into(),
+    })
+    .ok()
+    .unwrap();
+    assert_eq!(fetched, manifest);
+    // A grant the store refuses is the same refusal, not a hang or a panic.
+    let refused =
+        fetch_revision(&RevisionRef { root: split.root, origin, grant: "csg_bad".into() });
+    assert_eq!(refused.err().unwrap().0, "projection.revision_unavailable");
+    drop(served);
+}
+
 /// The whole path on a machine with FUSE: a dial with a manifest mounts it, the mount lists what
 /// the manifest has without asking the Mac, a read asks the Mac over the same dial, and a write
 /// stays on the machine.
@@ -172,6 +263,104 @@ fn a_line_without_the_mark_is_refused() {
 }
 
 #[test]
+fn binary_lines_come_back_whole_mixed_with_base64_ones() {
+    // Every byte value, newlines and escapes among them, on both sides of a line's cut.
+    let bytes: Vec<u8> =
+        (0..2_500_000u32).map(|n| (n.wrapping_mul(2_654_435_761) >> 11) as u8).collect();
+    let mut sent = Vec::new();
+    {
+        let mut writer = LineWriter::new(&mut sent);
+        writer.write_all(b"head\n").unwrap();
+    }
+    {
+        let mut writer = LineWriter::binary(&mut sent);
+        writer.write_all(&bytes).unwrap();
+        writer.write_all(b"\n\\n\\").unwrap();
+        writer.flush().unwrap();
+    }
+    let lines: Vec<&[u8]> =
+        sent.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).collect();
+    assert_eq!(lines.first().and_then(|line| line.first()), Some(&LINE_MARK));
+    assert!(
+        lines
+            .iter()
+            .skip(1)
+            .all(|line| { line.first() == Some(&BINARY_MARK) && line.len() <= LINE_BYTES * 2 + 1 })
+    );
+    // About 1/128 of noise is escaped: far under base64's third.
+    let binary: usize = lines.iter().skip(1).map(|line| line.len() + 1).sum();
+    assert!(binary < bytes.len() + bytes.len() / 50, "{binary}");
+    let mut back = Vec::new();
+    LineReader::new(std::io::Cursor::new(sent)).read_to_end(&mut back).unwrap();
+    assert_eq!(back.get(..5), Some(&b"head\n"[..]));
+    assert_eq!(back.get(5..5 + bytes.len()), Some(bytes.as_slice()));
+    assert_eq!(back.get(5 + bytes.len()..), Some(&b"\n\\n\\"[..]));
+}
+
+#[test]
+fn a_binary_line_with_a_bad_escape_is_refused() {
+    let mut back = Vec::new();
+    let error = LineReader::new(std::io::Cursor::new(b"!ab\\x\n".to_vec())).read_to_end(&mut back);
+    assert_eq!(error.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn only_a_serve_dial_that_says_wire_2_gets_binary_lines_and_packed_answers() {
+    assert!(wants_wire(
+        r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true,"wire":2}"#
+    ));
+    assert!(!wants_wire(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
+    assert!(!wants_wire(r#"{"id":1,"cmd":"projection.layer","name":"a","at":"/x","wire":2}"#));
+}
+
+/// The bytes a projection's answers cost on the carrier, before (plain answers in base64 lines)
+/// and after (packed answers in binary lines), for every file of this crate's source folder.
+#[test]
+fn packed_answers_in_binary_lines_cost_less_than_base64_ones() {
+    use cmux_projection::wire::{Part, read_answer, write_answer, write_packed_answer};
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files: Vec<Vec<u8>> = Vec::new();
+    let mut stack = vec![folder];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(std::fs::read(path).unwrap());
+            }
+        }
+    }
+    let raw: usize = files.iter().map(Vec::len).sum();
+    let (mut before, mut after) = (Vec::new(), Vec::new());
+    for (ask, file) in files.iter().enumerate() {
+        let parts = [Part::ok(file.clone())];
+        let ask = u32::try_from(ask).unwrap();
+        // As the Mac answers: through a 1 MiB buffer, flushed after each answer.
+        let mut plain = std::io::BufWriter::with_capacity(1 << 20, LineWriter::new(&mut before));
+        write_answer(&mut plain, ask, &parts).unwrap();
+        plain.flush().unwrap();
+        drop(plain);
+        let mut packed = std::io::BufWriter::with_capacity(1 << 20, LineWriter::binary(&mut after));
+        write_packed_answer(&mut packed, ask, &parts).unwrap();
+        packed.flush().unwrap();
+    }
+    eprintln!(
+        "{} files, {raw} bytes: base64 plain {} bytes, binary packed {} bytes ({:.2}x)",
+        files.len(),
+        before.len(),
+        after.len(),
+        before.len() as f64 / after.len() as f64
+    );
+    assert!(after.len() * 2 < before.len());
+    let mut reader = LineReader::new(std::io::Cursor::new(after));
+    for file in &files {
+        let (_, parts) = read_answer(&mut reader).unwrap().unwrap();
+        assert_eq!(&parts[0].bytes, file);
+    }
+}
+
+#[test]
 fn only_a_dial_that_says_lines_gets_lines() {
     assert!(wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
     assert!(!wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x"}"#));
@@ -213,6 +402,9 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
+                .env_remove("GIT_CONFIG_GLOBAL")
+                .env_remove("XDG_CONFIG_HOME")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .arg("-C")
                 .arg(repo)
@@ -225,4 +417,198 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     };
     assert_eq!(check(&at.join("repo")), "minimal");
     assert_eq!(check(&other), "");
+}
+
+/// RFD 0007: the agent is told once that the Mac is away and which reads failed; the notice names
+/// the folder, says the Mac is away, and lists the failed paths, at most a cap, with a count.
+#[test]
+fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
+    use cmux_projection::away::Report;
+    let at = Path::new("/home/cmux/work/chat");
+    let report = Report {
+        episode: 1,
+        paths: vec!["README.md".into(), "src/main.rs".into()],
+        failed: 2,
+        back: false,
+    };
+    let (title, body) = away_notice(at, &report);
+    assert_eq!(
+        away_prompt(&title, &body),
+        "[notice from cmux · WARN] The Mac is away: 2 reads in a projected folder failed\n\
+         The Mac that projects /home/cmux/work/chat is asleep or offline. A read of a file not \
+         fetched from it yet waits 5 s, then fails with EHOSTDOWN (\"Host is down\"); files \
+         already read keep working. Nothing retries on its own: read these again once the Mac is \
+         back.\n\
+         Reads that failed (2):\n\
+         - README.md\n\
+         - src/main.rs"
+    );
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let (title, body) = away_notice(at, &capped);
+    assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
+    assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
+    let back = Report { back: true, failed: 1, paths: vec!["a".into()], ..report };
+    let (title, body) = away_notice(at, &back);
+    assert_eq!(title, "The Mac was away: 1 read in a projected folder failed");
+    assert!(body.contains("is back now"), "{body}");
+}
+
+#[test]
+fn brought_back_and_release_are_projection_frames() {
+    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP] {
+        let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
+        assert_eq!(frame_command(&line), Some(op));
+    }
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"projection.unknown_op","name":"a"}"#), None);
+}
+
+/// A projection's state folder as a mount leaves it: an upper layer with an edit, whiteouts, a
+/// cache, and its record naming `at`.
+fn projected_state(home: &Path, name: &str) -> (PathBuf, PathBuf) {
+    let state = home.join("projections").join(name);
+    let at = home.join("work").join(name);
+    std::fs::create_dir_all(state.join("upper/src")).unwrap();
+    std::fs::create_dir_all(state.join("cache")).unwrap();
+    std::fs::create_dir_all(&at).unwrap();
+    std::fs::write(state.join("upper/src/a.rs"), b"fn a() { /* edited */ }").unwrap();
+    std::fs::write(state.join("whiteouts"), b"src/b.rs\0").unwrap();
+    std::fs::write(state.join("cache/7"), vec![0; 4096]).unwrap();
+    cmux_projection::state::update(&state, &at, |record| record.created_ms = 1).unwrap();
+    (state, at)
+}
+
+fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLine {
+    WayBackLine {
+        name: name.into(),
+        paths_bytes: 0,
+        mark: mark.map(str::to_owned),
+        why: why.map(str::to_owned),
+    }
+}
+
+/// RFD 0007: Bring Back's upper layer is "brought back at the mark it read
+/// (`projection.brought_back`), and it is freed"; one written since stays whole.
+#[test]
+fn brought_back_at_its_mark_frees_the_state_and_an_edit_since_keeps_it() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-back");
+    let read = cmux_projection::state::mark(&state).unwrap();
+    std::fs::write(state.join("upper/late.txt"), b"written after Bring Back read it").unwrap();
+    let line = control_line("p-back", Some(&read), None);
+    let refused = free(BROUGHT_BACK, &line, &state).unwrap_err();
+    assert_eq!(refused.0, "projection.edited_since");
+    assert!(state.join("upper/late.txt").exists(), "an edit made after Bring Back read went");
+    assert!(cmux_projection::state::read(&state).unwrap().brought_back.is_none());
+
+    let read = cmux_projection::state::mark(&state).unwrap();
+    let line = control_line("p-back", Some(&read), None);
+    let answer = free(BROUGHT_BACK, &line, &state).unwrap();
+    assert!(!state.exists(), "a brought-back projection's state stayed: {answer}");
+    assert!(answer["freed_bytes"].as_u64().unwrap() >= 4096, "{answer}");
+    assert!(at.exists(), "Bring Back removed the chat's folder; the chat may go on there");
+    let line = control_line("p-back", None, None);
+    assert_eq!(free(BROUGHT_BACK, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+/// An archived or deleted chat's projection goes whole, its empty mount point with it.
+#[test]
+fn release_frees_the_state_and_its_empty_mount_point() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-gone");
+    let line = control_line("p-gone", None, Some("deleted"));
+    let answer = free(RELEASE, &line, &state).unwrap();
+    assert!(!state.exists() && !at.exists(), "a deleted chat's projection outlived it");
+    assert!(answer["freed_bytes"].as_u64().unwrap() > 0);
+    // Again, with nothing left: nothing to free, no error.
+    assert_eq!(free(RELEASE, &line, &state).unwrap()["freed_bytes"], 0);
+    let line = control_line("p-gone", None, Some("lost"));
+    assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+/// A head dial leaves the folder's sync barrier at HeadReady, an extend makes it Ready, a
+/// non-superset extend is refused and leaves the barrier and the mount alone, and a dial without
+/// `head` takes no barrier.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
+    use cmux_git::sync_barrier::{Probe, probe};
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+
+    if !Path::new("/dev/fuse").exists()
+        || std::process::Command::new("fusermount3").arg("-V").output().is_err()
+    {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let item = |path: &str| Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 3,
+        mtime_ns: 1,
+        link: None,
+    };
+    let home = cmux_unix_socket::short_test_dir("projx");
+    let roots = vec![std::fs::canonicalize(home.path()).unwrap()];
+    let at = roots[0].join("work").join("chat");
+    let head = Manifest::build(1, vec![item("README.md")]).unwrap().encode().unwrap();
+    let full =
+        Manifest::build(1, vec![item("README.md"), item("tail/x.txt")]).unwrap().encode().unwrap();
+    let wrong = Manifest::build(1, vec![item("other.txt")]).unwrap().encode().unwrap();
+
+    // One dial: send `first` and the manifest, read the answer, and keep the stream open.
+    let dial = |extra: Value, manifest: Vec<u8>| {
+        let (machine, mac) = UnixStream::pair().unwrap();
+        let mut line = json!({
+            "id": 1,
+            "cmd": SERVE,
+            "name": "test-extend",
+            "at": at,
+            "manifest_bytes": manifest.len(),
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            line[key] = value.clone();
+        }
+        let first = line.to_string();
+        let roots = roots.clone();
+        let served = std::thread::spawn(move || serve(&machine, &first, manifest, &roots));
+        let mut answer = String::new();
+        let mut reader = std::io::BufReader::new(mac.try_clone().unwrap());
+        std::io::BufRead::read_line(&mut reader, &mut answer).unwrap();
+        (serde_json::from_str::<Value>(&answer).unwrap(), mac, served)
+    };
+
+    let (answer, head_mac, head_served) = dial(json!({"head": true}), head);
+    if answer["error_code"] == "projection.mount_failed" {
+        eprintln!("skipping: FUSE refused the mount here: {}", answer["error"]);
+        return;
+    }
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(matches!(probe(&at).unwrap(), Probe::HeadReady));
+    assert!(!at.join("tail").exists());
+
+    let (answer, wrong_mac, wrong_served) = dial(json!({"extend": true}), wrong);
+    assert_eq!(answer["error_code"], "projection.extend_not_superset", "{answer}");
+    assert!(matches!(probe(&at).unwrap(), Probe::HeadReady));
+    assert!(at.join("README.md").exists());
+    wrong_mac.shutdown(std::net::Shutdown::Both).unwrap();
+    wrong_served.join().unwrap();
+
+    let (answer, full_mac, full_served) = dial(json!({"extend": true}), full);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["data"]["extended"], true);
+    assert!(matches!(probe(&at).unwrap(), Probe::Ready(_)));
+    assert!(at.join("tail/x.txt").exists());
+
+    for (mac, served) in [(head_mac, head_served), (full_mac, full_served)] {
+        mac.shutdown(std::net::Shutdown::Both).unwrap();
+        served.join().unwrap();
+    }
+    let projected = projections().lock().unwrap().remove("test-extend").unwrap();
+    if let Some(mounted) = projected.mounted.lock().unwrap().take() {
+        mounted.unmount();
+    }
+    let state =
+        crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
+    let _ = std::fs::remove_dir_all(&state);
 }

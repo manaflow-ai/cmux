@@ -43,10 +43,13 @@ GUARDED: dict[str, tuple[str, ...]] = {
     "docs-only-fallback.yml": ("full-ci", "dev-build"),
     # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
     "cmux-next.yml": ("full-ci",),
+    # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
+    # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
+    "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
-TARGET_EVENT: set[str] = {"merge-freeze.yml"}
+TARGET_EVENT: set[str] = {"merge-freeze.yml", "backend-migrations.yml"}
 
 # Jobs of a GUARDED workflow that run on every label event, and why.
 UNGUARDED_JOBS: dict[tuple[str, str], str] = {
@@ -57,7 +60,6 @@ UNGUARDED_JOBS: dict[tuple[str, str], str] = {
 
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
-    "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
     "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
     "passing, and only the classic-migration label it judges may let a frozen change through",
     "language-boundaries.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
@@ -65,7 +67,6 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
-    "risk-tier.yml": "the risk tier check itself: it must react to risk:* labels",
 }
 
 

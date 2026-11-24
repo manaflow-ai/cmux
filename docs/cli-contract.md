@@ -209,7 +209,7 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, and `current` selectors resolve to its tab, pane, screen and workspace. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -238,14 +238,24 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`, the caller's own object, or `focused`, the one the
+   person looks at;
 3. an exact name. `name:<value>` forces name interpretation and is required for
    names equal to `current`, names shaped like ids, and names containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current` (for `focused`, to `focused`). `caller` and `current` are
+the caller's own place: from a cmux terminal (`$CMUX_TUI_TERMINAL_ID`) the CLI
+reads the tab, pane, screen and workspace that hold it; from an agent chat
+(`$CMUX_AGENT_SESSION`) or a Chief turn it asks the app that owns the daemon
+where the chat is. So `cmux pane current split --right` splits the caller's
+own pane even while the person looks at another workspace, and
+`cmux tab create terminal` from a terminal with no `--workspace`, `--screen` or
+`--pane` opens in the caller's pane. `caller` fails without a caller; `current`
+is then the session's active object, as it is outside cmux and with
+`--socket`, `--session` or `--machine`. `focused` is the app's focused
+workspace, screen and pane, and the daemon's active ones without an app that
+owns the daemon. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
@@ -677,6 +687,10 @@ cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
+cmux settings history
+cmux settings undo
+cmux settings restore <revision>
+cmux settings reset --group <section>|<section.group>
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
             [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
@@ -687,6 +701,17 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
+`settings history` lists the last 100 changes of the settings file, newest
+first, whoever made them (the Settings page, the palette, the CLI, MCP agents,
+a hand edit: origin `file`): revision, time, origin and changed keys.
+`settings undo` takes back the newest change not yet undone, so repeated undo
+walks back one change at a time; `settings restore <revision>` puts the file
+back to its text just before that change. Both are changes of their own, so an
+undo takes them back too. `settings reset --group <g>` resets every setting of
+a Settings section (`appearance`) or of one group in it (`appearance.sidebar`)
+in one change; an unknown group lists the groups. These go to the daemon; a
+change that touches a key only the person may change is refused for them
+(`settings.agent_refused`).
 `events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
 with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
 `--until`/`--match` it prints the first matching event and exits 0.

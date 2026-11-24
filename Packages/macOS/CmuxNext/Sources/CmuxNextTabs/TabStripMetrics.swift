@@ -50,6 +50,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var busyUnreadMark: TabBusyUnreadMark?
     /// Where a titled tab's trailing status mark sits; nil follows `TabTunables.statusMarkPlacement`.
     public var statusMarkPlacement: TabStatusMarkPlacement?
+    /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
+    /// with the tokens, so a change relays the strip out (`startObservingTokens`).
+    public var agentBadges: AgentBadgesExperiment = .off
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -210,12 +213,14 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The first and last pills keep one gap to the strip's ends at every density (`Metrics.tabStripEndGap`).
         stripHorizontalPadding = Metrics.tabStripEndGap
         stripTopOutset = Metrics.stripTopOutset
-        // The tab bar controls' one square (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
+        // The tab bar controls' one square, a tab tall (`Metrics.tabBarControlSide`), as the pane's ⋮ and tools beside it.
         newTabButtonWidth = Metrics.tabBarControlSide
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.tabCornerRadius
+        // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
+        cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
+                                                                       tabHeight: Metrics.tabHeight)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -227,6 +232,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        agentBadges = DesignSettings.shared.agentBadges
     }
 
     /// Token-derived metrics for the current density.

@@ -40,6 +40,16 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
+# channel: the feat-cmux-next channel candidate, built and tested by our scheduler with no Actions
+# job (civ2-channel-roll; Leo, 2026-11-23: "but why is it a job. we own/should own the in-between.
+# like ci v2. we own the end to end."). The cmux_next_ daemon tests (the targets of
+# cmux-tui-artifacts.yml "cargo test cmux_next_"), then acpmux for x86_64-unknown-linux-musl as the
+# machine channel builds it (acpmux-standalone with the shipping features, thin profile), and
+# .build/artifacts/channel/{acpmux-x86_64-unknown-linux-musl,candidate.json} (commit, tree key,
+# sha256, test summary). The hq controller's channel roll (build-fleet/cmd/controller/channel_roll.go)
+# runs it at each feat-cmux-next tip on our own Linux workers; its pass is the channel marker lane
+# hosts install from (`acpmux host self-update`), with the Actions-written R2 channel as fallback.
+# A failed or timed-out run writes no marker. Linux only. No TEST_FILTER.
 # acpmux-hot: cmux-tui/crates/acpmux-hot/bench.sh (the daemon's hot wasm modules: the guest
 # variants, the swap and rollback bench, and a running daemon's sign-in through a module swapped
 # under it), its outputs at .build/artifacts/acpmux-hot (fetch them with --artifact). No TEST_FILTER.
@@ -81,9 +91,13 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot || "$mode" == channel ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
+if [[ "$mode" == channel && "$(uname -s)" != Linux ]]; then
+  echo "error: the channel mode runs only on Linux (it builds the Linux musl acpmux the lane hosts install)" >&2
   exit 2
 fi
 if [[ "$mode" == panic && "$(uname -s)" != Linux ]]; then
@@ -164,6 +178,9 @@ if [[ -n "$crate_scope" ]]; then
 fi
 umask 022
 root="$(pwd -P)"
+# Resolved before any cd: BASH_SOURCE is relative when the step runs
+# `bash scripts/ci/cmux-tui-rust-check.sh` from the repo root.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # Public CI keeps the step-private target directory. HQ marks managed workers
 # with CMUX_FLEET_WORKER_TRUSTED and supplies this reviewed resolver so the
 # pinned cmux-tui toolchain can reuse a stable target directory.
@@ -449,36 +466,16 @@ load_base_red() {
 # CMUX_RUST_CHECK_FAIL_FAST=1. CMUX_RUST_CHECK_RERUN_MAX=0 turns the rerun off.
 # Doc tests (nextest does not run them) are their own step, only without a filter.
 # A filter that matches no test is red (--no-tests=fail; cargo test was green).
-nextest_version=0.9.148
+# scripts/ci/install-nextest.sh holds the pin and the checksummed install (one place to bump it);
+# every other caller -- the fast-checks Rust setup, acpmux-lib-under-load.sh, affected_tests_measure.sh
+# -- shares it, so no two of them can run a different cargo-nextest.
+nextest_installer="$script_dir/install-nextest.sh"
+nextest_version="$(bash "$nextest_installer" --print-version)"
 ensure_nextest() {
-  local have dir asset sha archive sum
+  local have dir
   have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
   if [[ "$have" != "cargo-nextest $nextest_version "* ]]; then
-    case "$(uname -s)-$(uname -m)" in
-      Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
-      Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
-      # The arm64 Linux VMs on the fleet Macs (Lima, cmux-ci workers) take Linux steps too.
-      Linux-aarch64) asset=aarch64-unknown-linux-gnu sha=81469eb963ef883fd590e60189e77d6aba3d91b418591d3391f50fe3e9480d2b ;;
-      *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
-    esac
-    dir="$root/.build/tools/cargo-nextest-$nextest_version"
-    if [[ ! -x "$dir/cargo-nextest" ]]; then
-      mkdir -p "$dir"
-      archive="$dir/cargo-nextest.tar.gz"
-      curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 --output "$archive" \
-        "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$asset.tar.gz" \
-        || { echo "error: cargo-nextest $nextest_version download failed" >&2; return 3; }
-      if command -v sha256sum >/dev/null; then sum="$(sha256sum "$archive")"; else sum="$(shasum -a 256 "$archive")"; fi
-      if [[ "${sum%% *}" != "$sha" ]]; then
-        rm -f "$archive"
-        echo "error: cargo-nextest archive sha256 ${sum%% *} is not the pinned $sha" >&2
-        return 3
-      fi
-      # extract beside it and rename, so a broken extract never looks installed
-      rm -rf "$dir/x" && mkdir -p "$dir/x" && tar -xzf "$archive" -C "$dir/x" cargo-nextest && mv "$dir/x/cargo-nextest" "$dir/cargo-nextest" \
-        || { rm -rf "$dir/x" "$archive"; echo "error: cargo-nextest archive did not extract" >&2; return 3; }
-      rm -rf "$dir/x" "$archive"
-    fi
+    dir="$(CMUX_NEXTEST_TOOLS_ROOT="$root/.build/tools" bash "$nextest_installer")" || return 3
     export PATH="$dir:$PATH"
     have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
   fi
@@ -927,8 +924,12 @@ if [[ "$mode" == rd-host ]]; then
   cd "$root/cmux-tui/crates/cmux-rd-host"
   warm_target_guard
   step "rd-host fmt" cargo fmt --check
-  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
-  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  # Clippy as the Screen Sharing helper builds the crate (link, computer-use: `cmux rd serve` and
+  # the Computer Use worker) plus the bench client, then the library as cmux-tui links it for
+  # `cmux rd` (link only), so code that only one of them reaches is still compiled and linted.
+  step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench,link,computer-use -- -D warnings
+  step "rd-host clippy (as cmux-tui links it)" cargo clippy --locked --lib --no-default-features --features link -- -D warnings
+  step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench,computer-use ${filter:+"$filter"}
   finish
 fi
 copy_rd_bench() {
@@ -948,6 +949,64 @@ if [[ "$mode" == acpmux-hot ]]; then
   export FAST_CHECKS_OUT="$root/.build/artifacts/acpmux-hot"
   warm_target_guard
   step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
+  finish
+fi
+# channel (see the mode list at the top). cwd is cmux-tui.
+channel_triple=x86_64-unknown-linux-musl
+channel_out="$root/.build/artifacts/channel"
+channel_daemon_tests() {
+  local members status=0
+  read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+  ((${#members[@]})) || { echo "error: cmux-next-daemon-test-packages.sh printed nothing" >&2; return 3; }
+  cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$channel_out/daemon-tests.txt" || status=$?
+  return "$status"
+}
+channel_build_acpmux() {
+  local features cargo_build=(cargo build)
+  rustup target add "$channel_triple" >/dev/null || return 1
+  # cargo-zigbuild where the worker has it (as cmux-tui-build-package.yml builds the leg), else
+  # cargo with the musl target and musl-gcc.
+  if cargo zigbuild --version >/dev/null 2>&1; then cargo_build=(cargo zigbuild); fi
+  features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$channel_triple")"
+  CMUX_TUI_BUILD_COMMIT="$(git -C "$root" rev-parse HEAD)" \
+    CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$root/ghostty-next" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    CARGO_PROFILE_RELEASE_LTO=off \
+    "${cargo_build[@]}" --release --locked --target "$channel_triple" \
+      --config profile.release.package.acpmux.codegen-units=16 \
+      -p acpmux-standalone --bin acpmux-standalone ${features:+"$features"} || return 1
+  cp "$CARGO_TARGET_DIR/$channel_triple/release/acpmux-standalone" "$channel_out/acpmux-$channel_triple"
+}
+channel_candidate() {
+  python3 - "$root" "$channel_out" "$channel_triple" <<'PY'
+import hashlib, json, os, re, subprocess, sys, time
+root, out, triple = sys.argv[1:4]
+commit = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+key = subprocess.check_output([sys.executable, os.path.join(root, "scripts/ci/cmux_tui_tree_key.py"), commit],
+                              cwd=root, text=True).strip()
+binary = os.path.join(out, "acpmux-" + triple)
+digest = hashlib.sha256(open(binary, "rb").read()).hexdigest()
+passed = failed = 0
+for line in open(os.path.join(out, "daemon-tests.txt"), errors="replace"):
+    m = re.match(r"test result: \w+\. (\d+) passed; (\d+) failed", line)
+    if m:
+        passed += int(m.group(1)); failed += int(m.group(2))
+doc = {"schema": "cmux-channel-candidate/v1", "channel": "feat-cmux-next", "commit": commit, "key": key,
+       "binaries": {"acpmux": {triple: {"sha256": digest, "size": os.path.getsize(binary)}}},
+       "tests": {"filter": "cmux_next_", "passed": passed, "failed": failed},
+       "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+open(os.path.join(out, "candidate.json"), "w").write(json.dumps(doc, indent=1) + "\n")
+print("channel candidate:", json.dumps(doc))
+PY
+}
+if [[ "$mode" == channel ]]; then
+  # A warm slot keeps .build: never hand back an older step's candidate.
+  rm -rf "$channel_out"
+  mkdir -p "$channel_out"
+  warm_target_guard
+  step go ensure_go
+  step "channel daemon tests" channel_daemon_tests
+  [[ "$first_rc" -ne 0 ]] || step "channel acpmux $channel_triple" channel_build_acpmux
+  [[ "$first_rc" -ne 0 ]] || step "channel candidate" channel_candidate
   finish
 fi
 if [[ "$mode" == screen ]]; then

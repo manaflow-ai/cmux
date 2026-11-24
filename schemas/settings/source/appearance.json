@@ -346,6 +346,56 @@
           ]
         },
         {
+          "key": "appearance.selection",
+          "note": "Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).",
+          "title": {
+            "key": "settings.appearance.selection",
+            "text": "Selection"
+          },
+          "help": {
+            "key": "settings.appearance.selection.help",
+            "text": "Accent tints the selected row and tab with the accent. Neutral keeps them gray."
+          },
+          "summary": {
+            "key": "settings.appearance.selection.summary",
+            "text": "Color of the selected row and tab"
+          },
+          "kind": "choice",
+          "swift_owner": "SelectionSetting",
+          "swift_enum": {
+            "name": "ThemeSelection",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.selection.accent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.choice.selection.neutral",
+                "text": "Neutral"
+              }
+            }
+          ],
+          "default": "accent",
+          "keywords": [
+            "selection",
+            "selected",
+            "row",
+            "highlight",
+            "accent",
+            "gray",
+            "neutral",
+            "sidebar"
+          ]
+        },
+        {
           "key": "appearance.themeFile",
           "title": {
             "key": "settings.appearance.themeFile",
@@ -428,6 +478,36 @@
             "color",
             "colour",
             "theme"
+          ]
+        },
+        {
+          "key": "customize.doctorNotice",
+          "name": "customizeDoctorNotice",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "title": {
+            "key": "settings.customize.doctorNotice",
+            "text": "Customization notices"
+          },
+          "summary": {
+            "key": "settings.customize.doctorNotice.summary",
+            "text": "Tell me when a file or layer changes my setup"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "customize",
+            "customization",
+            "doctor",
+            "notice",
+            "toast",
+            "theme",
+            "layer",
+            "broken",
+            "file"
           ]
         }
       ]
@@ -820,6 +900,61 @@
           ]
         },
         {
+          "key": "appearance.backgroundPlacement",
+          "name": "placement",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "title": {
+            "key": "settings.appearance.backgroundPlacement",
+            "text": "Background Placement"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundPlacement.help",
+            "text": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropPlacementSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "position",
+            "fit",
+            "fill",
+            "zoom",
+            "crop"
+          ]
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "name": "recents",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "title": {
+            "key": "settings.appearance.backgroundRecents",
+            "text": "Recent Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRecents.help",
+            "text": "The backgrounds shown before, newest first, so one click goes back."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "recent",
+            "previous",
+            "history",
+            "folder"
+          ]
+        },
+        {
           "key": "appearance.displayBackgrounds",
           "name": "displayBackgrounds",
           "title": {
@@ -1195,6 +1330,70 @@
             "colour",
             "space",
             "background"
+          ]
+        },
+        {
+          "key": "appearance.terminalCellBackgrounds",
+          "note": "Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.",
+          "title": {
+            "key": "settings.appearance.terminalCellBackgrounds",
+            "text": "Terminal Cell Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.terminalCellBackgrounds.help",
+            "text": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."
+          },
+          "kind": "choice",
+          "swift_owner": "TerminalCellBackgroundsSetting",
+          "swift_enum": {
+            "name": "TerminalCellBackgrounds",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "opaque",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.opaque",
+                "text": "Opaque"
+              }
+            },
+            {
+              "value": "window",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.window",
+                "text": "Window Opacity"
+              }
+            },
+            {
+              "value": "tint",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tint",
+                "text": "Tint"
+              }
+            },
+            {
+              "value": "tintWindow",
+              "title": {
+                "key": "settings.choice.terminalCellBackgrounds.tintWindow",
+                "text": "Tint at Window Opacity"
+              }
+            }
+          ],
+          "default": "opaque",
+          "keywords": [
+            "terminal",
+            "cell",
+            "background",
+            "transparent",
+            "translucent",
+            "opacity",
+            "wallpaper",
+            "tui",
+            "claude",
+            "codex",
+            "pi",
+            "opencode"
           ]
         }
       ]
@@ -1830,6 +2029,32 @@
           ]
         },
         {
+          "key": "appearance.liquidGlass",
+          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.",
+          "title": {
+            "key": "settings.appearance.liquidGlass",
+            "text": "Liquid Glass"
+          },
+          "help": {
+            "key": "settings.appearance.liquidGlass.help",
+            "text": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+          },
+          "kind": "toggle",
+          "swift_owner": "LiquidGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "solid",
+            "plain",
+            "material"
+          ]
+        },
+        {
           "key": "appearance.focusIndicator",
           "name": "focusIndicator",
           "title": {
@@ -2148,6 +2373,246 @@
             "softer",
             "frame"
           ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "note": "A toggle under any chrome style and any theme: the sidebar and the tab bar in tone A, the content panes (terminal, agent pane, New Tab page, Home) in tone B, the accent fitted to both. Off (the default), From Theme (auto) or a curated pairing; the colors and the pairing table are Rust (cmux-config theme_file::two_tone; the Swift TwoTone mirrors it, checked against the Rust fixture TwoToneTests has Rust write at test time). An explicit appearance.surfaces.<surface>.color wins. Leo 2026-11-19: the two-tone is just one of the toggles you can have; what would actually look good and not eyesore-ish.",
+          "title": {
+            "key": "settings.appearance.twoTone",
+            "text": "Two-Tone"
+          },
+          "help": {
+            "key": "settings.appearance.twoTone.help",
+            "text": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."
+          },
+          "summary": {
+            "key": "settings.appearance.twoTone.summary",
+            "text": "A second tone for the sidebar and tab bar"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "TwoTone",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TwoToneSetting",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.twoTone.auto",
+                "text": "From Theme"
+              },
+              "note": "Tone A from the theme's background and accent; the content keeps the theme's own."
+            },
+            {
+              "value": "inkSakura",
+              "title": {
+                "key": "settings.choice.twoTone.inkSakura",
+                "text": "Ink & Sakura"
+              }
+            },
+            {
+              "value": "charcoalRose",
+              "title": {
+                "key": "settings.choice.twoTone.charcoalRose",
+                "text": "Charcoal & Rose"
+              }
+            },
+            {
+              "value": "inkMagenta",
+              "title": {
+                "key": "settings.choice.twoTone.inkMagenta",
+                "text": "Ink Blue & Magenta"
+              }
+            },
+            {
+              "value": "creamForest",
+              "title": {
+                "key": "settings.choice.twoTone.creamForest",
+                "text": "Cream & Forest"
+              }
+            },
+            {
+              "value": "navySand",
+              "title": {
+                "key": "settings.choice.twoTone.navySand",
+                "text": "Navy & Sand"
+              }
+            },
+            {
+              "value": "boneOxblood",
+              "title": {
+                "key": "settings.choice.twoTone.boneOxblood",
+                "text": "Bone & Oxblood"
+              }
+            },
+            {
+              "value": "slateMatcha",
+              "title": {
+                "key": "settings.choice.twoTone.slateMatcha",
+                "text": "Slate & Matcha"
+              }
+            },
+            {
+              "value": "plumAmber",
+              "title": {
+                "key": "settings.choice.twoTone.plumAmber",
+                "text": "Plum & Amber"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "two tone",
+            "two-tone",
+            "duotone",
+            "tone",
+            "pairing",
+            "sidebar",
+            "tab bar",
+            "chrome",
+            "color",
+            "sakura",
+            "pink",
+            "magenta",
+            "forest",
+            "sand",
+            "oxblood",
+            "matcha",
+            "amber",
+            "palette"
+          ]
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "note": "How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: \"lawrence wanted no goo by default\"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick. flush-goo also runs the sidebar's selected row into the card on a block appearance.tabShape (CornerFlush.sidebarRowFlows), and tones the frame under One Color too, since goo needs two tones to show (Leo 2026-11-18: \"like the \\\"gooey\\\" is each tab looking like it's morphing into the visible pane. the two tone thing.\").",
+          "title": {
+            "key": "settings.appearance.cornerFlush",
+            "text": "Selected Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.cornerFlush.help",
+            "text": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          },
+          "summary": {
+            "key": "settings.appearance.cornerFlush.summary",
+            "text": "Pill, flush or goo for the selected tab"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cornerFlush.off",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.cornerFlush.flush",
+                "text": "Flush"
+              }
+            },
+            {
+              "value": "flush-tight",
+              "swift_case": "tight",
+              "title": {
+                "key": "settings.choice.cornerFlush.tight",
+                "text": "Flush, Tight to the Sidebar"
+              }
+            },
+            {
+              "value": "flush-goo",
+              "swift_case": "goo",
+              "title": {
+                "key": "settings.choice.cornerFlush.goo",
+                "text": "Goo"
+              }
+            }
+          ],
+          "default": "flush",
+          "keywords": [
+            "corner",
+            "flush",
+            "goo",
+            "gooey",
+            "folder tab",
+            "fillet",
+            "pill",
+            "selected tab",
+            "tab shape",
+            "card",
+            "material"
+          ],
+          "swift_enum": {
+            "name": "CornerFlush",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CornerFlushSetting"
+        },
+        {
+          "key": "appearance.tabShape",
+          "note": "How blocky the tabs of every tab bar and the rows of the sidebar are (TabShape, CmuxNextDesign). block (the default) draws today's tabs and rows unchanged. rounded draws the tabs and the sidebar's row fills as capsules, and the selected tab stays a capsule on its strip under every appearance.cornerFlush, never a folder into the content. The gooey look is not a third shape: it is appearance.cornerFlush flush-goo, which on a block shape also runs the sidebar's selected row into the content card (CornerFlush.sidebarRowFlows). Leo 2026-11-18: \"the blockiness of tabs both horizontal the the vertical ones in the sidebar should be customized/customizable too.\"",
+          "title": {
+            "key": "settings.appearance.tabShape",
+            "text": "Tab Shape"
+          },
+          "help": {
+            "key": "settings.appearance.tabShape.help",
+            "text": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules."
+          },
+          "summary": {
+            "key": "settings.appearance.tabShape.summary",
+            "text": "Block or rounded tabs and sidebar rows"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.tabShape.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.tabShape.rounded",
+                "text": "Rounded"
+              }
+            }
+          ],
+          "default": "block",
+          "keywords": [
+            "tab",
+            "tabs",
+            "shape",
+            "corners",
+            "block",
+            "blocky",
+            "rounded",
+            "pill",
+            "capsule",
+            "sidebar",
+            "row",
+            "selection"
+          ],
+          "swift_enum": {
+            "name": "TabShape",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TabShapeSetting"
         }
       ]
     },

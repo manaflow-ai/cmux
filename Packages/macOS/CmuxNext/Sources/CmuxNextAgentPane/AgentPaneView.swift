@@ -7,6 +7,7 @@ import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 public import WebKit
@@ -81,9 +82,6 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
-    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
-    /// person, so its prompts would reach the agent as an unverified sender's.
-    var personUnprovenNotice: AgentPaneNotice?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -108,6 +106,8 @@ public final class AgentPaneView: NSView {
     private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
+    /// The text of held keys on its way into the page while the app is not active (``typeHeldText(of:appIsActive:)``), in order.
+    var heldKeyTyping: Task<Void, Never>?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
@@ -123,6 +123,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
+    var languageObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -151,6 +153,11 @@ public final class AgentPaneView: NSView {
     var questionKeyBinding: QuestionKeyBinding?
     /// The page's menu shown past the window's edge (AgentPaneView+Popup).
     var popupHostStorage: WebPopupHost?
+    var projectPaletteID: String?
+    /// The app supplies its shared command palette for this pane's Add project flow.
+    public var onProjectPaletteRequest: (@MainActor (AgentProjectPaletteRequest) -> Bool)?
+    /// This pane laid out again while its project palette is open: the palette, centered on the pane, follows it.
+    public var onProjectPaletteLayout: (@MainActor () -> Void)?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
@@ -176,11 +183,20 @@ public final class AgentPaneView: NSView {
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
-    var holdsPageAway = false
+    /// Held away, the page keeps drawing there until it shows (``PageWebView/drawsWhileAway``).
+    var holdsPageAway = false {
+        didSet { page?.drawsWhileAway = holdsPageAway }
+    }
+    /// The picture of the chat held over its page while the page reloads in place (`AgentPaneView+ReloadCover`).
+    var reloadCover: AgentPaneReloadCover?
+    /// A paint hold has the page drawn outside the window until the hold ends (``drawUnseenForPaintHold()``).
+    var drawsUnseenForHold = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
     var chromiumMoveWait: ChromiumMoveWait?
+    /// What waits for a moved Chromium page to show (``whenMovedPageShows(_:)``): a pane's paint hold.
+    var movedPageWaiters: [() -> Void] = []
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -293,12 +309,21 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        WebBundleServedViews.shared.coverReloads(of: webView, with: self) // a web update swaps in under a picture
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
+        pageEvents?.onHandshake = { [weak self] in self?.dismissProjectPalette() }
+        pageEvents?.onProjectPalette = { [weak self] method, params, person in
+            self?.projectPalette(method, params: params, person: person) ?? .object(["shown": .bool(false)])
+        }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
             return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
+        }
+        pageResources?.agentTheme = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["agent"] }
         }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
@@ -381,6 +406,7 @@ public final class AgentPaneView: NSView {
         observeMotion()
         observeUIScale()
         observeIconFamily()
+        observeLanguage()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -457,6 +483,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            languageObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -469,6 +496,7 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
+        if projectPaletteID != nil { onProjectPaletteLayout?() }
         let frame = topBar.pageFrame(in: bounds)
         // A held page has the size its pane rests at, once: a pane on a spring gives it no size it leaves again.
         let shown = holdsPageAway ? heldPageFrame(of: frame) : frame
@@ -477,6 +505,8 @@ public final class AgentPaneView: NSView {
             page.frame = shown
             // Held away and back (an adopted chat drew), or resized: the native holes follow the page.
             if moved { applyNativeRects() }
+            // Out of sight for a paint hold: its window follows it there and it draws (a hidden Chromium page draws no frame).
+            if moved, drawsUnseenForHold { page.chromiumWindowMoved(); page.setChromiumVisibility(true) }
         } else { webView.frame = shown }
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
@@ -511,6 +541,7 @@ public final class AgentPaneView: NSView {
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
         // prompt focused).
+        model.hostTouch.mark("dictation") // its text goes to this page: the host says so before the page does
         if model.composer.dictationSource == .macos { focusChat() }
         // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
         // the source is now.
@@ -546,12 +577,15 @@ public final class AgentPaneView: NSView {
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
         terminations.forget(self)
         crashRetry.cancel()
+        dismissProjectPalette()
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
+        languageObservation?.cancel()
+        languageObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
@@ -570,7 +604,6 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
-        model.transport.onPersonProof = nil
         model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
@@ -603,6 +636,7 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
+        dismissProjectPalette()
         popupHostStorage?.dismiss()
         // Hidden, itself or an ancestor (a workspace switch): toasts stop avoiding its composer.
         toastAvoidanceMoved()
@@ -623,6 +657,9 @@ public final class AgentPaneView: NSView {
         themeFollower.rebind(); redraw.paneWired(self)
         // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
         if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
+        // Parked off screen or back in a pane, in the same window (no window move tells the probe): the socket
+        // hears whether anyone sees it (``AgentPaneFramePacer/parkedAway(_:)``).
+        transportPacer?.visibilityChanged()
         onNativeToolOwnerChange?()
     }
 
@@ -637,6 +674,7 @@ public final class AgentPaneView: NSView {
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil {
             dictation.handle(.stop)
+            dismissProjectPalette()
             popupHostStorage?.dismiss()
             // The rect it last told a window belongs to that window: moved into another one (even
             // at the same frame), it tells the new window afresh.

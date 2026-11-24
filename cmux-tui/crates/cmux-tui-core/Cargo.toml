@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
 # Names a crash sidecar's backtrace in a stripped release binary.
@@ -26,6 +27,8 @@ cmux-agent-pane-policy.workspace = true
 # The hybrid stream of agent CLI terminals (server/agent_cli_hybrid.rs).
 cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
 ghostty-vt.workspace = true
+# Cmd-F over the whole retained history (server/cmd_terminal_find.rs).
+cmux-terminal-find.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 # The tab a pane selects after a close (close_focus::tab), the app's own rule.
@@ -51,6 +54,8 @@ cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+# The person's saved prompts (`apps.composer.list`), in the format `cmux agent-config commands` writes.
+cmux-agent-customize.workspace = true
 # The Computer Use policy and wire types (the engine only; the worker is the cmux-tui binary).
 cmux-computer-use.workspace = true
 cmux-usage-patterns.workspace = true
@@ -126,6 +131,8 @@ cmux-computer-use = { workspace = true, features = ["server"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Idle terminal-host links wait on one shared poller, not a thread each (surface/idle_links.rs).
+mio.workspace = true
 # Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
 cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
@@ -140,6 +147,10 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
+# already links for `cmux customize use pr:N`, and git installs: the archive of a repository at a
+# commit (apps/git_source.rs).
+tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 # The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.

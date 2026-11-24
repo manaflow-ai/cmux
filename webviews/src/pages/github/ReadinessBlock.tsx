@@ -108,9 +108,7 @@ function Detail({
           {blocker.checks.map((check) => (
             <li key={check.name}>
               <div className="gh-ready-job">
-                <span className="gh-ready-job-name" title={check.name}>
-                  {check.name}
-                </span>
+                <span className="gh-ready-job-name">{check.name}</span>
                 {check.job?.failure?.step && <span className="gh-muted">{check.job.failure.step}</span>}
                 {check.url && (
                   <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>

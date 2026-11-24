@@ -21,10 +21,13 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::Archive { .. }
+            | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
             | Command::Preset { .. }
             | Command::Models { .. }
+            | Command::WarmHome { .. }
             | Command::Reload
             | Command::Schema
             | Command::Defaults { .. }
@@ -39,8 +42,11 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Chats(..)
             | Command::Board
             | Command::Process(..)
+            | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Fetch(..)
             | Command::Group(..)
+            | Command::Account(..)
             | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
@@ -76,6 +82,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 &session,
                 thread.as_deref(),
                 mark_read,
+                None,
+                None,
+                None,
+                None,
+                false,
                 json_out,
             )
             .await
@@ -156,6 +167,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
         }
+        Command::Archive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
+        }
+        Command::Unarchive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, false, json_out).await
+        }
         Command::RulesCmd { session, rules, clear } => {
             orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await
         }
@@ -193,6 +210,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 for id in ids {
                     println!("  {id}");
                 }
+            }
+            Ok(())
+        }
+        Command::WarmHome { wait } => {
+            let client = connect(true).await?;
+            let v = client
+                .request(method::MUX_PREWARM, json!({"reserveHome": true, "wait": wait}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let state = v.get("state").and_then(Value::as_str).unwrap_or("not accepted");
+                println!("home chat warm: {state}");
             }
             Ok(())
         }
@@ -250,20 +280,25 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
-        Command::New(args) if args.parent.is_some() => {
-            super::parent::run(*args, json_out, deadline).await
-        }
         Command::New(args) => {
-            let args = *args;
+            let mut args = *args;
+            for notice in args.apply_compat() {
+                eprintln!("{notice}");
+            }
+            if args.parent.is_some() {
+                return super::parent::run(args, json_out, deadline).await;
+            }
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
             let launch = launch::Launch::prepare(&args)?;
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
+            let promptless =
+                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none();
             if new_requires_tty(
                 json_out,
-                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                promptless,
                 args.detach,
                 std::io::stdin().is_terminal(),
                 std::io::stdout().is_terminal(),
@@ -285,6 +320,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
             let target =
                 crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let placed = matches!(target, crate::cli::place::Target::Place(_));
             let host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
@@ -331,6 +367,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(n) = &launch.name {
                 meta.set("name", json!(n));
+                // Placed or started on another machine, it keeps its name: a taken one gets a
+                // `-N` suffix there, never the agent's name. `--reuse` finds the one running.
+                if keeps_name_suffixed(placed, host.as_deref(), launch.reuse) {
+                    meta.set("ifNameTaken", json!(crate::hub::SUFFIX_TAKEN_NAME));
+                }
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
@@ -395,6 +436,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // A lane host with no room starts it on the peer its placement picks
+            // (`hub/admission_redirect.rs`): asked only of a daemon that lists it, so an
+            // older daemon gets the create it always did.
+            if asks_place_redirect(
+                host.as_deref(),
+                placed,
+                interactive,
+                folder_named,
+                ephemeral || probe,
+                launch.reuse,
+            ) && client.daemon_lists(crate::hub::admission_redirect::CAPABILITY)
+            {
+                meta.set(crate::hub::admission_redirect::FIELD, json!(1));
+            }
+            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
+            // gets the session the first one made, or makes it, never a second one.
+            meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -406,10 +464,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry,
-            // except after the daemon's shutdown refused the create before making
-            // anything (`refused_before_create`): a self-update's restart, or one on a
-            // failing disk, then never fails a new session.
+            // Any other create resends its create key (`hub/create_key.rs`) to a daemon that
+            // keeps keys, when the one that closed kept them too: the next daemon answers
+            // with the session the first made, or makes it. A restart while it waits (a
+            // self-update under a benchmark's `new -d`, a lane VM 2026-11-21) then
+            // never fails the create, and never makes two. Only to this daemon's own
+            // sessions: one on a peer may run a daemon that ignores the key. Without a key
+            // a retry could make a duplicate: no retry, except after the daemon's shutdown
+            // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -425,16 +487,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     Err(error)
                         if reconnects < NEW_RECONNECTS
                             && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
-                                || refused_before_create(&error)) =>
+                                || refused_before_create(&error)
+                                || (daemon_closed_error(&error)
+                                    && keyed_resend(host.as_deref(), &client))) =>
                     {
                         reconnects += 1;
-                        client =
+                        let named = launch.reuse && key.is_some();
+                        let next =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        // A daemon that keeps no keys (a rollback) could make a second one.
+                        if !named
+                            && !refused_before_create(&error)
+                            && !keyed_resend(host.as_deref(), &next)
+                        {
+                            return Err(error);
+                        }
+                        client = next;
                     }
                     // A machine this daemon has no peer for may still be reached by the
                     // configured new relay (`new_relay.rs`).
-                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
-                    {
+                    Err(error) => match crate::cli::new_relay::for_refusal(
+                        host.as_deref(),
+                        &error,
+                        promptless,
+                    ) {
                         Some((relay, machine, words)) => {
                             return crate::cli::new_relay::start(
                                 relay, &machine, words, json_out, deadline,
@@ -459,12 +535,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if reused.is_none() {
                 launch::print_new_warnings(&v);
             }
+            // Placed on a peer by the daemon: it runs there, as if `--host` had named it.
+            let host = host.or_else(|| placed_on(&v));
             let name = v
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
+            // Its name was taken there: it runs under the suffixed one (`ifNameTaken`).
+            if let Some(asked) = v.pointer("/_meta/acpmux/requestedName").and_then(Value::as_str) {
+                eprintln!("{asked:?} is taken there, so the session is named {name:?}");
+            }
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
@@ -792,7 +874,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 prompt_id.class.get_or_insert_with(|| "question".to_owned());
                 prompt_id.wake_or_fail = true;
             }
-            let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            let steer = send_steers(steer, no_steer, no_wait, agent);
             if let Some(tag) = tag {
                 if !attach.is_empty() {
                     return Err(errors::AppError::usage(
@@ -885,23 +967,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .await
                         .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
                 }
-                // A sub-session's send to its parent waits for the parent's turn to end, as its
-                // send_message does (`hub/subsession_send.rs`), --steer or not.
-                // A queued send asks these of the daemon for at most PRE_QUEUE_WAIT: each may go
-                // to a peer that is slow or down, and the message must be queued regardless.
-                if steer {
-                    let parent = to_parent(&client, &session);
-                    let parent = async {
-                        Ok(if no_wait {
-                            tokio::time::timeout(PRE_QUEUE_WAIT, parent).await.unwrap_or(false)
-                        } else {
-                            parent.await
-                        })
-                    };
-                    if before_deadline(deadline, &session, parent).await? {
-                        steer = false;
-                    }
-                }
+                // A sub-session's send to its parent steers like any agent's, as its send_message
+                // does (`hub/subsession_send.rs`): a busy parent reads it at its next tool step.
+                // Leo, 2026-10-29, of a lane's report left behind its coordinator's 15-minute
+                // turn: "the drain guy came back but it's still not doing the right thing".
                 if no_wait {
                     let _ = tokio::time::timeout(PRE_QUEUE_WAIT, announce_machine_wake(&client, &session)).await;
                     return super::send_async::queue(
@@ -1156,9 +1225,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Board => super::board::run(json_out).await,
-        Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Process(args) => crate::cli::process::run_args(args, json_out).await,
+        #[cfg(unix)]
+        Command::Gc { apply } => crate::cli::process_census::gc(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -1188,14 +1263,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let v = match resolve_id(&client, &session).await {
-                Ok(id) => {
-                    crate::cli::slow_notice::noted(
-                        "the session's details",
-                        client.request(method::MUX_INFO, json!({"sessionId": id})),
-                    )
-                    .await?
-                }
+            let v = match crate::cli::slow_notice::noted(
+                "the session's details",
+                session_info(&client, &session, false),
+            )
+            .await
+            {
+                Ok(record) => record,
                 // A row only the send relay lists: its details are the relay's row, `via: relay`.
                 Err(e) => match crate::cli::send_relay::relayed_row(&e) {
                     Some(row) => row.clone(),
@@ -1241,6 +1315,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 g("eventCount"),
                 g("lastSeq")
             );
+            if let Some(line) = super::transfer::move_progress_line(&v) {
+                println!("{line}");
+            }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+            if let Some(line) = super::transfer::move_undecided_line(&v, now_ms) {
+                println!("{line}");
+            }
             if let Some(modes) = v.pointer("/modes/availableModes").and_then(Value::as_array) {
                 let names: Vec<String> = modes
                     .iter()
@@ -1281,6 +1364,41 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+/// Whether a create whose connection `client` closed may be sent again with its create key
+/// (`hub/create_key.rs`): a session on this daemon, which lists that it keeps the key.
+fn keyed_resend(host: Option<&str>, client: &Client) -> bool {
+    host.is_none() && client.daemon_lists(crate::hub::create_key::FEATURE)
+}
+
+/// Whether a named `new` asks the creating daemon to keep a taken name with a `-N` suffix
+/// (`ifNameTaken`): a start placed (`--machine auto`) or sent to another machine, unless it
+/// is `--reuse`, which finds the running session by that name instead.
+fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
+    !reuse && (placed || host.is_some())
+}
+
+/// Whether `new` asks a lane host with no room to start it on a peer
+/// (`_meta.acpmux.placeRedirect`, `hub/admission_redirect.rs`): a start here with no
+/// machine, folder or worktree named, no `--reuse` (which finds the session by name here),
+/// no throwaway run, and never one a person types at a terminal.
+fn asks_place_redirect(
+    host: Option<&str>,
+    placed: bool,
+    interactive: bool,
+    folder_named: bool,
+    throwaway: bool,
+    reuse: bool,
+) -> bool {
+    host.is_none() && !placed && !interactive && !folder_named && !throwaway && !reuse
+}
+
+/// The peer the daemon placed a create on (`_meta.acpmux.placedOn`): the `peer` its
+/// answer routes to. None for an answer of a daemon that placed nothing (any older one).
+fn placed_on(created: &Value) -> Option<String> {
+    created.pointer("/_meta/acpmux/placedOn")?.as_str()?;
+    created.get("peer").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// How many times a named `new --reuse` reconnects after the daemon closed its
@@ -1450,7 +1568,7 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
 }
 
 /// The longest a queued send waits on a question to the daemon before it queues the message:
-/// whether the target is the sender's parent, whether its machine is paused. Either may go to
+/// whether the target's machine is paused. It may go to
 /// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
 /// waiting on peers.
 const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -1491,32 +1609,6 @@ fn send_queues(w: SendWait) -> bool {
 /// steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
     !no_steer && (steer || no_wait || agent)
-}
-
-/// Whether the session `target` names is the parent of the acpmux session this send runs in
-/// (its `startedBy`). Only a sub-session asks which session `target` is.
-async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
-    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
-        return false;
-    };
-    let info = |key: &str| {
-        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
-    };
-    let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
-        return false;
-    };
-    if target == parent {
-        return true;
-    }
-    let Ok(key) = orchestrate::expand_session_key(target) else { return false };
-    info(&key)
-        .await
-        .is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
-}
-
-/// The session that started the one `info` describes, if one did.
-fn started_by(info: &Value) -> Option<String> {
-    info.get("startedBy").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -1710,6 +1802,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
@@ -1730,6 +1826,45 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
+        // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
+        assert!(super::keeps_name_suffixed(false, Some("far-host"), false));
+        assert!(super::keeps_name_suffixed(true, None, false));
+        assert!(super::keeps_name_suffixed(true, Some("far-host"), false));
+        // `--reuse` finds the running session by that name; a start here is refused as before.
+        assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
+        assert!(!super::keeps_name_suffixed(false, None, false));
+    }
+
+    /// Only an agent's plain start here asks a full lane host to place it on a peer.
+    #[test]
+    fn only_a_plain_agent_start_here_asks_to_be_placed() {
+        use super::asks_place_redirect as asks;
+        assert!(asks(None, false, false, false, false, false));
+        assert!(!asks(Some("far"), false, false, false, false, false), "a machine named");
+        assert!(!asks(None, true, false, false, false, false), "already placed (--machine auto)");
+        assert!(!asks(None, false, true, false, false, false), "a person at a terminal");
+        assert!(!asks(None, false, false, true, false, false), "a folder or worktree named");
+        assert!(!asks(None, false, false, false, true, false), "an ephemeral run or probe");
+        assert!(!asks(None, false, false, false, false, true), "--reuse finds it here");
+    }
+
+    /// An old daemon's answer (no `placedOn`) runs here; a new one's runs on its `peer`.
+    #[test]
+    fn an_answer_runs_where_it_says_and_an_old_one_here() {
+        use serde_json::json;
+        let old = json!({"sessionId": "s1", "_meta": {"acpmux": {"admission": {
+            "warning": "at its cap", "suggestedHost": "far"}}}});
+        assert_eq!(super::placed_on(&old), None);
+        let peer = json!({"sessionId": "s1", "peer": "far"});
+        assert_eq!(super::placed_on(&peer), None, "a --host start says so itself");
+        let placed = json!({"sessionId": "s1", "peer": "far", "_meta": {"acpmux": {
+            "placedOn": "far", "placement": {"version": 1, "reason": "over-cap"}}}});
+        assert_eq!(super::placed_on(&placed).as_deref(), Some("far"));
+        assert_eq!(crate::cli::resolve::routed_id(&placed).unwrap(), "far/s1");
+    }
+
     #[test]
     fn relay_flags_are_the_relay_record_the_daemon_reads() {
         use crate::cli::command::{Cli, Command};
@@ -1768,7 +1903,7 @@ mod tests {
         assert!(line.contains("@user_42/coordinator"));
         assert!(line.contains("startWork=information"));
     }
-    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
+    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers};
     use serde_json::json;
 
     /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
@@ -1830,14 +1965,6 @@ mod tests {
         assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
         assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
         assert!(!read_through_hub(&json!({"sessionId": "s"})));
-    }
-
-    #[test]
-    fn a_sub_session_names_the_parent_that_started_it() {
-        let child = json!({"sessionId": "child", "startedBy": "p"});
-        assert_eq!(started_by(&child).as_deref(), Some("p"));
-        assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
-        assert_eq!(started_by(&json!({"sessionId": "old"})), None);
     }
 
     #[test]

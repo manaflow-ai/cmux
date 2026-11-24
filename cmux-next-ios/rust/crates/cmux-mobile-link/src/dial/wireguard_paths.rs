@@ -26,9 +26,53 @@ use cmux_transport::{
     local_networks, medium_of,
 };
 use cmux_wg::{DueProbes, PathWatch, ProbeConfig};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::time::Instant;
 
 use super::{Carrier, Route};
+
+/// While the session rides a relay and carries data, every dead direct path
+/// is probed this often, not at a dead path's 30 s turn: the direct path
+/// that starts working (the one WebRTC media just found, a NAT mapping that
+/// opened) carries the session within about this long plus a round trip.
+/// Both sides do it, so their probes open each other's NAT filters.
+pub(super) const UPGRADE_PROBE_EVERY: Duration = Duration::from_millis(750);
+/// How long after the last data datagram the session counts as carrying
+/// data. An idle relayed link (keepalives only) keeps the 30 s turn, so a
+/// phone on cellular does not wake its radio every second for nothing.
+pub(super) const UPGRADE_BUSY: Duration = Duration::from_secs(3);
+
+/// How often a path that is not the current one is probed while the app is
+/// in front: each standby (the TURN allocation over UDP or TLS, the other
+/// direct routes) stays warm, its NAT mapping, TURN permission and stream
+/// under the common 30 s idle cut, so a failover from the current path
+/// finds a route that answered within this and costs one packet. (The
+/// shared schedule's 30 s sits on that cut.)
+pub(super) const WARM_EVERY: Duration = Duration::from_secs(25);
+
+/// The phone app is in the background ([`set_app_backgrounded`]). False
+/// until it says (and always on the Mac), so nothing changes for a side
+/// that never calls it.
+static APP_BACKGROUNDED: AtomicBool = AtomicBool::new(false);
+
+/// The phone app went to (`true`) or came back from (`false`) the
+/// background. While it is there no session sends upgrade probes
+/// ([`UPGRADE_PROBE_EVERY`]) nor keeps its standbys warm ([`WARM_EVERY`]):
+/// while the current path answers only it is probed, so a backgrounded
+/// phone (a call, a background task) does not wake its radio for routes it
+/// is not using. Once the current path goes quiet every route is probed
+/// again, and back in front each standby's overdue probe goes at once. The same app state as the Link's
+/// foreground probe (`Link::set_foreground_probe`, off whenever the app is
+/// backgrounded).
+pub fn set_app_backgrounded(backgrounded: bool) {
+    APP_BACKGROUNDED.store(backgrounded, Ordering::Relaxed);
+}
+
+/// The last value [`set_app_backgrounded`] stored.
+pub fn app_backgrounded() -> bool {
+    APP_BACKGROUNDED.load(Ordering::Relaxed)
+}
 
 /// Selector path ids start here: below are the receive origins
 /// (`UDP_PATH`, `TURN_PATH`), which a peer's probe answer names.
@@ -38,6 +82,8 @@ struct Entry {
     id: PathId,
     route: Route,
     watch: PathWatch,
+    /// When this (dead, direct) path may get its next upgrade probe.
+    upgrade_probe_at: Option<Instant>,
 }
 
 /// One route the underlay may use, and whether it rides a TURN server.
@@ -55,6 +101,11 @@ pub(super) struct Paths {
     networks: Vec<LocalNetwork>,
     probes: ProbeConfig,
     last_probe_id: u64,
+    /// Until when the session counts as carrying data ([`UPGRADE_BUSY`]).
+    busy_until: Option<Instant>,
+    /// Where the app's background state is read ([`APP_BACKGROUNDED`]; a
+    /// test's own flag in unit tests, which run side by side).
+    backgrounded: &'static AtomicBool,
 }
 
 impl Paths {
@@ -64,8 +115,10 @@ impl Paths {
             entries: Vec::new(),
             next_id: FIRST_ID,
             networks: local_networks(),
-            probes: ProbeConfig::default(),
+            probes: ProbeConfig { other_interval: WARM_EVERY, ..ProbeConfig::default() },
             last_probe_id: 0,
+            busy_until: None,
+            backgrounded: &APP_BACKGROUNDED,
         }
     }
 
@@ -113,7 +166,12 @@ impl Paths {
                 let id = PathId(self.next_id);
                 self.next_id = self.next_id.checked_add(1).unwrap_or(FIRST_ID);
                 if self.selector.add_path_on(id, kind, medium).is_ok() {
-                    self.entries.push(Entry { id, route: want.route, watch: PathWatch::default() });
+                    self.entries.push(Entry {
+                        id,
+                        route: want.route,
+                        watch: PathWatch::default(),
+                        upgrade_probe_at: None,
+                    });
                     break;
                 }
             }
@@ -200,6 +258,56 @@ impl Paths {
         }
     }
 
+    /// A data datagram (not a keepalive or handshake) went out: while the
+    /// session is relayed its dead direct paths are probed every
+    /// [`UPGRADE_PROBE_EVERY`] for the next [`UPGRADE_BUSY`].
+    pub fn sent_data(&mut self, now: Instant) {
+        self.busy_until = Some(now + UPGRADE_BUSY);
+    }
+
+    /// The session rides a relay: the alive path it sends on is not direct.
+    fn relayed(&self) -> bool {
+        self.selector
+            .current()
+            .and_then(|id| self.selector.path(id))
+            .is_some_and(|view| !view.kind.class().is_direct())
+    }
+
+    /// While relayed and busy: each dead direct path whose upgrade probe is
+    /// due gets one now. Returns when the next is due.
+    fn upgrade_probes(&mut self, now: Instant) -> Option<Instant> {
+        // Stops when the session goes direct, when no data went out for
+        // UPGRADE_BUSY, or while the phone app is in the background.
+        if !self.relayed()
+            || self.busy_until.is_none_or(|until| now >= until)
+            || self.backgrounded.load(Ordering::Relaxed)
+        {
+            for entry in &mut self.entries {
+                entry.upgrade_probe_at = None;
+            }
+            return None;
+        }
+        let mut next: Option<Instant> = None;
+        for entry in &mut self.entries {
+            let Some(view) = self.selector.path(entry.id) else { continue };
+            if !view.kind.class().is_direct() || view.state != PathState::Dead {
+                entry.upgrade_probe_at = None;
+                continue;
+            }
+            let at = *entry.upgrade_probe_at.get_or_insert(now);
+            let at = if now >= at {
+                entry.watch.probe_now(now);
+                let again = now + UPGRADE_PROBE_EVERY;
+                entry.upgrade_probe_at = Some(again);
+                again
+            } else {
+                at
+            };
+            next = Some(next.map_or(at, |next| next.min(at)));
+        }
+        next
+    }
+
     /// A datagram went out on every route (the chosen one is suspect).
     pub fn sent_everywhere(&mut self, now: Instant) {
         for entry in &mut self.entries {
@@ -231,15 +339,29 @@ impl Paths {
 
     /// The probes due at `now`, after applying lost probes and silences.
     pub fn poll(&mut self, now: Instant) -> DueProbes {
+        let upgrade_next = self.upgrade_probes(now);
         let current = self.selector.current();
         let chosen = self.selector.chosen();
         let mut due = DueProbes::default();
         let mut lost = Vec::new();
         let mut silent = Vec::new();
         let config = self.probes;
+        // Backgrounded with a current path that answers: the standbys rest
+        // (their probes come due again in front, or when it goes quiet).
+        let standbys_rest = self.backgrounded.load(Ordering::Relaxed)
+            && current
+                .and_then(|id| self.selector.path(id))
+                .is_some_and(|view| view.state == PathState::Alive);
         for entry in &mut self.entries {
             let Some(view) = self.selector.path(entry.id) else { continue };
             let roles = (current == Some(entry.id), chosen == Some(entry.id));
+            if standbys_rest
+                && !roles.0
+                && !roles.1
+                && !matches!(view.state, PathState::Probing | PathState::Suspect)
+            {
+                continue;
+            }
             let step = entry.watch.step(&config, &view, roles, &mut self.last_probe_id, now);
             if step.lost {
                 lost.push(entry.id);
@@ -281,6 +403,9 @@ impl Paths {
             }
             due.next = Some(now);
         }
+        if let Some(at) = upgrade_next {
+            due.next = Some(due.next.map_or(at, |next| next.min(at)));
+        }
         due
     }
 }
@@ -319,6 +444,153 @@ mod tests {
             paths.on_pong(id, probe, at + rtt);
         }
         at + rtt
+    }
+
+    /// The relay answers, the LAN path never does: it dies, the relay carries.
+    /// Returns when, and the LAN path's id.
+    fn relayed_with_a_dead_lan(paths: &mut Paths, lan: Route, relay: Route) -> (Instant, PathId) {
+        paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+        let mut now = Instant::now();
+        for _ in 0..80 {
+            let due = paths.poll(now);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(relay) {
+                    paths.on_pong(id, probe, now + std::time::Duration::from_millis(20));
+                }
+            }
+            now += std::time::Duration::from_millis(100);
+        }
+        let id = paths.entries.iter().find(|entry| entry.route == lan).unwrap().id;
+        assert_eq!(paths.current(), Some(relay));
+        assert_eq!(paths.selector.path(id).unwrap().state, PathState::Dead);
+        (now, id)
+    }
+
+    /// Pings for `id` over `span` in 50 ms steps (the others answered), `busy`
+    /// marking data sent at every step.
+    fn pings_for(
+        paths: &mut Paths,
+        id: PathId,
+        from: Instant,
+        span: std::time::Duration,
+        busy: bool,
+    ) -> usize {
+        let mut now = from;
+        let mut count = 0;
+        while now < from + span {
+            if busy {
+                paths.sent_data(now);
+            }
+            // The relay answers; the dead path does not.
+            for (ping, probe) in paths.poll(now).pings {
+                if ping == id {
+                    count += 1;
+                } else {
+                    paths.on_pong(ping, probe, now + std::time::Duration::from_millis(20));
+                }
+            }
+            now += std::time::Duration::from_millis(50);
+        }
+        count
+    }
+
+    #[test]
+    fn a_dead_direct_path_is_probed_often_while_a_busy_session_rides_the_relay() {
+        let mut paths = paths_on(lan_table());
+        let (lan, relay) = (udp("192.168.1.30:4100"), turn("203.0.113.9:4100"));
+        let (now, id) = relayed_with_a_dead_lan(&mut paths, lan, relay);
+        // Idle (keepalives only): the dead path keeps its 30 s turn.
+        let idle = pings_for(&mut paths, id, now, std::time::Duration::from_secs(6), false);
+        assert!(idle <= 1, "idle: {idle} probes in 6 s");
+        // Busy: about one probe per UPGRADE_PROBE_EVERY.
+        let later = now + std::time::Duration::from_secs(6);
+        let busy = pings_for(&mut paths, id, later, std::time::Duration::from_secs(6), true);
+        assert!((6..=9).contains(&busy), "busy: {busy} probes in 6 s");
+    }
+
+    #[test]
+    fn a_backgrounded_phone_sends_no_upgrade_probes() {
+        static BACKGROUNDED: AtomicBool = AtomicBool::new(false);
+        let mut paths = paths_on(lan_table());
+        paths.backgrounded = &BACKGROUNDED;
+        let (lan, relay) = (udp("192.168.1.30:4100"), turn("203.0.113.9:4100"));
+        let (now, id) = relayed_with_a_dead_lan(&mut paths, lan, relay);
+        BACKGROUNDED.store(true, Ordering::Relaxed);
+        // Busy but backgrounded: the dead path keeps its 30 s turn.
+        let background = pings_for(&mut paths, id, now, std::time::Duration::from_secs(6), true);
+        assert!(background <= 1, "backgrounded: {background} probes in 6 s");
+        // Back in front: the upgrade probes resume at once.
+        BACKGROUNDED.store(false, Ordering::Relaxed);
+        let later = now + std::time::Duration::from_secs(6);
+        let front = pings_for(&mut paths, id, later, std::time::Duration::from_secs(6), true);
+        assert!((6..=9).contains(&front), "foreground: {front} probes in 6 s");
+    }
+
+    /// Probes for `id` over `span` in 100 ms steps; every path answers but
+    /// the ones in `quiet`.
+    fn probes_to(
+        paths: &mut Paths,
+        id: PathId,
+        from: Instant,
+        span: std::time::Duration,
+        quiet: &[PathId],
+    ) -> usize {
+        let mut now = from;
+        let mut count = 0;
+        while now < from + span {
+            for (ping, probe) in paths.poll(now).pings {
+                count += usize::from(ping == id);
+                if !quiet.contains(&ping) {
+                    paths.on_pong(ping, probe, now + std::time::Duration::from_millis(20));
+                }
+            }
+            now += std::time::Duration::from_millis(100);
+        }
+        count
+    }
+
+    #[test]
+    fn standbys_stay_warm_in_front_and_rest_in_the_background() {
+        static BACKGROUNDED: AtomicBool = AtomicBool::new(false);
+        let mut paths = paths_on(lan_table());
+        paths.backgrounded = &BACKGROUNDED;
+        let (lan, relay) = (udp("192.168.1.30:4100"), turn("203.0.113.9:4100"));
+        paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+        let start = Instant::now();
+        let id = |paths: &Paths, route| paths.entries.iter().find(|entry| entry.route == route).unwrap().id;
+        let (lan_id, relay_id) = (id(&paths, lan), id(&paths, relay));
+        probes_to(&mut paths, relay_id, start, std::time::Duration::from_secs(2), &[]);
+        assert_eq!(paths.current(), Some(lan));
+        // In front: the relay standby hears a probe every WARM_EVERY.
+        let minute = std::time::Duration::from_secs(60);
+        let warm = probes_to(&mut paths, relay_id, start + std::time::Duration::from_secs(2), minute, &[]);
+        assert!((2..=3).contains(&warm), "in front: {warm} standby probes in 60 s");
+        // Backgrounded, the LAN answering: the standby rests.
+        BACKGROUNDED.store(true, Ordering::Relaxed);
+        let at = start + std::time::Duration::from_secs(62);
+        let resting = probes_to(&mut paths, relay_id, at, minute, &[]);
+        assert_eq!(resting, 0, "backgrounded: {resting} standby probes in 60 s");
+        // The LAN goes quiet: the relay is probed again and takes over.
+        let at = at + minute;
+        let failover = probes_to(&mut paths, relay_id, at, std::time::Duration::from_secs(10), &[lan_id]);
+        assert!(failover >= 1, "no probe to the standby after the current path went quiet");
+        // It answered, so the spray that follows the quiet path reaches the
+        // peer through it.
+        assert_eq!(paths.selector.path(relay_id).unwrap().state, PathState::Alive);
+        assert_ne!(paths.current(), Some(lan));
+        BACKGROUNDED.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn the_first_answer_of_a_dead_direct_path_takes_the_session_from_the_relay() {
+        let mut paths = paths_on(lan_table());
+        let (lan, relay) = (udp("192.168.1.30:4100"), turn("203.0.113.9:4100"));
+        let (now, id) = relayed_with_a_dead_lan(&mut paths, lan, relay);
+        paths.sent_data(now);
+        let due = paths.poll(now);
+        let (_, probe) = *due.pings.iter().find(|(ping, _)| *ping == id).expect("an upgrade probe at once");
+        paths.on_pong(id, probe, now + std::time::Duration::from_millis(3));
+        assert_eq!(paths.current(), Some(lan));
     }
 
     #[test]

@@ -8,8 +8,10 @@
 // (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
 // `#/settings/appearance?focus=card.customizeLibrary`.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
+import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
 import { useStore } from "../context";
 import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
@@ -18,6 +20,7 @@ import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -61,16 +64,19 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
         setRemoving(null);
       });
   };
+  // One function per gesture for every render: a memo row draws again only when its own props change.
+  const handlers = useStableHandlers({
+    onToggle: (name: string, on: boolean) => void run({ verb: on ? "on" : "off", name }),
+    onMove: (name: string, position: string) => void run({ verb: "order", name, position }),
+    onRemove: (name: string) => setRemoving(name),
+  });
+  const { onToggle, onMove, onRemove } = handlers;
+  const actions = useMemo<LibraryActions>(() => ({ onToggle, onMove, onRemove }), [onToggle, onMove, onRemove]);
   // Opt-in (Leo, 2026-11-15: "these are opt-in settings"): nothing draws until the person has
   // applied something. An empty library, or a host with no CLI, shows no card; a CLI that answers
   // with a refusal does, so a library that can't be read says why.
   const listed = read?.library ?? null;
   if (!query.isFetched || (!read?.refusal && (listed === null || listed.entries.length === 0))) return null;
-  const actions: LibraryActions = {
-    onToggle: (name, on) => void run({ verb: on ? "on" : "off", name }),
-    onMove: (name, position) => void run({ verb: "order", name, position }),
-    onRemove: (name) => setRemoving(name),
-  };
   return (
     <CustomizeLibraryView
       listing={read?.library ?? null}
@@ -114,13 +120,29 @@ export function CustomizeLibraryView({
   onConfirmRemove: (name: string) => void;
   onCancelRemove: () => void;
 }) {
-  const entries = listing?.entries ?? [];
+  const entries = useKeptEntries(listing);
+  const beaten = useBeaten(listing);
+  const keys = useMemo(() => entries.map((entry) => entry.name), [entries]);
+  // A grid of tiles (`cards`, the gallery's) draws every entry; the shipped rows are windowed. The
+  // entry Remove asked about stays mounted while its confirmation is open.
+  const kept = useMemo(() => new Set(removing ? [removing] : []), [removing]);
+  const rowWindow = useCardWindow(
+    keys,
+    LIBRARY_ESTIMATE,
+    (index) => String(beaten.get(entries[index]?.name ?? "")?.length ?? 0),
+    kept,
+  );
+  const windowed = layout !== "cards";
+  const listing_ = listing !== null && entries.length > 0;
   const confirmTitle = removing ? t("settingsPage.customizeLibrary.removeTitle", removing) : "";
   const card = useRef<HTMLElement>(null);
   const confirm = useRef<HTMLDivElement>(null);
+  // The route's reveal waits for the window (cardWindow.ts `ready`): before it, the rows' room is not
+  // drawn and the window's start would move the page back. A grid of tiles has no window.
+  const ready = !windowed || rowWindow.ready;
   useLayoutEffect(() => {
-    if (reveal) card.current?.scrollIntoView?.({ block: "start" });
-  }, [reveal]);
+    if (reveal && ready) card.current?.scrollIntoView?.({ block: "start" });
+  }, [reveal, ready]);
   // The confirmation draws under the whole list, so with many entries it opens screens below the row
   // its Remove was on: it scrolls into view and takes focus on Cancel, the safe answer.
   useLayoutEffect(() => {
@@ -141,7 +163,14 @@ export function CustomizeLibraryView({
       ref={card}
     >
       <h3 className="group-title">{t("settingsPage.customizeLibrary.title")}</h3>
-      <div className="rows">
+      <div
+        className="rows"
+        ref={windowed ? rowWindow.list : undefined}
+        role={listing_ && windowed ? "list" : undefined}
+        style={windowed ? { paddingBottom: rowWindow.padBottom } : undefined}
+        onFocus={windowed ? rowWindow.onFocus : undefined}
+        onBlur={windowed ? rowWindow.onBlur : undefined}
+      >
         {drawn && listing === null ? (
           <div className="row" data-library-unavailable="">
             <span className="row-help">{readRefusal ?? t("settingsPage.customizeLibrary.unavailable")}</span>
@@ -155,7 +184,15 @@ export function CustomizeLibraryView({
             <div className="row" data-library-help="">
               <span className="row-help">{t("settingsPage.customizeLibrary.help")}</span>
             </div>
-            <LibraryList listing={listing} layout={layout} busy={busy} actions={actions} />
+            <LibraryList
+              listing={listing}
+              entries={entries}
+              beaten={beaten}
+              layout={layout}
+              busy={busy}
+              actions={actions}
+              rowWindow={windowed ? rowWindow : undefined}
+            />
           </>
         ) : null}
       </div>
@@ -190,50 +227,121 @@ export function CustomizeLibraryView({
   );
 }
 
-/** Every entry, top first, in `layout`. */
+/** The listing's entries, each equal to the one the last listing had under its name replaced by
+ * that one: every change answers a whole new listing, and a memo row whose entry did not change
+ * skips it. */
+function useKeptEntries(listing: LibraryListing | null): LibraryEntry[] {
+  const [kept, setKept] = useState(() => ({ listing, entries: listing?.entries ?? [] }));
+  if (kept.listing === listing) return kept.entries;
+  const held = new Map(kept.entries.map((entry) => [entry.name, entry]));
+  const entries = (listing?.entries ?? []).map((entry) => {
+    const old = held.get(entry.name);
+    return old && JSON.stringify(old) === JSON.stringify(entry) ? old : entry;
+  });
+  setKept({ listing, entries });
+  return entries;
+}
+
+/** An entry row's height before one is measured (name, detail; a line per entry that wins over it). */
+const LIBRARY_ESTIMATE = 72;
+const NO_BEATEN: Beaten[] = [];
+
+/** Which higher entries win over each entry, built once per listing; an entry whose losses did not
+ * change keeps its array, so its memo row skips the new listing. */
+function useBeaten(listing: LibraryListing | null): Map<string, Beaten[]> {
+  const [kept, setKept] = useState<{ listing: LibraryListing | null; beaten: Map<string, Beaten[]> }>(() => ({
+    listing,
+    beaten: listing ? beatenByEntry(listing) : new Map(),
+  }));
+  if (kept.listing === listing) return kept.beaten;
+  const next = listing ? beatenByEntry(listing) : new Map<string, Beaten[]>();
+  for (const [name, list] of next) {
+    const old = kept.beaten.get(name);
+    if (old && sameBeaten(old, list)) next.set(name, old);
+  }
+  setKept({ listing, beaten: next });
+  return next;
+}
+
+function sameBeaten(a: readonly Beaten[], b: readonly Beaten[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (one, index) =>
+        one.winner === b[index]!.winner &&
+        one.keys.length === b[index]!.keys.length &&
+        one.keys.every((key, at) => key === b[index]!.keys[at]),
+    )
+  );
+}
+
+/** Every entry, top first, in `layout`. With `rowWindow` (the card's rows), only the entries near the
+ * viewport mount; without (the tiles, the gallery), every entry. */
 export function LibraryList({
   listing,
+  entries,
+  beaten,
   layout,
   busy,
   actions,
+  rowWindow,
 }: {
   listing: LibraryListing;
+  /** The listing's entries with the unchanged ones kept (the card); default the listing's own. */
+  entries?: LibraryEntry[];
+  beaten?: Map<string, Beaten[]>;
   layout: LibraryLayout;
   busy: boolean;
   actions: LibraryActions;
+  rowWindow?: CardWindow;
 }) {
-  const beaten = beatenByEntry(listing);
-  const count = listing.entries.length;
-  const rows = listing.entries.map((entry) => (
-    <LibraryEntryRow
-      key={entry.name}
-      entry={entry}
-      beaten={beaten.get(entry.name) ?? []}
-      count={count}
-      layout={layout}
-      busy={busy}
-      actions={actions}
-    />
-  ));
-  return layout === "cards" ? <div className="library-grid">{rows}</div> : <>{rows}</>;
+  const losses = beaten ?? beatenByEntry(listing);
+  const shown = entries ?? listing.entries;
+  const count = shown.length;
+  const items = rowWindow?.items ?? shown.map((entry, index) => ({ index, key: entry.name, gap: 0 }));
+  const rows = items.map(({ index, key, gap }) => {
+    const entry = shown[index]!;
+    return (
+      <Fragment key={key}>
+        {windowGap(gap)}
+        <LibraryEntryRow
+          entry={entry}
+          beaten={losses.get(entry.name) ?? NO_BEATEN}
+          count={count}
+          index={index}
+          layout={layout}
+          actions={actions}
+          measure={rowWindow?.measure}
+        />
+      </Fragment>
+    );
+  });
+  return (
+    <CardBusy.Provider value={busy}>
+      {layout === "cards" ? <div className="library-grid">{rows}</div> : rows}
+    </CardBusy.Provider>
+  );
 }
 
 /** One entry: its look (swatches), its name, what asked for it and what it sets, which higher entry
  * wins over it and on what, its order and its switch. */
-export function LibraryEntryRow({
+export const LibraryEntryRow = memo(function LibraryEntryRow({
   entry,
   beaten,
   count,
+  index,
   layout,
-  busy,
   actions,
+  measure,
 }: {
   entry: LibraryEntry;
   beaten: Beaten[];
   count: number;
+  /** The entry's place in the whole list (0 is the top), for the window and screen readers. */
+  index: number;
   layout: LibraryLayout;
-  busy: boolean;
   actions: LibraryActions;
+  measure?: (node: HTMLElement | null) => void;
 }) {
   const labelId = useId();
   const up = step(entry, count, -1);
@@ -246,7 +354,7 @@ export function LibraryEntryRow({
         action={t("settingsPage.moveUp")}
         entry={entry.name}
         data="up"
-        disabled={busy || up === null}
+        disabled={up === null}
         onClick={() => up && actions.onMove(entry.name, up)}
       />
       <EntryButton
@@ -254,7 +362,7 @@ export function LibraryEntryRow({
         action={t("settingsPage.moveDown")}
         entry={entry.name}
         data="down"
-        disabled={busy || down === null}
+        disabled={down === null}
         onClick={() => down && actions.onMove(entry.name, down)}
       />
       <EntryButton
@@ -262,18 +370,12 @@ export function LibraryEntryRow({
         action={t("settingsPage.remove")}
         entry={entry.name}
         data="remove"
-        disabled={busy}
         onClick={() => actions.onRemove(entry.name)}
       />
     </span>
   );
   const toggle = (
-    <Switch
-      checked={entry.on}
-      disabled={busy}
-      labelId={labelId}
-      onToggle={(next) => actions.onToggle(entry.name, next)}
-    />
+    <EntrySwitch checked={entry.on} labelId={labelId} onToggle={(next) => actions.onToggle(entry.name, next)} />
   );
   const lines = beaten.map((one) => (
     <div className="row-help library-beaten" data-library-beaten={one.winner} key={one.winner}>
@@ -281,6 +383,11 @@ export function LibraryEntryRow({
     </div>
   ));
   const shared = {
+    ref: measure,
+    "data-index": index,
+    role: layout === "cards" ? undefined : "listitem",
+    "aria-posinset": layout === "cards" ? undefined : index + 1,
+    "aria-setsize": layout === "cards" ? undefined : count,
     "data-library-entry": entry.name,
     "data-on": entry.on ? "" : undefined,
     "data-overridden": beaten.length > 0 ? "" : undefined,
@@ -303,23 +410,27 @@ export function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
-        <div className="row-main">
-          <span className="library-position row-help">{entry.position}</span>
-          <LibrarySwatches entry={entry} />
-          <span className="row-label">
-            <span className="row-title" id={labelId}>
-              {entry.name}
-            </span>
-            <span className="row-help"> · {sourceLabel(entry.source)}</span>
-            {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
-          </span>
-          <span className="row-control library-controls">
-            {order}
-            {toggle}
-          </span>
-        </div>
-      </div>
+      <WithFacts facts={[{ value: entryDetail(entry) }]}>
+        {(facts) => (
+          <div {...facts} className="row library-line" {...shared}>
+            <div className="row-main">
+              <span className="library-position row-help">{entry.position}</span>
+              <LibrarySwatches entry={entry} />
+              <span className="row-label">
+                <span className="row-title" id={labelId}>
+                  {entry.name}
+                </span>
+                <span className="row-help"> · {sourceLabel(entry.source)}</span>
+                {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
+              </span>
+              <span className="row-control library-controls">
+                {order}
+                {toggle}
+              </span>
+            </div>
+          </div>
+        )}
+      </WithFacts>
     );
   }
   return (
@@ -340,7 +451,7 @@ export function LibraryEntryRow({
       </div>
     </div>
   );
-}
+});
 
 /** The entry at a glance: the colors it sets (no capture: the engine's thumbnail is its swatches
  * and keys), or the layers mark when it sets no color. */
@@ -362,6 +473,10 @@ function LibrarySwatches({ entry, wide = false }: { entry: LibraryEntry; wide?: 
   );
 }
 
+function EntrySwitch(props: { checked: boolean; labelId: string; onToggle: (on: boolean) => void }) {
+  return <Switch {...props} disabled={useContext(CardBusy)} />;
+}
+
 function EntryButton({
   icon,
   iconClass,
@@ -376,9 +491,10 @@ function EntryButton({
   action: string;
   entry: string;
   data: string;
-  disabled: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
+  const busy = useContext(CardBusy);
   return (
     <Button
       variant="ghost"
@@ -388,7 +504,7 @@ function EntryButton({
       className="icon-button"
       aria-label={`${action}: ${entry}`}
       title={action}
-      disabled={disabled}
+      disabled={disabled || busy}
       data-library-action={data}
       onClick={onClick}
     >
