@@ -147,7 +147,9 @@ mod tests {
         )
         .await
         .expect("a fork the agent never answers held its caller past its bound");
-        let err = forked.expect_err("a fork with no answer succeeded");
+        let Err(err) = forked else {
+            panic!("a fork with no answer succeeded");
+        };
         assert!(err.message.contains("did not answer session/fork within 2 s"), "{err:?}");
         assert!(cmux_bounded::overrun_count(ForwardWait::NAME) > before);
         assert!(parent.harness_use.try_write().is_ok(), "harness_use stayed held");
