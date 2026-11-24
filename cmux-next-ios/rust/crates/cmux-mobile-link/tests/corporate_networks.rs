@@ -205,7 +205,7 @@ async fn a_proxy_the_link_cannot_sign_in_to_fails_the_dial_saying_why() {
         let started = Instant::now();
         // Signaling reaches the fake service directly here (its own proxy
         // answer is the same sentence; see the egress unit tests).
-        let error = link(phone, options(), &Egress::default()).await.err().expect("no link");
+        let error = link(phone, options(), &Egress::default()).await.expect_err("no link");
         let took = started.elapsed();
         let DialError::Transport(message) = &error else { panic!("{auth:?}: {error:?}") };
         for word in &words {

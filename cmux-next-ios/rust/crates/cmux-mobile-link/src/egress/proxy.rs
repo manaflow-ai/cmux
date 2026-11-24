@@ -665,11 +665,11 @@ mod tests {
             move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
         };
         let vars = env(&[("https_proxy", "http://secure:8443"), ("http_proxy", "plain:8080")]);
-        assert_eq!(env_hops("turn.cloudflare.com", true, &vars), vec![http("secure", 8443)]);
-        assert_eq!(env_hops("turn.cloudflare.com", false, &vars), vec![http("plain", 8080)]);
+        assert_eq!(env_hops("turn.cloudflare.com", true, vars), vec![http("secure", 8443)]);
+        assert_eq!(env_hops("turn.cloudflare.com", false, vars), vec![http("plain", 8080)]);
         let vars = env(&[("ALL_PROXY", "socks5://s:1080"), ("NO_PROXY", ".internal")]);
-        assert_eq!(env_hops("a.internal", true, &vars), vec![Hop::Direct]);
-        assert_eq!(env_hops("x.example", true, &vars), vec![Hop::Socks5(ProxyServer::new("s", 1080))]);
+        assert_eq!(env_hops("a.internal", true, vars), vec![Hop::Direct]);
+        assert_eq!(env_hops("x.example", true, vars), vec![Hop::Socks5(ProxyServer::new("s", 1080))]);
         assert_eq!(env_hops("x.example", true, env(&[])), vec![Hop::Direct]);
     }
 
