@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 
 
 from bench_launch import BenchApp  # noqa: E402  the one launch path: CFBundleExecutable, the state-folder socket
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def wait(predicate, seconds, step=0.25):
@@ -214,6 +215,19 @@ def debug_settings_open(app):
     return False if "not open" in error else True if "dry_run" in error else None
 
 
+def window_entry(app, window):
+    """The `debug.windows` entry of `window`, or None."""
+    report = app.rpc("debug.windows")
+    windows = report.get("windows") if isinstance(report, dict) else None
+    return next((w for w in windows or [] if w.get("id") == window), None)
+
+
+def handed_over(app, seq, keep):
+    """Until the monitor handed over the close's run (it does so after the commit); best effort, 5 s."""
+    wait_until(lambda: [r for r in budget_runs(app, seq) or [] if keep(r)], "the close's action-budget run",
+               timeout=5, interval=0.05, raise_on_timeout=False)
+
+
 def close_window_round(app):
     before = open_windows(app)
     if before is None:
@@ -223,14 +237,20 @@ def close_window_round(app):
     if not fresh:
         return {"error": "New Window opened no window"}
     active = app.activate()
-    time.sleep(0.4)  # test script: let the new window settle (ordering in, first frame) before the close
+    # The new window settles before the close: the app active with the window key, its entry holding still.
+    wait_until(lambda: (app.rpc("debug.focus") or {}).get("app_active") is True
+               and (window_entry(app, fresh[0]) or {}).get("key"), "the new window to be key in the active app",
+               timeout=5, interval=0.05, raise_on_timeout=False)
+    placed = lambda: {k: (window_entry(app, fresh[0]) or {}).get(k) for k in ("frame", "bounds", "visible", "key")}
+    wait_stable(placed, "the new window's frame", timeout=5, interval=0.05, raise_on_timeout=False)
     focus = app.rpc("debug.focus") or {}
     seq = last_sequence(app)
     if seq is None:
         return {"error": "debug.action_budget did not answer before the close"}
     reply = app.rpc("debug.key", {"window": fresh[0], "key": "w", "modifiers": ["control", "cmd"]})
     closed = wait(lambda: (lambda now: now is not None and fresh[0] not in now)(open_windows(app)), 10)
-    time.sleep(0.3)  # test script: the monitor hands the run over after its commit
+    if closed:
+        handed_over(app, seq, lambda r: r.get("id") == "closeWindow")
     runs = budget_runs(app, seq)
     if runs is None:
         return {"error": "debug.action_budget did not answer after the close"}
@@ -251,7 +271,10 @@ def close_key_round(app):
         return {"error": "Debug Settings did not open in its own window (DevTools is off in a Release or bench build: "
                          "use --config=debug; or the presentation pin in the tunables file did not apply)"}
     active = app.activate()
-    time.sleep(0.4)  # test script: let the window settle before the close
+    # The window settles before the close: Debug Settings is the key window of the active app.
+    wait_until(lambda: (lambda f: f.get("app_active") is True and f.get("key_window") == "DebugSettingsWindow")(
+        app.rpc("debug.focus") or {}), "Debug Settings to be the key window", timeout=5, interval=0.05,
+        raise_on_timeout=False)
     focus = app.rpc("debug.focus") or {}
     seq = last_sequence(app)
     if seq is None:
@@ -260,7 +283,8 @@ def close_key_round(app):
     if isinstance(reply, dict) and reply.get("error"):
         return {"error": f"close key: {reply['error']}"}
     closed = wait(lambda: debug_settings_open(app) is False, 10)
-    time.sleep(0.3)  # test script: the monitor hands the run over after its commit
+    if closed:
+        handed_over(app, seq, lambda r: str(r.get("id", "")).startswith("close"))
     runs = budget_runs(app, seq)
     if runs is None:
         return {"error": "debug.action_budget did not answer after the close"}

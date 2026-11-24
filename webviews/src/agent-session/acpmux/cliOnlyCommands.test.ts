@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
+import { mergedCommands } from "./cmuxCommands";
 
 // Leo's chat, 2026-10-31: Claude Code listed /loop (a skill) among its 88 commands, and a `/loop`
 // steered into the running turn sat as an unread steer until Claude Code's running command ended.
@@ -35,4 +36,11 @@ describe("commandWaitsForTurn", () => {
     expect(commandWaitsForTurn("/loop", "claude", undefined)).toBe(false);
     expect(commandWaitsForTurn("/loop", "claude", [])).toBe(false);
   });
+});
+
+test("/mcp with arguments still waits for the turn after cmux's bare /mcp takes its menu row", () => {
+  const merged = mergedCommands([{ name: "mcp", description: "MCP", source: "agent" }]);
+  expect(commandWaitsForTurn("/mcp enable github", "claude", merged)).toBe(true);
+  // A bare /mcp is cmux's and runs at once (Composer's cmux path), so it waits for nothing.
+  expect(commandWaitsForTurn("/mcp", "claude", merged)).toBe(false);
 });

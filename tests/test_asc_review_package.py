@@ -243,11 +243,17 @@ class NotesTests(FakeAscCase):
                              {"CMUX_IOS_REVIEW_CHIEF_NAME": "Chief"})
         self.assertIn("REVIEW_CHIEF_NAME", str(raised.exception))
 
-    def test_the_demo_steps_open_the_hosted_chief(self):
+    def test_the_demo_steps_run_a_terminal_on_the_simulated_mac(self):
+        # The review path needs no Mac and no Cloud credits: the demo account's simulated Mac,
+        # whose terminal answers typed commands and whose browser tab opens a page.
         start = self.TEMPLATE.index("## REVIEW DEMO STEPS: START")
         block = self.TEMPLATE[start:self.TEMPLATE.index("## REVIEW DEMO STEPS: END")]
-        for text in ("Tap Chief", "Main · Cloud", "Send", '"Chief Is Off"', '"Turn On"'):
+        for text in ("simulated Mac", "not a real computer", "Workspaces", "website", "terminal", "git status", "Tabs"):
             self.assertIn(text, block)
+        # Chief is still described, outside the required path, with its Turn On step.
+        rest = self.TEMPLATE[self.TEMPLATE.index("## REVIEW DEMO STEPS: END"):]
+        for text in ("Main · Cloud", '"Chief Is Off"', '"Turn On"'):
+            self.assertIn(text, rest)
         self.assertNotIn("Chief named", block)
         self.assertNotIn("replaces the earlier", self.TEMPLATE)
 
@@ -374,6 +380,47 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(pkg.marketing_version(config="TestFlight"), "1.2.0")
         with self.assertRaises(SystemExit):
             pkg.main(["--app", "6791408425", "--config", "Debug", "sync-notes"])
+
+
+class InternalNotesTests(FakeAscCase):
+    """cmux INTERNAL (dev.cmux.app.internal, --config TestFlight) has no
+    subscriptions: its plans screen is read-only, so its notes promise none."""
+
+    TEMPLATE = pkg.NOTES_TEMPLATES["TestFlight"].read_text(encoding="utf-8")
+    DETAIL = NotesTests.DETAIL
+
+    def test_each_record_gets_its_own_template(self):
+        self.assertEqual(pkg.NOTES_TEMPLATES["AppStore"], pkg.DEFAULT_NOTES_TEMPLATE)
+        self.assertEqual(pkg.NOTES_TEMPLATES["TestFlight"].name, "review-notes-asc-internal.txt")
+
+    def test_the_notes_show_the_plan_and_promise_no_purchase(self):
+        notes = pkg.render_notes(self.TEMPLATE, self.DETAIL, LIVE_ENV)
+        self.assertIn('Settings > "Plan" shows the account\'s current plan.', notes)
+        self.assertIn("This version offers no purchase, no subscription and no external purchase link.", notes)
+        for phrase in ('"Subscribe"', '"Restore Purchases"', '"Manage Subscription"', "Sandbox", "cmux Pro"):
+            self.assertNotIn(phrase, notes)
+        self.assertIn("Launch cmux INTERNAL", notes)
+        self.assertLessEqual(len(notes), pkg.NOTES_LIMIT)
+
+    def test_everything_else_matches_the_app_store_notes(self):
+        def body(text: str) -> str:
+            text = pkg.TEMPLATE_COMMENT.sub("", text).replace("Launch cmux INTERNAL", "Launch cmux")
+            return re.sub(r"\n(In-app purchases|Purchases):\n(- [^\n]*\n)+", "\n", text)
+        self.assertEqual(body(self.TEMPLATE), body(NotesTests.TEMPLATE))
+
+    def test_every_quoted_label_is_a_string_the_app_shows(self):
+        strings = listing_text.app_strings()
+        for label in re.findall(r'"([^"\n]+)"', pkg.TEMPLATE_COMMENT.sub("", self.TEMPLATE)):
+            if "{{" not in label:
+                with self.subTest(label=label):
+                    self.assertIn(label, strings)
+
+    def test_config_testflight_writes_the_internal_notes(self):
+        fake = self.start(notes="old notes")
+        self.assertEqual(pkg.main(["--app", APP, "--config", "TestFlight", "sync-notes", "--version", VERSION]), 0)
+        self.assertIn("offers no purchase", fake.detail["notes"])
+        self.assertEqual(pkg.main(["--app", APP, "sync-notes", "--version", VERSION]), 0)
+        self.assertIn('"Restore Purchases"', fake.detail["notes"], "the AppStore default is unchanged")
 
 
 class CheckoutTests(unittest.TestCase):

@@ -607,9 +607,8 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
-            let tcp = tokio::net::TcpStream::connect((host.as_str(), port))
-                .await
-                .map_err(|e| e.to_string())?;
+            let tcp =
+                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| e.to_string())?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
@@ -817,6 +816,7 @@ impl Peer {
                     _ = stopped.changed() => return,
                 }
             }
+            crate::gauges::bump(&crate::gauges::links().probe_dials);
             let opened = tokio::select! {
                 opened = tokio::time::timeout(PROBE_CONNECT, self.open_probe(via)) => opened,
                 _ = stopped.changed() => return,
@@ -845,6 +845,8 @@ impl Peer {
     ) where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        // Held while this probe's connection is: `gauges.links.probesOpen`.
+        let _open = crate::gauges::Held::on(&crate::gauges::links().probes_open);
         let mut stopped = self.stop_changed.subscribe();
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);

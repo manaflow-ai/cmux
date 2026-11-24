@@ -104,3 +104,17 @@ fn the_unset_row_reads_the_old_key_as_the_tunnels_do() {
     assert_eq!(read(json!({"remote": {"ultraMode": true, "ultra": "off"}})), Some(json!("off")));
     assert_eq!(read(json!({})), Some(json!("auto")));
 }
+
+/// A plain rename (`replaced_by`, no `values`): the old key's value reads as
+/// is, as Swift `RenamedSettingKeys` read the Session Info placement by hand.
+#[test]
+fn a_plain_rename_reads_the_old_value_as_is() {
+    let row = Schema::embedded().row("sidebar.workspaceRow.tabCount").expect("the row").clone();
+    assert!(replaced_by_row(&row.path).is_some(), "retired-keys.json renames sidebar.showCounts");
+    let read = |root: Value| effective_value(&row, &root, &Domains::default());
+    let default = row.default.clone().expect("a default");
+    let other = json!(!default.as_bool().expect("a toggle"));
+    assert_eq!(read(json!({"sidebar": {"showCounts": other}})), Some(other.clone()));
+    let new = json!({"sidebar": {"showCounts": other, "workspaceRow": {"tabCount": default}}});
+    assert_eq!(read(new), Some(default), "the new key wins");
+}
