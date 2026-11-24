@@ -22,6 +22,7 @@ pub(crate) use projection_crosscheck::JournalCheck;
 use published_screens::PublishedScreens;
 pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
 pub(crate) use scoped_projection::WorkspaceRows;
+pub(crate) use scoped_projection::crosscheck_enabled;
 #[cfg(all(test, unix))]
 pub(crate) use scoped_projection::without_crosscheck;
 pub(crate) use split_ids::collect_screen_split_ids;
