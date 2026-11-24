@@ -21,7 +21,14 @@ final class ProfileBarView: NSView {
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
 
     private(set) var hovered: Int?
-    private(set) var pressed: Int?
+    private var pressedSlot: Int?
+    private var pressedProfile: ProfileKey?
+    /// A press belongs to the Space under the pointer at mouse-down, even before a drag begins.
+    var pressed: Int? {
+        guard let index = pressedSlot, index != Self.plusIndex else { return pressedSlot }
+        guard model.profiles.indices.contains(index), model.profiles[index].id == pressedProfile else { return nil }
+        return index
+    }
     /// Where the press on a space started (bar coordinates): a move past the threshold drags its dot.
     var pressPoint: NSPoint?
     /// The press now down showed its space (`switchOnPress`): its release is no click.
@@ -320,7 +327,8 @@ final class ProfileBarView: NSView {
 
     /// A press on a space (tests; the mouse sets it in `mouseDown`).
     func setPressed(_ value: Int?) {
-        pressed = value
+        pressedSlot = value
+        pressedProfile = value.flatMap { model.profiles.indices.contains($0) ? model.profiles[$0].id : nil }
         needsDisplay = true
     }
 
@@ -345,11 +353,10 @@ final class ProfileBarView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         defer {
-            pressed = nil
+            setPressed(nil)
             pressPoint = nil
             pressSwitched = false
             pressOrigin = nil
-            needsDisplay = true
         }
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
         if dropDot() { return }

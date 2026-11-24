@@ -114,6 +114,21 @@ import Testing
         #expect(view.hoverChip == nil)
     }
 
+    @Test func replacingAPressedSpaceBeforeDraggingDoesNotActivateItsReplacement() {
+        let (view, window) = makeBar(count: 3, active: 1)
+        defer { window.close() }
+        let slot = view.slotRects()[1]
+        let point = NSPoint(x: slot.midX, y: slot.midY)
+        view.mouseDown(with: event(.leftMouseDown, point, in: view))
+        view.model.profiles.swapAt(1, 2)
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        view.mouseDragged(with: event(.leftMouseDragged, NSPoint(x: point.x + 12, y: point.y), in: view))
+        #expect(view.dotDrag == nil)
+        view.mouseUp(with: event(.leftMouseUp, point, in: view))
+        #expect(intents.isEmpty)
+    }
+
     @Test(arguments: [true, false]) func changingSpaceOrderDuringDragCancelsTheDrop(removing: Bool) throws {
         let (view, window) = makeBar(count: 3, active: 2)
         defer { window.close() }

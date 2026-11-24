@@ -2522,6 +2522,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   the available width. Unset, the density and available width choose the spacing.
   Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
   `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
+- A press that loses its original Space before the drag threshold cancels the click and drag.
 - A scrolled row only accepts clicks and draws shortcut hints on whole visible dots. The drag creates layers for
   those dots and clips them between the leading inset and the +. Ctrl-9 hints the last Space. A keyboard switch
   that scrolls a hovered dot out of view also clears its highlight.
