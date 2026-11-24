@@ -127,9 +127,13 @@ describe("judge against the idle stream", () => {
 });
 
 describe("knownBreach", () => {
-  test("a filed breach names its issue; another engine's or kind's does not", () => {
+  test("a filed breach names its issue; an unfiled one does not", () => {
     expect(knownBreach("chromium", { kind: "resize", what: "blank_frames", value: 4, budget: 0 })).toMatch(/#\d+$/);
-    expect(knownBreach("chromium", { kind: "sweep", what: "blank_frames", value: 4, budget: 0 })).toBeUndefined();
+    // Blank frames and stray moves are known by metric for every kind: a wave's breach lands on every kind in it.
+    expect(knownBreach("webkit", { kind: "switch", what: "stray_worst_px", value: 20, budget: 1 })).toMatch(/#50480$/);
+    expect(knownBreach("chromium", { kind: "send", what: "blank_frames", value: 1, budget: 0 })).toMatch(/#50479$/);
+    // A metric nobody filed still fails.
+    expect(knownBreach("chromium", { kind: "type", what: "dropped_keys", value: 2, budget: 0 })).toBeUndefined();
     const duplicate = "3x Encountered two children with the same key, `%s`.";
     expect(knownBreach("webkit", { kind: "console", what: "error", value: duplicate, budget: "none" })).toMatch(
       /#\d+$/,

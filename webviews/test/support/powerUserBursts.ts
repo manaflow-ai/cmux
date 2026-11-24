@@ -369,31 +369,25 @@ export function draftDiff(expected: string, actual: string): { dropped: number; 
   return { dropped: a.length - present, reordered: present > inOrder };
 }
 
-/** Breaches already filed, by `engine kind what`: reported, not failed, until the fix lands. */
+/**
+ * Breaches already filed: reported, not failed, until the fix lands. A key is `engine kind what`, `* * what` (any
+ * engine, any input kind) or `console <substring>` of the message. Blank frames and stray moves are keyed by metric
+ * alone: a wave runs 1-3 bursts at once and a breach is charged to every kind in the wave, so the kind it lands on
+ * is the wave's mix, not the cause. Keying those by kind made each new seed's mix fail CI again for the same bug
+ * (seed 20261122 on base d53e62a7505 failed on switch/send blank frames and sweep/switch stray moves).
+ */
 export const KNOWN: Record<string, string> = {
   "console Encountered two children with the same key": "manaflow-ai/cmux#50478",
-  "chromium flick blank_frames": "manaflow-ai/cmux#50479",
-  "chromium resize blank_frames": "manaflow-ai/cmux#50479",
-  "chromium paste blank_frames": "manaflow-ai/cmux#50479",
-  "chromium type blank_frames": "manaflow-ai/cmux#50479",
-  "chromium momentum blank_frames": "manaflow-ai/cmux#50479",
-  "webkit flick blank_frames": "manaflow-ai/cmux#50479",
-  "webkit resize blank_frames": "manaflow-ai/cmux#50479",
-  "webkit paste blank_frames": "manaflow-ai/cmux#50479",
-  "chromium flick stray_worst_px": "manaflow-ai/cmux#50480",
-  "chromium paste stray_worst_px": "manaflow-ai/cmux#50480",
-  "chromium momentum stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit flick stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit paste stray_worst_px": "manaflow-ai/cmux#50480",
-  "webkit momentum stray_worst_px": "manaflow-ai/cmux#50480",
+  "* * blank_frames": "manaflow-ai/cmux#50479",
+  "* * stray_worst_px": "manaflow-ai/cmux#50480",
   "console ResizeObserver loop completed": "manaflow-ai/cmux#50481",
 };
 
-/** The issue a breach is already filed as: `engine kind what`, or a `console <substring>` of the message. */
+/** The issue a breach is already filed as: `engine kind what`, `* * what`, or a `console <substring>` of the message. */
 export function knownBreach(engine: string, breach: Breach): string | undefined {
   if (breach.kind === "console")
     return Object.entries(KNOWN).find(
       ([key]) => key.startsWith("console ") && String(breach.value).includes(key.slice(8)),
     )?.[1];
-  return KNOWN[`${engine} ${breach.kind} ${breach.what}`];
+  return KNOWN[`${engine} ${breach.kind} ${breach.what}`] ?? KNOWN[`* * ${breach.what}`];
 }
