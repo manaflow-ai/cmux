@@ -260,6 +260,7 @@ use cmd_sizing::{optional_surface_size, paired_surface_size};
 pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
+mod cmd_terminal_find;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
@@ -325,7 +326,8 @@ mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
 pub use agent_cli_hybrid::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
@@ -480,6 +482,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
+/// `process-census`: the terminal hosts and state this daemon and its
+/// siblings keep, from their records (`mux/process_census.rs`). Trusted local
+/// connections only.
+pub const PROCESS_CENSUS_CAPABILITY: &str = "process-census-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// A client that sends this in `set-client-info` gets `restart` on the
@@ -797,7 +803,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -805,7 +810,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
@@ -993,6 +997,12 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// The terminal hosts this daemon holds and every record root it can
+    /// read, each host classified from records, leases and session guards,
+    /// never from argv (`mux/process_census.rs`; `cmux ps`). Trusted local
+    /// connections only; read-only: it saves nothing (`cmux gc` saves the
+    /// unowned-host sightings).
+    ProcessCensus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),
@@ -1048,6 +1058,11 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The dated API version the client pins (`YYYY-MM-DD`): the
+        /// newest revision dated on or before it serves it
+        /// (server/api_revision_wire.rs, spec/api-versioning.md).
+        #[serde(default)]
+        api_version: Option<String>,
         /// The client's release (`cmux --version`), for refusals and logs.
         #[serde(default)]
         version: Option<String>,
@@ -1167,10 +1182,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known` and `limit`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
+        after: Option<usize>,
     },
     GetFrontendProjection {
         frontend: String,
@@ -1227,6 +1243,26 @@ enum Command {
         surface: SurfaceId,
         start: u32,
         count: u32,
+    },
+    /// One page of Cmd-F matches in the whole retained history, newest first
+    /// (`cmd_terminal_find.rs`).
+    TerminalFind {
+        surface: SurfaceId,
+        query: String,
+        #[serde(default)]
+        case_sensitive: bool,
+        #[serde(default)]
+        whole_word: bool,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        before: Option<u64>,
+        #[serde(default)]
+        epoch: Option<u64>,
+        #[serde(default)]
+        page_rows: Option<u64>,
+        #[serde(default)]
+        max_matches: Option<usize>,
     },
     SidebarPlugin {
         cols: u16,
@@ -1940,6 +1976,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -2413,6 +2453,8 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// Release every user-owned workspace name to the automatic namer.
+    ReleaseWorkspaceNames {},
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
         key: String,
@@ -2580,6 +2622,7 @@ impl Command {
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
+            | Self::TerminalFind { surface, .. }
             | Self::WaitFor { surface, .. }
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }

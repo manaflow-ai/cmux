@@ -25,6 +25,8 @@ base64.workspace = true
 cmux-agent-cli-render = { path = "../cmux-agent-cli-render", optional = true }
 ghostty-vt = { workspace = true, optional = true }
 toml.workspace = true
+# `scenario new`: a copy of a scenario file that keeps its comments and order.
+toml_edit.workspace = true
 cmux-fault.workspace = true
 serde.workspace = true
 # raw_value: a chat record's `msg` is written back byte for byte, in the recording's key order.

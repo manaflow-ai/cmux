@@ -335,7 +335,7 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${A}`;
   const launch = (args: string[] = []) =>
     chromium.launch({
       headless: true,

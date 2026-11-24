@@ -426,3 +426,91 @@ fn release_frees_the_state_and_its_empty_mount_point() {
     let line = control_line("p-gone", None, Some("lost"));
     assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
 }
+
+/// A head dial leaves the folder's sync barrier at HeadReady, an extend makes it Ready, a
+/// non-superset extend is refused and leaves the barrier and the mount alone, and a dial without
+/// `head` takes no barrier.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
+    use cmux_git::sync_barrier::{Probe, probe};
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+
+    if !Path::new("/dev/fuse").exists()
+        || std::process::Command::new("fusermount3").arg("-V").output().is_err()
+    {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let item = |path: &str| Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 3,
+        mtime_ns: 1,
+        link: None,
+    };
+    let home = cmux_unix_socket::short_test_dir("projx");
+    let roots = vec![std::fs::canonicalize(home.path()).unwrap()];
+    let at = roots[0].join("work").join("chat");
+    let head = Manifest::build(1, vec![item("README.md")]).unwrap().encode().unwrap();
+    let full =
+        Manifest::build(1, vec![item("README.md"), item("tail/x.txt")]).unwrap().encode().unwrap();
+    let wrong = Manifest::build(1, vec![item("other.txt")]).unwrap().encode().unwrap();
+
+    // One dial: send `first` and the manifest, read the answer, and keep the stream open.
+    let dial = |extra: Value, manifest: Vec<u8>| {
+        let (machine, mac) = UnixStream::pair().unwrap();
+        let mut line = json!({
+            "id": 1,
+            "cmd": SERVE,
+            "name": "test-extend",
+            "at": at,
+            "manifest_bytes": manifest.len(),
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            line[key] = value.clone();
+        }
+        let first = line.to_string();
+        let roots = roots.clone();
+        let served = std::thread::spawn(move || serve(&machine, &first, manifest, &roots));
+        let mut answer = String::new();
+        let mut reader = std::io::BufReader::new(mac.try_clone().unwrap());
+        std::io::BufRead::read_line(&mut reader, &mut answer).unwrap();
+        (serde_json::from_str::<Value>(&answer).unwrap(), mac, served)
+    };
+
+    let (answer, head_mac, head_served) = dial(json!({"head": true}), head);
+    if answer["error_code"] == "projection.mount_failed" {
+        eprintln!("skipping: FUSE refused the mount here: {}", answer["error"]);
+        return;
+    }
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(matches!(probe(&at).unwrap(), Probe::HeadReady));
+    assert!(!at.join("tail").exists());
+
+    let (answer, wrong_mac, wrong_served) = dial(json!({"extend": true}), wrong);
+    assert_eq!(answer["error_code"], "projection.extend_not_superset", "{answer}");
+    assert!(matches!(probe(&at).unwrap(), Probe::HeadReady));
+    assert!(at.join("README.md").exists());
+    wrong_mac.shutdown(std::net::Shutdown::Both).unwrap();
+    wrong_served.join().unwrap();
+
+    let (answer, full_mac, full_served) = dial(json!({"extend": true}), full);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(answer["data"]["extended"], true);
+    assert!(matches!(probe(&at).unwrap(), Probe::Ready(_)));
+    assert!(at.join("tail/x.txt").exists());
+
+    for (mac, served) in [(head_mac, head_served), (full_mac, full_served)] {
+        mac.shutdown(std::net::Shutdown::Both).unwrap();
+        served.join().unwrap();
+    }
+    let projected = projections().lock().unwrap().remove("test-extend").unwrap();
+    if let Some(mounted) = projected.mounted.lock().unwrap().take() {
+        mounted.unmount();
+    }
+    let state =
+        crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
+    let _ = std::fs::remove_dir_all(&state);
+}
