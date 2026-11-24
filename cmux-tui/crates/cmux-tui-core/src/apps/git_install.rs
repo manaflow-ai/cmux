@@ -218,6 +218,9 @@ impl Supervisor {
     /// the staged package an install of the same reference takes.
     pub(crate) fn git_stage(&self, reference: &str) -> Result<Staged, ApiError> {
         let reference = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?;
+        // The person named this repository (its consent card, an update of what they
+        // installed): the egress gate lets its host through.
+        cmux_egress::allow_named(&reference.host);
         let git_dir = self.git_dir()?;
         let transport = self.git_transport();
         let _one = self.git.fetching.lock().recover_poison();

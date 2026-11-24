@@ -448,6 +448,11 @@ pub fn download(
 /// The release asset of a built extension (`cmux ext pack`).
 pub const RELEASE_ASSET: &str = "cmux-extension.tar.gz";
 
+/// Where github.com redirects a release asset's download (`browser_download_url`):
+/// docs/privacy.md `connects` rows, so the egress gate lets the redirect through.
+pub const GITHUB_RELEASE_ASSET_HOSTS: [&str; 2] =
+    ["release-assets.githubusercontent.com", "objects.githubusercontent.com"];
+
 /// A release's built package.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asset {
@@ -1088,8 +1093,9 @@ impl HttpTransport {
     }
 
     fn client() -> Result<reqwest::Client, String> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder()
+        // Through the egress gate: the repository's host is the person's (git_stage names it),
+        // and the archive and release hosts it redirects to are docs/privacy.md rows.
+        cmux_egress::client_builder("cmux_tui_core::apps::git_source")
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 5 || attempt.url().scheme() != "https" {
                     attempt.stop()

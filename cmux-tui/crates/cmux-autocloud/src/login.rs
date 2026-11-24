@@ -83,7 +83,9 @@ fn save(session: &Session) -> Result<PathBuf> {
 
 fn client() -> Result<reqwest::Client> {
     crate::install_tls();
-    Ok(reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?)
+    Ok(cmux_egress::client_builder("cmux_autocloud::login")
+        .timeout(Duration::from_secs(20))
+        .build()?)
 }
 
 async fn send(client: &reqwest::Client, call: &HttpCall) -> Result<(u16, String)> {
@@ -107,6 +109,10 @@ fn origin(url: &str) -> String {
 }
 
 pub async fn run(config_url: &str) -> Result<()> {
+    if config_url != DEFAULT_CONFIG_URL {
+        // `--config-url`: a server the person named.
+        cmux_egress::allow_named(config_url);
+    }
     let client = client()?;
     let config: CliConfig = client
         .get(config_url)
