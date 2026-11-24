@@ -16,6 +16,7 @@ pub mod git;
 pub mod git_swap;
 pub mod layer;
 pub mod link;
+pub mod lower;
 pub mod manifest;
 #[cfg(target_os = "linux")]
 pub mod overlay;

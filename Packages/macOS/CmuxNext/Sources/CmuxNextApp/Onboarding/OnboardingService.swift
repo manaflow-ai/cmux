@@ -145,6 +145,24 @@ final class OnboardingService {
         }
     }
 
+    /// The guided Computer Use window (`palette.computerUse.setup` and the two Grant actions, which
+    /// Settings' Grant Access runs too): every entry opens it, as the earlier app did, never System
+    /// Settings by itself. `pane`: a Grant action's grant, whose Allow starts in the window once the
+    /// grants are read (System Settings opens with the drag panel docked to it), only on the
+    /// person's own run. `byPerson` false (an agent's `cmux action run`): the window comes forward
+    /// without the keys, bounces the Dock icon while another app is active, and starts nothing:
+    /// Computer Use is never turned on, and System Settings never opens, without the person's Allow.
+    /// `inFront`: the run may change the view (the person's run, or one that asked for focus);
+    /// otherwise the window opens behind with a Dock bounce. `byPerson`: the person's own gesture
+    /// in this app (``ActionInvocation/isPersonsOwnRun``), never an agent's, a page's or a
+    /// `focus` request: only that starts the grant's Allow, which can turn Computer Use on.
+    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, inFront: Bool, byPerson: Bool) {
+        computerUseSetup.recheck()
+        presenter.show(step: .computerUse, quietly: !inFront) { model, _ in
+            if let pane, byPerson { model.computerUse.allowOnceKnown(pane) }
+        }
+    }
+
     /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
     private func openSignIn(_ line: String) async -> Bool {
         if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
