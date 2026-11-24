@@ -1,8 +1,9 @@
 // Diff toolbar controls: the source menu pill, the jump-to-file palette, the
 // floating toolbar pill and its "..." options menu. State lives in App; the
 // models (what each control shows and does) are in toolbar-model.ts.
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
 import { useScrollEdges } from "./ui/scrollEdges";
 import { usePopupSettle } from "./ui/popupSettle";
 import "./ui/popupSurface.css";
@@ -514,7 +515,16 @@ export function FloatingToolbar({
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const settleOptions = usePopupSettle<HTMLDivElement>(focusFirstMenuItem);
+  // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useInPlaceGlassBlur(menuRef, menuOpen);
+  // The menu also keeps the box it opened with (ui/popupSettle.ts), which forwards the node here.
+  const setMenu = usePopupSettle<HTMLDivElement>(
+    useCallback((node: HTMLDivElement | null) => {
+      menuRef.current = node;
+      focusFirstMenuItem(node);
+    }, []),
+  );
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -523,7 +533,7 @@ export function FloatingToolbar({
     <div id="diff-pill" className="diff-pill-anchor">
       {menuOpen ? (
         <div
-          ref={settleOptions}
+          ref={setMenu}
           id="options-menu"
           className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"
