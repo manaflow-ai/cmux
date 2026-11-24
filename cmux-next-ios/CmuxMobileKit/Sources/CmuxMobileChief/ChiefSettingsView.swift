@@ -45,6 +45,13 @@ public struct ChiefSettingsView: View {
     @State private var restRowTop: CGFloat = Self.lastRestRowTop
     /// How far the cards are scrolled from rest.
     @State private var scrolled: CGFloat = 0
+    /// The link to Chief (the Mac's control channel, or cmux Cloud) is down:
+    /// the status under the name says so only once it has lasted the shared
+    /// quiet bound; the reconnect itself runs as before.
+    @State private var linkQuiet = QuietStatusGate()
+    /// A read the page retries on its own failed: its line and Try Again
+    /// wait out the same bound.
+    @State private var problemQuiet = QuietStatusGate()
 
     // Kept across pushes so the next push lays out at once, without a jump.
     @MainActor private static var lastWindowSafeTop: CGFloat = sceneSafeTop()
@@ -123,6 +130,8 @@ public struct ChiefSettingsView: View {
         // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
         .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
+        .onChange(of: linkDown, initial: true) { _, down in linkQuiet.update(down: down) }
+        .onChange(of: session.engineProblem?.isTransient == true, initial: true) { _, down in problemQuiet.update(down: down) }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
         .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation(.default.unlessReduceMotion) { muted = on } } }
         .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation(.default.unlessReduceMotion) { receipts = on } } }
@@ -157,7 +166,10 @@ public struct ChiefSettingsView: View {
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("chief.settings.title")
-                Text(statusLine)
+                // Under the quiet bound a down link says nothing; the blank
+                // line keeps the header's height.
+                Text(statusLine ?? " ")
+                    .accessibilityHidden(statusLine == nil)
                     .font(.subheadline)
                     .foregroundStyle(Color(uiColor: .secondaryLabel))
                     .multilineTextAlignment(.center)
@@ -207,15 +219,20 @@ public struct ChiefSettingsView: View {
         }
     }
 
+    /// Chief's link is down: cmux Cloud not connected, or no control channel to the Mac.
+    private var linkDown: Bool { session.runsInCloud ? !session.isConnected : !hasControl }
+
     /// Never claims Chief runs on a Mac it cannot reach: without the Mac's
-    /// control channel the status is the reason, matching the Model row.
-    private var statusLine: String {
-        if session.runsInCloud {
-            if !session.isConnected { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
-            return session.isWorking ? String(localized: "Working in cmux Cloud") : String(localized: "Runs in cmux Cloud")
-        }
-        guard hasControl else {
+    /// control channel the status is the reason, matching the Model row, and
+    /// nothing at all until that has lasted the shared quiet bound.
+    private var statusLine: String? {
+        if linkDown {
+            guard linkQuiet.isShown else { return nil }
+            if session.runsInCloud { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
+        }
+        if session.runsInCloud {
+            return session.isWorking ? String(localized: "Working in cmux Cloud") : String(localized: "Runs in cmux Cloud")
         }
         let mac = session.macName ?? String(localized: "your Mac")
         // A run with tools and no typing is work too (``ChiefSession/isWorking``).
@@ -267,7 +284,8 @@ public struct ChiefSettingsView: View {
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).
-            if hasControl, let problem = session.engineProblem {
+            // A transient one says nothing until it has lasted the shared quiet bound.
+            if hasControl, let problem = session.engineProblem, !problem.isTransient || problemQuiet.isShown {
                 Text(problem.loadText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
