@@ -23,7 +23,8 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
-import { SurgeHoldRow } from "../SurgeHoldRow";
+import { SurgeHoldRow, openHeldMessages } from "../SurgeHoldRow";
+import { ownQueue } from "../conversation/queuedMessages";
 import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
@@ -768,7 +769,16 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
-            {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {/* The retry's line, unless the queue's status line says it (QueueStatusLine.tsx): one line per state. */}
+            {!showNewTab && (
+              <AutoResumeNotice
+                state={liveAutoResume(liveTurnPhase, snapshot.autoResume)}
+                inQueue={
+                  ownQueue(snapshot.queue).length > 0 ||
+                  (snapshot.summary?.queuePaused === true && snapshot.queue.length > 0)
+                }
+              />
+            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}
@@ -909,6 +919,14 @@ export function drawPaneComposer({
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
             turnQueue={snapshot.queue}
+            {...(!showNewTab &&
+              snapshot.sessionId &&
+              surgeShows(snapshot.surge) && {
+                onOpenHeld: (
+                  (id: string) => () =>
+                    openHeldMessages(id)
+                )(snapshot.sessionId),
+              })}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}

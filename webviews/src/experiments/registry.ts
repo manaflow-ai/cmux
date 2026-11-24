@@ -74,6 +74,7 @@ import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experimen
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
+import { queueStatusLook } from "../agent-session/acpmux/queueStatus.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
 import { startedLineCrowd } from "../agent-session/acpmux/subagents/startedLineCrowd.experiment";
@@ -208,6 +209,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatDoneCheckPlace,
   trayHeadLook,
   trayFoldHeadLook,
+  queueStatusLook,
   trayHeadKindsLook,
   trayKindLineLook,
   trayHeadClockLook,
