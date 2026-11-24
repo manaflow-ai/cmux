@@ -39,6 +39,7 @@ done
 
 out=artifacts/screen-share-vs-pair
 work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
+trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
 self=$(hostname -s)
 self_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
@@ -76,7 +77,7 @@ if [[ "$loss" != 0 ]]; then
 fi
 python3 -I cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py run \
   --host "$self" --viewer "$target" --host-ip "$self_ip" --local-mac "$self" --via ssh \
-  --tools "$work/tools" --stacks cmux --source "$source" --link "$link" "${loss_args[@]}" \
+  --tools "$work/tools" --stacks cmux --source "$source" --link "$link" ${loss_args[@]+"${loss_args[@]}"} \
   --fps-trials "$fps_trials" --trials "$trials" --label "pair-job" --rev "$(git rev-parse HEAD)" \
   --out "$work/run.jsonl" 2>&1 | tee "$work/run.log"
 rc=${PIPESTATUS[0]}
