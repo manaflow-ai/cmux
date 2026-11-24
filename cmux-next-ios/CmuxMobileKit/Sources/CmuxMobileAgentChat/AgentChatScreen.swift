@@ -729,9 +729,10 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
-/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// Kept rows show while the chat is away from the Mac or catches up with it, and nothing floats
+/// over the composer: its kinds (connecting, updating) do not paint (``ConnectionChip/Kind/paints``;
+/// Leo, 2026-11-24: "all the connecting... indicators ... nah let's not do that"). The view stays
+/// so the store's line keeps one place to land if a state that paints is ever routed here. An overlay, never
 /// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
 /// not be pushing up the text ... a symbol or short thing, not a sentence. stop
 /// layout shifting").

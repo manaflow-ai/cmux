@@ -91,11 +91,13 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// The title pill's subtitle once an outage lasted
     /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
-    /// the working directory: the page itself gets no status row.
+    /// the working directory: the page itself gets no status row. A link still
+    /// coming back (connecting, reattaching) says nothing: the pill keeps the
+    /// working directory and the last frame stays (Leo, 2026-11-24: "let's just
+    /// keep optimistically connecting and reinforcing the connection").
     public var pillSubtitle: String? {
         switch self {
-        case .connecting: return "Connecting…"
-        case .reattaching: return "Reattaching…"
+        case .connecting, .reattaching: return nil
         case .offline: return "Mac offline"
         case .failed: return "Can't connect"
         case .attached: return nil

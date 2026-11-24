@@ -259,7 +259,8 @@ private struct BannerHost: View {
 
     var body: some View {
         ZStack {
-            if let state, state != dismissal?.state {
+            // A link still trying shows nothing and announces nothing (``ConnectionBannerState/paints``).
+            if let state, state.paints, state != dismissal?.state {
                 Group {
                     if let chip = state.chip {
                         ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)

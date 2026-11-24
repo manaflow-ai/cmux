@@ -487,7 +487,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             )
         case .terminal:
             let directory = tab.subtitle ?? workspace.directory
-            // "Reattaching…" replaces the directory in the pill only after a slow reattach (P5).
+            // "Can't connect" or "Mac offline" replaces the directory in the pill only after the quiet bound (P5);
+            // a reattach still under way says nothing (Leo, 2026-11-24).
             let status = terminal.statusSubtitle(for: tab)
             return TabsKitTab(
                 id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
