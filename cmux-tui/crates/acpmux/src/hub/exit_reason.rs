@@ -26,8 +26,8 @@ pub(super) fn explains_exit(line: &str) -> bool {
 /// with only its code, and a code of 0 read as "agent stopped" in the transcript, as if someone
 /// had stopped it: an agent that printed its account's 429 and quit read the same as a Stop. Now
 /// the record says what the process said, and the transcript says it exited and why
-/// (`transcript.rs`). The chat's status and its resume are as before: the next prompt starts the
-/// harness again on the same conversation.
+/// (`transcript.rs`). A `rate_limit` exit also holds the chat until the reset and starts the
+/// harness again there on the same conversation, with no prompt (`rate_hold.rs` `hold_at_exit`).
 pub(super) fn exited_data<C: serde::Serialize>(code: C, last: Option<&str>) -> serde_json::Value {
     let mut data = serde_json::json!({"code": code});
     if let (Some(line), Some(o)) = (last, data.as_object_mut()) {
