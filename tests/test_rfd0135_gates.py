@@ -41,6 +41,11 @@ class Rfd0135GatesTest(unittest.TestCase):
             got = gates.gate_move(argparse.Namespace(matrix_log=str(log)))
         self.assertEqual((got["cells"], got["clean"], got["ok"]), (56, 56, False))
 
+    def test_gate_line_found_after_the_harness_prefix(self) -> None:
+        out = 'running 1 test\ntest lid_close_gate ... GATE lid-close {"runs": 2, "passed": 2}\nok\n'
+        self.assertEqual(gates.gate_line(out, "lid-close"), {"runs": 2, "passed": 2})
+        self.assertIsNone(gates.gate_line("nothing", "lid-close"))
+
     def test_p95(self) -> None:
         self.assertIsNone(gates.p95([]))
         self.assertEqual(gates.p95(list(range(1, 21))), 19)

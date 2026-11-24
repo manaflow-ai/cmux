@@ -59,13 +59,23 @@ def gate_lid_close(args: argparse.Namespace) -> dict:
     run = cargo_test("lid_close_gate", "lid_close_gate",
                      {"LID_CLOSE_RUNS": str(args.runs), "LID_CLOSE_SECS": str(args.secs)})
     sys.stderr.write(run.stderr[-20_000:])
-    line = next((l for l in run.stdout.splitlines() if l.startswith("GATE lid-close ")), None)
-    if line is None:
+    data = gate_line(run.stdout + "\n" + run.stderr, "lid-close")
+    if data is None:
         return {"gate": "lid-close", "ran": False, "why": f"no GATE line (cargo exit {run.returncode})"}
-    data = json.loads(line[len("GATE lid-close "):])
     data.update(ran=True, ok=data["passed"] == data["runs"] and data["lid_s"] >= 1800 and data["runs"] >= 10,
                 number=f'{data["passed"]}/{data["runs"]} at {data["lid_s"]} s')
     return data
+
+
+def gate_line(text: str, name: str) -> dict | None:
+    """The last `GATE <name> {json}` anywhere in a line: the test harness prints `test NAME ... `
+    with no newline before a single test's own output, so the line rarely starts with it."""
+    found = None
+    for line in text.splitlines():
+        at = line.find(f"GATE {name} {{")
+        if at >= 0:
+            found = json.loads(line[at + len(f"GATE {name} "):])
+    return found
 
 
 ROW = re.compile(r"^\| (local->cloud|cloud->local) \| (\S+) \| (\S+) \| (\d+) \| (.*?) \| (.*?) \| (.*?) \|")
