@@ -207,6 +207,61 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     });
   }
 
+  test("shared list: Tab from a row before a scrolled window lands on the true first row; Shift-Tab from after it on the last", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${PAGE}?list=shared&n=500`);
+      await page.waitForSelector("ul[data-shared] > li[aria-posinset]");
+      /// The focused element's row: its place in the whole list, the list's length and its words.
+      const focused = () =>
+        page.evaluate(() => {
+          const row = document.activeElement?.closest("ul[data-shared] > li");
+          return row
+            ? {
+                place: Number(row.getAttribute("aria-posinset")),
+                size: Number(row.getAttribute("aria-setsize")),
+                text: row.textContent ?? "",
+              }
+            : null;
+        });
+      const mounted = () =>
+        page.evaluate(() => document.querySelectorAll("ul[data-shared] > li:not([data-rows-rest])").length);
+      // The window scrolled far from the list's top: its first mounted row is not its first row.
+      await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 8000));
+      await page.waitForFunction(() => {
+        const first = document.querySelector("ul[data-shared] > li[data-rows-rest] + li");
+        return Number(first?.getAttribute("aria-posinset") ?? 0) > 50;
+      });
+      await page.locator("ul[data-shared] > li[data-before='2'] button").focus();
+      await page.keyboard.press("Tab");
+      await page.waitForFunction(() => !!document.activeElement?.closest("ul[data-shared] > li:not([data-before])"));
+      // Settle the window the Tab asked for.
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const tabbed = await focused();
+      console.log(
+        `SESSION-INFO-EXPAND shared Tab from the row before: ${JSON.stringify(tabbed)} mounted=${await mounted()}`,
+      );
+      // The three rows before it hold places 1-3; the windowed list's first row is place 4.
+      expect(tabbed?.place).toBe(4);
+      expect(tabbed?.text).toContain("Shared");
+      expect(await mounted()).toBeLessThanOrEqual(BOUND + 4);
+      // Shift-Tab from the button after the list lands on its true last row.
+      await page.evaluate(() => (document.querySelector(".acpmux-session-info__body")!.scrollTop = 0));
+      await page.locator("button[data-after]").focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const back = await focused();
+      console.log(
+        `SESSION-INFO-EXPAND shared Shift-Tab from after: ${JSON.stringify(back)} mounted=${await mounted()}`,
+      );
+      expect(back?.place).toBe(back?.size);
+      expect(await mounted()).toBeLessThanOrEqual(BOUND + 4);
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "alsoHere"]) {
     test(`${list}: opening the list draws only the rows that can show, at any length`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };

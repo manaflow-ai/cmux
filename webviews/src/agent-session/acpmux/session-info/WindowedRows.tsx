@@ -284,6 +284,15 @@ export function WindowedRows<T>({
         last: at.kept !== undefined ? Math.max(at.kept, at.end - 1) : at.end - 1,
       };
     };
+    /// Where `node` is against the windowed rows, which lie between the box above them and the box under
+    /// them (the rows of the same list outside those boxes are not theirs).
+    const precedesRows = (node: Node) =>
+      !!top.current && !!(top.current.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING);
+    const followsRows = (node: Node) =>
+      !!bottom.current &&
+      node !== bottom.current &&
+      !!(bottom.current.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const withinRows = (node: Node) => host.contains(node) && !precedesRows(node) && !followsRows(node);
     const focusIn = (event: FocusEvent) => {
       const row = (event.target as Element | null)?.closest?.("li");
       if (!row || row.parentElement !== host) return;
@@ -292,15 +301,15 @@ export function WindowedRows<T>({
       const at = now.current;
       const edges = mountedEdges();
       const from = event.relatedTarget as Node | null;
-      if (from && !host.contains(from)) {
-        const position = host.compareDocumentPosition(from);
-        // Shift-Tab from what follows the list lands on its true last row, Tab from what precedes it
-        // on its true first row: that row's window mounts, not every row.
-        if (position & Node.DOCUMENT_POSITION_FOLLOWING && index === edges.last && index < at.total - 1) {
+      // Shift-Tab from what follows the rows lands on their true last row, Tab from what precedes them
+      // on their true first row: that row's window mounts, not every row. What precedes or follows
+      // them may sit in the same list (the summary card's rows before its chats, SubagentStatusList).
+      if (from && !withinRows(from)) {
+        if (followsRows(from) && index === edges.last && index < at.total - 1) {
           reach(at.total - 1, "last");
           return;
         }
-        if (position & Node.DOCUMENT_POSITION_PRECEDING && index === edges.first && index > 0) {
+        if (precedesRows(from) && index === edges.first && index > 0) {
           reach(0, "first");
           return;
         }
@@ -309,7 +318,7 @@ export function WindowedRows<T>({
     };
     const focusOut = (event: FocusEvent) => {
       const to = event.relatedTarget as Node | null;
-      if (!to || !host.contains(to)) setPin(null);
+      if (!to || !withinRows(to)) setPin(null);
     };
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
