@@ -40,6 +40,7 @@ view with the mode off), never a pass.
 | 13 | The page clipped or out of step with its pane; the viewport underestimated on scroll; clicks landing in the wrong place | Live: `pane_fit.viewport` (after the split and a wheel scroll, innerWidth/innerHeight and visualViewport equal the page view's size within 1 pt), `pane_fit.click.page` and `pane_fit.click.window` (a `debug.mouse` click at each of five targets' centres, by page and by window point, hits it: inside its rect within 1 pt, `elementFromPoint == event.target`) | new |
 | 14 | Cmd-Shift-Enter (pane zoom) shows broken states | Live: `pane_zoom.zoom`, `pane_zoom.unzoom` (Cmd-Shift-Return through `debug.key` with the page focused: zoomed area at least 1.3x, back within 1 pt after; one page view shown, no overlay panel or page child window; the page fits its view at most 100 ms after the pane) | new |
 | 15 | Omnibar text overflows under the icons in narrow panes | Live: `omnibar_narrow.480`, `.360`, `.300`, `.260` (with a long URL, `debug.omnibar` frames: the text area and field end before every icon to their right inside the bar; the bar stays inside the toolbar) | new |
+| 16 | A popup opened from a full-screen cmux window took a full-screen Space of its own (Chrome floats it over the opener at its requested size) | Package: `BrowserPopupWindowTests.overAFullScreenOpenerThePopupFloatsInItsSpaceInsteadOfTakingANewOne`. Live: by hand on the other Mac until a `popup_float` row exists (full-screen the window, open popup.html's window.open 480x360: the popup is on the same Space, 480x360 content, not full screen) |
 
 ## What the rows cannot see yet
 
@@ -53,3 +54,5 @@ view with the mode off), never a pass.
 - Pointer tracking, cursors and hover in the page are checked by hand with
   `artifacts/in-tree-pages/try-layouts/site/pointer-bench.html` (in cmuxterm-hq): its summary panel shows PASS/FAIL
   per metric in one screenshot.
+
+- Pointer bench page bug (2026-11-23): section 4 read the bench's state before it was set, the script stopped, and sections 1, 5, 6 and 7 and the summary looked broken in cmux. The page now shows any script error as a red "bench bug" banner, so a page bug is never read as a browser defect.
