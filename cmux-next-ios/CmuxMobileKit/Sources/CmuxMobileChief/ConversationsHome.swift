@@ -43,6 +43,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// When Home started showing kept rows while its list loads (the "Updating" chip's wait).
     @State private var updatingSince: Date?
     @State private var homeRetries = 0
+    /// A pull to refresh runs (its wheel shows the progress, so the "Updating" chip does not).
+    @State private var pullRefreshing = false
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -97,7 +99,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var connectionStatus: HomeConnectionStatus? {
         let mac = homeMacID.flatMap { id in store.activeTeam?.macs.first { $0.id == id } }
         return HomeConnectionStatus.make(linkDown: homeIsOffline, macOnline: mac?.isOnline, failed: feed.problem != nil,
-                                         retrying: homeRetries > 0, macName: macTag)
+                                         retrying: homeRetries > 0 || demoRetrying, macName: macTag)
+    }
+
+    /// The `home-chip-reconnecting*` demos' held retry (DEBUG only).
+    private var demoRetrying: Bool {
+        #if DEBUG
+        feed.retryingForDemo
+        #else
+        false
+        #endif
     }
 
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
@@ -132,6 +143,30 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         homeRetries += 1
         defer { homeRetries -= 1 }
         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
+    }
+
+    /// Pull to refresh (Workspaces' own, ``cmuxMobileListPullToRefresh``): dials the Mac again
+    /// when its link is down, then reads the list again; the wheel turns until the read answers.
+    private func pullToRefresh() async {
+        pullRefreshing = true
+        defer { pullRefreshing = false }
+        #if DEBUG
+        // The list rig's mock refresh (`CMUX_MOBILE_LIST_REFRESH_SECONDS`), as Workspaces' rig has.
+        if let seconds = ListStressSettings.shared.refreshSeconds {
+            try? await Task.sleep(for: .seconds(seconds))
+            return
+        }
+        #endif
+        await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
+    }
+
+    /// The bottom "Updating" chip: kept rows wait for the Mac's fresh list over a live link.
+    /// Never with a connection chip at the top (Reconnecting, offline, failed): that one already
+    /// says the list is not live (the user, 2026-11-23: "only reconnecting shows"); never during a
+    /// pull to refresh, whose wheel says it.
+    private func showsUpdating(searching: Bool) -> Bool {
+        HomeUpdatingChip.shows(note: listNote(searching: searching), bannerShows: homeBanner != nil,
+                               pullRefreshing: pullRefreshing)
     }
 
     /// Under a Chief's name: where it runs ("Cloud", or the Mac's name), as the Mac's list tags each Chief.
@@ -443,17 +478,19 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
+        // Swipe down to refresh, as the Workspaces list (the user, 2026-11-23).
+        .cmuxMobileListPullToRefresh { await pullToRefresh() }
         // Kept rows show while the Mac's list loads: say they are being updated, over the
         // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
         // "a symbol or short thing, not a sentence. stop layout shifting").
         .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
+            if showsUpdating(searching: searching) {
                 ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
                     .padding(.bottom, 8)
                     .accessibilityIdentifier("home.note.updating")
             }
         }
-        .onChange(of: listNote(searching: searching) == .updating, initial: true) { _, updating in
+        .onChange(of: showsUpdating(searching: searching), initial: true) { _, updating in
             updatingSince = ConnectionChip.nextDownSince(updatingSince, down: updating, now: Date())
         }
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a

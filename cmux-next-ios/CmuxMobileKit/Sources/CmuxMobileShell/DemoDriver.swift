@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "home-chip-updating", "home-chip-reconnecting", "home-chip-reconnecting-live", "home-chip-neither", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -102,6 +102,16 @@ struct DemoDriver {
             }
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .failed("Can't reach the Mac right now.")
+            shell.tab = .home
+        case "home-chip-updating", "home-chip-reconnecting", "home-chip-reconnecting-live", "home-chip-neither":
+            // Home's chips (the user, 2026-11-23): kept rows waiting for the fresh list ("Updating"
+            // at the bottom), a retry running (Reconnecting at the top), both, or neither. The
+            // link is up; nothing is dialed.
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            if name == "home-chip-updating" || name == "home-chip-reconnecting" { MacHomeFeed.shared.showKeptRowsForDemo() }
+            MacHomeFeed.shared.retryingForDemo = name.hasPrefix("home-chip-reconnecting")
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .connected
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
