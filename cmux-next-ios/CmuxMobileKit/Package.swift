@@ -288,7 +288,7 @@ let package = Package(
 // iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
-        "CmuxMobileModel", "CmuxMobileNotifications", "CmuxMobileRealtime", "CmuxMobileTransport",
+        "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
@@ -299,13 +299,6 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return false
         }
     }
-    // CmuxMobileNotifications seals pushes with CryptoKit; swift-crypto is the same API on Linux.
-    package.dependencies = [
-        .package(path: "../../Packages/Shared/CMUXAuthCore"),
-        .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
-    ]
-    for name in ["CmuxMobileNotifications", "CmuxMobileNotificationsTests"] {
-        package.targets.first { $0.name == name }?.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
-    }
+    package.dependencies = [.package(path: "../../Packages/Shared/CMUXAuthCore")]
 }
 #endif
