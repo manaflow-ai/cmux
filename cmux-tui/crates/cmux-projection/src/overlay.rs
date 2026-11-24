@@ -81,6 +81,7 @@ pub mod errno {
     pub const ENOENT: i32 = 2;
     pub const EIO: i32 = 5;
     pub const EBADF: i32 = 9;
+    pub const EACCES: i32 = 13;
     pub const EEXIST: i32 = 17;
     pub const EXDEV: i32 = 18;
     pub const ENOTDIR: i32 = 20;
@@ -90,7 +91,8 @@ pub mod errno {
     pub const ENOTEMPTY: i32 = 39;
 }
 use errno::{
-    EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
+    EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -371,6 +373,8 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    /// Files kept on the Mac whose refusal was logged already (once each, not once per open).
+    told: Mutex<HashSet<u32>>,
     /// Told of every read the agent asked for that failed because the Mac is away.
     away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
@@ -402,6 +406,11 @@ impl Drop for Claim<'_> {
         drop(inflight);
         self.overlay.landed.notify_all();
     }
+}
+
+/// The log line's words for a file kept on the Mac for `reason`.
+fn kept_text(reason: &str) -> String {
+    format!("kept on the Mac ({reason}); `cmux link access request PATH` asks the person for it")
 }
 
 fn io_errno(error: &std::io::Error) -> i32 {
@@ -670,6 +679,7 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            told: Mutex::new(HashSet::new()),
             away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
@@ -1232,7 +1242,22 @@ impl Overlay {
         }
     }
 
+    /// `EACCES` for a file the Mac keeps home (listed with its stat, its bytes never sent), with
+    /// why in this machine's log, once per file.
+    fn refuse_kept(&self, index: u32) -> Result<(), i32> {
+        let Some(reason) = self.manifest.kept(index) else { return Ok(()) };
+        if self.told.lock().unwrap_or_else(PoisonError::into_inner).insert(index) {
+            eprintln!(
+                "cmux-projection: {}: {} (EACCES)",
+                self.manifest.path_of(index),
+                kept_text(reason)
+            );
+        }
+        Err(EACCES)
+    }
+
     fn read_lower(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
+        self.refuse_kept(index)?;
         let entry = self.manifest.entry(index).ok_or(ENOENT)?;
         match entry.kind {
             Kind::Dir => return Err(EISDIR),
@@ -1381,7 +1406,8 @@ impl Overlay {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
-                    Self::hidden(&inner, &self.manifest.path_of(other))
+                    self.manifest.kept(other).is_some()
+                        || Self::hidden(&inner, &self.manifest.path_of(other))
                         || (entry.kind == Kind::File && self.cache_path((other, WHOLE)).exists())
                 })
             };
@@ -1538,6 +1564,7 @@ impl Overlay {
 
     /// Copies lower `path` (entry `index`) into the upper layer, unless it is there already.
     fn copy_up(&self, path: &str, index: u32) -> Result<(), i32> {
+        self.refuse_kept(index)?;
         self.copy_up_keeping(path, index, true)
     }
 
@@ -1603,6 +1630,10 @@ impl Overlay {
             return Ok(self.add_handle(Handle { ino, file: None, lower: Some(index) }));
         }
         let path = self.path_of(ino)?;
+        // A file the Mac keeps home: its stat is listed, an open of it is refused.
+        if let Some(Node::Lower(index)) = self.node(&path) {
+            self.refuse_kept(index)?;
+        }
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
             match self.node(&path).ok_or(ENOENT)? {
