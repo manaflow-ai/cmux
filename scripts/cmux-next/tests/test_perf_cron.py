@@ -1095,11 +1095,45 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.target_of("launch.relaunch.warm.chat_live_ms@cmux20-bench", rows["launch.relaunch.warm.chat_live_ms"], 8.33), 600)
         self.assertTrue(cron.over_target("launch.relaunch.warm.chat_live_ms@h", rows["launch.relaunch.warm.chat_live_ms"], 8.33))
         self.assertFalse(cron.over_target("launch.relaunch.warm.first_window_frame_ms@h", rows["launch.relaunch.warm.first_window_frame_ms"], 8.33))
+        terminal = {"rounds": [{"terminal_frame_ms": 700.0, "terminal_restored_ms": 900.0, "terminal_live_ms": 1000.0},
+                               {"terminal_frame_ms": 720.0, "terminal_restored_ms": 950.0, "terminal_live_ms": None}]}
+        report["rows"] += rw.terminal_rows(terminal)
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["launch.relaunch.session.terminal_live_ms"]["p95"], 1000.0)
+        self.assertEqual(rows["launch.relaunch.session.terminal_frame_ms"]["p50"], 710.0)
+        self.assertEqual(rows["launch.relaunch.session.terminal_missing_runs"]["p95"], 1, "a terminal that never went live")
+        self.assertEqual(cron.target_of("launch.relaunch.session.terminal_live_ms@h", rows["launch.relaunch.session.terminal_live_ms"], 8.33), 1000)
         self.assertEqual(rw.missing_rows(report["rows"], rw.RELAUNCH_EXPECTED), [])
         self.assertEqual(rw.missing_rows([], rw.RELAUNCH_EXPECTED),
-                         ["no launch.relaunch.warm.chat_live_ms", "no launch.relaunch.update.chat_live_ms"],
-                         "a chat bench that gave nothing marks the report incomplete")
+                         ["no launch.relaunch.warm.chat_live_ms", "no launch.relaunch.update.chat_live_ms",
+                          "no launch.relaunch.session.terminal_missing_runs"],
+                         "a bench that gave nothing marks the report incomplete")
+        never = rw.terminal_rows({"rounds": [{"terminal_frame_ms": None, "terminal_restored_ms": None, "terminal_live_ms": None}]})
+        self.assertEqual([(r["name"], r["p95"]) for r in never], [("launch.relaunch.session.terminal_missing_runs", 1)],
+                         "terminals that never come back are a failing value, not a missing row")
+        self.assertEqual(rw.terminal_rows({"rounds": []}), [])
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no launch.relaunch.warm.chat_live_ms"]}))
+
+    def test_the_relaunch_terminal_bench_times_the_view_attached_again(self):
+        """relaunch-terminal-bench.py: restored at the first counter line drawn, live at a line newer than the quit's and
+        the first restored read's (the counter kept running while the app was gone)."""
+        spec2 = importlib.util.spec_from_file_location("relaunch_terminal", os.path.join(HERE, "..", "relaunch-terminal-bench.py"))
+        bench = importlib.util.module_from_spec(spec2)
+        with mock.patch.dict("sys.modules", {"bench_memory": mock.MagicMock(), "bench_power": mock.MagicMock()}):
+            spec2.loader.exec_module(bench)
+        self.assertEqual(bench.last_tick("$ echo rt-tick-$i\nrt-tick-8\nrt-tick-9"), 9, "the typed text holds no number")
+        self.assertIsNone(bench.last_tick(None))
+        reads = [(1000.0, None), (1100.0, ""), (1200.0, "rt-tick-40\nrt-tick-41"), (1250.0, "rt-tick-41"),
+                 (1300.0, "rt-tick-42")]
+        got = bench.round_result(reads, 500.0, 12, 640.0)
+        self.assertEqual((got["terminal_frame_ms"], got["terminal_restored_ms"], got["terminal_live_ms"]), (640.0, 700.0, 800.0))
+        stale = bench.round_result([(1200.0, "rt-tick-12"), (1300.0, "rt-tick-12")], 500.0, 12, None)
+        self.assertEqual((stale["terminal_restored_ms"], stale["terminal_live_ms"]), (700.0, None), "a frozen screen is not live")
+        self.assertIsNone(bench.round_result([], 500.0, 12, None)["terminal_live_ms"])
+        panes = [{"kind": "terminal", "workspace": "ws_other", "text": "rt-tick-99"},
+                 {"kind": "terminal", "workspace": "ws_1", "text": "rt-tick-3"}]
+        self.assertEqual(bench.workspace_text({"windows": [{"panes": panes}]}, "ws_1"), "rt-tick-3")
+        self.assertIsNone(bench.workspace_text({"windows": [{"panes": panes}]}, "ws_none"), "never another workspace's")
 
     def test_the_wake_part_owns_its_proxy_rows(self):
         """A measure Mac can't sleep in a step: the wake rows are a freeze proxy and say so in their name."""
