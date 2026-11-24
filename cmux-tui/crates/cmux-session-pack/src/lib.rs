@@ -42,8 +42,9 @@
 //!
 //! [`Pack::read_lines`] finds the segments a range of lines is in from the manifest, reads those
 //! events chunks and only the blob chunks the range's lines name. [`Pack::blob`] reads one blob.
-//! The manifest also lists the lines that start a turn ([`Params::marks`]), so "the last 50
-//! turns" is one range. A range's name (`<session>@<first line>-<last line>`,
+//! The manifest also lists the lines that start a turn, so "the last 50 turns" is one range: an
+//! acpmux record of a kind in [`Params::marks`], or, in a Claude Code transcript, a person's
+//! prompt (told by the line's shape, `claude.rs`). A range's name (`<session>@<first line>-<last line>`,
 //! [`RangeId`]) is what a compaction summary keeps in place of the text it summarized: the agent,
 //! or the view, asks for that name and gets the lines back (partial decompaction), as the
 //! records themselves or as a few kilobytes of text ([`digest`]) that name each tool result it
@@ -56,6 +57,7 @@
 //! place last. A machine that holds an older copy of the session holds every sealed segment of
 //! it, so it is sent the segments sealed since and the partial one.
 
+mod claude;
 mod codec;
 pub mod digest;
 mod manifest;
@@ -64,7 +66,7 @@ mod read;
 pub mod ship;
 mod store;
 
-pub use manifest::{Manifest, Params, RangeId, SCHEMA, Segment};
+pub use manifest::{Manifest, Params, RangeId, SCHEMA, Segment, TURN_RULE};
 pub use pack::{PackStats, pack};
 pub use read::Pack;
 pub use store::{Id, MISSING, Store, hex, unhex};
