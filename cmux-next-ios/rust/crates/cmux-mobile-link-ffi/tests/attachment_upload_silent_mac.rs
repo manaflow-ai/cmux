@@ -166,6 +166,7 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
         backoff_max: Duration::from_millis(500),
         give_up: Duration::from_secs(120),
         progress_interval: Duration::from_millis(50),
+        first_reply: Duration::from_secs(1),
     };
     let uploads = AttachmentUploads::with_timings(Arc::new(Quiet), timings);
     uploads.set_link(mac_id.clone(), Some(link));
