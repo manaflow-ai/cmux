@@ -7262,15 +7262,24 @@ WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most mai
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
-WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed: (.*)",
-                                  re.S)
+# A ws-check failure description, at most 139 characters: "N of M steps failed: STEP", with ws-check's own labels.
+# `base red (main SHA8 fails it too)` prefixes a failure main's run shares whole. A PARTLY shared one keeps only its
+# own steps in N and says so in `(+K base red discounted, main SHA8)` — written before the step by ws-check now, after
+# it before that, where the 139-character cut usually ate it (lw#9692: "12 of 926 steps failed: ... agent_launch_lint"
+# of a run whose WS_CHECK_RESULT lists 26, the marker gone). Both places are read, and a cut-off marker is no reason to
+# refuse: the number a discount leaves is N <= len(failed), checked as that below.
+WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
+                                  r"(?: \(\+\d+ base red discounted, main [0-9a-f]{8}\))?: (.*)", re.S)
+# What ws-check may write after the step: a lint hint, or the discount marker when it wrote it there.
+WS_CHECK_AFTER_STEP = ("; ", " (+")
 
 
 def ws_check_names_step(described: str, step: str) -> bool:
     """Whether the step DESCRIBED in a ws-check status (at most 139 characters, never a log) names STEP: STEP cut
-    short, STEP itself, or STEP followed by a "; " hint. Nothing looser, so a description naming another step never
-    matches."""
-    return step.startswith(described) or described == step or described.startswith(step + "; ")
+    short, STEP itself, or STEP followed by one of WS_CHECK_AFTER_STEP. Nothing looser, so a description naming another
+    step never matches."""
+    return (step.startswith(described) or described == step
+            or any(described.startswith(step + after) for after in WS_CHECK_AFTER_STEP))
 
 
 UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
@@ -7755,7 +7764,14 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
-    if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not ws_check_names_step(named[3], failed[0]):
+    # The status must be this run's: its M is the run's step count exactly, and the step it names is one the run failed.
+    # N is not held to len(failed): a description whose base reds were discounted (discount_base_reds) counts only the
+    # PR's own steps, and names the first of those, which is not failed[0] when main's own red sorts before it. Held to
+    # equality, every partly discounted red was refused "does not match", and no lander could call it a base red --
+    # thirteen leo-workspace heads at once on 2026-11-24. The excuse itself is derived from the run's failed list
+    # below, never from these numbers.
+    if (int(named[2]) != result.get("steps") or not 1 <= int(named[1]) <= len(failed)
+            or not any(ws_check_names_step(named[3], step) for step in failed)):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:

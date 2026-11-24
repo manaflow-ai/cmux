@@ -8071,6 +8071,32 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
             self.judge()
 
+    def test_a_partly_discounted_red_is_read_with_its_marker_cut_off(self):
+        # leo-workspace ws-check's discount_base_reds counts only the PR's OWN steps in a partly shared failure and
+        # says so in "(+K base red discounted, main SHA8)" after the step, where the 139-character status cut usually
+        # ate it: lw#9692 posted "12 of 926 steps failed: ... agent_launch_lint" of a run whose WS_CHECK_RESULT lists
+        # 26 failed steps, first one a step main fails too. Held to N == len(failed) and to failed[0], every such red
+        # was refused "does not match run ...", so no lander could call it a base red -- thirteen leo-workspace heads
+        # at once on 2026-11-24 (ws#9698, #9692, #9700, #9701, ...).
+        both = {self.RELAY: self.relay_lint(), self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, both)
+        for description in (f"1 of 77 steps failed (+1 base red discounted, main {self.gh.TIP[:8]}): {self.DEPLOY}",
+                            f"1 of 77 steps failed: {self.DEPLOY}",  # the marker cut off, as lw#9692's was
+                            f"1 of 77 steps failed: {self.DEPLOY}{self.HINT}"):
+            with self.subTest(description=description):
+                self.gh.verdict(HEAD, 1, both, description=description)
+                self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # The step it names must still be one the run failed, and its count no more than the run's.
+        for description in (f"1 of 77 steps failed: {self.RELAY}-other",
+                            f"1 of 77 steps failed (+1 base red discounted, main {self.gh.TIP[:8]}): nothing.yml x",
+                            f"3 of 77 steps failed: {self.DEPLOY}",
+                            f"0 of 77 steps failed: {self.DEPLOY}",
+                            f"1 of 78 steps failed: {self.DEPLOY}"):
+            with self.subTest(refused=description):
+                self.gh.verdict(HEAD, 1, both, description=description)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
     def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
         red = {self.DEPLOY: self.ws_deploy("test_a")}
         self.gh.verdict(self.gh.TIP, 2, red)
