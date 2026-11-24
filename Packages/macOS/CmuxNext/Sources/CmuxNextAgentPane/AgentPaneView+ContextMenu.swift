@@ -67,12 +67,16 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
+        menu.confineTracking(at: event, in: self)
         super.willOpenMenu(menu, with: event)
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
         menuAutoFill.menuDidClose()
         super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 }
 
@@ -126,33 +130,34 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
-            // Where the files are, recorded for every native drop, as a paste's are as it reaches the
-            // page: page script can make no native drop, and the record names only the drag's own
-            // files. A Finder drag dispatches no input event to this app (the drag server calls
-            // `performDragOperation`), so the event in dispatch is not the person's: gated on it, a
-            // drop recorded nothing and the page uploaded every byte where a paste linked at once
-            // (Leo, 2026-11-17).
-            model.droppedPaths.stash(urls, kind: .drop)
-            // The drop's paths go to the page with the drop itself, so it links (a chat on this Mac)
-            // or has the host put (another machine's) each file with no request and no deadline
-            // (Leo, 2026-11-18: "you can just send it instantly. Like, stop blocking."). WebKit:
-            // this script is queued before `performDragOperation` hands WebKit the drop, so the page
-            // has it before its DOM drop. Chromium: right after the page's drop message.
-            pushDroppedPaths()
+            model.hostTouch.mark("drop") // a posted drop too: the page has the files
+            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
+            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
+            // pane's table of posting processes (no system call).
+            if page?.droppedOnPageWindow == true {
+                // Chromium's own page window took the drop: no event to check, so no gesture, but the
+                // chat still links the files where they are instead of streaming them (``PageWebView/droppedOnPageWindow``).
+            } else {
+                let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+                guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+                model.transport.gestures.record(click: false)
+            }
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
                 urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
-            // The drop backs a gesture only when its event is the person's. WebKit: the drop's event
-            // in dispatch. Chromium: the one the page host kept at the native drop (`droppedEvent`).
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
+            // A remote chat still needs the drop's paths pushed with the gesture so its host can put
+            // each file from this Mac without first copying bytes through the page. Local chats use
+            // the base `gestureAt`/`droppedPaths` path above and do not need a second path design.
+            if model.remoteChat { pushDroppedPaths() }
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            self?.model.hostTouch.mark("paste") // a posted paste too: the page has the text
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
@@ -267,7 +272,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: AgentPaneContextMenu.drawnSize(of: menu), visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: menu.drawnSize, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
@@ -283,7 +288,7 @@ extension AgentPaneView {
         // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
         defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
-        guard view.window != nil else { return }
+        guard let window = view.window else { return }
         let menu = AgentForkMenu.menu { [weak self] destination in
             var params = ["placement": destination.rawValue]
             if let seq { params["throughSeq"] = String(seq) }
@@ -291,7 +296,7 @@ extension AgentPaneView {
         }
         menu.themeRows(in: themeScope.fullStrength)
         guard let anchor else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            menu.popUpAtPointer(view.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil), in: view)
             return
         }
         popUp(menu, from: anchor, in: view)
@@ -379,12 +384,11 @@ extension AgentPaneView {
 }
 
 extension AgentPaneView {
-    /// Hands the page the last native drop's files (``AgentPaneDroppedPaths/pushed(local:)``) as a
-    /// window event, synchronously: a chat on this Mac links each file where it is, and another
-    /// machine's chat has each put there from its path. Nothing for a drop of a recording preview.
+    /// Gives a remote chat the native drop's file paths and one-use put tokens immediately. Local
+    /// chats continue to use the base `chat.attach.dropped` path lookup.
     func pushDroppedPaths() {
-        let local = model.dropsGoAsLocalPaths
-        guard let payload = model.droppedPaths.pushed(local: local),
+        guard model.remoteChat,
+              let payload = model.droppedPaths.pushed(local: false),
               let script = AgentPaneDroppedPaths.pushScript(payload) else { return }
         evaluateScript(script)
     }

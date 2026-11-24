@@ -95,6 +95,11 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
         colorScheme: scheme,
       });
       try {
+        // The centered arm (jumpPlace.experiment.ts `center`): the prose spots 90 px either side of
+        // the disc stay inside the viewport; at the composer's end edge one would fall past it.
+        await page.addInitScript(() =>
+          localStorage.setItem("cmux.experiments", JSON.stringify({ "jump-latest-place": "center" })),
+        );
         await page.goto(stageURL(scheme));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.waitForSelector(JUMP_LATEST_SHOWN);

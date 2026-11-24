@@ -100,6 +100,12 @@ import UIKit
                             "palette = 4=#36c2ff", "palette = 5=#ff61d8", "palette = 6=#00f0e0", "palette = 7=#f2e6ff",
                             "palette = 8=#7a4fa0", "palette = 9=#ff7a9c", "palette = 10=#7dffcf", "palette = 11=#ffe873",
                             "palette = 12=#8fdcff", "palette = 13=#ffa3ec", "palette = 14=#7afff5", "palette = 15=#ffffff"]),
+        // Leo's NIGHTLY Mac: Catppuccin Mocha (the side-by-side on #50696).
+        ("catppuccin-mocha", ["background = #1e1e2e", "foreground = #cdd6f4", "cursor-color = #f5e0dc",
+                              "palette = 0=#45475a", "palette = 1=#f38ba8", "palette = 2=#a6e3a1", "palette = 3=#f9e2af",
+                              "palette = 4=#89b4fa", "palette = 5=#f5c2e7", "palette = 6=#94e2d5", "palette = 7=#bac2de",
+                              "palette = 8=#585b70", "palette = 9=#f38ba8", "palette = 10=#a6e3a1", "palette = 11=#f9e2af",
+                              "palette = 12=#89b4fa", "palette = 13=#f5c2e7", "palette = 14=#94e2d5", "palette = 15=#a6adc8"]),
         ("solarized-light", ["background = #fdf6e3", "foreground = #586e75", "cursor-color = #d33682",
                              "palette = 0=#073642", "palette = 1=#dc322f", "palette = 2=#859900", "palette = 3=#b58900",
                              "palette = 4=#268bd2", "palette = 5=#d33682", "palette = 6=#2aa198", "palette = 7=#eee8d5",
