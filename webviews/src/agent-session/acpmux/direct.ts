@@ -12919,7 +12919,15 @@ export class AcpmuxDirectClient {
   }
   async customizeRun(run: CustomizeRun): Promise<{ ok: boolean; output: string }> {
     if (this.capabilities?.has(CUSTOMIZE_RUN_CAPABILITY) !== true) return { ok: false, output: "" };
-    const reply = objectValue(await this.request("_acpmux/customize_run", { run }));
+    // The click's gesture ticket for this exact run: the host admits the call only with it
+    // (policy.json `gesture_rules`), so an agent's page script never starts one on its own.
+    const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "_acpmux/customize_run", params: { run } },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    const reply = objectValue(await this.request("_acpmux/customize_run", { run, ...gestureMeta(ticket) }));
     return { ok: reply?.ok === true, output: typeof reply?.output === "string" ? reply.output : "" };
   }
   async continueIn(harness: string): Promise<string | undefined> {

@@ -515,6 +515,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
         // another machine: only on the person's click or Return in its panel.
         "_acpmux/run_elsewhere/start": .always,
+        // A wrap-up card's Try it on, Keep or Revert runs `cmux customize` on this machine (a dir:
+        // trial builds that checkout): only on the person's click.
+        "_acpmux/customize_run": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
@@ -531,6 +534,7 @@ nonisolated enum AcpmuxPaneMethods {
         // A preset approval lets agents start chats with no prompts from then on: a click, never typing.
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
             || method == "_acpmux/plan/build" || method == "_acpmux/presets"
+            || method == "_acpmux/customize_run"
         return !answers || gestures.hasFreshAnswerGesture
     }
 

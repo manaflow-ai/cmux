@@ -3835,8 +3835,14 @@ async fn dispatch_request_with_identity(
             Ok(crate::hub::turn_shots::turn_shots(&s.id, turn).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
-        // `cmux customize` argv, no shell. Never offered to a read-only connection.
+        // `cmux customize` argv, no shell. Never offered to a read-only connection. Only the
+        // person runs it: a connection that proved it is the person, or this host's app pane,
+        // whose host admits it only with a click's gesture ticket (`gesture_rules`, policy.json).
+        // An agent, a peer or a remote writable client never starts a build here.
         method::MUX_CUSTOMIZE_RUN => {
+            if !person_asks(conn) {
+                return Err(conn.person_only("running cmux customize"));
+            }
             crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).

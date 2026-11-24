@@ -82,9 +82,11 @@
     "_acpmux/plan/build": "always",
     "_acpmux/race/start": "always",
     "_acpmux/presets": "always",
-    "_acpmux/run_elsewhere/start": "always"
+    "_acpmux/run_elsewhere/start": "always",
+    "_acpmux/customize_run": "always"
   },
   "click_only": [
+    "_acpmux/customize_run",
     "_acpmux/permission_group_respond",
     "_acpmux/permission_respond",
     "_acpmux/plan/build",
@@ -202,7 +204,7 @@
     "_acpmux/presets": {"params": ["name", "approveMode", "approveDigest", "sessionId"], "acpmux": []},
     "_acpmux/cold_archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"], "acpmux": []},
-    "_acpmux/customize_run": {"params": ["run"], "acpmux": []},
+    "_acpmux/customize_run": {"params": ["run", "_meta"], "acpmux": []},
     "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"], "acpmux": []},
