@@ -99,8 +99,8 @@
 .acpmux-header-pr[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-header-pr[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
-.acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
-.acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
+.acpmux-header-pr[data-checks][data-checks=pending]::after{background:var(--agent-status-warning)}
+.acpmux-header-pr[data-checks][data-checks=failing]::after{background:var(--agent-status-failure)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
 .acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-worktree>svg{flex:none}
