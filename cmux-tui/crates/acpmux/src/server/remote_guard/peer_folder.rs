@@ -198,7 +198,10 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
     } else {
         format!("; this machine's webRoots: {}", listed.join(", "))
     });
-    e.message.push_str(" (with no folder at all, a scratch folder is made for the session)");
+    e.message.push_str(
+        " (a git checkout on this machine works anywhere outside them; with no folder at all, \
+         a scratch folder is made for the session)",
+    );
     let mut pick = roots.first().cloned();
     if let (Some(root), Some(leaf)) = (roots.first(), Path::new(cwd).file_name()) {
         let candidate = root.join(leaf);
@@ -217,6 +220,29 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
         }
     }
     e
+}
+
+/// Whether `canonical` (an existing folder, already resolved) lies in a git checkout that the
+/// owner's own daemon may start a chat in outside the roots: its nearest folder holding
+/// `.git` (a folder, or a linked worktree's file) is neither the home directory nor an
+/// ancestor of it, so a home kept as a dotfiles repo opens none of home (`~/.ssh`). The
+/// owner reached this account over ssh; a checkout of theirs on it is theirs to work in
+/// ("start there", Leo, 2026-11-10: remote is "something that I do certainly care about").
+pub(super) async fn owner_checkout(canonical: &Path) -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        None => return false,
+    };
+    checkout_outside_home(canonical, &home).await
+}
+
+async fn checkout_outside_home(canonical: &Path, home: &Path) -> bool {
+    for dir in canonical.ancestors() {
+        if tokio::fs::symlink_metadata(dir.join(".git")).await.is_ok() {
+            return !home.starts_with(dir);
+        }
+    }
+    false
 }
 
 /// `webRoots` from config.json, under `web_roots`' guards, in config order.
@@ -266,6 +292,35 @@ mod tests {
         assert!(make_below(&root.join("a/b"), Path::new("child")).is_err());
         assert!(make_below(&root, Path::new("a/b/child")).is_err());
         assert!(!outside.join("b/child").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_checkout_counts_unless_its_top_is_home_or_above_it() {
+        let dir = std::env::temp_dir().join(format!("owner-checkout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = dir.join("home");
+        for d in ["home/.ssh", "home/src/app/.git", "home/src/app/lib", "home/src/notes"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        // A linked worktree's `.git` is a file.
+        std::fs::create_dir_all(dir.join("wt")).unwrap();
+        std::fs::write(dir.join("wt/.git"), "gitdir: /elsewhere\n").unwrap();
+        let app = home.join("src/app");
+        assert!(checkout_outside_home(&app, &home).await);
+        assert!(checkout_outside_home(&app.join("lib"), &home).await);
+        assert!(checkout_outside_home(&dir.join("wt"), &home).await);
+        assert!(!checkout_outside_home(&home.join("src/notes"), &home).await);
+        assert!(!checkout_outside_home(&home, &home).await);
+        // Home kept as a dotfiles repo: its folders are no checkout of their own.
+        std::fs::create_dir_all(home.join(".git")).unwrap();
+        assert!(!checkout_outside_home(&home.join(".ssh"), &home).await);
+        assert!(!checkout_outside_home(&home.join("src/notes"), &home).await);
+        assert!(checkout_outside_home(&app, &home).await, "its own .git is nearer");
+        // A repo above home (`/` as one) opens nothing.
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::remove_dir_all(home.join(".git")).unwrap();
+        assert!(!checkout_outside_home(&home.join(".ssh"), &home).await);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
