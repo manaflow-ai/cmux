@@ -252,6 +252,10 @@ pub struct ClientConnection {
     diagnostics: StdMutex<ClientConnectionSnapshot>,
     next_generation: AtomicU64,
     daemon_public_key: [u8; 32],
+    /// The daemon's last welcome said it takes Noise IK, so a reconnect's links run it and each
+    /// gets its welcome one round trip sooner. Cleared when a reconnect fails past its carrier's
+    /// open (a daemon rolled back to a build without IK), so the next one runs XX and relearns.
+    daemon_takes_ik: AtomicBool,
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
@@ -380,8 +384,8 @@ impl ClientConnection {
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
-        let (link, daemon_public_key, _) =
-            establish_physical_links(group.clone(), &config, 0, BTreeMap::new()).await?;
+        let (link, daemon_public_key, _, daemon_takes_ik) =
+            establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false).await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -406,6 +410,7 @@ impl ClientConnection {
             diagnostics: StdMutex::new(diagnostics),
             next_generation: AtomicU64::new(1),
             daemon_public_key,
+            daemon_takes_ik: AtomicBool::new(daemon_takes_ik),
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
@@ -963,13 +968,26 @@ impl ClientConnection {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
             other => other,
         };
-        let (link, daemon_key, daemon_resume) = establish_physical_links(
+        let established = establish_physical_links(
             group.clone(),
             &reconnect_config,
             generation,
             current.resume_cursors(),
+            self.daemon_takes_ik.load(Ordering::Acquire),
         )
-        .await?;
+        .await;
+        let (link, daemon_key, daemon_resume, daemon_takes_ik) = match established {
+            Ok(established) => established,
+            Err(error) => {
+                // A carrier that would not open says nothing about the daemon; anything past
+                // it might be a daemon that no longer takes IK.
+                if !matches!(error, ConnectionError::Provider(_)) {
+                    self.daemon_takes_ik.store(false, Ordering::Release);
+                }
+                return Err(error);
+            }
+        };
+        self.daemon_takes_ik.store(daemon_takes_ik, Ordering::Release);
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
@@ -1686,7 +1704,8 @@ async fn establish_physical_links(
     config: &ClientConnectionConfig,
     generation: u64,
     resume: BTreeMap<Lane, u64>,
-) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>), ConnectionError> {
+    daemon_takes_ik: bool,
+) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>, bool), ConnectionError> {
     let mut connection_attempt = [0_u8; 16];
     getrandom::fill(&mut connection_attempt)
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
@@ -1703,10 +1722,14 @@ async fn establish_physical_links(
             generation,
             expected_daemon: config.expected_daemon,
             connection_attempt,
+            daemon_takes_ik,
         },
     )
     .await?;
     let daemon_key = first.remote_static();
+    // The first link's welcome is in: the rest of this attempt's links run IK if it offered it,
+    // a first connect's included.
+    let daemon_takes_ik = first.peer_takes_ik();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
     let subsequent_auth = match config.auth {
@@ -1725,6 +1748,7 @@ async fn establish_physical_links(
                 generation,
                 expected_daemon: Some(daemon_key),
                 connection_attempt,
+                daemon_takes_ik,
             },
         ));
     }
@@ -1738,7 +1762,7 @@ async fn establish_physical_links(
         routes.push(LinkRoute { lanes, link: Arc::new(link) });
     }
     let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
-    Ok((link, daemon_key, daemon_resume))
+    Ok((link, daemon_key, daemon_resume, daemon_takes_ik))
 }
 
 #[derive(Clone, Copy)]
@@ -1746,6 +1770,7 @@ struct LinkHandshakeContext {
     generation: u64,
     expected_daemon: Option<[u8; 32]>,
     connection_attempt: ConnectionAttemptId,
+    daemon_takes_ik: bool,
 }
 
 async fn authenticate_one(
@@ -1795,6 +1820,7 @@ async fn authenticate_one(
             generation: context.generation,
             connection_attempt: context.connection_attempt,
             resume,
+            daemon_takes_ik: context.daemon_takes_ik,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
     );
