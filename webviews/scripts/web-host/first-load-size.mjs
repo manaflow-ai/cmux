@@ -7,7 +7,7 @@
 //   bun scripts/web-host/first-load-size.mjs SITE_DIR            # print the measurement as JSON
 //   bun scripts/web-host/first-load-size.mjs SITE_DIR --check    # fail past first-load-budget.json
 //
-// SITE_DIR is scripts/cmux-next/build-web-host.sh's output. CI: .github/workflows/web-host-budget.yml.
+// SITE_DIR is scripts/cmux-next/build-web-host.sh's output. CI: .github/workflows/cmux-next-size-budget.yml, job web-host.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
