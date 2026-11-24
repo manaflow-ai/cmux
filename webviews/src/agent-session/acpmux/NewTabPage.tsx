@@ -1,11 +1,13 @@
 import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { AgentMark as BrandMark, SessionMark } from "../shared/AgentMark";
-import type { HarnessIconSpec } from "../shared/harnessIcons";
+// AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
+// would pull this New Tab screen into the chat page's first script.
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -15,13 +17,12 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -99,6 +100,10 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -138,6 +143,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -493,6 +499,11 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
@@ -508,10 +519,16 @@ export function NewTabPage({
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {
@@ -895,61 +912,6 @@ function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
 }
 
-/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
-/// which agent it is at a glance; an agent without either draws the generic agent glyph.
-/// A chat's mark: the icon it set (acpmux `icon`), else its harness's.
-export function AgentMark({ harness, icon }: { harness?: string; icon?: HarnessIconSpec }) {
-  if (icon) return <SessionMark icon={icon} agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-}
-
-// 16px stroke icons in currentColor, matching ComposerPickers.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export function KindIcon({ kind }: { kind: TabKind }) {
-  switch (kind) {
-    case "terminal":
-      return (
-        <Icon>
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="m4.6 6.2 2 1.8-2 1.8M8.4 10h3" />
-        </Icon>
-      );
-    case "browser":
-      return (
-        <Icon>
-          <circle cx="8" cy="8" r="6.1" />
-          <path d="M1.9 8h12.2M8 1.9c1.7 1.7 2.5 3.7 2.5 6.1S9.7 12.4 8 14.1C6.3 12.4 5.5 10.4 5.5 8S6.3 3.6 8 1.9Z" />
-        </Icon>
-      );
-    case "agent":
-      return (
-        <Icon>
-          <path d="M8 1.9c.4 2.9 1.6 4.1 4.6 4.6-3 .5-4.2 1.7-4.6 4.6-.4-2.9-1.6-4.1-4.6-4.6 3-.5 4.2-1.7 4.6-4.6Z" />
-          <path d="M12.4 10.4c.15 1.1.6 1.55 1.7 1.7-1.1.15-1.55.6-1.7 1.7-.15-1.1-.6-1.55-1.7-1.7 1.1-.15 1.55-.6 1.7-1.7Z" />
-        </Icon>
-      );
-  }
-}
-
 /// A folder glyph (the project picker on both New Tab designs).
 export const FolderIcon = () => (
   <Icon>
@@ -979,3 +941,5 @@ const ChevronRight = () => (
     <path d="m6.3 4.6 3.3 3.4-3.3 3.4" />
   </Icon>
 );
+
+export { AgentMark, KindIcon } from "./tabMarks";

@@ -19,7 +19,6 @@ import {
   type NoteLoadingLook,
   type PreviewLayout,
   type ReadyLayout,
-  type UpdatedCardShape,
   type WhatsNewPlacement,
 } from "./UpdateSurfaces";
 import { UpdatedNotes, type NotesHead, type NotesLook } from "./UpdatedNotes";
@@ -101,10 +100,6 @@ type Props = {
   loadingLook?: NoteLoadingLook;
   /** The card's glass with no words: what the sidebar drew while the card's page loaded, before. */
   blankGlass?: boolean;
-  /** How many lines the resting card has (UpdatedCardShape); `row` ships. */
-  shape?: UpdatedCardShape;
-  /** The card at the composer's corner, as it shipped before 2026-11-23 (the two-line pill). */
-  composerCorner?: boolean;
 };
 
 /** Leo's card of 2026-11-09: "Updated to Nightly", then "Fixed: lock horizontal scroll". */
@@ -391,7 +386,7 @@ function ComposerStandIn() {
 }
 
 /** The Updated card's glass before its page drew its words: the composer's material at its one-line
-    height at the card corner, empty (the first frame Leo flagged on 2026-11-09). */
+    height and corner, empty (the first frame Leo flagged on 2026-11-09). */
 function BlankGlassStandIn() {
   return (
     <div
@@ -399,7 +394,7 @@ function BlankGlassStandIn() {
       style={{
         boxSizing: "border-box",
         height: "var(--composer-material-height)",
-        borderRadius: "var(--grid-card-radius, 16px)",
+        borderRadius: "var(--composer-material-radius)",
         background: "var(--composer-material-tint)",
         boxShadow: "var(--composer-material-ring), var(--composer-material-rim)",
       }}
@@ -483,8 +478,6 @@ function UpdateSurfacesGallery({
   notesLoading,
   loadingLook,
   blankGlass = false,
-  shape,
-  composerCorner = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -500,7 +493,6 @@ function UpdateSurfacesGallery({
           : onWallpaper
             ? { backgroundImage: wallpaper }
             : {}),
-        ...(composerCorner ? { "--grid-card-radius": "var(--grid-composer-radius)" } : {}),
         ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
       }}
     >
@@ -557,7 +549,6 @@ function UpdateSurfacesGallery({
                 decoration={decoration}
                 animate={animate}
                 placement={placement}
-                shape={shape}
                 previewOpen={previewOpen}
                 glass={overRows ? overRows === "glass" : undefined}
                 previewLayout={previewLayout}
@@ -711,27 +702,17 @@ export default componentEntry<Props>({
       note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
     },
+    "card-light": {
+      note: "The same card in a light theme.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
     "card-loading-dots": {
       note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
-      props: {
-        surface: "card",
-        data: leoFirstPaint,
-        theme: "dark",
-        shape: "two-line",
-        notesLoading: true,
-        loadingLook: "dots",
-      },
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "dots" },
     },
     "card-loading-dots-light": {
       note: "The shipped loading line in the light theme.",
-      props: {
-        surface: "card",
-        data: leoFirstPaint,
-        theme: "light",
-        shape: "two-line",
-        notesLoading: true,
-        loadingLook: "dots",
-      },
+      props: { surface: "card", data: leoFirstPaint, theme: "light", notesLoading: true, loadingLook: "dots" },
     },
     "card-loading-before": {
       note: 'Before (Leo 2026-11-09: "instead of just having a blank glass bit"): the sidebar drew the card\'s glass at its room while its page loaded, empty for up to a second after a relaunch, then the title and the change came in together.',
@@ -743,80 +724,31 @@ export default componentEntry<Props>({
     },
     "card-loading-glyph": {
       note: "Variant: the ellipsis glyph in the quiet color. As quiet as the dots, but at the note's size it reads as a line cut short, not as words on their way.",
-      props: {
-        surface: "card",
-        data: leoFirstPaint,
-        theme: "dark",
-        shape: "two-line",
-        notesLoading: true,
-        loadingLook: "glyph",
-      },
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "glyph" },
     },
     "card-loading-bar": {
       note: "Variant: a bar the line's height that a light crosses (a skeleton line, cf. claude/live/settings-loading-skeleton). Says where the words go, but the sweep is the busiest motion on the glass for a line that loads in about a second.",
-      props: {
-        surface: "card",
-        data: leoFirstPaint,
-        theme: "dark",
-        shape: "two-line",
-        notesLoading: true,
-        loadingLook: "bar",
-      },
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "bar" },
     },
     "card-loading-words": {
       note: 'Variant: "Loading what\'s new…" in the quiet color. Plain, but it is words that are then replaced by other words, a text swap that reads as a change of content (cf. cmux/live/session-info-context-breakdown-loading).',
-      props: {
-        surface: "card",
-        data: leoFirstPaint,
-        theme: "dark",
-        shape: "two-line",
-        notesLoading: true,
-        loadingLook: "words",
-      },
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "words" },
     },
-    "card-shape-row": {
-      note: 'Shipped (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2 lines supposed to be for anyways? the fuck kind of information are you showing with a single fucking line of content?"): the card says one thing, so it is one line, "Updated to Nightly" and What\'s New ↗ at its end, the composer\'s one-line height (48) at the card corner (16, a third of its height: never a capsule). Every change is one hover away.',
-      props: { surface: "card", data: base, theme: "dark", shape: "row" },
+    "card-photo-dusk": {
+      note: "The card over a real photograph (repo frame_assets, dusk, dark top): dark theme, for the ink's contrast over a picture.",
+      props: { surface: "card", data: base, theme: "dark", photo: "dusk" },
     },
-    "card-shape-row-light": {
-      note: "The same in a light theme.",
-      props: { surface: "card", data: base, theme: "light", shape: "row" },
+    "card-photo-clouds": {
+      note: "The card over a real photograph (clouds, mid-tone blue): light theme.",
+      props: { surface: "card", data: base, theme: "light", photo: "clouds" },
     },
-    "card-shape-row-picture": {
-      note: 'The same over a background picture (Leo: "what of when we have transparency for background pictures"): the composer\'s material at the art share, so the picture shows through the card as through the composer, and the one line stays in full ink.',
-      props: { surface: "card", data: base, wallpaper: true, shape: "row" },
+    "card-photo-bright-clouds": {
+      note: "The card over a bright, light photograph (pale sky, white clouds): light theme. The worst case for light ink.",
+      props: { surface: "card", data: base, theme: "light", photo: "bright-clouds" },
     },
-    "card-shape-row-photo-dusk": {
-      note: "The one-line card over a real photograph (repo frame_assets, dusk, dark top): dark theme. Text contrast over the photo is measured in the PR body.",
-      props: { surface: "card", data: base, theme: "dark", shape: "row", photo: "dusk" },
-    },
-    "card-shape-row-photo-clouds": {
-      note: "The one-line card over a real photograph (clouds, mid-tone blue): light theme.",
-      props: { surface: "card", data: base, theme: "light", shape: "row", photo: "clouds" },
-    },
-    "card-shape-row-photo-bright-clouds": {
-      note: "The one-line card over a bright, light photograph (pale sky, white clouds): light theme. The worst case for light ink.",
-      props: { surface: "card", data: base, theme: "light", shape: "row", photo: "bright-clouds" },
-    },
-    "card-shape-row-photo-bright-clouds-dark": {
+    "card-photo-bright-clouds-dark": {
       note: "The same bright photograph in the dark theme: the worst case for dark ink under a light wash.",
-      props: { surface: "card", data: base, theme: "dark", shape: "row", photo: "bright-clouds" },
-    },
-    "card-shape-row-change": {
-      note: "Variant: the top change on the same line after the title, in the quiet ink, cut at the edge. One line still, but one change out of many is cut to a few words at a sidebar's width: it hints, it does not inform.",
-      props: { surface: "card", data: base, theme: "dark", shape: "row-change" },
-    },
-    "card-shape-two-line": {
-      note: "Variant: the two lines (title over the top change) at the composer's height, with the card corner instead of the pill: still a second line that holds one change cut to a few words.",
-      props: { surface: "card", data: base, theme: "dark", shape: "two-line" },
-    },
-    "card-shape-pill-before": {
-      note: "Before (what Leo flagged): two lines at the composer's height and the composer's 22 corner on a 48 box, a two-line pill.",
-      props: { surface: "card", data: base, theme: "dark", shape: "two-line", composerCorner: true },
-    },
-    "card-shape-pill-before-picture": {
-      note: "Before, over the background picture.",
-      props: { surface: "card", data: base, wallpaper: true, shape: "two-line", composerCorner: true },
+      props: { surface: "card", data: base, theme: "dark", photo: "bright-clouds" },
     },
     "card-whats-new-top-right": {
       note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
@@ -827,7 +759,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "dark", placement: "button" },
     },
     "card-beside-composer": {
-      note: "The shipped card beside a one-line composer box in the same material: one height (48), one edge and one fill (Leo 2026-11-07: \"it becomes the exact same height as the composer\"), one line of words in each; the card's corner is the card's (16), the composer's is its round controls' (22).",
+      note: 'The shipped card beside a one-line composer box in the same material: one height (48), one corner, one edge and one fill (Leo 2026-11-07: "it becomes the exact same height as the composer").',
       props: { surface: "card", data: base, theme: "dark", besideComposer: true, width: 640 },
     },
     "card-beside-composer-light": {

@@ -64,11 +64,12 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     }
 
     /// The strip for `subagents` under a row. `tree`: the session tree is on (`sidebar.sessionTree`);
-    /// `folded`: the person folded this row there. With the tree off only running subagents show, as one
-    /// stacked line that folds away when none runs.
+    /// `folded`: the person folded this row there. With the tree off a row draws no subagent line at all:
+    /// its working indicator already says the agent runs, and a "✧ 1 running" line under one row read as
+    /// a stray line above the next (https://github.com/manaflow-ai/cmux/issues/52977).
     public static func make(_ subagents: SidebarSubagents?, tree: Bool, folded: Bool,
                             look: SidebarSubagentLook = .both) -> SidebarSubagentStrip? {
-        guard let subagents, !subagents.isEmpty else { return nil }
+        guard tree, let subagents, !subagents.isEmpty else { return nil }
         let items = subagents.items
         let failed = items.filter { $0.state == .failed }.count
         let rowsMode: Bool = switch look {
@@ -83,8 +84,7 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
             return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.running - shown.filter { $0.state == .running }.count), marks: [],
                                         running: subagents.running, done: 0, failed: failed, tab: shown.first?.tab ?? subagents.chat)
         }
-        // Off the tree (or folded with nothing running under the rows look) only work that runs shows.
-        if !tree && subagents.running == 0 { return nil }
+        // Folded with nothing running under the rows look: only work that runs shows.
         if look == .rows && subagents.running == 0 { return nil }
         let order: [SidebarSubagent.State] = [.running, .failed, .done, .stopped]
         let marks = items.sorted { (order.firstIndex(of: $0.state) ?? 0) < (order.firstIndex(of: $1.state) ?? 0) }

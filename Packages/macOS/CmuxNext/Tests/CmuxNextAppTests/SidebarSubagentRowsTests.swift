@@ -7,7 +7,7 @@ import Testing
 /// Leo, 2026-11-19 ("for claude there's the font and the nested sessions and whatever"): a chat's subagents
 /// list under its row as the Claude desktop app's Code tab nests a chat's tasks. With the session tree on,
 /// an open row draws one line per subagent (at most five, then "N more") and a folded one a single
-/// stacked line; with it off, the stacked line shows only while one runs and folds away after.
+/// stacked line; with it off, no subagent line at all (https://github.com/manaflow-ai/cmux/issues/52977).
 @MainActor @Suite struct SidebarSubagentRowsTests {
     private static let chat = WorkspaceID("ws-chat")
     private static let tab = TabID("tab-chat")
@@ -100,11 +100,20 @@ import Testing
         #expect(stopped.done == 1, "a stopped subagent is not done")
     }
 
-    @Test func withTheTreeOffOnlyRunningWorkShowsAndItFoldsAway() throws {
-        let running = try #require(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content?.subagents)
-        #expect(running.mode == .stack)
-        #expect(Self.layout(Self.subagents([.done, .failed]), tree: nil)?.content?.subagents == nil)
-        #expect(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content?.treeFold == nil, "no chevron off the tree")
+    /// https://github.com/manaflow-ai/cmux/issues/52977: a "✧ 1 running" line under a row, with the tree off,
+    /// read as a stray line above the next row. Off the tree a row draws no subagent line in any look, and
+    /// keeps the height of a row without subagents; its working indicator says the agent runs.
+    @Test func withTheTreeOffARowDrawsNoSubagentLine() throws {
+        let bare = try #require(Self.layout(nil, tree: nil))
+        for look in SidebarSubagentLook.allCases {
+            for states: [SidebarSubagent.State] in [[.running], [.done, .running], [.done, .failed]] {
+                let row = try #require(Self.layout(Self.subagents(states), tree: nil, look: look))
+                #expect(row.content?.subagents == nil, "\(look) \(states) draws a subagent line off the tree")
+                #expect(row.height == bare.height, "\(look) \(states) grows the row off the tree")
+                #expect(row.content?.treeFold == nil, "no chevron off the tree")
+            }
+        }
+        #expect(SidebarSubagentStrip.make(Self.subagents([.running]), tree: false, folded: false) == nil)
     }
 
     @Test func theThreeLooks() throws {
