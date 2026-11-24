@@ -2833,8 +2833,9 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
+  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, the question card's 8px inset, its
+  // 28px "Needs your input" line, the question and its muted line, a 36px row per answer (2px apart),
+  // then the 36px typed-answer row under its 8px gap; answered or superseded, the question over the
   // answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
@@ -2842,7 +2843,14 @@ function fallbackRowHeight(
     const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
     return finish(
       answer === undefined && !superseded
-        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
+        ? 16 +
+            28 +
+            2 +
+            (lines(ask.question) + lines(ask.detail)) * 20 +
+            8 +
+            ask.options.length * 38 -
+            (ask.options.length ? 2 : 0) +
+            (ask.options.length ? 8 + 36 : 0)
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
   }

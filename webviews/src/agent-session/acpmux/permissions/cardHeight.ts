@@ -225,15 +225,16 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
   const inner = Math.max(1, width - 32);
   const consent = consentChoice(question);
   if (consent) {
-    // No header line: the title, its scope line, and Deny and Allow in a 36 px row.
+    // No header line: the title, its scope line, and Deny and Allow (28 px buttons).
     let height = 16 + 8 + text(item.prompt, inner, titleLine, contentSize) + 8;
     const scope = item.options[consent.accept]?.detail;
     if (scope) height += 2 + text(scope, inner, body.lineHeight, body.size);
-    return height + 36;
+    return height + 28;
   }
   let height = 16 + 28 + 2 + text(item.prompt, inner, titleLine, contentSize) + 8;
-  // A row: 8 px padding, the 20 px mark and its 10 px gap; previews take part of the width beside it.
-  const rowRoom = Math.max(1, (hasPreviews(item) ? inner * 0.45 : inner) - 38);
+  // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap. Previews take
+  // part of the width beside the rows, until the card is narrow enough that they wrap under them.
+  const rowRoom = Math.max(1, (hasPreviews(item) && inner >= 492 ? inner * 0.44 : inner) - 30);
   height += item.options.reduce(
     (sum, option, index) =>
       sum +

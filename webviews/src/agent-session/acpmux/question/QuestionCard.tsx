@@ -119,7 +119,17 @@ function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: R
   const consent = consentChoice(question) !== undefined;
   useLayoutEffect(() => {
     const reopened = open && !wasOpen.current;
+    const closed = !open && wasOpen.current;
     wasOpen.current = open;
+    // Closing takes the focused close button away: the pill that reopens it takes the keyboard.
+    if (closed) {
+      // A click does not focus a WebKit button, so the keyboard may still sit on a row now hidden.
+      const pill = ask.current?.querySelector<HTMLElement>(".acpmux-question-status");
+      const active = ask.current?.ownerDocument.activeElement;
+      if (pill && (!active || active === ask.current?.ownerDocument.body || ask.current?.contains(active)))
+        focusRoute(pill, "person", "closed an agent's question");
+      return;
+    }
     if (!reopened) return;
     focusRoute(
       ask.current?.querySelector<HTMLElement>(".acpmux-question-other textarea, [data-row][data-highlighted]"),
@@ -360,7 +370,8 @@ function PendingQuestion({
     const focused = card?.ownerDocument.activeElement;
     // Whether the keyboard is in the list or the Other field (it may unmount during the update).
     const inList =
-      focused instanceof HTMLElement && focused.closest(".acpmux-question-rows, .acpmux-question-other") !== null;
+      focused instanceof HTMLElement &&
+      focused.closest(".acpmux-question-rows, .acpmux-question-other, .acpmux-question-other-choice") !== null;
     flushSync(() => setStored(step.state));
     apply(step.effect, step.state, input, inList || focused === card);
   };
@@ -622,7 +633,7 @@ function PendingQuestion({
           <span className="acpmux-question-prompt">{inlineText(item.prompt)}</span>
         </legend>
         <div className="acpmux-question-body">
-          <div className="acpmux-question-rows" aria-labelledby={legendId} onMouseLeave={() => setHovered(undefined)}>
+          <div className="acpmux-question-rows" onMouseLeave={() => setHovered(undefined)}>
             {item.options.map((option, row) => {
               const chosen = isChosen(state, option, item);
               const key = row < 9 ? String(row + 1) : undefined;

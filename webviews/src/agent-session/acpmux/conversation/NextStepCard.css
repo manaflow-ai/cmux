@@ -4,7 +4,9 @@
    the row ⌘↩ sends (the first, or the one under the pointer), and a last row for a typed answer.
    Answered, it is the answered question card (styles.css .acpmux-question-answered). No transition:
    a click sends at once. */
-.acpmux-next-step:not(.acpmux-next-step--answered):not(.acpmux-next-step--recap) {
+/* :where keeps this base at one class, so the pinned copy's stack material (PendingAsks.css) wins
+   whatever order the sheets load in. */
+.acpmux-next-step:where(:not(.acpmux-next-step--answered):not(.acpmux-next-step--recap)) {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -122,6 +124,13 @@
   background: var(--acpmux-question-highlight);
   outline: none;
 }
+/* The keyboard on another row takes the highlight from the first, so only one row reads as chosen. */
+.acpmux-next-step__answers:focus-within > .is-primary:not(:focus-visible) {
+  background: transparent;
+}
+.acpmux-next-step__answers:focus-within > .is-primary:not(:focus-visible) .acpmux-next-step__arrow {
+  visibility: hidden;
+}
 .acpmux-next-step__answer:not(.is-primary):hover {
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
 }
@@ -162,6 +171,7 @@
 .acpmux-next-step.acpmux-next-step--answered {
   align-self: stretch;
   width: auto;
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
 }
 /* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the

@@ -3,6 +3,7 @@ import { DismissButton } from "../../../ui/DismissButton";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ArrowRight } from "./icons";
+import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
 import {
@@ -97,18 +98,24 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  // A failed send gives the typed answer back with the keyboard, so Return retries it.
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (failed && field.current?.value) focusRoute(field.current, "system", "a typed answer that was not sent");
+  }, [failed]);
   // A number key presses its answer's row while the focus is in the card (not in the typed answer).
   const card = useRef<HTMLFieldSetElement>(null);
   useEffect(() => {
     const element = card.current;
     if (!element || !pending) return;
     const press = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.repeat) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (!/^[1-9]$/.test(event.key) || (event.target as HTMLElement).closest("input")) return;
-      const row = element.querySelectorAll<HTMLButtonElement>(".acpmux-next-step__answer")[Number(event.key) - 1];
-      if (!row) return;
+      // A held digit answers once; its repeats stay claimed so none falls through as typed text.
       event.preventDefault();
-      row.click();
+      if (event.repeat) return;
+      const row = element.querySelectorAll<HTMLButtonElement>(".acpmux-next-step__answer")[Number(event.key) - 1];
+      row?.click();
     };
     // ui-allow: number keys answer the card while focus is in it, as the question card's rows do.
     element.addEventListener("keydown", press);
@@ -116,6 +123,8 @@ export const NextStepCard = memo(function NextStepCard({
   }, [pending]);
   // Whether the question or its tail runs past its cap: only then is there a Show more to offer.
   const [whole, setWhole] = useState(false);
+  // The typed answer stays while it is on its way, so a failed send gives it back to retry.
+  const [draft, setDraft] = useState("");
   const [clipped, setClipped] = useState(false);
   const textRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -148,8 +157,9 @@ export const NextStepCard = memo(function NextStepCard({
       </div>
     );
   }
-  const send = (label: string) => {
-    if (!onAnswer || sending !== undefined || !label.trim()) return;
+  const send = (typed: string) => {
+    const label = typed.trim();
+    if (!onAnswer || sending !== undefined || !label) return;
     if (answerKey) claimAnswer(answerKey, label);
     update({ sending: label });
     // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
@@ -161,13 +171,15 @@ export const NextStepCard = memo(function NextStepCard({
   };
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
-      <div className="acpmux-question-bar acpmux-next-step__bar" data-dock-clear="">
-        <span>
-          <Icon name="status.question" size={14} />
-          {t("question.needsInput")}
-        </span>
-        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
-      </div>
+      {onAnswer && (
+        <div className="acpmux-question-bar acpmux-next-step__bar">
+          <span>
+            <Icon name="status.question" size={14} />
+            {t("question.needsInput")}
+          </span>
+          {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+        </div>
+      )}
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
         <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
@@ -210,14 +222,19 @@ export const NextStepCard = memo(function NextStepCard({
             <Icon name="action.edit" size={12} />
           </span>
           <input
+            ref={field}
             type="text"
             aria-label={t("question.other")}
             placeholder={t("question.otherPlaceholder")}
+            value={draft}
             disabled={sending !== undefined}
+            onChange={(event) => setDraft(event.currentTarget.value)}
             onKeyDown={(event) => {
+              // Plain Return sends; a chord with Shift, Option, Control or ⌘ stays the field's.
               if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
               event.preventDefault();
-              send(event.currentTarget.value);
+              send(draft);
             }}
           />
         </label>

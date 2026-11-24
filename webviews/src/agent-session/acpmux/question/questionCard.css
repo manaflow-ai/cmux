@@ -86,7 +86,8 @@
   padding: 4px 12px 12px;
 }
 /* A yes-or-no ask (model.ts consentChoice), as ChatGPT's consent card draws it: the question with
-   one muted line of what Allow does under it, then its two buttons with their keys, Allow filled. */
+   one muted line of what Allow does under it, then its two buttons, Allow filled (esc and Return
+   still answer; the card draws no keycaps). */
 .acpmux-question-scope {
   display: block;
   padding-top: 4px;
@@ -139,7 +140,6 @@
 .acpmux-question-ask[data-folded] .acpmux-question-status:focus-visible .acpmux-question-status-pill {
   outline-color: color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
-.acpmux-question-status[aria-expanded=false] .acpmux-question-status-chevron { transform: none; }
 
 .acpmux-question-bar,
 .acpmux-question-bar > span {
@@ -162,7 +162,9 @@
   width: var(--ds-control-row);
   height: var(--ds-control-row);
   border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
 }
+.acpmux-question-bar .ui-dismiss:hover { color: var(--agent-text); }
 .acpmux-question-ask fieldset.acpmux-question {
   overflow: visible;
   border: 0;
@@ -195,7 +197,6 @@
 }
 .acpmux-question-ask .acpmux-question[data-preview] .acpmux-question-body { padding-right: 0; }
 .acpmux-question-ask .acpmux-question-rows {
-  flex: 2 1 240px;
   gap: var(--grid-half-step);
   padding: 0;
 }
@@ -215,7 +216,6 @@
 .acpmux-question-ask .acpmux-question-text { gap: 0; }
 .acpmux-question-ask .acpmux-question-label { line-height: var(--text-body--line-height); }
 .acpmux-question-ask .acpmux-question-preview {
-  flex: 3 1 260px;
   margin: 0;
   padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
@@ -307,6 +307,11 @@
 }
 .acpmux-question-footer .acpmux-question-other :is(input, textarea):focus-visible { box-shadow: none; }
 .acpmux-question-footer .acpmux-question-other { color: var(--agent-text); }
+/* The typed answer has the keyboard: its pencil square firms up, as a highlighted row's number. */
+.acpmux-question-footer:focus-within .acpmux-question-number[data-edit] {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  color: var(--agent-text);
+}
 .acpmux-question-footer .acpmux-question-actions {
   flex: 0 1 auto;
   flex-wrap: wrap;
