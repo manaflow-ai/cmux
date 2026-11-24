@@ -197,7 +197,10 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+
 #[path = "transfer_cli/session_move_follow.rs"]
 mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;
+#[path = "transfer_cli/session_move_reachable.rs"]
+mod session_move_reachable;
