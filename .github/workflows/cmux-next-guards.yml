@@ -1192,8 +1192,10 @@ jobs:
         run: |
           set -uo pipefail
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
+          git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
