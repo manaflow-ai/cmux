@@ -2443,7 +2443,24 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        let res = match child.request(m, params).await {
+        // Bounded (`forward_wait.rs`): an agent alive that never answers ends this request, and
+        // the `harness_use` read it holds, at its start budget instead of never.
+        let bound = self.config.read().await.agent_start_timeout();
+        let mut wait =
+            cmux_bounded::Driver::<super::forward_wait::ForwardWait, tokio::time::Instant>::new(
+                super::forward_wait::ForwardWait::asked(bound),
+            );
+        let answer = tokio::select! {
+            answer = child.request(m, params) => {
+                wait.feed(super::forward_wait::Event::Answered);
+                answer
+            }
+            () = wait.expired() => {
+                wait.expire_due();
+                Err(super::forward_wait::no_answer(m, bound))
+            }
+        };
+        let res = match answer {
             Ok(v) => v,
             Err(mut e) => {
                 // A process that died on this request: quote its last stderr
