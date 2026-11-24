@@ -64,6 +64,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        // The Environment card and the changes pill (webviews session-info/EnvironmentCard.tsx): off by default.
+        Row(key: "agentPane.display.environmentCard", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
+        Row(key: "agentPane.display.changesPill", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
         // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
