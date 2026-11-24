@@ -397,6 +397,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. <match> -> <target>, first match wins. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). xterm-ghostty needs Ghostty's terminfo on every host you ssh to. |
+| `terminal.predictiveLocalEcho` | boolean | `true` |  | Predictive Local Echo. Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted. |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
 | `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
 | `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |

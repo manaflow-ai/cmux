@@ -173,6 +173,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
 | Type, paste, keys, Ctrl-C | composer, direct typing, key bar, paste | works | |
+| Glass refraction over live content (`ask-d547ac77f0`) | native iOS 26 composer glass; terminal scrollback draws above its theme backing | partial | Terminal backing order corrected; fleet visual verification and iPhone handoff pending. Chat, Chief and TabsKit already use native glass. See [refraction verification](glass-refraction.md). |
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
@@ -183,6 +184,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Extensions read and act on a browser page: `page.read` (the article and links), `page.hints` and `page.follow` (link-hint labels, follow or open in a new split); the reader mode and link hints example extensions (2026-11-16) | none: the daemon routes the `page` family to the Mac app, which runs the page scripts in its own browser tab | — | not from a phone | The ops act on a browser tab the Mac app draws, through an extension's code on the Mac; the phone draws no app scenes and shows no Mac browser tabs, and a paired phone may not run app code on the Mac (SECURITY.md, "Remote CLI relay"). |
 | Extensions read the calendars on the Mac: `system_calendar.events` (upcoming events, never prompting) and `system_calendar.request_access` (the macOS prompt, from a click), scope `system_calendar:read` (2026-11-16) | none: the daemon routes the `system_calendar` family to the Mac app, which reads EventKit | — | not from a phone | The events are the Mac's EventKit store, read for an extension's code on the Mac; the phone draws no app scenes, and a paired phone may not run app code on the Mac (SECURITY.md, "Remote CLI relay"). The phone has its own system calendar widgets. |
 | Widget cards in the sidebar: clock, weather, calendar and to-do example extensions, each small, medium or large (`examples/extensions/widgets`; 2026-11-16) | none: each is a `cmux.section/1` extension the person adds with `cmux ext dev` | — | not from a phone | Sidebar sections are extension scenes the Mac draws; the phone has no extension host and draws no app scenes (as for app scenes above). |
+| Predictive local echo in a remote terminal, and its opt-out Settings > Terminal > Behavior > **Predictive Local Echo** (`terminal.predictiveLocalEcho`, on by default; a change reaches running terminals) | the same shared engine (#38475); Settings > Terminal > **Predictive echo** (on by default) | works | Each device keeps its own switch: the phone's is a phone preference, not the Mac's cmux.json key, since the phone's terminals type over its own link to the Mac. |
 
 ## Browser
 
