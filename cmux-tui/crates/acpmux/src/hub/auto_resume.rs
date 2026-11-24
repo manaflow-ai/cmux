@@ -930,6 +930,63 @@ impl Hub {
         self.stop_auto_resume_by(session, None);
     }
 
+    /// A plain log load's read of the chat's stop records (`log_load.rs`): those the restore
+    /// point carries (`point_stops`, through `after`), and the ones past it. The first prompt
+    /// after a restart then finds the set read, not a scan of every segment's kind copy under
+    /// its turn's start (goal infinite-chats: `start_turn` 63 ms of a 1 GB chat's 68 ms first
+    /// send, 0.2 ms at 1 MB). A load that cannot read them leaves the set to the first prompt.
+    pub(super) fn seed_prompt_stops(
+        &self,
+        session: &Session,
+        after: u64,
+        point_stops: Option<&[String]>,
+    ) {
+        // The load holds the chat's `log_load` lock here: never wait on the set under it. A set
+        // someone holds is theirs to read (`prompt_stop_set`); this read is only a head start.
+        let mut stopped = match session.auto_resume.stopped_prompts.try_lock() {
+            Ok(stopped) => stopped,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if stopped.is_some() {
+            return;
+        }
+        // A point that carries none (one saved before this) is read past: the whole log.
+        let (after, mut roots) = match point_stops {
+            Some(stops) => (after, stops.iter().cloned().collect::<HashSet<_>>()),
+            None => (0, HashSet::new()),
+        };
+        let read = self.store.scan_kinds_after(
+            &session.id,
+            after,
+            &["prompt_stop_requested"],
+            &mut |event| {
+                if event.dir == "mux"
+                    && event.kind == "prompt_stop_requested"
+                    && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                {
+                    roots.insert(prompt.to_owned());
+                }
+                true
+            },
+        );
+        if read.is_ok() {
+            *stopped = Some(roots);
+        }
+    }
+
+    /// The chat's stop records as a restore point carries them, sorted; none while unread.
+    pub(super) fn prompt_stops_carry(&self, session: &Session) -> Option<Vec<String>> {
+        let stopped = session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut roots: Vec<String> = stopped.as_ref()?.iter().cloned().collect();
+        roots.sort();
+        Some(roots)
+    }
+
     /// Read durable exact-prompt tombstones once per restored session. Callers hold
     /// the retry mark lock, serializing cancellation with turn admission.
     fn prompt_stop_set<'a>(
