@@ -1,6 +1,0 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Detaching</title><script src="/diff/log.js"></script></head><body><h1>Re-rendering</h1><div id="host"></div><p id="out">idle</p>
-<button id="vanish" onmousedown="this.remove()">Vanish on press</button>
-<script>
-let n = 0; const render = () => { document.getElementById("host").innerHTML = '<button class="rerender" onclick="document.getElementById(\'out\').textContent=\'clicked ' + ++n + '\'">Rerendered</button>'; };
-render(); setInterval(render, 40);
-</script></body></html>

@@ -1,3 +1,0 @@
-#!/bin/sh
-set -eu
-exec python3 "$(dirname "$0")/localize_changes.py" "$@"
