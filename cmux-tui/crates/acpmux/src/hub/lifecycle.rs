@@ -1814,13 +1814,24 @@ impl Hub {
                     .collect()
             })
             .unwrap_or_default();
-        // Model first.
-        let ordered: Vec<(String, Value)> = opts
-            .iter()
-            .filter(|(k, _)| k == "model")
-            .chain(opts.iter().filter(|(k, _)| k != "model"))
-            .cloned()
-            .collect();
+        // A legacy ACP model report is the selected model for harnesses such as Codex. It can
+        // coexist with a config-option model that only reflects the fresh harness's default, so
+        // let the carried report win and skip that stale option.
+        let legacy_model = saved
+            .models
+            .as_ref()
+            .and_then(|m| m.get("currentModelId"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if let Some(model) = legacy_model.as_deref()
+            && let Err(e) = child
+                .request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model}))
+                .await
+        {
+            tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
+        }
+        let ordered: Vec<(String, Value)> =
+            opts.iter().filter(|(k, _)| legacy_model.is_none() || k != "model").cloned().collect();
         for (id, value) in ordered {
             if value.is_null() {
                 continue;
@@ -1850,17 +1861,6 @@ impl Hub {
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
             }
-        }
-        // No model option was replayed (the agent may list other options,
-        // such as effort, without one): restore the legacy model id.
-        if !opts.iter().any(|(k, v)| k == "model" && !v.is_null())
-            && let Some(model) =
-                saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str)
-            && let Err(e) = child
-                .request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model}))
-                .await
-        {
-            tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
         }
         self.append(session, "mux", "config", json!({"replayed": true}));
     }
