@@ -36,6 +36,30 @@ pub(crate) const PATH_PATTERN: &str = "^(system|file):/";
 pub(crate) const LOCATION_PATTERN: &str =
     "^[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*,[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*$";
 
+/// JSON Schema pattern of a live wallpaper (see [`is_live`]).
+pub(crate) const LIVE_PATTERN: &str =
+    "^live:([a-z][a-z0-9]*(-[a-z0-9]+)*/)?[a-z][a-z0-9]*(-[a-z0-9]+)*$";
+
+/// A live wallpaper (plans/cmux-next/live-wallpapers.md): `live:<id>` for a
+/// first-party one, `live:<extension>/<id>` for an extension's. Each part is a
+/// cmux-wallpaper id: lowercase words joined by `-`, at most 48 bytes. An id
+/// no wallpaper has falls back in the app like a missing picture.
+pub(crate) fn is_live(text: &str) -> bool {
+    let is_id = |s: &str| {
+        s.len() <= 48
+            && s.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            && s.split('-').all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            })
+    };
+    let Some(rest) = text.strip_prefix("live:") else { return false };
+    match rest.split_once('/') {
+        Some((extension, id)) => is_id(extension) && is_id(id),
+        None => is_id(rest),
+    }
+}
+
 /// The living wallpapers, drawn live by a shader (Swift `BackdropShader`'s
 /// raw values; `shader:` plus one is a background id). The test
 /// `shader_names_match_swift` holds this list to the Swift enum, so a new
@@ -61,7 +85,7 @@ pub(crate) fn shader_ids() -> Vec<String> {
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
 /// absolute path, a canonical `youtube:` video (crate::youtube), a living
 /// wallpaper (`shader:NAME`), or a listed fixed background.
-pub(crate) fn is_picture(text: &str) -> bool {
+pub fn is_picture(text: &str) -> bool {
     is_path_or_video(text) || picture_choices().iter().any(|choice| choice == text)
 }
 
@@ -113,7 +137,7 @@ pub fn normalize_backdrop(row: &Row, value: Value) -> Value {
 
 /// Swift `BackdropSelectionSetting.acceptsSchedule`: an object of valid
 /// times to fixed pictures.
-pub(crate) fn is_schedule(value: &Value) -> bool {
+pub fn is_schedule(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(key, value)| is_when(key) && value.as_str().is_some_and(is_picture))
     })
@@ -151,7 +175,7 @@ pub(crate) fn is_when(text: &str) -> bool {
 
 /// Swift `BackdropLocation(text:)`: `LAT,LON` with latitude in -90...90 and
 /// longitude in -180...180, spaces around each allowed.
-pub(crate) fn is_location(text: &str) -> bool {
+pub fn is_location(text: &str) -> bool {
     let parts: Vec<&str> = text.split(',').map(trim_whitespaces).collect();
     let [latitude, longitude] = parts.as_slice() else {
         return false;
@@ -165,7 +189,7 @@ pub(crate) fn is_location(text: &str) -> bool {
 /// what each background mode last showed. An object with at most `rotate`
 /// (`daily` or a folder), `folder` (a folder) and `off` (`none` or a fixed
 /// picture); any other member is refused.
-pub(crate) fn is_memory(value: &Value) -> bool {
+pub fn is_memory(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(name, value)| {
             let Some(text) = value.as_str() else {
@@ -203,7 +227,7 @@ pub(crate) fn selection_choices() -> Vec<String> {
 
 /// `appearance.backgroundRecents`: at most [`RECENTS_CAP`] distinct
 /// background values ([`is_selection`]), newest first.
-pub(crate) fn is_recents(value: &Value) -> bool {
+pub fn is_recents(value: &Value) -> bool {
     let Some(items) = value.as_array() else { return false };
     let mut seen = std::collections::HashSet::new();
     items.len() <= RECENTS_CAP
@@ -347,6 +371,30 @@ mod tests {
         ] {
             assert!(!is_when(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn live_wallpapers_are_live_ids() {
+        let pattern = regex::Regex::new(LIVE_PATTERN).expect("pattern");
+        for good in ["live:orbits", "live:grain-silk", "live:my-ext/neon-2"] {
+            assert!(is_live(good), "{good}");
+            assert!(pattern.is_match(good), "{good}");
+        }
+        for bad in [
+            "live:",
+            "live:Orbits",
+            "live:-orbits",
+            "live:grain--silk",
+            "live:2d",
+            "live:a/b/c",
+            "live:/orbits",
+            "orbits",
+            "file:/live:orbits",
+        ] {
+            assert!(!is_live(bad), "{bad}");
+            assert!(!pattern.is_match(bad), "{bad}");
+        }
+        assert!(!is_live(&format!("live:{}", "a".repeat(49))));
     }
 
     #[test]

@@ -57,3 +57,14 @@ export function rememberedStartedProject(): string | undefined {
     return undefined;
   }
 }
+
+/// The started projects a New Tab page may start on, newest first: this run's copy, then the app's
+/// (`startedProject` in the page's context, kept across launches). Both, not the first alone: a run's
+/// copy the host no longer lists (a removed worktree) gives way to the app's, never to a blank folder
+/// chip (cmux#51272). Each trimmed of a trailing `/`, once.
+export function startedProjectChoices(fromApp: string | undefined): string[] {
+  const choices = [rememberedStartedProject(), fromApp]
+    .filter((folder): folder is string => isStartableProject(folder) && !isTemporaryFolder(folder))
+    .map((folder) => folder.replace(/(.)\/+$/, "$1"));
+  return [...new Set(choices)];
+}

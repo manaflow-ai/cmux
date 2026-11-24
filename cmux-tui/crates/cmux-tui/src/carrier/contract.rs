@@ -453,7 +453,7 @@ pub(super) fn phases_line(
 
 /// The carriers line, appended only to the connect log after an attempt's
 /// phases line (and after each resume's route line):
-/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code>`.
+/// `carrier.routes machine=<vm_id> phase=<connect|reconnect|resume> [ssh=<on|no_candidate|no_tunnel|no_key>] carrier=<relay:0|ssh:0|none> outcome=<ok|error_code> [why=<codes>] [ssh_stderr="<tail>"]`.
 /// `ssh` says whether the attempt had the ssh backup route and, when not,
 /// why it was left out (a resume rotates over the routes its dial built, so
 /// it has none). `carrier` is the route that carried the attempt or resume,
@@ -466,19 +466,64 @@ pub(super) fn routes_line(
     ssh: Option<&str>,
     carrier: Option<&str>,
     outcome: Option<Step>,
-    said: Option<&str>,
+    detail: Option<&str>,
 ) -> String {
     let ssh = ssh.map_or_else(String::new, |ssh| format!(" ssh={ssh}"));
-    let said = said
+    let why = detail
+        .filter(|_| outcome.is_some())
+        .and_then(why_codes)
+        .map_or_else(String::new, |why| format!(" why={why}"));
+    let said = detail
+        .and_then(cmux_remote::provider::ssh_stderr_of)
         .map(cmux_remote::provider::one_line)
         .filter(|said| !said.is_empty())
         .map_or_else(String::new, |said| format!(" ssh_stderr=\"{}\"", last_chars(&said)));
     format!(
-        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{said}\n",
+        "carrier.routes machine={machine} phase={}{ssh} carrier={} outcome={}{why}{said}\n",
         phase.name(),
         carrier.unwrap_or("none"),
         outcome.map_or("ok", Step::error_code),
     )
+}
+
+/// Why a failed attempt or resume failed, as fixed codes only (never the
+/// failure's own text): one per distinct route failure in it, comma-joined,
+/// in the order the routes failed. A carrier ssh failure says which of its
+/// steps stopped it (`ssh_refused`: the platform dropped the route;
+/// `ssh_key_timeout`/`ssh_key`: the key was not authorized; `killed`: the
+/// route was killed); anything else is its [`detail_code`]. A captured ssh
+/// stderr tail is left out: it has its own quoted field.
+pub(super) fn why_codes(detail: &str) -> Option<String> {
+    const MAX_WHY_CODES: usize = 4;
+    let mut rest = detail;
+    let mut text = String::new();
+    while let Some((before, after)) = rest.split_once(cmux_remote::provider::SSH_STDERR_MARK) {
+        text.push_str(before);
+        rest = after
+            .strip_prefix('"')
+            .and_then(|quoted| quoted.split_once('"'))
+            .map_or("", |(_, tail)| tail);
+    }
+    text.push_str(rest);
+    let mut codes: Vec<String> = Vec::new();
+    for part in text.split("; ") {
+        let lower = part.to_ascii_lowercase();
+        let code = [
+            ("carrier ssh route dropped", "ssh_refused"),
+            ("carrier ssh key: no authorization within", "ssh_key_timeout"),
+            ("carrier ssh key:", "ssh_key"),
+            ("the carrier route was killed", "killed"),
+        ]
+        .into_iter()
+        .find(|(marker, _)| lower.contains(marker))
+        .map(|(_, code)| code.to_string())
+        .or_else(|| detail_code(part));
+        if let Some(code) = code.filter(|code| !codes.contains(code)) {
+            codes.push(code);
+        }
+    }
+    codes.truncate(MAX_WHY_CODES);
+    (!codes.is_empty()).then(|| codes.join(","))
 }
 
 /// The most of a captured ssh stderr line a `carrier.routes` line keeps:

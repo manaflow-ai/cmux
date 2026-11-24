@@ -230,12 +230,6 @@ test("once the reply has stopped, the line's clock and token count stop with it"
   expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
   // Past the pause it says only Thinking: no clock, however long the turn stays open.
   const tokens = {
-    agents: 0,
-    commands: 0,
-    sessions: 0,
-    openAgents() {},
-    openCommands() {},
-    openSessions() {},
     tokens: 4_200,
   };
   const counted = (now: number) =>
@@ -287,15 +281,12 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
-test("waiting on subagents, the line does not count them a second time", () => {
+test("waiting on subagents, the line names them once, with no count after its time", () => {
   const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts}>
-      <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
-    </WorkingCountsContext.Provider>,
+    <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
+  expect(words(html)).toBe("Waiting on 2 subagents 1m");
 });
 
 test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {
