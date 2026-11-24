@@ -87,6 +87,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// A page that does not answer within the deadline is treated as busy and kept.
     package static let fieldProbeScript = """
     (() => {
+      // The media observer drops a paused report whose element the page removed (`BrowserMediaState.observerScript`).
+      document.dispatchEvent(new CustomEvent('cmux-media-recheck'));
       const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0)
         || !!document.pictureInPictureElement
         || [...document.querySelectorAll('video')].some(v => v.webkitPresentationMode === 'picture-in-picture');

@@ -83,6 +83,8 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_race.rs"]
+mod race;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -106,6 +108,7 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.extend(race::tools());
         list.push(send_status::tool());
         list.extend(machine::tools());
         for tool in list.iter_mut() {
@@ -140,15 +143,15 @@ fn base_tools() -> Value {
     let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": "List inbox threads with unread counts. Pass thread to read its messages newest first and mark them read. Notices arrive at the next tool step and can wait.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+                "properties": {"thread": {"type": "string", "description": "threadId from a notice or the thread list."}}
             }
         },
         {
             "name": "inbox_reply",
-            "description": "Answer in an inbox thread: the message goes to the thread's newest sender, into their inbox under the same thread, and takes no turn of theirs.",
+            "description": "Reply to the thread's newest sender in their inbox without starting a turn.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -466,6 +469,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
+        name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
