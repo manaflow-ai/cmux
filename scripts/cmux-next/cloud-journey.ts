@@ -32,6 +32,9 @@
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   After the carrier dial, the terminal scroll probe (cloud-scroll-probe.ts, with --scroll-probe PATH's cmux, else --cmux's or --preclaim-login's;
+ *   `--skip scroll` leaves it out) measures
+ *   blank rows, missing rows and viewport jumps over `carrier serve`, a skip (never a fail) when it cannot run.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
  *   --start-via app starts the agent the way the app does (`agent-session-start` over the carrier dial, needs --cmux),
@@ -129,6 +132,7 @@ import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
+import { type CloudScrollFacts, runCloudScrollProbe, scrollProbeDetail } from "./cloud-scroll-probe.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -2630,6 +2634,8 @@ export type ProbeExtra = {
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
   login_path?: "receipt" | "copy" | "launch";
+  /** The terminal scroll-integrity probe's counts over this machine's carrier (cloud-scroll-probe.ts). */
+  terminal_scroll?: CloudScrollFacts;
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -2769,6 +2775,7 @@ export function swiftRawString(source: string, name: string): string {
 
 /** The clean-room provider key probe the journey runs on the chat machine after the chat. */
 export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
+export const SCROLL_PROBE_STEP = "terminal scroll probe (carrier serve)";
 export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
 export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
 export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; shipped?: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
@@ -5444,6 +5451,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+    }
+    // The Cloud surface of the terminal scroll-integrity probe (cloud-scroll-probe.ts), with --scroll-probe's cmux,
+    // else --cmux's, else --preclaim-login's (the production journeys' Linux cmux-tui): a measurement, never a fail
+    // of this journey; a probe that could not run is a skip that names why.
+    const scrollCmux = argValue("--scroll-probe", argv) ?? cmux ?? preclaimLoginCmux;
+    if (!scrollCmux) J.skip(SCROLL_PROBE_STEP, "--scroll-probe, --cmux or --preclaim-login is required");
+    else if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+    else {
+      const t0 = Date.now();
+      const r = await runCloudScrollProbe(scrollCmux, api, created.id, (child) => {
+        carrierDials.add(child);
+        child.on("exit", () => carrierDials.delete(child));
+      }).catch((e: Error) => ({ why: e.message }));
+      if ("facts" in r) probeExtra.terminal_scroll = r.facts;
+      J.record({ step: SCROLL_PROBE_STEP, status: "facts" in r ? "pass" : "skip", ms: Date.now() - t0, detail: scrub("facts" in r ? scrollProbeDetail(r.facts) : `the probe did not run: ${r.why}`, J.secrets).slice(0, 1000) });
     }
     if (createAnsweredAt !== null) {
       await J.step("guest carrier timeline", async () => {
