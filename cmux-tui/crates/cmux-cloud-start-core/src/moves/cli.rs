@@ -473,6 +473,14 @@ pub enum Call {
     StartChatWarmSpare {
         request: String,
     },
+    /// `link start-chat ensure --workspace K --key K --environment ENV [--platform URL]` (the access token on stdin): a new
+    /// machine in a cloud environment (`/v1/cloud-environments`) from the platform's workspace ensure, keyed by `key`.
+    StartChatEnsure {
+        key: String,
+        environment: String,
+        #[serde(default)]
+        platform: Option<String>,
+    },
     /// `link start-chat plan --request JSON`.
     StartChatPlan {
         request: String,
@@ -747,6 +755,24 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(95),
             min_timeout_seconds: None,
         },
+        Call::StartChatEnsure { key, environment, platform } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "ensure",
+                "--workspace",
+                key,
+                "--key",
+                key,
+                "--environment",
+                environment,
+            ]);
+            if let Some(platform) = platform {
+                args.extend(words(&["--platform", platform]));
+            }
+            // The platform call's own limit is 120 s (a new machine's admission).
+            Invocation { args, timeout_seconds: Some(150), min_timeout_seconds: None }
+        }
         Call::StartChatPlan { request } => {
             plain(words(&["link", "start-chat", "plan", "--request", request]))
         }

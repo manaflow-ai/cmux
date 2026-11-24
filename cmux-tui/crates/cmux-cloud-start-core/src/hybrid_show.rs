@@ -65,12 +65,15 @@ pub fn show_line(
     machine: Option<&str>,
     at_ms: u64,
 ) -> Value {
-    let mut show = json!({"cloud": cloud, "session": session, "at": at_ms});
+    let mut show = serde_json::Map::new();
+    show.insert("cloud".to_owned(), json!(cloud));
+    show.insert("session".to_owned(), json!(session));
+    show.insert("at".to_owned(), json!(at_ms));
     if let Some(reason) = reason {
-        show["reason"] = json!(reason);
+        show.insert("reason".to_owned(), json!(reason));
     }
     if let Some(machine) = machine {
-        show["machine"] = json!(machine);
+        show.insert("machine".to_owned(), json!(machine));
     }
     json!({ "show": show })
 }
