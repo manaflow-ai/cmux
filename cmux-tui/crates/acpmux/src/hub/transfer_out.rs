@@ -263,6 +263,9 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 }
 
 #[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
+#[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]
