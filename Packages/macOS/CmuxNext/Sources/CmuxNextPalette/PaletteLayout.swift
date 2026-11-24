@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 
 /// Palette geometry derived from the shared Design tokens. Every value is
@@ -158,7 +159,9 @@ enum PaletteText {
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
         guard let image = NSImage.packOverride(forSymbol: name, pointSize: size)
-            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+            // `brand:<id>`: a brand's mark (GitHub) as a template, tinted like the symbols, its circle as wide as a symbol's ring.
+            ?? (name.hasPrefix("brand:") ? AgentBrandCatalog.templateImage(brand: String(name.dropFirst(6)), size: size, fill: 1) : nil) else {
             return nil
         }
         if symbols.count >= 1_024 { symbols.removeAll() }
