@@ -1607,6 +1607,7 @@ mod redial_tests {
             transport: Transport::WireGuard,
             include_loopback: true,
             relay_only: true,
+            force_relay: false,
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
