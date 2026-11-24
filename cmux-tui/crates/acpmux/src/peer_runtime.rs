@@ -172,6 +172,29 @@ impl Peer {
         f(&mut self.quality.lock_or_recover())
     }
 
+    /// How long a ping sent to check a silent link waits for an answer: `NETWORK_PROBE`, scaled
+    /// to the link's measured round trip (`peer_link_quality::probe_wait`).
+    pub(super) fn probe_wait(&self) -> Duration {
+        if !self.timings.rtt_adaptive {
+            return network::NETWORK_PROBE;
+        }
+        self.with_quality(|q| crate::peer_link_quality::probe_wait(q.rtt(), network::NETWORK_PROBE))
+    }
+
+    /// The silence budget for this link: the learned budget (`SilenceBudget`), not under the floor
+    /// its round trip asks for (`peer_link_quality::silence_floor`). A fixed
+    /// `ACPMUX_PEER_PING_SECS` keeps it as set.
+    pub(super) fn silence_for(&self, learned: Duration) -> Duration {
+        let t = &self.timings;
+        if !t.rtt_adaptive || t.fixed_silence {
+            return learned;
+        }
+        let floor = self.with_quality(|q| {
+            crate::peer_link_quality::silence_floor(q.rtt(), t.ping_every, t.silence_budget())
+        });
+        learned.max(floor)
+    }
+
     /// Every change of the link's state goes through here, so each one sends its note
     /// (`report_states`) from the code that made it: no timer, no polling, no repeats.
     pub(super) fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
