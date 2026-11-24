@@ -288,7 +288,8 @@ fn request(mux: &Arc<Mux>, operation: &str) -> Value {
 /// new terminal.
 fn open_pane(s: &Session, index: usize) -> SurfaceId {
     let mux = &s.mux;
-    let pane = mux.with_state(|state| state.pane_of(s.surfaces[index * s.tabs]).unwrap());
+    let pane =
+        mux.with_state(|state| state.pane_of(*s.surfaces.get(index * s.tabs).unwrap()).unwrap());
     mux.split(pane, SplitDir::Right, Some((80, 24))).unwrap().id
 }
 
@@ -416,7 +417,7 @@ const TIME_SLACK_MS: f64 = 4.0;
 
 fn median_ms(mut samples: Vec<f64>) -> f64 {
     samples.sort_by(f64::total_cmp);
-    samples[samples.len() / 2]
+    samples.get(samples.len() / 2).copied().unwrap_or(f64::NAN)
 }
 
 /// Median milliseconds of open pane, switch and create in `s`.
@@ -463,7 +464,7 @@ fn open_pane_switch_and_create_cost_the_same_at_four_thousand_workspaces() {
     let many_times = timed_costs(&many);
     let mut failures = grown_counts(&few_counts, &many_counts, (FEW, THOUSANDS));
     for (operation, few_ms) in &few_times {
-        let many_ms = many_times[operation];
+        let many_ms = many_times.get(operation).copied().unwrap_or(f64::INFINITY);
         if many_ms > few_ms * TIME_RATIO + TIME_SLACK_MS {
             failures.push(format!(
                 "{operation}: median {few_ms:.3} ms at {FEW} workspaces, {many_ms:.3} ms at {THOUSANDS}"

@@ -156,7 +156,7 @@ impl Mux {
         scoped_projection::WORKSPACES_PROJECTED
             .with(|count| count.set(count.get() + visited.len() as u64));
         for workspace_index in visited {
-            let workspace = &state.workspaces[workspace_index];
+            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
             let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
             if !in_scope && !input.rows.states(workspace_index) && input.rows.scope_frame() {
                 // `before` holds no row of this workspace and the walk states none: there is
