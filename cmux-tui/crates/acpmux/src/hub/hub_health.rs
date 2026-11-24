@@ -2,7 +2,7 @@
 //! (`mesh_book.rs`), so placement weighs them as it weighs a direct peer (`placement.rs`).
 //!
 //! A direct peer's link asks its health every minute (`peer_health.rs`); a machine only the hub
-//! lists has no link, so placement on one read "resources unknown" (gcp-agent-lane-8,
+//! lists has no link, so placement on one read "resources unknown" (a lane VM,
 //! 2026-11-24: every fleet host was hub-only, and `machine pick` refused each). Here the asker
 //! reads each one through the hub with an `_acpmux/host_health` read (`server/mesh_read.rs`),
 //! and keeps the newest answer by machine. Asked only while something places: a placement asks

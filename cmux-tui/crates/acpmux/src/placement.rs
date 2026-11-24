@@ -471,9 +471,9 @@ fn stopped(machine: &Value) -> Option<String> {
 ///
 /// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is one: its health comes
 /// through the hub (`hub/hub_health.rs`), and a session placed there starts through the hub's
-/// start relay (`server/requests.rs`, `hub_start`), as `acpmux session start --machine` does.
-/// Until 2026-11-24 it never was (a pick of it failed with `no peer "HOST"`), and on
-/// gcp-agent-lane-8, where every fleet host was hub-only, `machine pick` refused them all. A
+/// start relay (`server/mesh_control_send.rs` `start_through_hub`), as `acpmux session start
+/// --machine` does. Until 2026-11-24 it never was (a pick of it failed with `no peer "HOST"`),
+/// and on a lane VM, where every fleet host was hub-only, `machine pick` refused them all. A
 /// caller that needs a direct link (a move over ssh, the app's machine list) asks [`link_down`].
 pub fn peer_down(row: &Value) -> Option<String> {
     if row.get("outdated").and_then(Value::as_bool) == Some(true) {

@@ -469,7 +469,7 @@ mod tests {
     }
 
     /// gcp-codex-swarm-07, 2026-11-20: a lane VM at its lane cap whose only other machine is one
-    /// the mesh hub lists; and gcp-agent-lane-8, 2026-11-24, where every fleet host was one.
+    /// the mesh hub lists; and a lane VM, 2026-11-24, where every fleet host was one.
     /// A hub machine is a candidate: with a reading through the hub it is weighed as a linked
     /// peer is, and its start goes through the hub's start relay (`requests.rs` `hub_start`).
     #[test]
