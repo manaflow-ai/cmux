@@ -904,14 +904,14 @@ public final class TerminalModel {
 
     /// `count` characters of prose, sentences and paragraph breaks, for
     /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
-    public static func demoProse(_ count: Int) -> String {
+    public static func demoProse(_ count: Int, oneParagraph: Bool = false) -> String {
         let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
         var text = ""
         var index = 0
-        while text.count < count {
+        while text.utf8.count < count {
             text += sentence
             index += 1
-            if index % 4 == 0 { text += "\n\n" }
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
         return String(text.prefix(count))
     }
