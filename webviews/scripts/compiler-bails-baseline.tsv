@@ -119,12 +119,14 @@ src/agent-session/acpmux/session-info/OutputsSection.tsx	1
 src/agent-session/acpmux/session-info/sameValue.ts	1
 src/agent-session/acpmux/session-info/SessionInfo.tsx	1
 src/agent-session/acpmux/session-info/SessionInfoGroup.tsx	1
+src/agent-session/acpmux/session-info/SessionInfoPresence.tsx	1
 src/agent-session/acpmux/session-info/SourcesSection.tsx	1
 src/agent-session/acpmux/session-info/stepAside.ts	1
 src/agent-session/acpmux/session-info/subagentLimitStepperModel.ts	1
 src/agent-session/acpmux/session-info/SubagentsSection.tsx	1
 src/agent-session/acpmux/session-info/TasksSection.tsx	1
-src/agent-session/acpmux/session-info/useSessionInfo.tsx	5
+src/agent-session/acpmux/session-info/useSessionInfo.tsx	3
+src/agent-session/acpmux/session-info/useStableCallback.ts	1
 src/agent-session/acpmux/slashCommands.ts	1
 src/agent-session/acpmux/stableHandlers.ts	1
 src/agent-session/acpmux/stableProps.ts	1

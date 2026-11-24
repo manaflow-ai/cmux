@@ -8,13 +8,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { MessageGroupHover } from "../src/agent-session/acpmux/conversation/MessageGroupHover";
 import {
   GroupHoverLookContext,
-  MessageGroupHover,
   type GroupHoverList,
   hoverMessages,
   inboxHover,
-} from "../src/agent-session/acpmux/conversation/MessageGroupHover";
+} from "../src/agent-session/acpmux/conversation/messageGroupHoverModel";
 import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { settleReact } from "./support/domTeardown";
 

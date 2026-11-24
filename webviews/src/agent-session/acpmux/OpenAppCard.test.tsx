@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { afterLatestFooter } from "./OpenAppCard";
+import { afterLatestFooter } from "./afterLatestFooter";
 
 describe("the after-latest footer", () => {
   // An empty footer kept the composer's room below the transcript and shortened it (review of #34566).

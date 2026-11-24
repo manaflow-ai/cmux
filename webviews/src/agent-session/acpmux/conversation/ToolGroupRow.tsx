@@ -21,7 +21,7 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
-import { ShimmerEnabledContext } from "./ShimmerText";
+import { ShimmerEnabledContext } from "./shimmerEnabledContext";
 import { useT } from "../i18n";
 import {
   callDisclosureKeys,

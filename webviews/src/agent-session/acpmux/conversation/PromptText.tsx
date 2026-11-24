@@ -44,7 +44,8 @@ import { Bot } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
-import { SentPromptFoldContext, SentUIPicks } from "./SentUIPick";
+import { SentUIPicks } from "./SentUIPick";
+import { SentPromptFoldContext } from "./sentPromptFoldContext";
 import { sentUIPickSegments } from "./sentUIPickModel";
 
 /// Whether a prompt's text is long, by its row and the bubble's width, for the text it was measured

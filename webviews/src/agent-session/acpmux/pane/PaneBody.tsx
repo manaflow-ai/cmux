@@ -40,7 +40,7 @@ import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
 import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
-import { TourStartContext } from "../repoTour/TourBlock";
+import { TourStartContext } from "../repoTour/tourBlockModel";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";

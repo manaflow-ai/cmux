@@ -610,7 +610,7 @@ const noStop = () => {};
 
 /// The chat's snapshot as a relayed composer reads it: its machine and connection, with no turn,
 /// queue, commands, prompt history, suggestion, usage or modes of the chat's.
-export function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const {
     sessionId: _session,
     stopping: _stopping,

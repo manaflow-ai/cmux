@@ -30,7 +30,8 @@ import { NoticeRow } from "../rows/NoticeRow";
 import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
-import { rowDomId, RowFrame, RowContent } from "./RowFrame";
+import { rowDomId } from "./rowDomId";
+import { RowFrame, RowContent } from "./RowFrame";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line

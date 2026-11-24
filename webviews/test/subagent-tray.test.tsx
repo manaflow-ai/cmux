@@ -682,7 +682,8 @@ describe("the tray", () => {
     // Header totals and elapsed time need the running state; the folded header names only the faces
     // that fit its row (HatFaces.tsx faceLayout: at most FACE_CAP wide at FACE_MIN_STEP apart, #49824).
     // More reads than that prove the component constructed hidden AgentLine elements.
-    const { faceLayout, FACE_CAP } = await import("../src/agent-session/acpmux/subagents/HatFaces");
+    const { FACE_CAP } = await import("../src/agent-session/acpmux/subagents/HatFaces");
+    const { faceLayout } = await import("../src/agent-session/acpmux/subagents/hatFacesModel");
     const faceCap = faceLayout(300, 0, FACE_CAP).shown;
     for (const item of items) {
       if (item.kind !== "agent") continue;

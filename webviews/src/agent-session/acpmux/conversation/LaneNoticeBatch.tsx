@@ -13,7 +13,7 @@ import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
 import { useFold } from "./fold";
 import { foldPlays } from "./transcriptView";
-import { hoverMessages, shortSender } from "./MessageGroupHover";
+import { hoverMessages, shortSender } from "./messageGroupHoverModel";
 import { senderName } from "./senderIdentity";
 import "./LaneNoticeBatch.css";
 import { foldSeverity } from "./laneNoticeBatchModel";

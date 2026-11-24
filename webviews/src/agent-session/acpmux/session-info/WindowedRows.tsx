@@ -6,16 +6,7 @@
 // And there's probably more places like that where shit will lag if I open things up"). The same rule
 // as the transcript's opened runs (conversation/ToolGroupRow.tsx StepList).
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-
-/// The least height a list row draws at, in px: the rows a window can show are its height over this.
-const ROW_MIN_PX = 24;
-/// Rows drawn past the window's edge, so a slow scroll finds them there.
-export const OVERSCAN_ROWS = 8;
-
-/// The rows an open draws for a window `viewHeight` px tall: as many as can show, and the overscan.
-export function firstRowCount(viewHeight: number): number {
-  return Math.max(1, Math.ceil(viewHeight / ROW_MIN_PX)) + OVERSCAN_ROWS;
-}
+import { firstRowCount, OVERSCAN_ROWS } from "./windowedRowCount";
 
 /// What the keyboard can focus in a row.
 const FOCUSABLE = 'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])';

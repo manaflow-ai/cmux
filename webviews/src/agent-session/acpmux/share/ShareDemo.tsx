@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { PresenceStack } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
-import { ShareDialogHost, shareToasts } from "./ShareControl";
+import { ShareDialogHost } from "./ShareControl";
+import { shareToasts } from "./shareNotices";
 import { shareView, type ChatShare, type ShareCall } from "./shareState";
 import "../header/header.css";
 

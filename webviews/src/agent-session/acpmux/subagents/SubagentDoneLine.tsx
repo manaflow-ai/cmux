@@ -46,7 +46,7 @@ import { useSenderIconLook } from "./senderIconLook";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
-import { useResume } from "./ResumeControl";
+import { useResume } from "./useResume";
 import { retryLabel, subagentRetry, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {

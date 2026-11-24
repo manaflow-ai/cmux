@@ -11,42 +11,18 @@
 // so Continue on is that menu's list), chatgpt/live/sidebar-machine-details-hover-card (the machine
 // and its status dot together at the top) and claude/live/sidebar-project-groups-status-dots (a
 // dot, words only where there is something to read).
-import { useMemo } from "react";
 import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
-import { peerCloudMachine } from "./peerCloudMachine";
-import { runCloudMachine, useCloudMachines, type CloudMachine } from "./cloudMachines";
-import { postNative } from "./native";
-import type { MachineResources } from "./machineResources";
-import {
-  machineCard,
-  machineCardDot,
-  type MachineCardModel,
-  type MachineCardStatus,
-  type PickerCard,
-} from "./machineCardModel";
+import type { MachineCardModel } from "./machineCardModel";
+import { machineStatusWord } from "./machineCardText";
 import "./planUsageCard.css";
 import "./machineCard.css";
-
-/// The status's word: Awake and Asleep, as the person says it of a machine.
-export function machineStatusWord(status: MachineCardStatus, t: Translate): string {
-  switch (status) {
-    case "awake":
-      return t("machineCard.awake");
-    case "paused":
-      return t("machineCard.asleep");
-    case "starting":
-      return t("machineCard.waking");
-    case "failed":
-      return t("machineCard.failed");
-  }
-}
 
 const formatNumber = (value: number) =>
   value.toLocaleString(globalThis.document?.documentElement?.lang || undefined, { maximumFractionDigits: 1 });
 
 /// "4 vCPU · 16 GB · 64 GB disk", or as much of it as the record says.
-export function machineSpecsText(specs: MachineCardModel["specs"], t: Translate): string | undefined {
+function machineSpecsText(specs: MachineCardModel["specs"], t: Translate): string | undefined {
   if (!specs) return undefined;
   const parts = [
     specs.cpu !== undefined ? t("machineCard.specCpu", { n: formatNumber(specs.cpu) }) : undefined,
@@ -155,61 +131,3 @@ export function WakeIcon() {
   );
 }
 
-/// The chip's machine, as ComposerContext knows it (its `Computer` row).
-export type MachineCardComputer = {
-  id: string;
-  label: string;
-  kind: string;
-  connected?: boolean;
-  resources?: MachineResources;
-  cloudMachine?: CloudMachine;
-};
-
-type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-
-/// The card and chip dot for a started chat on a Cloud machine (`computer`), nothing for any other
-/// chat. The account's record of the machine is its own row's, else the one named as the chat's
-/// peer (peerCloudMachine: one machine of that name, never a guess between two). Wake machine runs
-/// the app's Resume for that machine (`cloudMachine.resume`, the `cloudResumeMachine` action, on the
-/// row's own click), and the list shows it waking at once (runCloudMachine).
-export function useMachineCard(
-  computer: MachineCardComputer | undefined,
-  enabled: boolean,
-  call: Call = postNative,
-): { card?: PickerCard; dot?: { live: boolean; sleep?: "paused" | "resuming"; words: string } } {
-  const t = useT();
-  const machines = useCloudMachines();
-  const cloud = enabled && computer?.kind === "cloud" ? computer : undefined;
-  const machine = cloud
-    ? (cloud.cloudMachine ?? peerCloudMachine(machines, cloud.id) ?? peerCloudMachine(machines, cloud.label))
-    : undefined;
-  const model = useMemo(
-    () =>
-      cloud
-        ? machineCard({
-            name: cloud.label,
-            ...(machine ? { machine } : {}),
-            ...(cloud.connected !== undefined ? { connected: cloud.connected } : {}),
-            ...(cloud.resources ? { resources: cloud.resources } : {}),
-          })
-        : undefined,
-    [cloud, machine],
-  );
-  if (!model) return {};
-  const dot = machineCardDot(model.status);
-  const wake =
-    machine && model.status === "paused"
-      ? [
-          {
-            id: "wake",
-            text: t("machineCard.wake"),
-            icon: <WakeIcon />,
-            run: () => void runCloudMachine(machine, call),
-          },
-        ]
-      : [];
-  return {
-    card: { header: <MachineCard model={model} />, actions: wake, continueOn: t("machineCard.continueOn") },
-    ...(dot && model.status ? { dot: { ...dot, words: machineStatusWord(model.status, t) } } : {}),
-  };
-}

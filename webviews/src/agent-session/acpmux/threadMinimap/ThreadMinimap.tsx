@@ -11,7 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { trailingTimer } from "../../../ui/trailingTimer";
@@ -45,9 +45,11 @@ import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
 import { useThreadMinimapArm, setRailShow, useRailControl, useRailShow } from "../chatDisplay";
-import { RAIL_SHOWS, type RailShow } from "./railShow";
+import { RAIL_SHOWS } from "./railShow";
 import { threadMinimapReplies } from "./replies.experiment";
 import { RailShowControl } from "./RailShowControl";
+import { RAIL_SHOW_LABEL } from "./railShowLabels";
+import { MinimapSource, useMinimapSource, type MinimapSourceValues } from "./minimapSource";
 import {
   CARD_DELAY,
   JUMP_CURVE,
@@ -91,19 +93,6 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
-
-/// The rail menu's show items (railShow.ts `RailShow`).
-export const RAIL_SHOW_LABEL = {
-  prompts: "minimap.filterAll",
-  mine: "minimap.filterMine",
-  received: "minimap.filterAgents",
-  replies: "minimap.showReplies",
-  everything: "minimap.showEverything",
-  errors: "minimap.showErrors",
-  edits: "minimap.showEdits",
-  tools: "minimap.showTools",
-  subagents: "minimap.showSubagents",
-} as const satisfies Record<RailShow, StringKey>;
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
 const STEP_PENDING_MS = STEP_MS + 150;
@@ -166,19 +155,6 @@ const within = (element: Element | null, to: EventTarget | null) =>
 
 const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElement>(".cv-user__bubble");
 
-/// What the transcript hands the rail on each of its renders: every one of these changes with a
-/// streamed token (VirtualTranscript).
-export type MinimapSourceValues = {
-  rows: readonly AcpmuxRow[];
-  layout: TranscriptLayout;
-  /// The transcript's offset as it renders (layout coordinates).
-  scrollTop: number;
-  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
-  scrolls: boolean;
-  /// Where `rows` first differs from the last snapshot (model.ts minimapTurns).
-  change?: RowsChange;
-};
-
 /// The rail's turns read from the transcript's rows (model.ts minimapTurns), by its renders and by
 /// MinimapSource's probe. `committed` is the turns of the last commit: the next read goes on from
 /// them and leaves them as they are, so a render React drops before it commits changes nothing
@@ -236,41 +212,6 @@ class TurnReader {
   }
 }
 
-/// The rail's stable handle on the transcript's rows, layout and offset (ThreadMinimap `source`). The
-/// transcript writes each render's values into it and passes `update`'s version beside it: the version
-/// moves only when the rail would draw something else (a prompt, a tick, the band of prompts on screen,
-/// the full-height map's proportions), so a token that only grows the live reply renders no rail. The
-/// rail reads the latest values from it when it draws, and its handlers when they run.
-export class MinimapSource {
-  current: MinimapSourceValues | undefined;
-  private version = 0;
-  /// The mounted rail's check: whether `next` changes what it drew last commit. Absent while no rail is
-  /// mounted, when every render is a new version.
-  private probe: ((next: MinimapSourceValues) => boolean) | undefined;
-  /// The mounted rail's probe, from its commit until `clearProbe`.
-  setProbe(probe: (next: MinimapSourceValues) => boolean) {
-    this.probe = probe;
-  }
-  clearProbe(probe: (next: MinimapSourceValues) => boolean) {
-    if (this.probe === probe) this.probe = undefined;
-  }
-  /// Takes this render's values; the version the rail renders at.
-  update(next: MinimapSourceValues): number {
-    const was = this.current;
-    this.current = next;
-    if (
-      !was ||
-      was.rows !== next.rows ||
-      was.layout !== next.layout ||
-      was.scrollTop !== next.scrollTop ||
-      was.scrolls !== next.scrolls ||
-      was.change !== next.change
-    )
-      if (!this.probe || this.probe(next)) this.version += 1;
-    return this.version;
-  }
-}
-
 /// The row tops of `source`'s latest layout, read when asked: a streamed token's new layout is read
 /// without rendering the rail. Kept per layout, so its geometry is wrapped once.
 function latestTopsOf(source: MinimapSource): RowTops {
@@ -285,12 +226,6 @@ function latestTopsOf(source: MinimapSource): RowTops {
     }
     return read(index);
   };
-}
-
-/// One MinimapSource for the transcript's life.
-export function useMinimapSource(): MinimapSource {
-  const [source] = useState(() => new MinimapSource());
-  return source;
 }
 
 type ThreadMinimapProps = Parameters<typeof ThreadMinimapView>[0];

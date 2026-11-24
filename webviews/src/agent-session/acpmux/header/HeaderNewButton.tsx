@@ -11,7 +11,8 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { menuKeycap } from "./chatHeaderToolsModel";
 import { readLastKind, repeatKind, writeLastKind, type NewKind } from "./headerTrio";
 import { tooltipProps, useShortcut } from "../shortcuts";
-import { ShortcutKeycaps, useShortcutKeycapsOn } from "../ButtonKeycaps";
+import { ShortcutKeycaps } from "../ButtonKeycaps";
+import { useShortcutKeycapsOn } from "../useShortcutKeycapsOn";
 import { ariaKeyshortcuts } from "../shortcutKeycaps";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 

@@ -1,7 +1,7 @@
 // l10n-allow-file: sender/session fixtures.
 import { expect, test } from "bun:test";
 import { sessionEntry, sessionTitle, formerName } from "./sessionList";
-import { newestFormerName } from "./AgentIdentityChip";
+import { newestFormerName } from "./formerNames";
 import { incomingPrompt } from "./conversation/incomingMessage";
 import { resolveSenderIdentity } from "./senderIdentity";
 import { SubsessionStore } from "./subagents/subsessions";

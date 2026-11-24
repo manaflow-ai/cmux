@@ -1,14 +1,10 @@
 import React from "react";
-import { transcriptLiveVars } from "../transcriptGrid";
 import { type AcpmuxRow, type PlacedLayout } from "../model";
 import { ThreadMinimap } from "../threadMinimap/ThreadMinimap";
 import { transcriptFadeReach, type RowsChange } from "../threadMinimap/model";
-import { ChatMinimap } from "../chatMinimap/ChatMinimap";
-import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { fadesBelow } from "../conversation/scrollAnchor";
 import { RetryTargetContext } from "../conversation/turnActions";
-import { GuestActionsBoundary } from "../conversation/GuestActionsBoundary";
-import { FindReveal, type ChatFind } from "../conversation/chatFind";
+import { type FindReveal, type ChatFind } from "../conversation/chatFind";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { type TranscriptNeedsYou } from "../needsYou/JumpPill";
@@ -24,7 +20,9 @@ import { SHOWN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { WEB_SWAP_KEPT_SCROLL } from "../../../pages/shared/webSwap";
 import { FOLLOW_BOTTOM_DEADBAND_PX } from "../virtualTranscriptModel";
 import { standInElements } from "./rowFrames";
-import { JumpToLatest, JumpUp } from "./JumpButtons";
+import { JumpUp } from "./JumpButtons";
+import { LIVE_STEP_VARS } from "./liveStepVars";
+import { ChatMinimapMemo, JumpToLatestMemo, ReadOnlyBoundary, TranscriptContext } from "./TranscriptShellParts";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
 import { Spinner } from "../conversation/icons";
@@ -33,38 +31,6 @@ import { OlderLoadingMark } from "./OlderLoadingMark";
 /// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
 /// shows only where the room held for them has this much space above the first loaded row.
 const OLDER_SPINNER_BOX = 32;
-
-/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
-/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
-const LIVE_STEP_VARS = transcriptLiveVars();
-
-/// A wheel tick re-renders the transcript; these draw again only when their own props change (the minimap reads
-/// the scroll from its scroller, not from a prop).
-const JumpToLatestMemo = React.memo(JumpToLatest);
-const ChatMinimapMemo = React.memo(ChatMinimap);
-
-/// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
-function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
-  return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
-}
-
-/// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
-/// button, the session its marks key into (threadMinimap/promptMarks.ts).
-function TranscriptContext({
-  find,
-  sessionId,
-  children,
-}: {
-  find: React.ContextType<typeof FindReveal>;
-  sessionId?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <FindReveal.Provider value={find}>
-      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
-    </FindReveal.Provider>
-  );
-}
 
 type MinimapProps = React.ComponentProps<typeof ThreadMinimap>;
 

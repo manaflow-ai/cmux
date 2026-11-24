@@ -186,8 +186,8 @@ test("the base picker opened after a base change lists the last refs at once and
 });
 
 test("the cloud repository picker opened again lists the last repositories without Searching", async () => {
-  const { CloudRepositoryPicker, resetLastKnownReposForTests } =
-    await import("../src/agent-session/acpmux/session-info/CloudRepositoryPicker");
+  const { CloudRepositoryPicker } = await import("../src/agent-session/acpmux/session-info/CloudRepositoryPicker");
+  const { resetLastKnownReposForTests } = await import("../src/agent-session/acpmux/session-info/lastKnownRepos");
   resetLastKnownReposForTests();
   const answers: ReturnType<typeof deferred<unknown>>[] = [];
   const request = <T,>(method: string): Promise<T> => {

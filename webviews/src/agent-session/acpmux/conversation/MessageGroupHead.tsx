@@ -15,7 +15,8 @@ import type { IncomingMessage } from "./incomingMessage";
 import { useInboxNoticeLook } from "./inboxNoticeLook";
 import { useMessageLineLook } from "./messageLineLook";
 import { Tooltip } from "../../../ui/Tooltip";
-import { MessageGroupHover, type GroupHoverList } from "./MessageGroupHover";
+import { MessageGroupHover } from "./MessageGroupHover";
+import type { GroupHoverList } from "./messageGroupHoverModel";
 import "./AgentMessageRow.css";
 import "./MessageGroupHead.css";
 

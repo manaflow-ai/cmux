@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLinkDownSaid } from "./afterDelay";
 import { Spinner } from "./conversation/icons";
-import { useT, type Translate } from "./i18n";
+import { useT } from "./i18n";
+import { linkWords } from "./linkWords";
 import type { PeerLink } from "./peerLink";
 import "./machineLinkStatus.css";
 
@@ -10,20 +11,6 @@ import "./machineLinkStatus.css";
 /// where its link is said, as the sidebar header names it), or only the dot, with the words in its
 /// tooltip (`dot`).
 export type MachineLinkLook = "dot" | "words" | "named";
-
-/// acpmux's peer link state in the sidebar machine header's words ("Reconnecting…", "Offline"), or what
-/// is wrong when acpmux knows (a refused sign-in, an update, this Mac's own network).
-export function linkWords(link: PeerLink, t: Translate): string {
-  if (link.why) return t(`machineLink.${link.why}`);
-  switch (link.link) {
-    case "connected":
-      return t("machineLink.connected");
-    case "connecting":
-      return t(link.reconnecting ? "machineLink.reconnecting" : "machineLink.connecting");
-    case "offline":
-      return t("machineLink.offline");
-  }
-}
 
 /// The link of the machine a chat on another machine runs on, in the composer's quiet row (Leo,
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,

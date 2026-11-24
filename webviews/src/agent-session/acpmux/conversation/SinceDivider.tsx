@@ -48,11 +48,9 @@ import {
   type UnreadBannerMode,
 } from "./unreadState";
 import { sinceLook } from "./sinceLook.experiment";
-import { SINCE_COUNT_CAP } from "./sinceNews";
 import "./unread.css";
 import { intl } from "../../../ui/intl";
-
-export { sinceDone } from "./unreadState";
+import { newMessagesLabel } from "./newMessagesLabel";
 
 const useUnreadView = () => useSyncExternalStore(subscribeUnread, readUnread, readUnread);
 
@@ -132,14 +130,6 @@ function useDissipate(mark: string, onScreen: boolean, dwellMs: number): void {
 
 /// How the line is drawn (sinceLook.experiment.ts); the gallery compares them.
 export type SinceLook = "line" | "worked" | "pill";
-
-/// The count as the label shows it: "999+" past the cap.
-const shownCount = (count: number): number | string => (count > SINCE_COUNT_CAP ? `${SINCE_COUNT_CAP}+` : count);
-
-/// "157 new messages", "999+ new messages" past the count's cap.
-export function newMessagesLabel(t: ReturnType<typeof useT>, count: number): string {
-  return t("since.messages", { n: shownCount(count) });
-}
 
 /// The line's count for `mark`: the gallery's, else the transcript's (unreadState.ts `count`).
 /// Undefined (the label reads "New") before the rows are counted or past the count's reach.

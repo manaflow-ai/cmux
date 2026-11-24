@@ -180,7 +180,7 @@ import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_OF } from "./subagents/subagentRows";
 import { noteSendFromLatest } from "./conversation/sendMorph";
-import { sinceDone } from "./conversation/SinceDivider";
+import { sinceDone } from "./conversation/unreadState";
 import {
   readUnread,
   subscribeUnread,
@@ -266,8 +266,6 @@ import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
 export { RowContent } from "./transcript/RowFrame";
-export { broughtSentPrompt } from "./transcript/arrivals";
-export { heldReaderPlace } from "./transcript/scrollAnchors";
 export type { ScrollAnchor } from "./transcript/scrollAnchors";
 export { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
 

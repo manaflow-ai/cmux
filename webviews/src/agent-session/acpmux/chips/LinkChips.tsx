@@ -28,7 +28,7 @@ import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
-import { useVideoLinkClick } from "./ReplyMedia";
+import { useVideoLinkClick } from "./videoLinkClick";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -175,7 +175,7 @@ export function UrlChip({
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
-  // A web video's link plays in the app's player (ReplyMedia.tsx useVideoLinkClick).
+  // A web video's link plays in the app's player (videoLinkClick.tsx useVideoLinkClick).
   const videoLink = useVideoLinkClick(href);
   // Once it names one of the reader's listed chats, its card is that chat's (started/SessionHoverCard.tsx),
   // opening it as the link does, in place of the site's.

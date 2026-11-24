@@ -19,15 +19,15 @@ import React, {
   useState,
 } from "react";
 import { age } from "../homeListsModel";
-import { useT, type Translate } from "../i18n";
+import { useT } from "../i18n";
 import { Keycap } from "../Keycap";
 import { AgentMark } from "../tabMarks";
 import type { NeedsYouAnswer } from "../needsYou/model";
-import { formatCost } from "../ledger/ledgerModel";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
-import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueReason } from "./queueModel";
+import { queueAnswers, queueCommand, queueReasons, type QueueItem } from "./queueModel";
 import { useQueue, type QueueCache } from "./useQueue";
 import { paneComments, useComments, type Comments } from "./comments";
+import { reasonText } from "./queueReasonText";
 import "./queue.css";
 
 /// How a row reads (gallery `agent-pane.review-queue`): `inbox` two lines with the answers on the
@@ -403,21 +403,6 @@ function withoutId(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
   const next = new Set(set);
   next.delete(id);
   return next;
-}
-
-export function reasonText(reason: QueueReason, t: Translate): string {
-  switch (reason.kind) {
-    case "blocksTurn":
-      return t("waiting.reason.blocksTurn");
-    case "queuedPrompts":
-      return t("waiting.reason.queuedPrompts", { n: reason.n });
-    case "subsessions":
-      return t("waiting.reason.subsessions", { n: reason.n });
-    case "costUsd":
-      return t("waiting.reason.costUsd", { cost: formatCost(reason.usd, document.documentElement.lang || undefined) });
-    case "age":
-      return t("waiting.reason.age");
-  }
 }
 
 type RowProps = {

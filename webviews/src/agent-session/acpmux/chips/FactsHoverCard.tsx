@@ -8,6 +8,7 @@
 import { useId, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { useHoverCard } from "./useHoverCard";
+import { useDescription } from "./useDescription";
 import "./factsCard.css";
 
 /** One line of a facts card: a value, and what it is when the value alone does not say. */
@@ -94,27 +95,6 @@ export function WithFacts({
       </AnchoredCard>
     </>
   );
-}
-
-/**
- * A text for screen readers only (a control's help sentence): spread `props` on the control and put
- * `node` beside it. A hidden element is still read as a description (`aria-describedby`), on every
- * role, where `aria-description` is not allowed.
- */
-export function useDescription(text: string | false | null | undefined): {
-  props: { "aria-describedby"?: string };
-  node: ReactNode;
-} {
-  const id = useId();
-  if (!text) return { props: {}, node: null };
-  return {
-    props: { "aria-describedby": id },
-    node: (
-      <span id={id} hidden>
-        {text}
-      </span>
-    ),
-  };
 }
 
 /** ``useDescription`` as a component, for a control inside a `.map`. */

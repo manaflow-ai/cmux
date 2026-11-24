@@ -3,7 +3,7 @@ import { acpmuxPerf } from "./perf";
 import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
-import { useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { useClaudeConnectFlow } from "./useClaudeConnectFlow";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";

@@ -11,7 +11,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { broughtSentPrompt } from "../src/agent-session/acpmux/VirtualTranscript";
+import { broughtSentPrompt } from "../src/agent-session/acpmux/transcript/arrivals";
 import { installJsdomScroller } from "./support/jsdomScroller";
 import { settleReact } from "./support/domTeardown";
 

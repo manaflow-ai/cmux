@@ -10,19 +10,10 @@
 // A sender that only named itself (`--from`, a notice's sender) says that name is its claim:
 // "Claimed to be ci-watch, not proven". One of our own tools proves its name with the host's
 // sender token (acpmux sender_token.rs) and draws no mark at all.
-import { useT, type Translate } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { SenderProgram } from "./incomingMessage";
-
-/// The program mark's accessible name, and its tooltip's lines (the path last, when acpmux read one).
-export function programMarkText(t: Translate, program: SenderProgram): { label: string; title: string } {
-  const who = program.host
-    ? t("message.senderProgramOnHost", { name: program.name, host: program.host })
-    : program.name;
-  const label = t("message.senderProgram", { program: who });
-  const title = [label, t("message.senderProgramNotAgent"), program.path].filter(Boolean).join("\n");
-  return { label, title };
-}
+import { programMarkText } from "./programMarkText";
 
 export function UnverifiedMark({
   className,

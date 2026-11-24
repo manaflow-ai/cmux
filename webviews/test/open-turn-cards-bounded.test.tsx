@@ -387,7 +387,7 @@ test("a long run cut into parts draws as the one row did", async () => {
 // and a few past it, over a box as tall as the rest, and draws the rest as it scrolls to them; nothing is lost.
 test("the summary card mounts only the subagents its body shows, and scrolls to the last", async () => {
   const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-  const { firstRowCount } = await import("../src/agent-session/acpmux/session-info/WindowedRows");
+  const { firstRowCount } = await import("../src/agent-session/acpmux/session-info/windowedRowCount");
   type Agents = Parameters<typeof SubagentStatusList>[0]["agents"];
   const agents = (n: number): Agents =>
     Array.from({ length: n }, (_, index) => ({

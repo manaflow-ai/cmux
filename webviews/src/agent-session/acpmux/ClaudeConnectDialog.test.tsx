@@ -18,7 +18,8 @@ import {
 } from "./claudeConnect";
 import type { CloudSetupAction } from "./cloudSetup";
 import { ClaudeConnectDialog } from "./ClaudeConnectDialog";
-import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import { useClaudeConnectFlow } from "./useClaudeConnectFlow";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

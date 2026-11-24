@@ -17,6 +17,7 @@ import { sameReferenceScope, sameRowFrame } from "../virtualTranscriptModel";
 import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
+import { rowDomId } from "./rowDomId";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -374,8 +375,6 @@ export const RowFrame = React.memo(function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-
-export const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
 /// (each row's `top` adds it), so the transcript ends this far past their total height.

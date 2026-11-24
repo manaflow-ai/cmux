@@ -1,5 +1,5 @@
-import { createContext } from "react";
-import type { AcpmuxRow, PromptDelivery } from "../model";
+import { createContext, useEffect, useState } from "react";
+import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { type StringKey } from "../i18n";
 import { type FailedRun } from "../sendFailure";
 
@@ -35,4 +35,30 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
     `connection: ${delivery.connection ?? "local"}`,
     `characters: ${row.text?.length ?? 0}`,
   ].join("\n");
+}
+
+const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
+
+/// What a prompt still on its way says: the one sentence its footer shows.
+export function pendingLabel(delivery: PromptDelivery): StringKey {
+  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
+}
+
+/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
+/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
+/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
+/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
+/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
+/// the host, it still says "Sending when ready".
+export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
+  const sending = delivery?.state === "sending";
+  const sentAt = delivery?.sentAt ?? 0;
+  const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
+  useEffect(() => {
+    if (!sending || late) return;
+    const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
+    return () => clearTimeout(timer);
+  }, [sending, late, sentAt]);
+  if (delivery?.waitingForHost === true) return sending;
+  return sending && late && !queued;
 }

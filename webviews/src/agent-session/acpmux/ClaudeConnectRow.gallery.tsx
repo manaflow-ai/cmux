@@ -29,7 +29,8 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420, wide: 560 },
   covers: ["agent-session/acpmux/ClaudeConnectRow.tsx#ClaudeConnectRow"],
   load: async () => {
-    const { ClaudeConnectRow, useClaudeConnectFlow } = await import("./ClaudeConnectRow");
+    const { ClaudeConnectRow } = await import("./ClaudeConnectRow");
+    const { useClaudeConnectFlow } = await import("./useClaudeConnectFlow");
     const { ClaudeConnectContext } = await import("./claudeConnect");
     const Section = ({ children }: { children: ReactNode }) => (
       <div className="acpmux-shell" style={{ padding: "var(--ds-space-3)" }}>

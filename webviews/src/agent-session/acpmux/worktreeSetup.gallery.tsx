@@ -7,7 +7,7 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { WorktreeSetupRun } from "../../worktreeRecipe";
-import type { SetupView } from "./worktreeSetup";
+import type { SetupView } from "./worktreeSetupModel";
 
 type Look = "line" | "card" | "tail";
 type Props = { look?: Look; creating?: boolean; view?: SetupView; open?: boolean; runnable?: boolean };
@@ -87,8 +87,8 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 720, wide: 900 },
   covers: ["agent-session/acpmux/worktreeSetup.tsx"],
   load: async () => {
-    const { WorktreeSetupLine, SetupDetails, SetupMark, setupFacts, setupLabel, setupStatus } =
-      await import("./worktreeSetup");
+    const { WorktreeSetupLine, SetupDetails, SetupMark } = await import("./worktreeSetup");
+    const { setupFacts, setupLabel, setupStatus } = await import("./worktreeSetupModel");
     const { useT } = await import("./i18n");
     const { lastOutputLine } = await import("../../worktreeRecipe");
 

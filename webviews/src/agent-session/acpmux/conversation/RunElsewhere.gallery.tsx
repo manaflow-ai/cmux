@@ -11,7 +11,7 @@ import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
-import { afterPlan, afterPlanError } from "./RunElsewhere";
+import { afterPlan, afterPlanError } from "./runElsewherePlan";
 import { ToolRow } from "./ToolRow";
 import {
   RunElsewhereContext,
