@@ -133,7 +133,7 @@ jobs:
     # authorize paid overflow.
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'glaeda-nightly-mini' || github.ref == 'refs/heads/main' && 'glaeda-nightly-std-xcode-26.6' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && 'glaeda-nightly-std-xcode-26.6' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1794,7 +1794,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'glaeda-nightly-mini' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
@@ -1830,7 +1830,7 @@ jobs:
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'glaeda-nightly-mini' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -3390,7 +3390,7 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'glaeda-nightly-mini' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
