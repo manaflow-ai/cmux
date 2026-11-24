@@ -1494,8 +1494,10 @@ def main_thread_counts(text):
     """Per marker, the largest sample count of a main-thread line containing it (the samples that passed through that
     frame), and the main thread's total. Reads `sample`'s call graph: the main thread's block is the one naming
     com.apple.main-thread, up to the next thread's header."""
+    import re
     lines = text.splitlines()
-    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    # With in-tree pages off, Chromium names the main thread CrBrowserMain (other-Mac BEFORE OFF sample, 2026-11-24).
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l or re.search(r"\d+ Thread_\d+: CrBrowserMain", l)), None)
     if start is None:
         return {"error": "no main thread in the sample"}
     total = None
@@ -1503,7 +1505,6 @@ def main_thread_counts(text):
         total = int(lines[start].split()[0])
     except (ValueError, IndexError):
         pass
-    import re
     # Each thread of the call graph starts with "<count> Thread_<id>" at the graph's first indent.
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s{0,6}\d+ Thread_", lines[i])
                 or lines[i].startswith(("Total number", "Binary Images", "Sort by top of stack"))), len(lines))
