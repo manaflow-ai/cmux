@@ -11,9 +11,10 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // The prompt field's height moves to its text's on one motion, not in a step per line (Leo,
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
 // field lays out at its natural height (markdownField.css: auto, up to its cap); when an edit
-// changes that height, this draws the field from the height it showed to the new one on the move
-// spring (fieldGrowth.experiment.ts arms). It starts in the edit's own task, before the frame's
-// layout and observers, so the first frame still draws the old height, and tells the transcript
+// changes that height, this draws the field from the height it showed to the new one on the snap
+// spring, at rest in 60 ms (fieldGrowth.experiment.ts arms; Leo 2026-11-23: "one good motion and
+// feeling nigh instant"). It starts in the edit's own task, before the frame's layout and
+// observers, so the first frame still draws the old height, and tells the transcript
 // (fieldGrowthEvent.ts): it takes the end height into its room in one render and moves its rows
 // home on the same curve and clock, on the compositor, with no render per frame.
 //
@@ -56,6 +57,7 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 
 /** The spring arms' springs; `ease` and `instant` have none. */
 const SPRINGS: Partial<Record<FieldGrowthArm, SpringParameters>> = {
+  snap: { response: 0.05, dampingFraction: 1 },
   spring: MOTION_SPRINGS.move,
   soft: { response: 0.24, dampingFraction: 1 },
 };
@@ -151,7 +153,8 @@ function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?:
     return {
       progress,
       keyframes: progress.map((value) => frame(from + (to - from) * value)),
-      duration: remaining === undefined ? durationMs : Math.max(remaining, MOTION_MS.quick),
+      // A retarget keeps the motion's end, but never runs longer than the arm's own move.
+      duration: remaining === undefined ? durationMs : Math.max(remaining, Math.min(MOTION_MS.quick, durationMs)),
       easing: "linear",
     };
   }

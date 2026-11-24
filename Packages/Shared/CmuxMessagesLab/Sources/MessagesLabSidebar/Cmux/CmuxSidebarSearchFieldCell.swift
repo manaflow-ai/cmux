@@ -15,7 +15,21 @@ final class CmuxSidebarSearchFieldCell: NSSearchFieldCell {
 
     override func titleRect(forBounds rect: NSRect) -> NSRect { centred(super.titleRect(forBounds: rect)) }
 
-    override func searchTextRect(forBounds rect: NSRect) -> NSRect { centred(super.searchTextRect(forBounds: rect)) }
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect { centred(clearOfMagnifier(super.searchTextRect(forBounds: rect), in: rect)) }
+
+    /// AppKit's text rect in a narrow unbezeled field starts under the magnifier, so the placeholder
+    /// drew over it ("Searc" through the glass, the user 2026-11-23). It starts right of the magnifier
+    /// (AppKit's own rect overlaps its slot by a point at every width): the field then measures the
+    /// true room and shows the magnifier alone when "Search" does not fit (`CmuxSidebarSearchField`).
+    private func clearOfMagnifier(_ text: NSRect, in rect: NSRect) -> NSRect {
+        guard !isBezeled else { return text }
+        let start = searchButtonRect(forBounds: rect).maxX - 1
+        guard text.minX < start else { return text }
+        var clear = text
+        clear.size.width = max(0, text.maxX - start)
+        clear.origin.x = start
+        return clear
+    }
 
     override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
         super.edit(withFrame: editorFrame(rect), in: controlView, editor: textObj, delegate: delegate, event: event)
