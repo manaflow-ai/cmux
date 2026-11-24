@@ -42,6 +42,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const UPLOAD_RESUME: &str = "upload-resume-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -99,6 +100,10 @@ pub const ALL: &[Capability] = &[
     host(
         TAB_SNAPSHOTS,
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
+    ),
+    host(
+        UPLOAD_RESUME,
+        "(2026-11-24) `upload` takes `id` and `offset` and keeps a partial upload for 24 h; `upload-status {id}` answers the kept offset or the finished file, so a send resumes after a link drop.",
     ),
     host(
         BROWSER_STREAM,

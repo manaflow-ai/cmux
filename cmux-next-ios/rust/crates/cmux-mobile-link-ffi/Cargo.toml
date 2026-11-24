@@ -53,5 +53,6 @@ cmux-mobile-host = { path = "../cmux-mobile-host" }
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
 sha2 = "0.10"
+tracing-subscriber.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
