@@ -177,6 +177,8 @@ export type TrayHeadPart = {
   tone?: "failed" | "waiting";
   /// The tally arm: the subagents' harness, whose mark this part draws (one part per family).
   harness?: string;
+  /// Its richest words when they differ from `text` (the `groups` arm's "2 tasks in background").
+  long?: string;
 };
 
 /// The header's kinds, in the order `trayHead` counts them: what runs (subagents, sessions, what waits
@@ -293,10 +295,102 @@ export type TrayHeadForms = { long: string; short: string; count: string };
 export function trayHeadForms(t: Translate, part: TrayHeadPart): TrayHeadForms {
   const short = part.text;
   const n = part.items.length;
-  const long = part.tone
-    ? short
-    : part.key.startsWith("agents")
-      ? t("subagents.allRunning", { n })
-      : t("tray.summary.kindRunning", { kind: short });
+  const long = part.long
+    ? part.long
+    : part.tone
+      ? short
+      : part.key.startsWith("agents")
+        ? t("subagents.allRunning", { n })
+        : t("tray.summary.kindRunning", { kind: short });
   return { long, short, count: String(n) };
 }
+
+/// The `groups` arm's two kinds (trayFoldHead.experiment.ts; Leo, 2026-11-24 00:18Z: "the background
+/// command type delineation was my doing anyways. the simplest view is just... subagents. other
+/// background things. boom. waits, etc, they're just normal tool calls that are backgrounded instead of
+/// dozesns of possible different buttons"): the subagents (and the sessions the agent started, chats
+/// that run beside it), then every other backgrounded tool call (commands, waits, monitors, servers),
+/// whatever it does. The lines under the header keep each item's own mark. Only state that needs the
+/// person follows them: what waits on them and what failed. Done and stopped need nothing, so the
+/// header drops them, as the `tally` arm does. Computed when the tray's lists change, never per tick.
+export function trayHeadGroups(
+  t: Translate,
+  {
+    items,
+    finished,
+    waiting,
+  }: {
+    items: readonly TrayItem[];
+    finished: readonly TrayItem[];
+    waiting: ReadonlySet<string>;
+  },
+  chatHarness?: string,
+): readonly TrayHeadPart[] {
+  const agents: TrayItem[] = [];
+  const background: TrayItem[] = [];
+  const waits: TrayItem[] = [];
+  for (const item of items) {
+    if (item.kind === "command") background.push(item);
+    else if (
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+    )
+      waits.push(item);
+    else agents.push(item);
+  }
+  const failed = finished.filter(
+    (item) =>
+      (item.kind === "agent"
+        ? subagentStatus(item.agent, waiting)
+        : item.kind === "session"
+          ? item.session.state === "failed"
+            ? "failed"
+            : undefined
+          : commandStatus(item.command)) === "failed",
+  );
+  const parts: TrayHeadPart[] = [];
+  if (agents.length > 0) {
+    const lead = agents[0]!;
+    const harness =
+      (lead.kind === "agent" ? lead.agent.harness : lead.kind === "session" ? lead.session.harness : undefined) ??
+      chatHarness;
+    parts.push({
+      key: "agents",
+      icon: SUBAGENT_ICON,
+      text: t("subagents.count", { n: agents.length }),
+      items: agents,
+      ...(harness ? { harness } : {}),
+    });
+  }
+  if (background.length > 0) {
+    const tasks = t(background.length === 1 ? "backgroundTasks.tasks.one" : "backgroundTasks.tasks.other", {
+      n: background.length,
+    });
+    parts.push({
+      key: "background",
+      icon: BACKGROUND_ICON,
+      text: tasks,
+      long: t("tray.summary.inBackground", { kind: tasks }),
+      items: background,
+    });
+  }
+  if (waits.length > 0)
+    parts.push({
+      key: "waiting",
+      icon: "status.needsinput",
+      text: t("summary.subagents.waiting", { n: waits.length }),
+      items: waits,
+      tone: "waiting",
+    });
+  if (failed.length > 0)
+    parts.push({
+      key: "failed",
+      icon: "status.failure",
+      text: t("summary.subagents.failed", { n: failed.length }),
+      items: failed,
+      tone: "failed",
+    });
+  return parts;
+}
+
+/// The background group's mark: a command's, since every item it counts is a backgrounded tool call.
+const BACKGROUND_ICON = "terminal";

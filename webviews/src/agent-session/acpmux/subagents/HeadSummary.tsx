@@ -20,6 +20,7 @@ import type { TrayItem } from "./runningTray";
 import { type TrayHeadForms, type TrayHeadPart, trayHeadForms } from "./trayHeadKinds";
 import {
   nextSummaryLevel,
+  SUMMARY_COUNT_LEVEL,
   type SummaryForm,
   summaryLevelStep,
   type SummaryKindWidths,
@@ -42,6 +43,7 @@ export function HeadSummary({
   markSize,
   mark,
   nameOf,
+  countOnly = false,
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
@@ -54,6 +56,8 @@ export function HeadSummary({
   mark: (part: TrayHeadPart) => ReactNode;
   /// An item's name, as its line names it.
   nameOf: (item: TrayItem) => string;
+  /// The `groupsCount` arm: marks and numbers at every width; a lone item still reads its name.
+  countOnly?: boolean;
 }) {
   // What it counts changes at most once per dwell, as the step does: a burst of joins is one change.
   const shownParts = useDwell(parts, PHASE_DWELL_MS);
@@ -76,7 +80,8 @@ export function HeadSummary({
     if (!box || !probes) return undefined;
     const measured = readWidths(probes, kinds.length);
     const fit = () => {
-      const next = nextSummaryLevel(measured, box.clientWidth, levelRef.current);
+      const fitted = nextSummaryLevel(measured, box.clientWidth, levelRef.current);
+      const next = countOnly && fitted > 0 ? Math.max(fitted, SUMMARY_COUNT_LEVEL) : fitted;
       levelRef.current = next;
       setLevel(next);
     };
@@ -86,11 +91,14 @@ export function HeadSummary({
     const observer = new ResizeObserver(fit);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [kinds]);
+  }, [kinds, countOnly]);
   const step =
     widths && level !== undefined && widths.kinds.length === kinds.length
       ? summaryLevelStep(widths, level)
-      : { form: (kinds[0]?.named !== undefined ? "named" : "long") as SummaryForm, shown: kinds.length };
+      : {
+          form: (kinds[0]?.named !== undefined ? "named" : countOnly ? "count" : "long") as SummaryForm,
+          shown: kinds.length,
+        };
   const drawn = kinds.slice(0, step.shown);
   const folded = kinds.slice(step.shown);
   const foldedCount = folded.reduce((total, kind) => total + kind.part.items.length, 0);

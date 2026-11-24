@@ -11,8 +11,18 @@ export const trayFoldHeadLook = defineExperiment({
   id: "subagent-tray-fold-head",
   title: "Running tray folded header",
   description:
-    "What the running tray's header says: a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
+    "What the running tray's header says: two groups (subagents, background) in words that shrink, a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
   arms: {
+    groups: {
+      label: "Groups: subagents and background, in words that shrink",
+      description:
+        "Two kinds only: subagents, and everything else backgrounded (commands, waits, monitors). 3 subagents · 2 tasks in background, then 3 subagents · 2 tasks, then each group's mark and number. A lone item reads its name; waiting and failed follow only when they need you. The lines keep each item's own mark.",
+    },
+    groupsCount: {
+      label: "Groups: two marks and their numbers",
+      description:
+        "The same two groups as marks and numbers at every width (a lone item still reads its name); hover a group for its names.",
+    },
     summary: {
       label: "Summary: words that shrink step by step",
       description:
@@ -57,5 +67,10 @@ export const trayFoldHeadLook = defineExperiment({
   // only 1 thing ... like just im saying x subagents running y commands running etc with full text
   // when you have space and it gradually shrinks when there is none... and have it not shift too
   // much"). traySummaryFit.ts picks the step.
-  defaultArm: "summary",
+  // Then two groups, not a kind per command (Leo, 2026-11-24 00:18Z: "the background command type
+  // delineation was my doing anyways. the simplest view is just... subagents. other background things.
+  // boom. waits, etc, they're just normal tool calls that are backgrounded instead of dozesns of
+  // possible different buttons. we can obviously keep the icons the stuff but... we can group them up
+  // more"). trayHeadKinds.ts `trayHeadGroups` counts them.
+  defaultArm: "groups",
 });

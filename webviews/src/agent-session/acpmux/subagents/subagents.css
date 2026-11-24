@@ -500,6 +500,12 @@ button.cv-subagent > :last-child {
   --acpmux-tray-two-row-icon-top: 7px;
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
+  /* Where the hat's leading column starts (trayColumn.experiment.ts; Lucas, and Leo 2026-11-24: "the
+     alignment becomes... maybe awkward? against the ... attachment + button"). `glyph` (the default)
+     starts its marks on the + glyph's ink, 6px in from the + chip's edge (a 16px glyph centred in the
+     28px chip), so the hat's marks, the + and the prompt share one column; `chip` keeps the composer's
+     inset. The trailing side keeps the inset, so the chevron stays over Send's column. */
+  --acpmux-tray-inset-start: var(--acpmux-tray-inset);
   /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
   /* A theme's hat corner (--cmux-composer-hat-radius), as TaskGoalStrip.css's --acpmux-goal-radius. */
@@ -527,6 +533,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head {
   flex: none;
 }
+.acpmux-running-tray[data-column="glyph"] {
+  --acpmux-tray-inset-start: calc(
+    var(--acpmux-tray-inset) +
+      (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2
+  );
+}
 /* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
    the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
    own inside the tray's glass. Past five steps it scrolls in place, as the lines do. In a short pane
@@ -540,7 +552,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__plan .cv-plan {
   margin: 0;
-  padding: 0 var(--acpmux-tray-inset);
+  padding: 0 var(--acpmux-tray-inset) 0 var(--acpmux-tray-inset-start);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -605,7 +617,7 @@ button.cv-subagent > :last-child {
    scrollbar their own end inset instead (`--acpmux-tray-inset-end` below), so their Stop squares and
    chevrons stay under the header's. test/composer-hat-head-still.test.ts measures both states. */
 .acpmux-running-tray__head {
-  padding-inline: var(--acpmux-tray-inset);
+  padding-inline: var(--acpmux-tray-inset-start) var(--acpmux-tray-inset);
   height: var(--acpmux-tray-head-height);
 }
 /* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
@@ -1095,7 +1107,7 @@ button.cv-subagent > :last-child {
   grid-template-columns: minmax(0, 1fr) fit-content(calc(var(--acpmux-tray-time-width) + var(--acpmux-tray-status-width))) 0px var(--acpmux-tray-stop-width) var(--acpmux-tray-chevron-width);
   column-gap: var(--acpmux-tray-gap);
   align-items: center;
-  padding-inline: var(--acpmux-tray-inset) var(--acpmux-tray-inset-end, var(--acpmux-tray-inset));
+  padding-inline: var(--acpmux-tray-inset-start) var(--acpmux-tray-inset-end, var(--acpmux-tray-inset));
 }
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
   grid-area: 1 / 1;
@@ -1152,12 +1164,12 @@ button.cv-subagent > :last-child {
     line-height: inherit;
   }
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-    --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - var(--acpmux-tray-inset) - var(--acpmux-tray-inset-start)), 74px);
   }
   /* A narrow tray keeps the title and activity together. Only workflow progress, which is already
      a separate block of facts, takes a second row here; the activity line becomes inline below. */
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
-    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - var(--acpmux-tray-inset) - var(--acpmux-tray-inset-start)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     row-gap: 0;
@@ -1173,7 +1185,7 @@ button.cv-subagent > :last-child {
     position: absolute;
     grid-area: auto;
     top: var(--acpmux-tray-two-row-icon-top);
-    left: var(--acpmux-tray-inset);
+    left: var(--acpmux-tray-inset-start);
   }
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
@@ -1196,7 +1208,7 @@ button.cv-subagent > :last-child {
 /* A tray of 260px or less cannot hold a title beside the columns: every line takes two rows. */
 @container running-tray (max-width: 260px) {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
-    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - var(--acpmux-tray-inset) - var(--acpmux-tray-inset-start)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     row-gap: 0;
@@ -1212,7 +1224,7 @@ button.cv-subagent > :last-child {
     position: absolute;
     grid-area: auto;
     top: var(--acpmux-tray-two-row-icon-top);
-    left: var(--acpmux-tray-inset);
+    left: var(--acpmux-tray-inset-start);
   }
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;

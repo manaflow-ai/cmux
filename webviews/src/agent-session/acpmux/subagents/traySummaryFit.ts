@@ -37,6 +37,8 @@ export const SUMMARY_HYSTERESIS_PX = 12;
 // Steps as levels, richest first: 0 named, 1 long, 2 short, 3 count, 3 + j count with j kinds folded.
 const FORMS: readonly SummaryForm[] = ["named", "long", "short", "count"];
 const COUNT = 3;
+/// The first count level (each kind's mark and number), for an arm that never draws words.
+export const SUMMARY_COUNT_LEVEL = COUNT;
 
 function lastLevel(widths: SummaryWidths): number {
   // At least one kind stays drawn beside the "+N".

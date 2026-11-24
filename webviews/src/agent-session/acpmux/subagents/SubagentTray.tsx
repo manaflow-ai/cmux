@@ -126,8 +126,9 @@ import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
+import { trayColumnLook } from "./trayColumn.experiment";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
@@ -316,6 +317,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [facesArm] = useState(() => experimentArm(hatFacesLook));
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
+  const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [headClock] = useState(() => experimentArm(trayHeadClockLook));
@@ -578,12 +580,16 @@ export const SubagentTray = memo(function SubagentTray({
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
   // Each kind's mark and count (the `kinds` arm), folded and open; hovering one names what it counts.
+  // The `groups` arms (the default) count two kinds: subagents, and everything else backgrounded.
+  const groupsHead = foldHead === "groups" || foldHead === "groupsCount";
   const headParts = useMemo(
     () =>
-      foldHead === "kinds" || foldHead === "tally" || foldHead === "summary"
-        ? trayHeadParts(t, { items, finished, waiting, working }, foldHead !== "kinds", chatHarness)
-        : NO_PARTS,
-    [foldHead, t, items, finished, waiting, working, chatHarness],
+      groupsHead
+        ? trayHeadGroups(t, { items, finished, waiting }, chatHarness)
+        : foldHead === "kinds" || foldHead === "tally" || foldHead === "summary"
+          ? trayHeadParts(t, { items, finished, waiting, working }, foldHead !== "kinds", chatHarness)
+          : NO_PARTS,
+    [groupsHead, foldHead, t, items, finished, waiting, working, chatHarness],
   );
   // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
   const faces = useMemo(
@@ -624,7 +630,7 @@ export const SubagentTray = memo(function SubagentTray({
   // swap-in animation for it is even more additional bullshit"). Only one with nothing left to count
   // (it ended done or stopped) keeps its own head.
   // The `summary` arm (the default) counts as the tally does, in words while they fit (HeadSummary.tsx).
-  const summaryHead = foldHead === "summary" && headParts.length > 0;
+  const summaryHead = (foldHead === "summary" || groupsHead) && headParts.length > 0;
   const tallyHead = (foldHead === "tally" || summaryHead) && headParts.length > 0;
   const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
@@ -787,6 +793,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-narrow={narrow || undefined}
       data-head={head}
       data-head-height={headHeight}
+      data-column={column}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
@@ -838,6 +845,7 @@ export const SubagentTray = memo(function SubagentTray({
               markSize={ROW_ICON}
               mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
               nameOf={(item) => itemName(t, item)}
+              countOnly={foldHead === "groupsCount"}
             />
           ) : kindsHead ? (
             <HeadKinds
