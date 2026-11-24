@@ -175,6 +175,11 @@ impl Mux {
         self.streams.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// How long since a record of any kind came in on this circuit.
+    pub(crate) fn heard_age(&self) -> Duration {
+        self.heard().elapsed()
+    }
+
     fn heard(&self) -> Instant {
         *self.heard.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -361,6 +366,9 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::Echo) => {
+                self.carry_admitted(id, super::echo_stream(), events, credit).await
+            }
             Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
                 Ok((local, serving)) => {
                     tokio::join!(serving, self.carry_admitted(id, local, events, credit));
