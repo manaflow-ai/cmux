@@ -36,11 +36,16 @@ pub(super) fn ready_line(status: &Value) -> Value {
     serde_json::json!({
         "ready": true,
         "lockHeld": true,
-        "pid": status["pid"],
-        "socket": status["socket"],
-        "listen": status["listen"],
-        "webUrl": status["webUrl"],
+        "pid": field(status, "pid"),
+        "socket": field(status, "socket"),
+        "listen": field(status, "listen"),
+        "webUrl": field(status, "webUrl"),
     })
+}
+
+/// `value[key]` without the panicking index: a missing key reads as null.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
 }
 
 /// A take-over start yielded: `ready` names the daemon of its own build that serves the home.
@@ -51,7 +56,7 @@ pub(super) struct ServedByThisBuild {
 
 impl std::fmt::Display for ServedByThisBuild {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "daemon {} of this build already serves this home", self.ready["pid"])
+        write!(f, "daemon {} of this build already serves this home", field(&self.ready, "pid"))
     }
 }
 
