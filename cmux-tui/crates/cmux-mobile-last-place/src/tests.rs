@@ -45,7 +45,7 @@ fn save_then_read_round_trips() {
     let dir = Dir::new();
     let place = chat("w1", "c7", "msg-42", 12.5);
     write(&dir.file(), Some(&place)).unwrap();
-    assert_eq!(read(&dir.file()), (Some(place.clone()), ReadOutcome::Read));
+    assert_eq!(read(&dir.file()), (Some(place), ReadOutcome::Read));
 
     let terminal = LastPlace {
         workspace: "w2".into(),
