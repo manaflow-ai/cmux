@@ -2828,3 +2828,7 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+  2026-11-23 (the subagent tree under a chat row): a row lists its own chats' subagents, running ones first, and "N more" counts only
+  the ones that run past the rows, never the chat's all-time total (it read "4,162 more"); a parent leaves out the lines a child row
+  under it draws itself (SidebarSubagentRowsTests). Not a new look: the rows and the "N more" line are the same.
+  Sidebar-Look: "this MIGHT be it. it's the thing i raised as bullshit an hour or two ago ... directionally, there's SOMETHIng. but idk."

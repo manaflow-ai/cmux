@@ -22,7 +22,7 @@ public nonisolated enum SidebarSubagentLook: String, Sendable, CaseIterable, Has
 }
 
 /// What a workspace row draws of its chats' subagents under its name (`WorkspaceRowContent.subagents`):
-/// rows (each clickable, at most `visibleRows`, then "N more") or one stacked line. Its lines add to
+/// rows (each clickable, at most `visibleRows`, then "N more" running ones past them) or one stacked line. Its lines add to
 /// the row's height (`SidebarLayoutMetrics.subagentsHeight`), so the rows below move with it.
 public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     public enum Mode: Hashable, Sendable { case rows, stack }
@@ -31,7 +31,7 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// Rows mode: the rows drawn, oldest first, each with its depth under the chat (1, or 2 under
     /// another listed subagent).
     public var rows: [Row]
-    /// Rows mode: the subagents past `rows` ("N more", which opens the chat).
+    /// Rows mode: the subagents that run now past `rows` ("N more", which opens the chat); never finished ones.
     public var more: Int
     /// Stack mode: the marks drawn, at most `stackMarks`, running ones first.
     public var marks: [SidebarSubagent.State]
@@ -53,6 +53,16 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// Lines the strip takes under the row's name.
     public var lineCount: Int { mode == .stack ? 1 : rows.count + (more > 0 ? 1 : 0) }
 
+    /// The rows a chat lists: the latest `visibleRows`, the ones that run first. Work that runs is what the
+    /// row is for, so a finished one fills only the places running ones leave (kept in the list's order).
+    static func shownRows(_ items: [SidebarSubagent]) -> [SidebarSubagent] {
+        var room = visibleRows
+        var keep: Set<String> = []
+        for item in items.reversed() where item.state == .running && room > 0 { keep.insert(item.id); room -= 1 }
+        for item in items.reversed() where room > 0 && !keep.contains(item.id) { keep.insert(item.id); room -= 1 }
+        return items.filter { keep.contains($0.id) }
+    }
+
     /// The strip for `subagents` under a row. `tree`: the session tree is on (`sidebar.sessionTree`);
     /// `folded`: the person folded this row there. With the tree off a row draws no subagent line at all:
     /// its working indicator already says the agent runs, and a "✧ 1 running" line under one row read as
@@ -68,10 +78,10 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
         case .both: tree && !folded
         }
         if rowsMode, !items.isEmpty {
-            let shown = Array(items.suffix(visibleRows))
+            let shown = Self.shownRows(items)
             let ids = Set(shown.map(\.id))
             let rows = shown.map { Row(subagent: $0, depth: $0.parent.map(ids.contains) == true ? 2 : 1) }
-            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.total - shown.count), marks: [],
+            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.running - shown.filter { $0.state == .running }.count), marks: [],
                                         running: subagents.running, done: 0, failed: failed, tab: shown.first?.tab ?? subagents.chat)
         }
         // Folded with nothing running under the rows look: only work that runs shows.

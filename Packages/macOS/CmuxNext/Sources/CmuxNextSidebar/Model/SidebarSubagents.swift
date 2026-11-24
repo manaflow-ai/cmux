@@ -51,4 +51,14 @@ public nonisolated struct SidebarSubagents: Hashable, Sendable {
 
     /// Nothing to draw: no listed subagent and none running.
     public var isEmpty: Bool { items.isEmpty && running == 0 }
+
+    /// These subagents without the ones in `hidden` (a child row that lists them itself): a hidden one that
+    /// ran leaves the running and total counts too, so "N more" still counts only what runs here.
+    public func excluding(_ hidden: Set<String>) -> SidebarSubagents {
+        let kept = items.filter { !hidden.contains($0.id) }
+        guard kept.count != items.count else { return self }
+        let removed = items.filter { hidden.contains($0.id) }
+        let removedRunning = removed.filter { $0.state == .running }.count
+        return SidebarSubagents(items: kept, total: max(0, total - removed.count), running: max(0, running - removedRunning), chat: chat)
+    }
 }

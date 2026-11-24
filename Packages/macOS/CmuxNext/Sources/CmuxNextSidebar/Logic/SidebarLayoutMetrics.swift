@@ -182,6 +182,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The session tree: each started workspace's parent title, for a child that would draw its parent's
     /// name (`WorkspaceRowContent.subagentOf`).
     public var parentTitles: [WorkspaceID: String] = [:]
+    /// The subagents each workspace's descendants list themselves (`SidebarLayout.subagentsBelow`): its own row leaves them out.
+    public var subagentsBelow: [WorkspaceID: Set<String>] = [:]
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
@@ -229,7 +231,8 @@ nonisolated extension SidebarLayoutOptions {
         // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree, one
         // stacked line while folded, nothing with the tree off. A parent of subagents only gets the tree's chevron too;
         // the layout's tree pass keeps a chevron of its own (a parent of sessions) over this one.
-        if !workspacesAsTabs, let subagents = ws.subagents {
+        if !workspacesAsTabs, let listed = ws.subagents {
+            let subagents = subagentsBelow[ws.id].map(listed.excluding) ?? listed
             let folded = sessionTree?.collapsed.contains(ws.id) == true && filterMatches == nil
             content.subagents = SidebarSubagentStrip.make(subagents, tree: sessionTree != nil, folded: folded, look: subagentLook)
             if sessionTree != nil, !subagents.items.isEmpty, subagentLook != .stack {

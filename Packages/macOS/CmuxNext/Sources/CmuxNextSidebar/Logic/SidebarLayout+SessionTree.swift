@@ -10,6 +10,26 @@ nonisolated extension SidebarLayout {
         return parents.compactMapValues { titles[$0] }
     }
 
+    /// The subagent ids each workspace's descendants list themselves (`SidebarLayoutOptions.subagentsBelow`): a row
+    /// lists its own chats' subagents, not the ones a child row under it already draws. A chat open as a tab of a
+    /// parent and as a child row of it would otherwise show the same lines twice, the parent's "N more" counting
+    /// them again. One pass up each child's chain of parents (a cycle ends it).
+    static func subagentsBelow(_ parents: [WorkspaceID: WorkspaceID], workspaces: [SidebarWorkspace]) -> [WorkspaceID: Set<String>] {
+        guard !parents.isEmpty else { return [:] }
+        var below: [WorkspaceID: Set<String>] = [:]
+        for ws in workspaces {
+            guard let items = ws.subagents?.items, !items.isEmpty else { continue }
+            let ids = Set(items.map(\.id))
+            var seen: Set<WorkspaceID> = [ws.id]
+            var next = parents[ws.id]
+            while let parent = next, seen.insert(parent).inserted {
+                below[parent, default: []].formUnion(ids)
+                next = parents[parent]
+            }
+        }
+        return below
+    }
+
     /// The session tree's drawn order of one list (a section's loose rows, or a group's members):
     /// each entry's model index and depth. A workspace whose `parents` entry is another workspace of
     /// the same list draws right after it, one level deeper, before the parent's next sibling, at
