@@ -9,10 +9,15 @@ extension RemoteTmuxSSHTransport {
             || lowered.contains("tmux: not found")
     }
 
-    /// Builds the domain error for a failed remote tmux command.
+    /// Builds the domain error for a failed remote tmux command. A missing tmux and an overlong
+    /// socket path get their own cases, whose messages are cmux's wording; every other failure
+    /// keeps its exit code and stderr.
     nonisolated func commandFailure(_ result: RemoteTmuxCommandResult) -> RemoteTmuxError {
         if Self.indicatesTmuxMissing(exitCode: result.exitCode, stderr: result.stderr) {
             return .tmuxNotFound(destination: host.destination)
+        }
+        if Self.indicatesSocketPathTooLong(result.stderr) {
+            return .socketPathTooLong(destination: host.destination)
         }
         return .commandFailed(exitCode: result.exitCode, stderr: result.stderr)
     }
