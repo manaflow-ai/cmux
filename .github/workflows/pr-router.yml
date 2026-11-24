@@ -59,6 +59,8 @@ jobs:
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
             scripts/ci/head_tier.py
+            scripts/ci/fast_track.py
+            scripts/ci/risk_tier.py
             scripts/ci/ci_steps.py
             scripts/ci/check_reusable_workflow_permissions.py
             scripts/ci/deadline_http.py
@@ -71,6 +73,8 @@ jobs:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
           # A head that only merges the base into a PR idle 24 h starts nothing (head_tier.py); 0 turns that off.
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+          # Docs, plans, skills, copy or tests-only changes run the cheap tier (fast_track.py); 0 turns that off.
+          CMUX_FAST_TRACK: ${{ vars.CMUX_FAST_TRACK || '1' }}
         run: python3 -I scripts/ci/pr_router.py route
 
   size-budget:
