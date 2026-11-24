@@ -60,7 +60,10 @@ if has resume || has fork || has soak; then
   has soak && tests+=(soak)
   PUBLISHED_BENCH_SAMPLES="$samples" PUBLISHED_BENCH_SOAK_SECS="$soak_secs" \
     cargo test --locked -p acpmux --release --test published_bench -- --ignored --nocapture \
-    --test-threads 1 --exact "${tests[@]}" 2>&1 | tee "$out/bench.log" | grep -E '^(PUBLISHED-BENCH|test result)' | tee -a "$out/rows.log" || true
+    --test-threads 1 --exact "${tests[@]}" >"$out/bench.log" 2>&1 || status=$?
+  grep -E '^(PUBLISHED-BENCH|test result)' "$out/bench.log" | tee -a "$out/rows.log" || true
+  # A build or test failure prints its own end, so a run with no row says why.
+  if [[ "${status:-0}" != 0 ]]; then echo "published_bench exited ${status}:"; tail -n 80 "$out/bench.log"; fi
 fi
 
 if has move; then
@@ -68,8 +71,9 @@ if has move; then
   # draft and a composer; the move_matrix test times the CLI call. Its three cells, $moves times.
   : >"$out/move.log"
   for _ in $(seq "$moves"); do
-    cargo test --locked -p acpmux --release --test transfer_cli move_matrix -- --nocapture 2>&1 \
-      | grep -E '^MATRIX .* moved ' >>"$out/move.log" || true
+    cargo test --locked -p acpmux --release --test transfer_cli move_matrix -- --nocapture >"$out/move-run.log" 2>&1 \
+      || { echo "move_matrix failed:"; tail -n 40 "$out/move-run.log"; }
+    grep -E '^MATRIX .* moved ' "$out/move-run.log" >>"$out/move.log" || true
   done
   python3 - "$out/move.log" <<'PY'
 import json, os, re, socket, sys
@@ -93,6 +97,6 @@ print("PUBLISHED-BENCH " + json.dumps({
 PY
 fi | tee -a "$out/rows.log"
 
-grep -h '^PUBLISHED-BENCH ' "$out/rows.log" | python3 -c '
+{ grep -h '^PUBLISHED-BENCH ' "$out/rows.log" || true; } | python3 -c '
 import json, sys
 print(json.dumps({"rows": [json.loads(l.split(" ", 1)[1]) for l in sys.stdin]}))'

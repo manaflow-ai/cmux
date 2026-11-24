@@ -143,7 +143,8 @@ impl Daemon {
 
     /// SIGTERM, as a service manager or an update stops it, then waits.
     fn stop(mut self) {
-        let _ = std::process::Command::new("kill").arg(self.0.id().to_string()).status();
+        // SAFETY: a plain signal to the child this bench spawned and still owns.
+        unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
         let deadline = Instant::now() + Duration::from_secs(20);
         while Instant::now() < deadline {
             if let Ok(Some(_)) = self.0.try_wait() {
@@ -260,10 +261,27 @@ fn emit(kind: &str, body: Value) {
     println!("PUBLISHED-BENCH {row}");
 }
 
-/// UTC now as RFC 3339 seconds, without a date crate.
+/// UTC now as RFC 3339 seconds, without a date crate (days to a civil date: Howard Hinnant's algorithm).
 fn chrono_like_now() -> String {
-    let out = std::process::Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output();
-    out.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default()
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 /// The daemon's resident set and its high-water mark, MB.
