@@ -27,6 +27,19 @@ use std::process::{Command, Output, Stdio};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// The profile loader requires a user-owned file that other users cannot change.
+fn write_profile(path: PathBuf, contents: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(contents.as_ref())
+}
+
 /// Run without XDG_CONFIG_HOME, as on a default Mac or Linux account.
 fn command(root: &Path, acpmux_home: &Path) -> Command {
     let mut cmd: Command = daemon_env::acpmux(root);
@@ -86,7 +99,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     {
         let legacy = home.join(".config/cmux/harnesses");
         std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::write(
+        write_profile(
             legacy.join("unimported.toml"),
             "schema = 1\nid = \"unimported\"\nname = \"Classic only\"\ncommand = \"/bin/echo\"\n",
         )
@@ -95,7 +108,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
 
     // The person's own harness, in the user folder.
     std::fs::create_dir_all(&shared).unwrap();
-    std::fs::write(
+    write_profile(
         shared.join("mine.toml"),
         "schema = 1\nid = \"mine\"\nname = \"Mine\"\ncommand = \"/bin/echo\"\n",
     )
@@ -134,7 +147,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
 
     // A copy in the DEV home wins over the person's, with no "defines it too"
     // warning for a copy the person made on purpose.
-    std::fs::write(
+    write_profile(
         dev.join("harnesses").join("mine.toml"),
         "schema = 1\nid = \"mine\"\nname = \"Mine (dev)\"\ncommand = \"/bin/echo\"\n",
     )
@@ -174,7 +187,7 @@ fn isolated_import_profiles_are_read_only_and_follow_user_profiles() {
     let user = cmux_config::harness_paths::user(&home.join(".config"));
     let profile = |dir: &Path, id: &str, name: &str| {
         std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(
+        write_profile(
             dir.join(format!("{id}.toml")),
             format!("schema = 1\nid = \"{id}\"\nname = \"{name}\"\ncommand = \"/bin/echo\"\n"),
         )

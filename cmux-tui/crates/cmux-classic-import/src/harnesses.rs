@@ -194,6 +194,7 @@ mod tests {
         fs::create_dir_all(old.join("icons")).unwrap();
         fs::create_dir_all(&next).unwrap();
         fs::write(old.join("mine.toml"), "icon = 'icons/mine.svg'\ncommand = 'run'\n").unwrap();
+        fs::set_permissions(old.join("mine.toml"), fs::Permissions::from_mode(0o600)).unwrap();
         fs::write(old.join("icons/mine.svg"), "<svg/>").unwrap();
         fs::write(old.join("edited.toml"), "command = 'old'").unwrap();
         fs::write(next.join("edited.toml"), "command = 'next'").unwrap();
