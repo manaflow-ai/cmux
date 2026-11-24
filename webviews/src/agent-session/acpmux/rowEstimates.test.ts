@@ -28,7 +28,7 @@ import {
 import { turnView } from "./conversation/turns";
 import { SENT_IMAGE_HEIGHT } from "./conversation/userBubbleModel";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
-import { currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics, chatDisplay, drawnFontSize } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL, TRANSCRIPT_LINE_ROW } from "./transcriptGrid";
 import { setComposerSettings } from "./composerSettings";
 
@@ -784,9 +784,12 @@ test("permission estimates use the grid frame and reserve a command preview only
 test("the first layout reserves every question option before placing the reply below", () => {
   const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
   const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
-  expect(two.heights[0]).toBeCloseTo(32 + 24 + 24 + currentChatMetrics().lineHeight + 8 + 2 * 40 + 8 + 32);
-  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 40);
-  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 40);
+  // The card's 8 px inset, the 28 px "Needs your input" line, the question as a 14/20 title, 36 px
+  // rows 2 px apart, then the 36 px last row under its 8 px gap (question/questionCard.css).
+  const title = drawnFontSize(chatDisplay()) * (20 / 14);
+  expect(two.heights[0]).toBeCloseTo(16 + 28 + 2 + title + 8 + (2 * 36 + 2) + 8 + 36);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 38);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 38);
 });
 
 test("question estimates follow description wrapping at the actual column width", () => {
@@ -795,6 +798,70 @@ test("question estimates follow description wrapping at the actual column width"
   const narrow = layoutConversation([row], 220);
   expect(narrow.heights[0]!).toBeGreaterThan(wide.heights[0]!);
   expect(heightsOf([questionAsk(3)])[0]!).toBeLessThan(wide.heights[0]!);
+});
+
+// Previews sit beside the rows (the split layout) until the pane is too narrow for both, then wrap
+// under them: the first layout reserves the preview's box either way (questionCard.css).
+test("a question's preview is reserved beside its rows, and under them in a narrow pane", () => {
+  const withPreview = (lines: number): AcpmuxRow => {
+    const row = questionAsk(2) as AcpmuxRow & { permission: { question: { items: { options: object[] }[] } } };
+    const options = row.permission.question.items[0]!.options as { preview?: object }[];
+    options[0]!.preview = { format: "markdown", text: Array.from({ length: lines }, (_, i) => `line ${i}`).join("\n") };
+    return row;
+  };
+  const plain = (width: number) => layoutConversation([questionAsk(2)], width).heights[0]!;
+  const preview = (width: number, lines: number) => layoutConversation([withPreview(lines)], width).heights[0]!;
+  // Narrow: under the rows, 8 px below them; each picture line is 12 px at 1.45.
+  expect(preview(300, 6) - plain(300)).toBeGreaterThan(8 + 6 * 12 * 1.45);
+  expect(preview(300, 9) - preview(300, 6)).toBeCloseTo(3 * 12 * 1.45);
+  // Wide: beside the rows, so a short preview adds nothing and a tall one sets the height.
+  expect(preview(720, 1)).toBe(plain(720));
+  expect(preview(720, 20)).toBeGreaterThan(plain(720) + 20 * 12);
+});
+
+// A next-step answer is one 36 px row until its label wraps beside the number and the arrow.
+test("a next-step answer whose label wraps reserves its lines", () => {
+  const ask = (label: string) => ({
+    id: "next",
+    version: 1,
+    at: 0,
+    kind: "nextStep",
+    nextStep: { ask: { tag: "taste", question: "Which look should ship?", options: [{ label: "Box" }, { label }] } },
+  });
+  const short = layoutConversation([ask("Inline")] as AcpmuxRow[], 320).heights[0]!;
+  const long = layoutConversation(
+    [ask("Inline, with the reply quoted under it and the answer in a row of its own")] as AcpmuxRow[],
+    320,
+  ).heights[0]!;
+  expect(long).toBeGreaterThan(short);
+  expect(layoutConversation([ask("Inline, with the reply quoted under it")] as AcpmuxRow[], 720).heights[0]!).toBe(
+    layoutConversation([ask("Inline")] as AcpmuxRow[], 720).heights[0]!,
+  );
+});
+
+// A tagged ask's card is the same in every pane (NextStepCard.tsx), so one estimate holds; its recap,
+// a cut question's Show more, the recap box alone and the answered card are each reserved as drawn.
+test("a next-step card reserves its recap, Show more, the recap box alone and its answered form", () => {
+  const row = (ask: object, extra: object = {}) =>
+    ({ id: "next", version: 1, at: 0, kind: "nextStep", nextStep: { ask, ...extra } }) as unknown as AcpmuxRow;
+  const height = (r: AcpmuxRow, width = 480) => layoutConversation([r], width).heights[0]!;
+  const base = { tag: "wrap_up", question: "Ship it?", options: [{ label: "Yes" }, { label: "Not now" }] };
+  const recap = "Moved the composer settings into one page and kept every key.";
+  // The recap: 2 px over it, its line, 8 px under it.
+  expect(height(row({ ...base, recap }))).toBeCloseTo(height(row(base)) + 2 + 18 + 8);
+  // A question past 8 lines adds Show more: its 14 px caption line, 4 px tucked up, 8 px under.
+  const long = "word ".repeat(400);
+  const longer = "word ".repeat(800);
+  expect(height(row({ ...base, question: longer }))).toBe(height(row({ ...base, question: long })));
+  expect(height(row({ ...base, question: long })) - height(row(base))).toBeCloseTo(7 * 20 + -4 + 14 + 8);
+  // The recap alone: its box, 12 px over and under and the hairline, no card.
+  const alone = height(row({ tag: "wrap_up", recap, question: "", options: [] }));
+  expect(alone).toBeLessThan(height(row(base)));
+  // Answered: 12 px over and under, the question, 2 px, the answer, all on body lines.
+  const answered = height(row(base, { answer: "Yes" }));
+  const superseded = height(row(base, { superseded: true }));
+  expect(answered - superseded).toBeCloseTo(2 + 18);
+  expect(height(row({ ...base, recap }, { answer: "Yes" })) - answered).toBeCloseTo(18 + 16);
 });
 
 test("narrow permission action rows and two-line commands reserve their extra height", () => {

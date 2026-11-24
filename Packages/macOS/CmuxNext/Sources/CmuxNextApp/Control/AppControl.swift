@@ -322,6 +322,12 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
             },
+            // Every live agent page by the owner that holds it, and the ones with no tab that still draw (AgentTabs+Liveness).
+            .mainActor("debug.agent_pages") { [weak services] call in
+                guard let tabs = services?.madeAgentTabs else { return .value(.null) }
+                let swept = call.params["sweep"]?.boolValue == true ? tabs.sweepOrphans() : 0 // {sweep: true}: as a tab's release does a second later
+                return .value(tabs.livePages.report(owner: tabs.pageOwner(), swept: swept))
+            },
             // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
             .async("debug.cef_page_devtools") { [weak services] call in
                 guard let services else { return .null }

@@ -75,22 +75,39 @@ export function sentVideosOf(
     ];
   });
   // acpmux's record of a video that went as its link alone: its file part, a movie by its type or name.
+  // Every file part is a video of its own path: the same recording attached twice went as two
+  // uploads, one name at two paths, and only the first had a tile while the second drew as a
+  // "Screen Recording ... .mov 179.9 MB" file chip under it (Leo, 2026-11-22: "what is this situation
+  // with these attachments"). A copy takes its note's poster and length: one note names them both.
+  const found = [...framed];
   const bare = (row.inlineParts ?? []).flatMap((part): SentVideo[] => {
-    if (part.kind !== "file" || seen.has(part.name) || !isVideoFile(part.name, part.mimeType)) return [];
+    if (part.kind !== "file" || !isVideoFile(part.name, part.mimeType)) return [];
     const path = attachmentPath(part.uri);
-    if (!path) return [];
-    seen.add(part.name);
-    // Its size: what acpmux kept with its part (the pane sends it, hub/prompt_images.rs), else the
-    // host's read of its file this page made (`noteVideoSize`), so its tile has its box at once.
-    const size = part.width && part.height ? { width: part.width, height: part.height } : readSizes.get(path);
-    return [{ name: part.name, path, ...size }];
+    if (!path || found.some((video) => video.name === part.name && video.path === path)) return [];
+    const note = framed.find((video) => video.name === part.name);
+    // Its size: its note's, else what acpmux kept with its part (the pane sends it,
+    // hub/prompt_images.rs), else the host's read of its file this page made (`noteVideoSize`), so its
+    // tile has its box at once.
+    const size =
+      note?.width && note.height
+        ? undefined
+        : part.width && part.height
+          ? { width: part.width, height: part.height }
+          : readSizes.get(path);
+    const video = { ...(note ?? { name: part.name }), ...size, path };
+    found.push(video);
+    return [video];
   });
   if (!chips.length) return [...framed, ...bare];
-  // A chip the host never read takes what its note says, when it went with frames all the same.
+  // A chip the host never read takes what its note says, when it went with frames all the same; a
+  // second copy of one recording (another path, the same name) takes it too.
   return chips.map((chip) => {
-    const note = !chip.poster && framed.find((video) => video.name === chip.name && video.path === chip.path);
-    // Its note's poster and length, in the box its chip had.
-    return note ? { ...note, ...(chip.shape ? { shape: chip.shape } : {}) } : chip;
+    const note =
+      !chip.poster &&
+      (framed.find((video) => video.name === chip.name && video.path === chip.path) ??
+        framed.find((video) => video.name === chip.name));
+    // Its note's poster and length, in the box its chip had, at its own path.
+    return note ? { ...note, path: chip.path, ...(chip.shape ? { shape: chip.shape } : {}) } : chip;
   });
 }
 
