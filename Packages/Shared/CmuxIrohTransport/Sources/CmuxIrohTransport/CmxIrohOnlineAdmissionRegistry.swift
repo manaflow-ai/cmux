@@ -43,6 +43,13 @@ public actor CmxIrohOnlineAdmissionRegistry {
     /// The minimum unexpired lease duration required to admit a new session.
     public static let minimumAdmissionLeaseRemaining: TimeInterval = 30
 
+    /// How old a snapshot may be and still let a pair it listed as active in at once, on its
+    /// locally verified signed grant, while the broker is read behind the admission. The lease
+    /// monitor revalidates such a lease at once and cuts it on disagreement, so this bounds which
+    /// pairs skip the wait, not how long a revoked phone stays in: a phone unseen in 10 minutes
+    /// (a new install, a Mac that slept) waits on the broker as before.
+    static let maximumPriorSnapshotAdmissionAge: TimeInterval = 10 * 60
+
     private let broker: any CmxIrohDiscoveryServing
     private var managedRelayURLs: Set<String>
     private let routeContractVersion: Int
@@ -144,6 +151,18 @@ public actor CmxIrohOnlineAdmissionRegistry {
     ) async -> CmxIrohOnlineAdmissionAuthorization {
         guard !isDenied(lease), !isExpired(lease) else { return .denied }
         let revision = policyRevision
+        if let prior = priorSnapshotListingActive(lease) {
+            // Admitted on the signed grant: the lease carries the old snapshot's time, so its
+            // monitor (`monitorLoop`, which `CmxIrohHostRuntime` starts for every admitted
+            // session) revalidates at once. The broker read starts now, behind the admission.
+            readBehindAdmission(lease, policyRevision: revision)
+            let acceptedLease = lease.validatedOnline(at: prior.fetchedAt)
+            guard acceptedLease.expiresAt.timeIntervalSince(clock.now())
+                    >= Self.minimumAdmissionLeaseRemaining else {
+                return .denied
+            }
+            return .accepted(acceptedLease)
+        }
         let acceptedLease: CmxIrohOnlineAdmissionLease
         do {
             guard let online = try await validatedSnapshot(
@@ -313,6 +332,34 @@ public actor CmxIrohOnlineAdmissionRegistry {
                 return .terminal(.revalidationFailed)
             }
             return .deferred
+        }
+    }
+
+    /// The last snapshot, when it is past the 30 s reuse window (a fresher one is reused by
+    /// `validatedSnapshot` with no broker read) but within `maximumPriorSnapshotAdmissionAge`, and
+    /// lists both of this lease's bindings as active.
+    private func priorSnapshotListingActive(_ lease: CmxIrohOnlineAdmissionLease) -> Snapshot? {
+        guard let snapshot else { return nil }
+        let age = clock.now().timeIntervalSince(snapshot.fetchedAt)
+        guard age >= Self.maximumOnlineSnapshotAge,
+              age <= Self.maximumPriorSnapshotAdmissionAge,
+              validate(snapshot.response, lease: lease, learnDenial: false) else {
+            return nil
+        }
+        return snapshot
+    }
+
+    /// Reads the broker for a lease admitted on an older snapshot. A disagreement is learned
+    /// here and cuts the admitted session (`invalidateDeniedMonitors`); the monitor's own
+    /// immediate revalidation joins this read (`currentSnapshot` shares one refresh).
+    private func readBehindAdmission(
+        _ lease: CmxIrohOnlineAdmissionLease,
+        policyRevision revision: UInt64
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.validatedSnapshot(for: lease, policyRevision: revision)
+            await self.invalidateDeniedMonitors()
         }
     }
 

@@ -20,7 +20,7 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 export const FOLDERLESS_CLOUD_LABELS = {
   /// The chip's face while Cloud is picked and no folder is: a valid state, never "Choose folder".
   label: "composer.cloudNoFolder",
-  /// Its one line of detail: in the folder menu, and the chip's accessible description.
+  /// Its one line of detail: the chip's accessible description (never a line in the folder menu).
   detail: "composer.cloudNoFolderDetail",
 } as const;
 
@@ -122,15 +122,14 @@ export function startedCloudFolderName(
 }
 
 /// What the folder chip opens:
-/// - `localFolders`: this Mac's folders and Add folder… (a new chat that starts here, or a Cloud
-///   start not sent yet, whose picked folder the start copies to the machine: cloudRun.ts
-///   `cloudStartFolder`, `newTabProjectPick`);
+/// - `localFolders`: this Mac's folders and Add folder… for a new chat here.
+/// - `cloudSources`: a new Cloud chat's repositories and Cloud machine folders.
 /// - `chatFolders`: the folders the chat's own machine has (its sessions' folders and the folder
 ///   list its host gave for it, `machineFolders`), with Add folder… only on this Mac, whose folder
 ///   panel lists this Mac's folders;
 /// - `label`: no menu, the folder as a plain label: a started chat with nothing to open, or a Cloud
 ///   start that is out (the folder went with the start; nothing picked now could change it).
-export type FolderMenuKind = "localFolders" | "chatFolders" | "label";
+export type FolderMenuKind = "localFolders" | "cloudSources" | "chatFolders" | "label";
 
 export function folderMenu({
   cloudStartOut,
@@ -154,6 +153,7 @@ export function folderMenu({
   cloudMachine: boolean;
 }): { kind: FolderMenuKind; addFolder: boolean } {
   if (cloudStartOut) return { kind: "label", addFolder: false };
+  if (!readOnly && cloudMachine) return { kind: "cloudSources", addFolder: false };
   if (!readOnly && onThisMac && localChoices) return { kind: "localFolders", addFolder: true };
   if (readOnly && !newChats) return { kind: "label", addFolder: false };
   return { kind: "chatFolders", addFolder: newChats && onThisMac && !cloudMachine };
@@ -161,8 +161,9 @@ export function folderMenu({
 
 /// The folders a `chatFolders` menu lists: the host's list for the chat's machine first (this Mac's
 /// `projectChoices` on this Mac, `machineFolders` on the chat's own other machine, none on a machine
-/// picked that is neither), then the folders its chats work in. On a Cloud machine, no chat's private
-/// `~/chats/<chat>` folder: it is not a folder to pick.
+/// picked that is neither), then the folders its chats work in. No chat's private folder: this Mac's
+/// agent-home folder anywhere (a host list that names one drew it as a bare UUID, cmux#53226), and a
+/// Cloud machine's `~/chats/<chat>` there. Neither is a folder to pick.
 export function chatFolderChoices<F extends { id: string }>({
   known,
   listed,
@@ -178,5 +179,5 @@ export function chatFolderChoices<F extends { id: string }>({
         return [...listed, ...known.filter((folder) => !seen.has(folder.id))];
       })()
     : [...known];
-  return cloudMachine ? merged.filter((folder) => !isCloudChatFolder(folder.id)) : merged;
+  return merged.filter((folder) => !isAgentHome(folder.id) && !(cloudMachine && isCloudChatFolder(folder.id)));
 }

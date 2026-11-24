@@ -1,5 +1,4 @@
-// ui/Listbox with N rows, uncontrolled, as a recent-items list uses it. `?spacerKeys=1` keys the
-// rows "space-0", "space-1", … as a caller's getKey may.
+// ui/Listbox with N rows, uncontrolled, as a recent-items list uses it.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -11,7 +10,6 @@ function ListboxCaseRow({ label }: { label: string }) {
 }
 
 let changeOne = () => {};
-const spacerKeys = new URLSearchParams(location.search).get("spacerKeys") === "1";
 
 function CaseListbox({ n }: { n: number }) {
   const [items, setItems] = useState(() => caseItems(n));
@@ -26,8 +24,7 @@ function CaseListbox({ n }: { n: number }) {
   return (
     <Listbox
       items={items}
-      // `?spacerKeys=1`: the caller's keys are the ones the list once gave its spacers.
-      getKey={spacerKeys ? (item) => `space-${item.id.slice(3)}` : (item) => item.id}
+      getKey={(item) => item.id}
       textValue={(item) => item.label}
       renderItem={(item) => <ListboxCaseRow label={item.label} />}
       label="Items"

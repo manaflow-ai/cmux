@@ -21,6 +21,8 @@ parser.add_argument("--hz", type=float, default=120)
 parser.add_argument("--reduce-motion", action="store_true")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 APP = opts.app
 TAG = os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
@@ -72,12 +74,21 @@ try:
         sys.exit(f"the tagged app did not come up (socket {SOCKET} exists: {os.path.exists(SOCKET)}; "
                  f"debug.windows: {json.dumps(rpc('debug.windows'))[:300]})")
     print("home.show", rpc("action.run", {"action": "home.show", "focus": True}), flush=True)
-    time.sleep(3)
+    # Home shows its page (the fixture check below reports a missing list).
+    wait_until(lambda: (rpc("debug.home") or {}).get("page"), "Home's page", timeout=30, interval=0.1, raise_on_timeout=False)
     rpc("debug.appearance", {"mode": "dark"})
     if opts.reduce_motion:
         print("reduce motion", rpc("debug.motion", {"action": "reduce", "value": True}), flush=True)
     print("fixture", json.dumps(rpc("debug.home.sidebar_fixture", {"count": 6, "pinned": 1, "width": 320}))[:300], flush=True)
-    time.sleep(2)
+    # The fixture list is laid out: a pinned tile and five rows, their frames no longer moving.
+    def fixture_items():
+        page = ((rpc("debug.home") or {}).get("page") or {}).get("sidebar") or {}
+        listed = page.get("items") or []
+        ready = any(i.get("pinned") for i in listed) and sum(1 for i in listed if not i.get("pinned")) >= 5
+        return json.dumps(listed, sort_keys=True, default=str) if ready else None
+    wait_until(fixture_items, "the sidebar fixture's pinned tile and five rows", timeout=20, interval=0.1,
+               raise_on_timeout=False)
+    wait_stable(fixture_items, "the sidebar fixture's item frames", timeout=10, interval=0.1, raise_on_timeout=False)
     home = rpc("debug.home")
     json.dump(home, open(os.path.join(opts.out, "home.json"), "w"), indent=1, default=str)
     items = (((home or {}).get("page") or {}).get("sidebar") or {}).get("items") or []
@@ -106,7 +117,8 @@ try:
     json.dump({"press": press, "grid": grid, "lower": lower, "items": items, "steps": len(path)},
               open(os.path.join(opts.out, "drag.json"), "w"), indent=1)
     print("record", rpc("debug.window_record", {"dir": os.path.join(opts.out, "frames"), "seconds": 6}), flush=True)
-    time.sleep(0.4)
+    frames_dir = os.path.join(opts.out, "frames")
+    time.sleep(0.4)  # sleep-ok: the recording keeps still frames of the list at rest before the press
     rpc("debug.mouse", {"x": press[0], "y": press[1], "action": "down"})
     t0 = time.monotonic()
     for k, (x, y) in enumerate(path):
@@ -115,7 +127,10 @@ try:
         if delay > 0:
             time.sleep(delay)  # pointer pacing at --hz (the drag's own speed), not a settle wait
     rpc("debug.mouse", {"x": grid[0], "y": grid[1], "action": "up"})
-    time.sleep(6)  # the 6 s recording ends on its own
+    # The 6 s recording ends on its own: frames.json lands when the recorder finishes.
+    if not wait_until(lambda: os.path.exists(os.path.join(frames_dir, "frames.json")), "the recording to finish (frames.json)",
+                      timeout=30, interval=0.1, raise_on_timeout=False):
+        print("the recording wrote no frames.json in 30 s", flush=True)
     after = rpc("debug.home")
     pinned = (((after or {}).get("page") or {}).get("sidebar") or {}).get("pinned")
     print("pinned after the drop:", pinned, flush=True)

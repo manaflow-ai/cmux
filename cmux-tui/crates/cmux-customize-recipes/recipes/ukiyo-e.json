@@ -1,0 +1,10 @@
+{
+  "cmuxProfile": 1,
+  "name": "ukiyo-e",
+  "description": "Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages.",
+  "settings": {
+    "appearance.themeFile": "ukiyo-e",
+    "markdown.font.preset": "serif",
+    "agentPane.display.font.ui": "plex"
+  }
+}

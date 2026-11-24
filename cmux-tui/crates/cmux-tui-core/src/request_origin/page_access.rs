@@ -109,6 +109,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
         | Op::GitWorktreeSetup
+        | Op::GitWorktreeSetupRun
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
@@ -119,12 +120,18 @@ const fn access(operation: Op) -> Access {
         | Op::DiffCommentsList
         | Op::DiffCommentsSave
         | Op::DiffCommentsDelete
+        // A pull request review: checked out, drafted and posted with the
+        // person's own git and gh, for the app and agents, never a page.
+        | Op::GitReviewStart
+        | Op::GitReviewComment
+        | Op::GitReviewPost
         | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
+        | Op::ProjectActionsList
         | Op::ProjectObserve
         | Op::ProjectAdd
         | Op::ProjectUpdate
@@ -140,7 +147,9 @@ const fn access(operation: Op) -> Access {
         // Another browser's bookmarks, history and tabs, read for the app's browser import.
         | Op::BrowserImportRead
         // A Cloud machine's files and commands (server/cloud_api.rs).
-        | Op::CloudMachineIo => Access::Denied(Denied::FileSystem),
+        | Op::CloudMachineIo
+        // The app's language pack cache, written by path (language_packs.rs).
+        | Op::LanguagePacksEnsure => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -378,6 +387,8 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefAutomationList
+        | Op::ChiefAutomationUpdate
         | Op::ChiefContinue
         | Op::ChiefRetry
         // A page reads and edits the person's Chiefs only where its
@@ -464,6 +475,8 @@ const fn access(operation: Op) -> Access {
         | Op::CloudPreviewsRevokeLink
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
+        | Op::CloudMachineChiefStart
+        | Op::CloudMachineChiefResize
         => Access::Denied(Denied::NotAllowed),
     }
 }

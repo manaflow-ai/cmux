@@ -5,7 +5,7 @@ import "../shared/desktop";
 import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import table from "./generated/strings.json";
 import { MachinesSection } from "./MachinesSection";
 import { MockMachinesProvider } from "./mockProvider";
@@ -18,8 +18,7 @@ import "./styles.css";
 
 export function mountMachinesSection(root: HTMLElement, client: PageClient | null = defaultClient()): MachinesStore {
   const store = new MachinesStore(client);
-  const strings = createStrings(table);
-  createRoot(root).render(<MachinesSection store={store} strings={strings} />);
+  renderLocalized(createRoot(root), table, (strings) => <MachinesSection store={store} strings={strings} />);
   void store.start();
   return store;
 }

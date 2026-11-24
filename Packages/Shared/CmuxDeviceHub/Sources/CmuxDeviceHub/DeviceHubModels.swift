@@ -5,9 +5,22 @@ public import Foundation
 /// field is nil, so a newer server never breaks an older app.
 
 /// A device's platform. `linux` is a Linux desktop that hosts its screen
-/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views. `windows` is a Windows
+/// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios, linux
+    case macos, ios, linux, windows
+
+    /// Whether a device of this platform hosts a screen another device views: a Mac or a Linux
+    /// desktop, never an iPhone. A Windows PC is listed but does not serve a session yet
+    /// (`cmux-rd serve` is not ported), so it does not host. The iPhone's Screen Sharing list
+    /// asks this (the Mac app's own models say the same in `hostsScreenThisMacViews`), and the
+    /// switch is exhaustive, so a new platform says here whether it hosts.
+    public var hostsScreen: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios, .windows: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.
