@@ -250,10 +250,9 @@ fn subject_ref(token: &str) -> Option<String> {
         return (named && whole).then(|| format!("{repo}#{number}"));
     }
     for prefix in ["c-", "ask-"] {
-        if let Some(id) = lower.strip_prefix(prefix) {
-            if id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Some(lower);
-            }
+        let is_id = |id: &str| id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit());
+        if lower.strip_prefix(prefix).is_some_and(is_id) {
+            return Some(lower);
         }
     }
     None
