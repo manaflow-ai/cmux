@@ -60,7 +60,14 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   // The running turn's live, working and activity lines are drawn by turns.ts on every snapshot
   // with a version that does not cover all they say (the call in flight, who a send goes to, its
   // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
-  if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
+  // A turn's header in its running phase (turns.ts `turnHeaderId`) is one of them too.
+  if (
+    after.kind === THINKING ||
+    after.kind === WORKING ||
+    after.kind === ACTIVITY_LINE ||
+    after.turnPhase === "running" ||
+    before.turnPhase !== after.turnPhase
+  )
     return sameFields(
       before,
       after,

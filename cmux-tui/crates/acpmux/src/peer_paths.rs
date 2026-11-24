@@ -37,6 +37,11 @@ pub const TRUST_FOR: Duration = Duration::from_millis(6_500);
 pub const RECOVERY_FIRST: Duration = Duration::from_secs(3);
 /// ...and the gap doubles up to this.
 pub const RECOVERY_CAP: Duration = Duration::from_secs(60);
+/// A path's recovery backoff starts over only once it stayed up this long (the link's own
+/// `stable_after`). A path that answers one probe and drops again (a flapping relay circuit,
+/// a tunnel the remote cuts) keeps doubling to [`RECOVERY_CAP`] instead of being redialed
+/// every [`RECOVERY_FIRST`] for as long as it flaps.
+pub const RECOVERY_STABLE: Duration = Duration::from_secs(60);
 /// Relay first: probe answers in a row a direct path needs before it takes the session from
 /// the hub relay (doubled each time it was dropped back to the relay).
 pub const UPGRADE_AFTER: u8 = 2;
@@ -171,10 +176,24 @@ struct Path {
     last_pong: Option<u64>,
     /// When it was found dead, while it is.
     dead_at: Option<u64>,
-    /// Recovery probes since it died.
+    /// Recovery probes since it last stayed up [`RECOVERY_STABLE`].
     recoveries: u32,
+    /// When it last came up (a pong or an open after it was dead or untried), while it is up.
+    up_since: Option<u64>,
     /// When the next recovery probe of a dead path is due.
     recover_at: Option<u64>,
+}
+
+impl Path {
+    /// It answers (a pong, or the link opened on it): no longer dead, and up from now unless
+    /// it already was. Its recovery count stays until it has been up [`RECOVERY_STABLE`].
+    fn up(&mut self, now: u64) {
+        if self.dead_at.is_some() || self.up_since.is_none() {
+            self.up_since = Some(now);
+        }
+        self.dead_at = None;
+        self.recover_at = None;
+    }
 }
 
 /// The paths of one peer and the one that carries its session.
@@ -221,6 +240,7 @@ impl Paths {
                     last_pong: None,
                     dead_at: None,
                     recoveries: 0,
+                    up_since: None,
                     recover_at: None,
                 });
             }
@@ -259,9 +279,7 @@ impl Paths {
         }
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
-        path.dead_at = None;
-        path.recoveries = 0;
-        path.recover_at = None;
+        path.up(now);
         let id = path.id;
         let switch = self.selector.on_opened(id).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
@@ -287,6 +305,7 @@ impl Paths {
             last_pong: None,
             dead_at: None,
             recoveries: 0,
+            up_since: None,
             recover_at: None,
         });
         true
@@ -337,9 +356,7 @@ impl Paths {
         self.stats.pong(via, rtt_us, answering);
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
-        path.dead_at = None;
-        path.recoveries = 0;
-        path.recover_at = None;
+        path.up(now);
         let id = path.id;
         let switch = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us }).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
@@ -355,7 +372,12 @@ impl Paths {
         let id = path.id;
         if path.dead_at.is_none() {
             path.dead_at = Some(now);
-            path.recoveries = 0;
+            // Up long enough to count as recovered: its backoff starts over. One that dropped
+            // soon after it came back keeps the backoff it had (`RECOVERY_STABLE`).
+            if path.up_since.is_some_and(|at| now.saturating_sub(at) >= millis(RECOVERY_STABLE)) {
+                path.recoveries = 0;
+            }
+            path.up_since = None;
         }
         path.recover_at = Some(now.saturating_add(recovery_gap(path.recoveries)));
         let switch = self.selector.on_probe(id, ProbeOutcome::Lost).ok()??;

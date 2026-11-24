@@ -14,7 +14,6 @@ import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
-import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
 /// Which workspace that is, plus frame and sidebar width, persist in the
@@ -94,6 +93,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
+    /// A new shell window's size (no saved frame).
+    static let defaultSize = NSSize(width: 1100, height: 720)
+
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
@@ -112,8 +114,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let registry = services.registry
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
+        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal)
         let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
+            contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -230,10 +233,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         titleObservation = WindowListTitleObservation.start(values: { [weak self] in
             guard let self else { return (nil, nil, false, false) }
-            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
-            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }, names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
-            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+            let local = self.services.machines.local, spaces = SidebarSpaceBar.profiles(local, window: self.state.id, windows: self.services.windows).count
+            return (spaceName: spaces > 1 ? local.store.profile(self.state.profileID)?.name : nil, // the strip's rule: no space shows until a second
                     workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
                         ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)
@@ -344,7 +347,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
-        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
+        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }; controller.layoutModel.enterShownFocus() // its focused pane's ring is read now (cmux#46908)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
@@ -527,6 +530,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
+        ChromiumPageWindowMissionControl.keepOut(childWin) // a parked page's input window, 100 000 pt off, shrank Mission Control to nothing (cmux#48535)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
@@ -547,12 +551,12 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         let began = traced ? CACurrentMediaTime() : 0
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
         #endif
+        let layouts = LayoutPassGuard.shared.viewLayoutCalls // AppKit runs this pass before every display (each key): one that laid out no view moved no traffic light
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
-        // The outermost pass only, and before the overlay layer's own
-        // after-pass work, so an occluder change it causes joins that work.
+        // The outermost pass only, and before the overlay layer's own after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
-            (contentView as? WindowRootView)?.windowDidLayout()
+            (contentView as? WindowRootView)?.windowDidLayout(placesTrafficLights: !LayoutPassGuard.shared.isInstalled || LayoutPassGuard.shared.viewLayoutCalls != layouts)
             let blocks = pendingAfterLayout
             pendingAfterLayout.removeAll()
             for block in blocks { block() }

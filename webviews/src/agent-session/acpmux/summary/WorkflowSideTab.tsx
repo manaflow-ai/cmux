@@ -213,7 +213,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
         <div className="acpmux-workflow-side-tab__title">
           <Icon name="agent.session" size={ROW_ICON} row />
           <span>{t("workflow.kind")}</span>
-          <strong title={workflow.title}>{workflow.title}</strong>
+          <strong>{workflow.title}</strong>
         </div>
         <button
           type="button"

@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Settings > Personalization > Customization Library's host: each page call becomes one
+/// Settings > Appearance > Customization Library's host: each page call becomes one
 /// `cmux --json customize library` run with the name as its own argument, a change runs only on the
 /// person's gesture, and a refusal comes back as the CLI's envelope for the page to word.
 @MainActor @Suite struct SettingsCustomizeLibraryTests {
@@ -90,6 +90,88 @@ import Testing
             }
         }
         #expect(runs.arguments.isEmpty)
+    }
+
+    @Test func theDoctorVerbsAreTheCLIsWithTheIdAsItsOwnArgument() async throws {
+        let runs = Runs()
+        let provider = library(runs)
+        _ = try await provider.call(SettingsCustomizeLibrary.op, params: ["verb": "doctor"], context: Self.page)
+        for params: JSONValue in [
+            ["verb": "doctor-fix", "id": "layer-on:pr-45206", "fix": "off"],
+            ["verb": "doctor-fix", "id": "leftover:themes/old", "fix": "remove"],
+            ["verb": "doctor-fix", "id": "broken:themes/night.json", "fix": "restore"],
+            ["verb": "doctor-fix", "id": "shadowed:appearance.theme", "fix": "follow-default"],
+            ["verb": "doctor-dismiss", "id": "broken:themes/night.json"],
+            ["verb": "doctor-recover"],
+        ] {
+            _ = try await provider.call(SettingsCustomizeLibrary.op, params: params, context: Self.click)
+        }
+        #expect(runs.arguments == [
+            ["--json", "customize", "doctor"],
+            ["--json", "customize", "doctor", "fix", "layer-on:pr-45206", "off"],
+            ["--json", "customize", "doctor", "fix", "leftover:themes/old", "remove"],
+            ["--json", "customize", "doctor", "fix", "broken:themes/night.json", "restore"],
+            ["--json", "customize", "doctor", "fix", "shadowed:appearance.theme", "follow-default"],
+            ["--json", "customize", "doctor", "dismiss", "broken:themes/night.json"],
+            ["--json", "customize", "doctor", "recover"],
+        ])
+    }
+
+    @Test func aDoctorChangeNeedsTheGestureAndABadIdOrFixRunsNothing() async throws {
+        let runs = Runs()
+        let provider = library(runs)
+        for params: JSONValue in [
+            ["verb": "doctor-fix", "id": "layer-on:pr-1", "fix": "off"],
+            ["verb": "doctor-dismiss", "id": "layer-on:pr-1"],
+            ["verb": "doctor-open", "id": "broken:themes/night.json"],
+            ["verb": "doctor-recover"],
+        ] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(SettingsCustomizeLibrary.op, params: params, context: Self.page)
+            }
+        }
+        for params: JSONValue in [
+            ["verb": "doctor-fix", "id": "--all", "fix": "off"],
+            ["verb": "doctor-fix", "id": "layer-on:pr-1", "fix": "open"],
+            ["verb": "doctor-fix", "id": "layer-on:pr-1"],
+            ["verb": "doctor-dismiss", "id": ""],
+            ["verb": "doctor-dismiss"],
+            ["verb": "doctor-open", "id": "-x"],
+        ] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(SettingsCustomizeLibrary.op, params: params, context: Self.click)
+            }
+        }
+        #expect(runs.arguments.isEmpty)
+    }
+
+    @Test func doctorOpenReadsTheReportAndOpensTheFindingsPath() async throws {
+        let runs = Runs()
+        runs.answer = (0, Data(#"""
+        {"doctor":{"findings":[
+          {"id":"layer-on:pr-1","path":null},
+          {"id":"broken:themes/night.json","path":"/tmp/cmux-doctor-test/night.json"}
+        ],"line":null,"announce":null}}
+        """#.utf8), Data())
+        var opened: [URL] = []
+        let provider = SettingsCustomizeLibrary(cli: { URL(fileURLWithPath: "/bin/cmux") }, settingsFile: { nil },
+                                                runCLI: { _, arguments, _ in
+                                                    runs.arguments.append(arguments)
+                                                    return runs.answer
+                                                },
+                                                open: { url, _ in opened.append(url) })
+        let answer = try await provider.call(SettingsCustomizeLibrary.op, params: ["verb": "doctor-open", "id": "broken:themes/night.json"],
+                                             context: Self.click)
+        #expect(runs.arguments == [["--json", "customize", "doctor"]])
+        #expect(opened == [URL(fileURLWithPath: "/tmp/cmux-doctor-test/night.json")])
+        #expect(answer["opened"]?.stringValue == "/tmp/cmux-doctor-test/night.json")
+        // A finding with no path, or no such finding, opens nothing.
+        for id in ["layer-on:pr-1", "unknown:x"] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(SettingsCustomizeLibrary.op, params: ["verb": "doctor-open", "id": .string(id)], context: Self.click)
+            }
+        }
+        #expect(opened.count == 1)
     }
 
     @Test func aRefusalIsTheCLIsEnvelope() async throws {

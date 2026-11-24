@@ -1,0 +1,22 @@
+/* Grid's chat: rules, not surfaces. Cards (tool output, edits, plans, permission and error cards)
+   have no fill and a 1 px rule of the ink at 32%; your prompt is a square box ruled in the ink
+   itself, with no tint, so it reads as a heading block rather than a bubble. Zero corners. Two
+   quieter ink levels stand in for size: secondary text at 72% and the quietest at 62%, mixed into
+   the page so they are solid colors that keep 4.5:1. Links are the ink, underlined, so the one
+   accent is left for Send, focus and the work dot.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-page-bg), so one file reads over Grid, Grid Light, Grid Signal
+   and any theme of your own. */
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, var(--agent-page-bg));
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 62%, var(--agent-page-bg));
+  --cv-link: var(--agent-text);
+  --agent-link: var(--agent-text);
+  --cv-card-fill: transparent;
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 32%, transparent);
+  --cv-user-bubble-tint: transparent;
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 88%, transparent);
+  --cv-user-bubble-radius: 0px;
+}

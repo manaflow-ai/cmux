@@ -12,7 +12,7 @@ public import Foundation
 /// the user can do instead (CapabilityRefusalTests scans every string).
 public nonisolated enum RefusalStrings {
     public static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Refusals", bundle: .localizedModule)
     }
 
     /// A feature an administrator turned off (DisabledFeatures).

@@ -46,6 +46,19 @@ key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~
 per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
 deletes them.
 
+## Egress gate
+
+The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
+HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
+looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
+(a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
+reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+
+Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
+shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
+
 ## Hosts
 
 Each row is a host, its kind and what the app sends there. Kinds:
@@ -70,6 +83,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
+| `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
+| `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
@@ -107,6 +124,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
 | `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
+| `compute.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app |
+| `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
+| `api.freestyle.sh` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
@@ -297,6 +317,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
+| `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `pages.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `workers.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -328,6 +350,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `api.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `hooks.stripe.com` | example | a sample secret's host in the env-secrets playground |
+| `http-intake.logs.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `maps.googleapis.com` | example | a sample secret's host in the env-secrets playground |
 | `docs.github.com` | example | a sample error text |
 | `api.stripe.com` | example | an example in a tool description |
 | `github.com.evil` | example | a value in a self-check |
@@ -341,6 +367,11 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 | Host | Kind | What for |
 |---|---|---|
+| `command.io` | not-a-host | an error code for a custom command's file error |
+| `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
+| `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
+| `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
+| `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |

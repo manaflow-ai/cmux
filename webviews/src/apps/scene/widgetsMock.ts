@@ -6,6 +6,7 @@
 import { pageError, type PageClient } from "../../pages/shared/pageClient";
 import type { SceneOp } from "./store";
 import { WIDGET_OPS, type WidgetPlace, type WidgetSize, type WidgetTilePlacement } from "./widgetsClient";
+import { intl } from "../../ui/intl";
 
 type MockWidget = {
   app: string;
@@ -67,13 +68,15 @@ export function mockWidgetScene(app: string, size: WidgetSize, now = FIXED_NOW):
     );
   let root: string;
   if (app === "cmux/clock") {
-    const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(now);
-    const day = new Intl.DateTimeFormat("en-US", {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    }).format(now);
+    const time = intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(now);
+    const day = intl
+      .DateTimeFormat("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      })
+      .format(now);
     // Apple's clock: the time on one line, its AM/PM smaller beside it.
     const [digits, meridiem] = time.split(" ");
     const big = node("HStack", { spacing: 3, alignment: "bottom" }, [

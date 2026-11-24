@@ -1,0 +1,40 @@
+[package]
+name = "cmux-duress"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The offline duress simulator's generator: expands a recorded Claude Code PTY session and a recorded acpmux chat into seeded, link-shaped replay files (scrollback, a streaming schedule, chat records) that the iPhone app's DEBUG reader plays while any UI bench runs"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-duress"
+path = "src/main.rs"
+
+[features]
+# `scenario run`: the replay through the phone's Rust paths (ghostty-vt needs zig). The sim
+# script's generator build (`gen` only) turns it off with --no-default-features.
+default = ["paths"]
+paths = ["dep:ghostty-vt", "dep:cmux-agent-cli-render"]
+
+[dependencies]
+base64.workspace = true
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render", optional = true }
+ghostty-vt = { workspace = true, optional = true }
+toml.workspace = true
+# `scenario new`: a copy of a scenario file that keeps its comments and order.
+toml_edit.workspace = true
+cmux-fault.workspace = true
+serde.workspace = true
+# raw_value: a chat record's `msg` is written back byte for byte, in the recording's key order.
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+# examples/duress_paths.rs: the generated load through the phone's Rust paths.
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
+ghostty-vt.workspace = true
