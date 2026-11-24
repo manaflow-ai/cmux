@@ -1250,9 +1250,18 @@ const STALE_PROBE: Duration = Duration::from_millis(2500);
 impl Warm {
     async fn take_turn(&self, key: &SocketKey) -> Option<TurnLease> {
         let held = self.held_turn.lock().await;
-        held.as_ref()
+        let lease = held
+            .as_ref()
             .filter(|(held_key, lease)| held_key == key && lease.is_valid() && lease.has_carrier())
-            .map(|(_, lease)| lease.clone())
+            .map(|(_, lease)| lease.clone());
+        if lease.is_none() {
+            if let Some((held_key, held_lease)) = held.as_ref()
+                && held_key == key
+            {
+                held_lease.discard_if_dead();
+            }
+        }
+        lease
     }
 
     async fn store_turn(&self, key: &SocketKey, lease: TurnLease) {
@@ -1737,6 +1746,7 @@ mod redial_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ffi_pool_same_network_redial_reuses_held_turn() {
         let turn = TestTurn::start().await;
+        let mac_turn = TestTurn::start().await;
         let server = FakeSignaling::start(FakeOptions {
             ice_servers: vec![turn.udp_only()],
             strip_direct_endpoints: true,
@@ -1745,7 +1755,7 @@ mod redial_tests {
         .await;
         let pool = WarmPool::new();
         let mac_id = uuid::Uuid::new_v4().to_string();
-        let _mac = answering_mac(&server, &turn, &mac_id).await;
+        let _mac = answering_mac(&server, &mac_turn, &mac_id).await;
         let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
         let key = key(&request);
         let options = options(&turn);
@@ -1758,7 +1768,14 @@ mod redial_tests {
         first.link.close("test redial");
         drop(first);
         assert!(held(&turn, 1).await, "the first link did not return its allocation");
-        let held_lease = pool.0.take_turn(&key).await.expect("held same-network allocation");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let held_lease = loop {
+            if let Some(lease) = pool.0.take_turn(&key).await {
+                break lease;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "held same-network allocation");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
         let (second, _) =
             redial_after(&pool.0, &key, &request, &options, &options.timeline, Some(held_lease))
                 .await

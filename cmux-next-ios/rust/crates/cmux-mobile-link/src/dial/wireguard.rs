@@ -343,7 +343,23 @@ impl TurnLease {
 
     pub fn has_carrier(&self) -> bool {
         self.0.valid.load(Ordering::Acquire)
-            && self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+            && self
+                .0
+                .carrier
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .is_some_and(|carrier| !carrier.is_dead())
+    }
+
+    pub fn discard_if_dead(&self) -> bool {
+        let mut carrier = self.0.carrier.lock().unwrap_or_else(PoisonError::into_inner);
+        if carrier.as_ref().is_some_and(TurnCarrier::is_dead) {
+            carrier.take();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn is_valid(&self) -> bool {

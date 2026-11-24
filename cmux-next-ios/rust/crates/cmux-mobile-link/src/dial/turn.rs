@@ -341,6 +341,7 @@ pub struct TurnCarrier {
     /// The socket or stream to the server.
     conn: Arc<dyn Conn + Send + Sync>,
     dead: watch::Receiver<bool>,
+    forced_dead: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl TurnCarrier {
@@ -574,7 +575,18 @@ impl TurnCarrier {
             None => watch::channel(false).1,
         };
         tracing::info!(%relayed, server = server.address, transport = ?server.transport, "TURN allocation for WireGuard");
-        Ok(Self { relayed, transport: server.transport, queue, inbound, tasks, relay, client, conn, dead })
+        Ok(Self {
+            relayed,
+            transport: server.transport,
+            queue,
+            inbound,
+            tasks,
+            relay,
+            client,
+            conn,
+            dead,
+            forced_dead: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
     }
 
     /// Queue one datagram to `to` through the TURN server, in `class`
@@ -585,7 +597,7 @@ impl TurnCarrier {
 
     /// Whether the allocation's stream to the server failed (never for UDP).
     pub fn is_dead(&self) -> bool {
-        *self.dead.borrow()
+        self.forced_dead.load(std::sync::atomic::Ordering::Acquire) || *self.dead.borrow()
     }
 
     /// Becomes `true` when the allocation's stream to the server fails.
@@ -596,6 +608,7 @@ impl TurnCarrier {
     /// Debug and tests: close the connection to the server, as a middlebox
     /// that resets it would (a stream allocation then reports itself dead).
     pub fn kill(&self) {
+        self.forced_dead.store(true, std::sync::atomic::Ordering::Release);
         self.queue.close();
         let conn = Arc::clone(&self.conn);
         tokio::spawn(async move {
