@@ -65,7 +65,16 @@ extension BrowserChromeView {
     func syncPageOverlays() {
         // The cookie import card shows only while the tab shown has the keyboard; a chrome with no bound tab
         // state (a single page) keeps it shown.
-        currentCookieImportCard?.waitsForFocus = boundState.map { !$0.hasKeyboard } ?? false
+        if let card = currentCookieImportCard {
+            let waits = boundState.map { !$0.hasKeyboard } ?? false
+            // Seen and then left: it goes, never to come back on refocus (``BrowserCookieImportCard/wasSeen``).
+            if waits, card.wasSeen {
+                hideCookieImportOffer()
+            } else {
+                card.waitsForFocus = waits
+                if !waits, card.isMeasured, !card.isHidden { card.wasSeen = true }
+            }
+        }
         pageOverlays.sync()
     }
 }
