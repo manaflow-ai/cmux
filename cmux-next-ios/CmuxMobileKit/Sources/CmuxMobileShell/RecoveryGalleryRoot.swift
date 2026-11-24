@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -40,6 +41,9 @@ import SwiftUI
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
+/// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
+///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
+///   Feed-like rows (`AgentAvatarHostGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -55,7 +59,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "agentmark"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -96,6 +100,8 @@ public struct RecoveryGalleryRoot: View {
                 TerminalKeyBarGallery()
             case "lastsent":
                 TerminalLastSentGallery()
+            case "agentmark":
+                AgentAvatarHostGallery(variant: variant)
             default:
                 states
             }
