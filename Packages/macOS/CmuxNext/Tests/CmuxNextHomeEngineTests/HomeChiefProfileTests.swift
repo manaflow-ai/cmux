@@ -62,6 +62,18 @@ import Testing
         #expect(panel.selectedTab == .settings)
     }
 
+    /// Upgrade is the popover's default button only while the Computer tab shows: Return in the name field on
+    /// Details must never open the plans page.
+    @Test func upgradeTakesReturnOnlyOnTheComputerTab() {
+        let panel = HomeChiefProfileView(settings: Self.card())
+        panel.paid = { false }
+        panel.select(.computer)
+        #expect(panel.shownGate == .paywall)
+        #expect(panel.gateButton.keyEquivalent == "\r")
+        panel.select(.details)
+        #expect(panel.gateButton.keyEquivalent.isEmpty)
+    }
+
     /// Every Settings row puts its control in one column, whatever the control: the pickers, Can Wake the
     /// Chief, and an Appearance row (the panel at its width, laid out).
     @Test func settingsRowsShareOneControlColumn() throws {
