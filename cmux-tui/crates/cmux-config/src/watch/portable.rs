@@ -5,16 +5,14 @@
 //! a watched directory never wake the watch thread. notify's non-recursive
 //! watch reports a directory's own entries only.
 
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as _};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
 
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher as _};
-
-use super::{MAX_DELAY, Plan, QUIET};
+use super::{Next, Plan, burst};
 
 type Shared = Arc<Mutex<Option<RecommendedWatcher>>>;
 
@@ -90,22 +88,22 @@ fn run(
     on_hint: &mut impl FnMut(),
 ) {
     while let Ok(Message::Event) = receiver.recv() {
-        // One hint per burst: wait until the events stop for QUIET.
-        let started = Instant::now();
-        loop {
-            let left = MAX_DELAY.saturating_sub(started.elapsed()).min(QUIET);
-            if left.is_zero() {
-                break;
-            }
-            match receiver.recv_timeout(left) {
-                Ok(Message::Event) => {}
-                Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                Err(RecvTimeoutError::Timeout) => break,
-            }
+        let running = burst(
+            watched,
+            |_, left| match receiver.recv_timeout(left) {
+                Ok(Message::Event) => Next::Event(true),
+                Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => Next::Stop,
+                Err(RecvTimeoutError::Timeout) => Next::Quiet,
+            },
+            // A directory that appeared or vanished moves the watch.
+            |watched| {
+                let _ = rearm(shared, plan, files, watched);
+                on_hint();
+            },
+        );
+        if !running {
+            return;
         }
-        // A directory that appeared or vanished moves the watch.
-        let _ = rearm(shared, plan, files, watched);
-        on_hint();
     }
 }
 

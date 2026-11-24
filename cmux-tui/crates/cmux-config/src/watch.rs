@@ -19,10 +19,13 @@
 //! through a FIFO or device hints at most then.
 //! Opens, reads and read-only closes never count: the reload a hint
 //! triggers reads the watched file, and a watched ancestor such as /etc
-//! sees an open on every process start. Events that arrive within
-//! [`QUIET`] of each other are one burst and give one hint; the consumer
-//! then reads the latest state (the owner's `reload` reports a change only
-//! when the effective settings changed).
+//! sees an open on every process start. A burst hints on its leading edge:
+//! [`SETTLE`] after its first event (so the delete and create, or rename
+//! pair, of one save read as one), not after the burst ends. Events that
+//! follow within [`QUIET`] of each other then give one trailing hint, at
+//! most every [`MAX_DELAY`] while they keep coming (see [`burst`]); the
+//! consumer reads the latest state each time (the owner's `reload` reports
+//! a change only when the effective settings changed).
 //!
 //! Linux uses inotify directly (`inotify.rs`) and macOS kqueue vnode watches
 //! (`kqueue.rs`), both as a watch of each directory's entries and a watch of
@@ -41,7 +44,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::owner::ConfigStore;
 use crate::store::Change;
@@ -59,10 +62,81 @@ mod portable;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use portable as backend;
 
+/// The leading hint waits this long after the last event for the rest of
+/// the same save (an editor's delete and create, a rename pair).
+const SETTLE: Duration = Duration::from_millis(4);
+/// The leading hint comes at most this long after a burst's first event,
+/// under a 60 Hz frame even while events keep arriving.
+const SETTLE_MAX: Duration = Duration::from_millis(12);
 /// A burst ends after this long without another event.
 const QUIET: Duration = Duration::from_millis(100);
 /// A burst that keeps going still gives a hint after this long.
 const MAX_DELAY: Duration = Duration::from_millis(1000);
+
+/// What a backend's wait for the next event of a burst saw.
+enum Next {
+    /// Events arrived; true when one of them is about a watched name.
+    Event(bool),
+    /// The timeout passed with no event.
+    Quiet,
+    /// The watch stops.
+    Stop,
+}
+
+/// One burst, from its first event that matters: a leading hint once the
+/// events settle ([`SETTLE`] without another event that matters, at most
+/// [`SETTLE_MAX`] after the first), so a save applies within a frame; then
+/// while events that matter keep coming, one trailing hint after [`QUIET`]
+/// without another, or each [`MAX_DELAY`] while they do not stop. Events
+/// about other entries of a watched directory (inotify and the portable
+/// backend see them) neither extend a window nor hint. `wait` waits at most
+/// its timeout for events; `hint` re-arms and hints. False when the watch
+/// stops.
+fn burst<S>(
+    state: &mut S,
+    mut wait: impl FnMut(&mut S, Duration) -> Next,
+    mut hint: impl FnMut(&mut S),
+) -> bool {
+    let first = Instant::now();
+    let mut last = first;
+    loop {
+        let left =
+            SETTLE_MAX.saturating_sub(first.elapsed()).min(SETTLE.saturating_sub(last.elapsed()));
+        if left.is_zero() {
+            break;
+        }
+        match wait(state, left) {
+            Next::Stop => return false,
+            Next::Quiet => break,
+            Next::Event(true) => last = Instant::now(),
+            Next::Event(false) => {}
+        }
+    }
+    hint(state);
+    loop {
+        let started = Instant::now();
+        // The last event that matters in this window.
+        let mut last: Option<Instant> = None;
+        loop {
+            let quiet = QUIET.saturating_sub(last.unwrap_or(started).elapsed());
+            let left = MAX_DELAY.saturating_sub(started.elapsed()).min(quiet);
+            if left.is_zero() {
+                break;
+            }
+            match wait(state, left) {
+                Next::Stop => return false,
+                Next::Event(true) => last = Some(Instant::now()),
+                Next::Event(false) | Next::Quiet => {}
+            }
+        }
+        let Some(last) = last else { return true };
+        let ended = last.elapsed() >= QUIET;
+        hint(state);
+        if ended {
+            return true;
+        }
+    }
+}
 
 /// A running watch. Dropping it stops the watch and joins its thread.
 pub struct Watcher {
