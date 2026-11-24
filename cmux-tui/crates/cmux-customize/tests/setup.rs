@@ -983,3 +983,66 @@ fn a_setup_that_picks_the_corner_treatment_keeps_it() {
     customize.remove_setup(&found, "cli", 20).unwrap();
     assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
 }
+
+/// A look with a dark theme and a light variant, as Overdrive ships them.
+fn look_with_a_variant(root: &Path) -> PathBuf {
+    let repo = sample_repo(root);
+    fs::write(
+        repo.join("themes/sample-dawn.json"),
+        "{ \"name\": \"Sample Dawn\", \"colors\": { \"background\": \"#f6f1e7\" } }\n",
+    )
+    .unwrap();
+    repo
+}
+
+/// What `cmux settings set appearance.themeFile NAME` does: one key in the
+/// person's own settings file.
+fn settings_set(home: &Home, key: &[&str], value: Value) {
+    let text = home.read("cmux-next.json").unwrap_or_else(|| "{}\n".to_owned());
+    let path: Vec<String> = key.iter().map(|piece| (*piece).to_owned()).collect();
+    home.write("cmux-next.json", &cmux_config::jsonc::set(&text, &path, &value).unwrap());
+}
+
+/// Removes the look after its light variant was picked by hand, then
+/// `between` ran; the settings must not name a theme file that is gone.
+fn remove_after_picking_the_variant(between: impl Fn(&Home, &Customize)) {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = look_with_a_variant(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    let installed = customize.install_setup(&read, "setup sample", "cli", 10).unwrap();
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    assert!(home.config("themes/sample-dawn.json").exists());
+
+    // The light variant, picked the way the look's README says.
+    settings_set(&home, &["appearance", "themeFile"], json!("sample-dawn"));
+    between(&home, &customize);
+
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert!(!home.config("themes/sample-dawn.json").exists(), "the look's files go with it");
+    let settings = home.settings();
+    if let Some(theme) = settings["appearance"].get("themeFile").and_then(Value::as_str) {
+        assert!(
+            home.config(&format!("themes/{theme}.json")).exists(),
+            "the settings name the theme file {theme:?}, which the remove deleted: {settings}"
+        );
+    }
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+}
+
+#[test]
+fn removing_a_look_right_after_picking_its_variant_leaves_no_missing_theme() {
+    remove_after_picking_the_variant(|_, _| {});
+}
+
+#[test]
+fn removing_a_look_after_its_variant_was_applied_leaves_no_missing_theme() {
+    // Any apply since (a customize ask, a library toggle) keeps the hand edit.
+    remove_after_picking_the_variant(|home, customize| {
+        settings_set(home, &["appearance", "density"], json!("comfortable"));
+        settings_set(home, &["appearance", "density"], json!("compact"));
+        customize.apply(Some("by hand"), "cli", 15).unwrap();
+    });
+}

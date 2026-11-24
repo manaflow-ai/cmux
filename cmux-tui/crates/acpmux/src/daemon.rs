@@ -34,6 +34,8 @@ mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+#[cfg(unix)]
+pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -262,6 +264,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
     // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
     let _ = cmux_usage_patterns::install("acpmux");
+    // Opt-in install-count sharing (`install_share.rs`): sends nothing until the person turns on
+    // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
+    crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
     // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
@@ -1063,6 +1068,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
+                        // A chat's sealed segments go cold as they seal (`cold_segments.rs`).
+                        let _cold_segments = hub.cold_segments_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
                     });
@@ -1103,6 +1110,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
         Hub::desktop_bridge_loop(weak.clone())
     });
+    // How late this runtime wakes a task (`gauges.workerLag` in `daemon status`): a worker held by
+    // blocking work shows here before requests time out. Ended with the hub's scope.
+    let _worker_lag = hub.scope.spawn_until_cancelled(
+        "worker-lag-canary",
+        crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
+    );
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
