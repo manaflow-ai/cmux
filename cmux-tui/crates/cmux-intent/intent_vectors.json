@@ -2,6 +2,7 @@
  "schema": "intent-vectors.v1",
  "about": "The contract of tools/intent.py and its Rust twin: a parser spec, an argv it refuses, the outcome. Spec: flags {\"--a,-b\": \"value\"|\"int\"|\"switch\"|[choices]}, required [flag], args [name | {name, choices, int, optional}], subs {name: spec}. cli: the table's per-CLI part for that vector.",
  "parsers": {
+  "forum": {"subs": {"docs": {"args": [{"name": "action", "choices": ["list", "sync"]}, "dir"]}}},
   "disk": {"subs": {"report": {"flags": {"--json": "switch"}}, "keepup": {"flags": {"--floor": "int"}}}},
   "gh2": {
    "flags": {"--repo": "value"},
@@ -25,8 +26,11 @@
  "vectors": [
   {"name": "synonym subcommand (glaeda-disk status)", "parser": "disk", "argv": ["status"], "outcome": "ran", "to": ["report"]},
   {"name": "synonym with a flag kept", "parser": "disk", "argv": ["show", "--json"], "outcome": "ran", "to": ["report", "--json"]},
-  {"name": "close subcommand", "parser": "disk", "argv": ["keepupp", "--floor", "5"], "outcome": "ran", "to": ["keepup", "--floor", "5"]},
+  {"name": "close subcommand that writes: printed, not run", "parser": "disk", "argv": ["keepupp", "--floor", "5"], "outcome": "exact", "to": [["keepup", "--floor", "5"]]},
   {"name": "unique prefix subcommand", "parser": "disk", "argv": ["rep"], "outcome": "ran", "to": ["report"]},
+  {"name": "a choice that writes is never supplied (synonym)", "parser": "forum", "argv": ["docs", "pull", "./d"], "outcome": "exact", "to": [["docs", "sync", "./d"]]},
+  {"name": "a choice that writes is never supplied (close)", "parser": "forum", "argv": ["docs", "snc", "./d"], "outcome": "exact", "to": [["docs", "sync", "./d"]]},
+  {"name": "a choice that reads is supplied", "parser": "forum", "argv": ["docs", "lst", "./d"], "outcome": "ran", "to": ["docs", "list", "./d"]},
   {"name": "nothing close", "parser": "disk", "argv": ["zzzz"], "outcome": "none"},
   {"name": "a form that parses", "parser": "disk", "argv": ["report"], "outcome": "ok"},
   {"name": "glued subcommand (glaeda-gh land-status REPO)", "parser": "gh2", "argv": ["land-status", "o/r"], "outcome": "ran", "to": ["land", "status", "o/r"]},
