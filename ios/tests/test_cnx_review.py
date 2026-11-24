@@ -944,6 +944,38 @@ fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_FFI_P
                 self.assertFalse((Path(temp) / 'pin-checked').exists())
                 self.assertNotIn('builds on a Mac', r.stdout)
 
+    def test_a_head_that_changes_nothing_in_the_mac_app_builds_its_base(self):
+        # Leo, 2026-11-24: "examine if his recent prs have actually needed dev builds". #53007 changed 7
+        # CmuxMobileKit files and queued a full Mac build of its head for 3+ hours. build_select.py says when the
+        # Mac app is the base's: the tag gets the base's build, which --any-tag answers from one the fleet made.
+        for mac, want_base in (('none', True), ('build', False)):
+            with self.subTest(mac=mac), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp) / 'repo'
+                repo.mkdir()
+                git = lambda *a: subprocess.run(['git', '-C', str(repo), *a], check=True, capture_output=True,
+                                                text=True).stdout.strip()
+                git('init', '-q')
+                git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'base')
+                base = git('rev-parse', 'HEAD')
+                git('update-ref', 'refs/remotes/origin/feat-cmux-next', base)
+                git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'head')
+                head = git('rev-parse', 'HEAD')
+                select = Path(temp) / 'select.py'
+                select.write_text('import json,sys\nprint(json.dumps({"mac": "%s", "ios": "build"}))\n' % mac)
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
+                ci.chmod(0o755)
+                state = Path(temp) / 'state'
+                state.mkdir()
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={head} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}" REPO_ROOT="{repo}"
+fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_BUILD_SELECT': str(select)})
+                self.assertIn('JOB=job123', r.stdout, r.stderr)
+                args = (Path(temp) / 'args').read_text().splitlines()
+                ref = args[args.index('--ref') + 1]
+                self.assertEqual(ref, base if want_base else head)
+                self.assertEqual('--any-tag' in args, want_base)
+                self.assertEqual((state / 'mac-ref').read_text().strip(), ref)
+
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
