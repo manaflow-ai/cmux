@@ -44,7 +44,8 @@ export function estimateFrom(
   if (!last || last.sessionId !== sessionId) return { kept: undefined, resizing: undefined, partial: false };
   if (last.width === rowWidth)
     return {
-      kept: last.partial ? undefined : last,
+      // A cold open's rough layout (layoutConversation `roughAbove`) keeps no row either.
+      kept: last.partial || last.layout.rough ? undefined : last,
       resizing: undefined,
       partial: false,
     };

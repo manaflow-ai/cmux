@@ -10,6 +10,7 @@
 // experiment. Each play crosses the row icon by icon and reads every tooltip in turn, then checks that
 // a subagent finishing and one joining move nothing in the header.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { chat, row, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -84,6 +85,32 @@ const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acp
 const tooltip = (ctx: PlayContext) =>
   ctx.document.querySelector<HTMLElement>(".ui-title-tooltip .ui-tooltip-text")?.textContent ?? "";
 
+/** Fails when an icon, or the row's backing, paints a box-shadow ring or the page colour (--agent-bg). */
+function assertNoPageColour(ctx: PlayContext): void {
+  const doc = ctx.document;
+  const probe = doc.createElement("span");
+  probe.style.background = "var(--agent-bg, Canvas)";
+  doc.body.append(probe);
+  const rgb = (color: string) =>
+    color
+      .match(/[\d.]+/g)
+      ?.slice(0, 3)
+      .join(",");
+  const page = rgb(getComputedStyle(probe).backgroundColor);
+  probe.remove();
+  const row = doc.querySelector<HTMLElement>(".acpmux-hat-faces__row");
+  const painted = [
+    ...faces(ctx).map((face) => getComputedStyle(face)),
+    ...(row ? [getComputedStyle(row), getComputedStyle(row, "::before")] : []),
+  ];
+  for (const style of painted) {
+    if (style.boxShadow !== "none") throw new Error(`a hat icon paints a ring: ${style.boxShadow}`);
+    const fill = style.backgroundColor;
+    if (fill !== "rgba(0, 0, 0, 0)" && rgb(fill) === page)
+      throw new Error(`the hat's icon row paints the page colour: ${fill}`);
+  }
+}
+
 /** Crosses the row icon by icon: each names its own subagent at once. */
 async function scrub(ctx: PlayContext): Promise<void> {
   await ctx.waitFor(() => head(ctx));
@@ -111,6 +138,10 @@ function variant(count: number, note: string) {
     play: async (ctx: PlayContext) => {
       await ctx.waitFor(() => head(ctx));
       const before = wordsLeft(ctx);
+      // Nothing in the hat's icon row paints the page colour: a ring or backing in it was a black
+      // outline on the hat's glass (Leo, 2026-11-23). Overlaps are cut out of the icon under, which
+      // no theme can colour; the fan's backing is the ink ladder's inset level.
+      assertNoPageColour(ctx);
       await scrub(ctx);
       const after = wordsLeft(ctx);
       if (Math.abs(after - before) > 0.5) throw new Error(`the header's words moved ${after - before}px on hover`);
@@ -118,28 +149,30 @@ function variant(count: number, note: string) {
   };
 }
 
-export default agentPaneEntry({
-  id: "agent-pane.composer-hat-faces",
-  title: "Composer hat: one icon per subagent, named on hover",
-  area: "Agent pane",
-  height: 260,
-  widths: { narrow: 360, normal: 480, wide: 720 },
-  anchors: [{ selector: ".acpmux-composer" }],
-  covers: ["agent-session/acpmux/subagents/HatFaces.tsx", "agent-session/acpmux/subagents/SubagentTray.tsx"],
-  experiment: {
-    definition: hatFacesLook,
-    script: [{ name: "cross the icons", run: (ctx) => scrub(ctx) }],
-  },
-  variants: {
-    one: variant(1, "One subagent: the hat heads it as before, its mark and its task by name (no row of one)."),
-    three: variant(3, "Three: side by side, each named in turn as the pointer crosses them."),
-    "leo-seven": variant(
-      7,
-      'Leo\'s header (2026-11-22): "7 subagents · 4 done · 1 stopped". Seven icons, the ended ones dimmed; crossing them reads all seven names.',
-    ),
-    twenty: variant(
-      20,
-      "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first eleven then +9.",
-    ),
-  },
-});
+export default pinKindsHead(
+  agentPaneEntry({
+    id: "agent-pane.composer-hat-faces",
+    title: "Composer hat: one icon per subagent, named on hover",
+    area: "Agent pane",
+    height: 260,
+    widths: { narrow: 360, normal: 480, wide: 720 },
+    anchors: [{ selector: ".acpmux-composer" }],
+    covers: ["agent-session/acpmux/subagents/HatFaces.tsx", "agent-session/acpmux/subagents/SubagentTray.tsx"],
+    experiment: {
+      definition: hatFacesLook,
+      script: [{ name: "cross the icons", run: (ctx) => scrub(ctx) }],
+    },
+    variants: {
+      one: variant(1, "One subagent: the hat heads it as before, its mark and its task by name (no row of one)."),
+      three: variant(3, "Three: side by side, each named in turn as the pointer crosses them."),
+      "leo-seven": variant(
+        7,
+        'Leo\'s header (2026-11-22): "7 subagents · 4 done · 1 stopped". Seven icons, the ended ones dimmed; crossing them reads all seven names.',
+      ),
+      twenty: variant(
+        20,
+        "Twenty: they overlap evenly within the cap, each still a strip the pointer finds; on a quarter split the first eleven then +9.",
+      ),
+    },
+  }),
+);

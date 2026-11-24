@@ -142,7 +142,6 @@ on:
       - "cmux-tui/crates/acpmux/docs/send-admission.md"
       - "cmux-tui/crates/acpmux/docs/tailnet.md"
       - "cmux-tui/crates/acpmux/docs/tool-permission-rules.md"
-      - "cmux-tui/crates/acpmux/docs/tui-rendering.md"
       - "cmux-tui/crates/acpmux/skills/acpmux/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-chat/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-rich-output/SKILL.md"
@@ -476,6 +475,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: ${{ matrix.root }} -> target
           key: ${{ matrix.root }}

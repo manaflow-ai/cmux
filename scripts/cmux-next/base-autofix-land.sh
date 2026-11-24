@@ -17,10 +17,11 @@
 # exports there when this run made them (ACTIONS_MADE_AT) and none was held: the tip then holds this
 # run's exports, or a newer commit's own copy (base-autofix-push.sh lands them as progress past a
 # move of their inputs), and the checks compare the built files with the exports committed beside them. The defaults snapshot, which reads
-# both exports, also needs the settings exports' inputs on the tip to be the ones this run judged
-# them at: the tip's sources give the same source stamp (defaults_guard.py source-stamp, derived from
-# each tree; the stamp is never committed) as SETTINGS_MADE_AT when this run made them and none was
-# held, or else as BASE_SHA, whose committed exports the first push built the snapshot from. Otherwise,
+# both exports, and the settings docs reference are made again the same way when this run made the
+# settings exports (SETTINGS_MADE_AT) and none was held (they landed, as progress past a move of their
+# inputs too); without SETTINGS_MADE_AT only when the tip's sources give the same source stamp
+# (defaults_guard.py source-stamp, derived from each tree; the stamp is never committed) as BASE_SHA,
+# whose committed exports the first push built the snapshot from. Otherwise,
 # and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
@@ -241,6 +242,13 @@ none" >/dev/null; then
   while ((status != 0)); do
     held="$(grep . "$work/held" || true)"
     if [[ -z "$held" ]]; then
+      if ((status == 75)); then
+        # A base that keeps moving is no red: every push to it starts a run (cancel-in-progress: false keeps
+        # the newest pending one), and that run repairs these (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING
+        # SHIT INSTEAD OF JUST BEING OOPS").
+        echo "$branch kept moving under every push; the run its newest push started repairs it."
+        exit 0
+      fi
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
     git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
@@ -265,8 +273,13 @@ none" >/dev/null; then
         judged="$settings_made_at"
         grep -qE "$settings_exports" <<<"$held"$'\n'"$waits" && judged=""
       fi
-      # The tip's own guard (it finds the repository from its own path) derives both stamps.
-      if [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
+      # Exports this run made and none held: the tip holds them, as made at SETTINGS_MADE_AT, or as
+      # progress past a move of their inputs (base-autofix-push.sh), and what is built from them is made
+      # from the exports committed beside it, as for the action exports. Without them the tip's own
+      # guard (it finds the repository from its own path) derives both stamps.
+      if [[ -n "$settings_made_at" && -n "$judged" ]]; then
+        settings_current=1
+      elif [[ -n "$judged" && -f "$root/scripts/ci/defaults_guard.py" ]] \
         && judged_stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$judged" 2>/dev/null)" \
         && [[ -n "$judged_stamp" ]] \
         && [[ "$judged_stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]]; then
@@ -281,9 +294,10 @@ none" >/dev/null; then
       exit "$status"
     fi
     if ((round >= rounds)); then
-      echo "::error::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
+      # No red: the run the newest of those pushes started repairs them.
+      echo "::warning title=Base autofix::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
       printf '%s' "$again" | sed 's/^/  /' >&2
-      exit 1
+      exit 0
     fi
     round=$((round + 1))
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"

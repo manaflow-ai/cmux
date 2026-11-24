@@ -744,7 +744,8 @@ async fn a_session_resumed_from_stopped_keeps_only_the_new_reply_as_its_last_mes
     c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let events = hub.events(&id, 0, 10_000).unwrap();
-    assert!(!find(&events, "agent_message_chunk.replay").is_empty(), "the load replayed no reply");
+    // The load's replayed reply is kept out of the log (`unread_records.rs`).
+    assert!(find(&events, "agent_message_chunk.replay").is_empty(), "a replayed reply was logged");
     assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: second"}));
 }
 

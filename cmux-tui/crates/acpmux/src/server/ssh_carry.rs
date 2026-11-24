@@ -75,6 +75,11 @@ pub(super) fn route(hub: &Hub, target: &str) -> Option<Route> {
     if peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
+    // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
+    // (gcp lane VM, 2026-11-24) failed its publickey on every retry of 416 deliveries.
+    if peer.name == crate::pairing::machine_name() {
+        return None;
+    }
     let destination = crate::peer::ssh_target(&peer.url).ok()?.destination;
     plain_key(&key).then(|| Route { host: peer.name.clone(), destination, key })
 }
@@ -208,6 +213,15 @@ pub(super) fn sender(delivery: &Delivery, name_of: impl Fn(&str) -> String) -> S
 /// ([`message`]); None otherwise (the outbox goes on as before).
 pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> {
     let route = route(hub, &delivery.target)?;
+    // One host whose ssh login refuses is tried once per cool-down for all its deliveries, not
+    // once per delivery per retry (each a process spawn, a daemon.log line and outbox writes).
+    if COOLDOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .cooling(&route.host, std::time::Instant::now())
+    {
+        return None;
+    }
     let from = sender(delivery, |id| hub.session_name(id));
     let machine = crate::pairing::machine_name();
     let message = message(&delivery.request, &from, &machine)?;
@@ -231,6 +245,11 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "ssh carry: {why}"
     );
+    COOLDOWN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record(
+        &route.host,
+        matches!(outcome, Carry::NotTaken(_)),
+        std::time::Instant::now(),
+    );
     Some(match outcome {
         Carry::Taken(mut answer) => {
             if let Some(fields) = answer.as_object_mut() {
@@ -240,6 +259,36 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         }
         other => other,
     })
+}
+
+/// The first wait after a host's carry was not taken; each further refusal doubles it up to
+/// [`COOLDOWN_MAX`]. A carry that reached the host (taken or maybe) clears it.
+const COOLDOWN_FIRST: Duration = Duration::from_secs(60);
+const COOLDOWN_MAX: Duration = Duration::from_secs(15 * 60);
+
+static COOLDOWN: std::sync::LazyLock<std::sync::Mutex<Cooldown>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Per host: until when no carry goes to it, and the wait last used.
+#[derive(Default)]
+struct Cooldown(std::collections::HashMap<String, (std::time::Instant, Duration)>);
+
+impl Cooldown {
+    fn cooling(&self, host: &str, now: std::time::Instant) -> bool {
+        self.0.get(host).is_some_and(|(until, _)| now < *until)
+    }
+
+    fn record(&mut self, host: &str, refused: bool, now: std::time::Instant) {
+        if !refused {
+            self.0.remove(host);
+            return;
+        }
+        let wait = self
+            .0
+            .get(host)
+            .map_or(COOLDOWN_FIRST, |(_, last)| last.saturating_mul(2).min(COOLDOWN_MAX));
+        self.0.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
+    }
 }
 
 /// The ssh login itself, bounded by [`CARRY_DEADLINE`], and what it did.
@@ -316,12 +365,41 @@ fn not_connected(stderr: &str) -> bool {
         "Permission denied",
         "Host key verification failed",
         "connect to host",
+        // A relay ProxyCommand (ProxyUseFdpass) reached none of the machine's routes: no login.
+        "proxy dialer did not pass back a connection",
     ];
     NEVER.iter().any(|m| stderr.contains(m))
 }
 
 #[cfg(test)]
 mod tests {
+    /// Duress harness: 416 queued deliveries to one host whose ssh login refuses, each retried
+    /// every 2 s for an hour (the herd a link flap woke). Carries that spawn ssh: one per
+    /// cool-down step, not one per delivery per retry.
+    #[test]
+    fn a_refusing_host_gets_one_carry_per_cool_down_not_one_per_delivery() {
+        let start = std::time::Instant::now();
+        let mut cool = super::Cooldown::default();
+        let mut spawned = 0u32;
+        for tick in 0..1800u64 {
+            let now = start + std::time::Duration::from_secs(tick * 2);
+            for _ in 0..416 {
+                if !cool.cooling("h", now) {
+                    spawned += 1;
+                    cool.record("h", true, now);
+                }
+            }
+        }
+        eprintln!("ssh carries in 1 h for 416 deliveries: {spawned} (was {})", 1800 * 416);
+        // At 0, 60, 180, 420, 900, 1800 and 2700 s (waits 60, 120, 240, 480, then 900): 7.
+        assert_eq!(spawned, 7);
+        // Another host is not held back by this one; a carry that reached a host clears it.
+        assert!(!cool.cooling("other", start));
+        let late = start + std::time::Duration::from_secs(3600);
+        cool.record("h", false, late);
+        assert!(!cool.cooling("h", late));
+    }
+
     use super::*;
 
     #[test]
@@ -432,6 +510,16 @@ mod tests {
         assert!(matches!(
             outcome(Some(255), "", "Connection to box closed by remote host."),
             Carry::Maybe(_)
+        ));
+        // A parked machine behind a relay ProxyCommand: ssh never logged in, so the message is
+        // still unsent and the mesh relay may carry it (not a maybe-taken that rules it out).
+        assert!(matches!(
+            outcome(
+                Some(255),
+                "",
+                "mm_receive_fd: recvmsg: expected received 1 got 0\nproxy dialer did not pass back a connection"
+            ),
+            Carry::NotTaken(_)
         ));
         assert!(matches!(outcome(Some(127), "", "acpmux: not found"), Carry::NotTaken(_)));
         assert!(matches!(outcome(Some(4), "", "no session"), Carry::NotTaken(_)));

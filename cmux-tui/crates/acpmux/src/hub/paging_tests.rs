@@ -395,6 +395,9 @@ fn a_page_of_newest_prompts_costs_the_newest_turns_whatever_its_copies() {
     let mut log = codex_chat(20, 200, 85, false);
     log.extend(codex_chat(17, 2, 10, false));
     let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    // The appends copied each segment they filled (`store/segment_writer.rs`): a chat written
+    // before that, or one a cold archive took its copies from, has none.
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
     let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
     let newest = all[all.len() - 16..].to_vec();
     let hub = deferred_hub(&sessions, 64 << 10);
@@ -693,7 +696,7 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     for rec in &log {
         hub.store.append("c", rec).unwrap();
     }
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 32);
     assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
     assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
@@ -703,9 +706,61 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
     assert_eq!(all[31].msg["steer"], true);
     // `before` bounds it, as the pane asks for what precedes its open page.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// The prompt index goes in bounded pages, newest first and oldest first within each, so its
+/// cost is a page's however long the chat (goal infinite-chats: one reply of a 1 GB chat's 4,577
+/// prompts took 113 ms against 0.2 ms at 1 MB). Walking `hasMore` from each page's first prompt,
+/// as the rail does (direct.ts `readPromptIndex`), reads every prompt once.
+#[test]
+fn the_prompt_index_pages_newest_first_and_the_pages_hold_every_prompt() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    for rec in codex_chat(30, 4, 64, false) {
+        hub.store.append("c", &rec).unwrap();
+    }
+    let all = hub.prompt_index("c", None, 5000, None).unwrap();
+    assert!(!all.has_more);
+    assert_eq!(all.events.len(), 30);
+
+    // By count: the newest 7, oldest first.
+    let newest = hub.prompt_index("c", None, 7, None).unwrap();
+    assert!(newest.has_more);
+    let seqs = |page: &EventPage| page.events.iter().map(|r| r.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(&newest), seqs(&all)[23..].to_vec());
+
+    // By size: a page past `maxBytes` stops before the prompt that would pass it, and always
+    // holds one.
+    let one = record_bytes(&all.events[29]);
+    let sized = hub.prompt_index("c", None, 5000, Some(one * 3 + one / 2)).unwrap();
+    assert!(sized.has_more);
+    assert_eq!(sized.events.len(), 3);
+    let tiny = hub.prompt_index("c", None, 5000, Some(1)).unwrap();
+    assert_eq!(tiny.events.len(), 1);
+    assert!(tiny.has_more);
+
+    // The rail's walk: each older page from the first prompt of the last, until `hasMore` ends.
+    let mut walked = Vec::new();
+    let mut before = None;
+    loop {
+        let page = hub.prompt_index("c", before, 4, None).unwrap();
+        let mut ids = seqs(&page);
+        ids.extend(walked);
+        walked = ids;
+        if !page.has_more {
+            break;
+        }
+        before = page.events.first().map(|r| r.seq);
+    }
+    assert_eq!(walked, seqs(&all));
+
+    // A page that ends exactly at the oldest prompt says there is no more.
+    let last = hub.prompt_index("c", Some(all.events[4].seq), 4, None).unwrap();
+    assert_eq!(seqs(&last), seqs(&all)[..4].to_vec());
+    assert!(!last.has_more);
 }
 
 /// The prompt index reads the log's copies of its prompts (`store/kind_index.rs`), not the log: a
@@ -725,7 +780,7 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
     }
     store.flush().unwrap();
     let hub = hub(Box::new(store));
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 40);
     // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
     hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
@@ -743,14 +798,14 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
             .write_all(blank.as_bytes())
             .unwrap();
     }
-    let read = hub.prompt_index("c", None).unwrap();
+    let read = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(
         read.iter().map(|r| r.seq).collect::<Vec<_>>(),
         all.iter().map(|r| r.seq).collect::<Vec<_>>()
     );
     assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
     // `before` still bounds it.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -792,7 +847,7 @@ fn prompt_index_perf() {
         paged.push(started.elapsed().as_secs_f64() * 1000.0);
         pages_read = pages;
         let started = std::time::Instant::now();
-        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
+        assert_eq!(hub.prompt_index("c", None, 5000, None).unwrap().events.len(), 1000);
         indexed.push(started.elapsed().as_secs_f64() * 1000.0);
     }
     let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);

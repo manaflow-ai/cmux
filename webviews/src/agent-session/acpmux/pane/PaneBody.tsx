@@ -22,11 +22,13 @@ import { holdComposerPlace } from "../composer/composerHandover";
 import { hasNativeHost } from "../native";
 import { CloudEnvironmentEditor } from "../CloudEnvironmentEditor";
 import { knownRefusalText } from "../transportErrors";
-import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
-import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
-import { HistoryScreen } from "../newtab/HistoryScreen";
-import { NewTabAppPage } from "../newtab/NewTabAppPage";
+import type { NewTabStartFailure } from "../newtab/StartFailure";
+import type { NewTabScreenActions } from "../newtab/NewTabScreen";
+import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
+import { HistoryScreen } from "../lazyScreens";
+import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
+import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -36,22 +38,20 @@ import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
-import { EmptyState, type EmptyStateProjects } from "../EmptyState";
+import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
 import { TourStartContext } from "../repoTour/TourBlock";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
-import { answerFromHome } from "../homeInboxModel";
-import { HomeLists } from "../HomeLists";
-import { AgentDotGrid } from "../dotGrid/AgentDotGrid";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
 import { PeerCopyBanner } from "../PeerCopyBanner";
-import { Inspector, type ExportOutcome } from "../Inspector";
+import type { ExportOutcome } from "../Inspector";
+import { Inspector } from "../lazyScreens";
 import { SummaryButton } from "../summary/SummaryButton";
 import { chatProcessesHere } from "../processTerminal";
-import { BackgroundTasksPanel } from "../backgroundTasks/BackgroundTasksPanel";
+import { BackgroundTasksPanel } from "../lazyScreens";
 import { backgroundTasksLook } from "../backgroundTasks/backgroundTasksLook.experiment";
 import { AgentTonesContext } from "../subagents/agentTones";
 import { WorkflowSideTab } from "../summary/WorkflowSideTab";
@@ -64,13 +64,13 @@ import { turnView } from "../conversation/turns";
 import { ArtifactPanel } from "../conversation/ArtifactPanel";
 import { changeArtifactPin, type OpenedArtifact } from "../conversation/artifactPin";
 import { ShortcutsContext } from "../shortcuts";
+import { PaneLoadingMark } from "../PaneLoadingMark";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { ImageViewer } from "../conversation/ImageViewer";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderStatus";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
-import { ChatSummaryLine } from "../header/ChatSummaryLine";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
 import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
@@ -83,18 +83,18 @@ import { readChatMini } from "../header/miniRow";
 import { ToastLayer } from "../ToastLayer";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import { NewProjectUnsupported } from "../newtab/NewProjectName";
-import { newWorktree } from "../startFolderModel";
+import { newWorktree, cloneRepository } from "../startFolderModel";
 import { LiveChatChoice } from "../LiveChatChoice";
 import { WatchBanner } from "../WatchBanner";
 import { HandoffReviewMessage } from "../handoff/ReviewMessage";
-import { withExtensionCommands } from "../composer/extensionCommands";
+import { withExtensionCommands, withToolCommands } from "../composer/extensionCommands";
 import { ReplayScreen } from "../replay/ReplayScreen";
 import { recordSteer, type SteerAct } from "../steerQueue/log";
 import { SteerQueue, type SteerActions } from "../steerQueue/SteerQueue";
 import { StatusIsland } from "../statusIsland/StatusIsland";
 import { experimentArm } from "../../../experiments/experiment";
 import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } from "../sandboxRun";
-import { SandboxRunView } from "../SandboxRunView";
+import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
 import { openOfferChat } from "../rows/rowActions";
@@ -127,6 +127,7 @@ import type { PathRef } from "../diff";
 import type { UnderHeaderLines } from "../header/underHeader";
 import type { ChatUnavailable } from "../chatUnavailable";
 import type { ComputerUsePreview } from "../computerUse/computerUsePreview";
+import type { ComputerUsePlace } from "../computerUse/computerUseState";
 import type { ComposerWake } from "../Composer";
 import type { Handoff } from "../handoff/protocol";
 import type { HandoffStrings } from "../handoff/strings";
@@ -220,6 +221,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabStartMachine: string | undefined;
     leaveNewTabDraft: (text: string, attachments: ComposerAttachment[]) => void;
     takeNewTabDraft: () => { text: string; attachments: ComposerAttachment[] } | undefined;
+    initialNewProject: boolean;
     cloudPickPending: boolean;
     takeCloudPick: () => void;
     cloudHintShown: boolean;
@@ -275,7 +277,20 @@ export type PaneBodyDeps = NewTabShown &
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
     extensionCommands: readonly SlashCommand[];
+    /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
+    toolCommands: readonly SlashCommand[];
+    /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
+    holdsForComputerUseSetup: (
+      text: string,
+      toast?: boolean,
+      place?: ComputerUsePlace,
+      opensSetup?: boolean,
+    ) => boolean;
     newTabFixError: string | undefined;
+    /// A New Tab start that failed before any chat opened: the page came back and says it.
+    newTabStartFailure: Omit<NewTabStartFailure, "retry"> | undefined;
+    /// Leaves New Tab for a start, keeping the page until it opens a chat or fails (App.tsx).
+    leaveNewTabForStart: (sent?: { text: string; attachments: ComposerAttachment[] }) => void;
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
@@ -332,6 +347,8 @@ export type PaneBodyDeps = NewTabShown &
     setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
     sessionInfo: ReturnType<typeof useSessionInfo>;
     readOnlySubagent: boolean;
+    /// The dock draws the composer and its quiet row (App.tsx `dockFoot`; bottomStack.css `data-foot`).
+    dockFoot: boolean;
     localCwd: string | undefined;
     remoteChat: boolean;
     runSplitAction: (id: string, cwd: string | undefined, mode: QuickActionMode) => void;
@@ -363,6 +380,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -378,7 +397,6 @@ export type PaneBodyDeps = NewTabShown &
     githubRepository: string | undefined;
     sandboxView: SandboxRun | undefined;
     sandboxHoldsChat: boolean;
-    heroPicker: EmptyStateProjects | undefined;
     tourOffer: TourOfferActions | undefined;
     chatTones: Map<string, number> | undefined;
     chatAgentNames: ReadonlyMap<string, string>;
@@ -395,10 +413,8 @@ export type PaneBodyDeps = NewTabShown &
     paneToasts: NoticeQueue;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
-    dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
-    sandboxDraftMoved: boolean;
     composer: false | React.JSX.Element;
     artifact: OpenedArtifact | undefined;
     liveArtifact: Artifact | undefined;
@@ -407,6 +423,8 @@ export type PaneBodyDeps = NewTabShown &
     saveDocumentNatively: SaveDocument;
     backgroundPanel: { sessionId?: string | undefined; expanded: boolean; dismissed: ReadonlySet<string> } | undefined;
     backgroundList: BackgroundGroup[];
+    /// acpmux's list of the chat's subagents has not answered yet (backgroundTasks/useListedSubagents.ts).
+    backgroundListing: boolean;
     clientEpoch: number;
     backgroundFocus: BackgroundFocus | undefined;
     stopSubagent: ((id: string) => Promise<unknown>) | undefined;
@@ -502,6 +520,7 @@ export function drawPaneBody({
   newTabStartMachine,
   leaveNewTabDraft,
   takeNewTabDraft,
+  initialNewProject,
   cloudPickPending,
   takeCloudPick,
   cloudHintShown,
@@ -546,7 +565,11 @@ export function drawPaneBody({
   newTabSnapshot,
   pendingCommands,
   extensionCommands,
+  toolCommands,
+  holdsForComputerUseSetup,
   newTabFixError,
+  newTabStartFailure,
+  leaveNewTabForStart,
   newTabKnownProjects,
   startFolder,
   onNewTabPromptTyped,
@@ -598,6 +621,7 @@ export function drawPaneBody({
   setShareOpen,
   sessionInfo,
   readOnlySubagent,
+  dockFoot,
   localCwd,
   remoteChat,
   runSplitAction,
@@ -629,6 +653,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -645,7 +670,6 @@ export function drawPaneBody({
   cloudStartShown,
   sandboxView,
   sandboxHoldsChat,
-  heroPicker,
   tourOffer,
   chatTones,
   chatAgentNames,
@@ -662,10 +686,8 @@ export function drawPaneBody({
   paneToasts,
   toastTop,
   asks,
-  dotGridArm,
   hostLine,
   forkPendingLine,
-  sandboxDraftMoved,
   composer,
   artifact,
   liveArtifact,
@@ -674,6 +696,7 @@ export function drawPaneBody({
   saveDocumentNatively,
   backgroundPanel,
   backgroundList,
+  backgroundListing,
   clientEpoch,
   backgroundFocus,
   stopSubagent,
@@ -704,7 +727,11 @@ export function drawPaneBody({
         data-solo-tab={soloTab ? "" : undefined}
         aria-busy="true"
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
-      />
+      >
+        {/* The host's loading state covers this until the page paints; a page it gave up on shows here
+            still connecting, so it shows the same mark, never a blank pane (cmux#48605). */}
+        <PaneLoadingMark label={t("transcript.loading")} />
+      </section>
     </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>
@@ -788,37 +815,59 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
+              }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          )}
+          {showNewTab && folderAskView}
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
-                <NewTabScreen
+                <LazyNewTabScreen
+                  // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
+                  // A page whose chats start on another machine (an inherited remote workspace: the client starts
+                  // them on the first send) is that machine's, whatever the screen's own pick says.
+                  holdsSend={(text, place, late) =>
+                    holdsForComputerUseSetup(
+                      text,
+                      true,
+                      place === "here" && (newTab.startsRemote || directClient.current?.startsOnSend)
+                        ? "machine"
+                        : place,
+                      !late,
+                    )
+                  }
+                  // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
+                  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
+                  // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
+                  // composer, its focus and its input-ready report stay the page's own.
+                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
+                  {...(newTab.app || newTab.clock
+                    ? {
+                        above: (
+                          <>
+                            {newTab.clock && <NewTabClock {...newTab.clock} />}
+                            {newTabApp && (
+                              <NewTabAppSlot
+                                key={`${newTabGeneration}:${newTabApp}`}
+                                app={newTabApp}
+                                {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                                onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                              />
+                            )}
+                          </>
+                        ),
+                      }
+                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -838,6 +887,7 @@ export function drawPaneBody({
                   environments
                   onLeaveDraft={leaveNewTabDraft}
                   takeDraft={takeNewTabDraft}
+                  initialNewProject={initialNewProject}
                   {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
                   {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
                   {...(newTabRunMode
@@ -907,6 +957,8 @@ export function drawPaneBody({
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) => {
+                          // A Cloud chat has no Computer Use tools: @computer holds here, with the notice (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "cloud")) return false;
                           const folder = cloudStartFolder(cwd);
                           // New Tab sends use this callback directly, so record their complete folder too.
                           // Otherwise Retry would reuse the pane's previous folder.
@@ -928,6 +980,8 @@ export function drawPaneBody({
                           );
                         },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
+                          // A sandbox is another machine, with no Computer Use tools (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "machine")) return false;
                           // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
                           const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;
@@ -947,11 +1001,17 @@ export function drawPaneBody({
                       ? client.newProject(name)
                       : Promise.reject(new NewProjectUnsupported());
                   }}
-                  onNewWorktree={(cwd) => {
+                  onCloneRepository={!quick && !remoteChat ? (url) => cloneRepository(callNative, url) : undefined}
+                  onNewWorktree={(cwd, github) => {
                     let folder: string | undefined;
-                    return newWorktree(callNative, cwd, (used) => {
-                      folder = used;
-                    }).then(() => folder);
+                    return newWorktree(
+                      callNative,
+                      cwd,
+                      (used) => {
+                        folder = used;
+                      },
+                      github,
+                    ).then(() => folder);
                   }}
                   accessory={<DictationMic dictation={dictation} />}
                   upload={uploadFiles}
@@ -972,10 +1032,17 @@ export function drawPaneBody({
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
                     commandSession
-                      ? { ...newTabSnapshot, commands: withExtensionCommands(pendingCommands ?? [], extensionCommands) }
+                      ? {
+                          ...newTabSnapshot,
+                          commands: withToolCommands(
+                            withExtensionCommands(pendingCommands ?? [], extensionCommands),
+                            toolCommands,
+                          ),
+                        }
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
+                  {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -1009,7 +1076,6 @@ export function drawPaneBody({
                   extraFolders={{
                     draft: extraFolderDraft,
                     onChange: setExtraFolderDraft,
-                    onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
                   }}
                   chips={registryChips ?? NewTabComposerChips}
                   focusField={newTab.focusesField !== false}
@@ -1021,6 +1087,8 @@ export function drawPaneBody({
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
+                      // After the screen's own early hold (NewTabScreen `holdsSend`): only holds and says why.
+                      holdsSend: (text, here) => holdsForComputerUseSetup(text, true, here ? "here" : "machine", false),
                       // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
                       // or another start advances the marker and fences every late completion.
                       // Harness starts may reconnect their client while the queued prompt waits;
@@ -1037,7 +1105,8 @@ export function drawPaneBody({
                       // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
                       leave: () => {
                         holdComposerPlace();
-                        setNewTab(undefined);
+                        // Kept until the start opens a chat or fails (`startLeftNewTab`).
+                        leaveNewTabForStart();
                       },
                       selectSession,
                       showAllChats,
@@ -1088,7 +1157,15 @@ export function drawPaneBody({
                 : {})}
             />
           ) : showNewTab ? (
-            <NewTabPage
+            <LazyNewTabPage
+              holdsSend={(text, late) =>
+                holdsForComputerUseSetup(
+                  text,
+                  true,
+                  newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                  !late,
+                )
+              }
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
               importError={importError}
@@ -1110,7 +1187,19 @@ export function drawPaneBody({
               chips={registryChips ?? NewTabComposerChips}
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
-              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
+              onSubmit={newTabPageSubmit({
+                callNative,
+                whenHandshaken,
+                startChat: chatFromNewTab,
+                // After the page's own hold on Return (NewTabPage `holdsSend`) and its wait for files: holds and says why.
+                holdsSend: (text) =>
+                  holdsForComputerUseSetup(
+                    text,
+                    true,
+                    newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                    false,
+                  ),
+              })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
@@ -1120,6 +1209,7 @@ export function drawPaneBody({
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
               onLeaveDraft={leaveNewTabDraft}
               takeDraft={takeNewTabDraft}
+              {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
               onFieldEdit={newTabFieldEdited}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
@@ -1182,9 +1272,15 @@ export function drawPaneBody({
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <span className="acpmux-header-status-content">
-                        <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
+                        <ThreadTitle
+                          key={snapshot.sessionId}
+                          title={chatName}
+                          onRename={renameFromTitle}
+                          icon={snapshot.summary?.icon}
+                          formerNames={snapshot.summary?.formerNames}
+                        />
+                        {/* No rolling summary beside the name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping"). */}
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1210,13 +1306,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -1363,6 +1453,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
@@ -1393,14 +1484,19 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
-                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
-                  <WatchBanner
-                    family={snapshot.summary.watching}
-                    bridged={snapshot.summary.bridged === true}
-                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
-                  />
-                )}
+                {environmentCardNode}
+                {underHeader.watching &&
+                  snapshot.summary?.watching &&
+                  // A chat its terminal drives is a live view of the same session, not View Only.
+                  !snapshot.summary.terminal &&
+                  !snapshot.liveTakeOver && (
+                    <WatchBanner
+                      family={snapshot.summary.watching}
+                      bridged={snapshot.summary.bridged === true}
+                      onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                      onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                    />
+                  )}
                 {underHeader.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
@@ -1445,6 +1541,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
@@ -1483,9 +1580,9 @@ export function drawPaneBody({
                   />
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
-                    project={projectName(composerSnapshot.summary?.cwd)}
-                    picker={heroPicker}
-                    tour={tourOffer}
+                    {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
@@ -1517,37 +1614,19 @@ export function drawPaneBody({
                   />
                 )}
               </div>
-              <div ref={setDock} className="acpmux-dock" style={parkStyle} inert={parkedVisible || undefined}>
+              <div
+                ref={setDock}
+                className="acpmux-dock"
+                style={parkStyle}
+                inert={parkedVisible || undefined}
+                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                // bottomStack.css gives the transcript up first for it, from this, not from a
+                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                data-foot={dockFoot ? "" : undefined}
+              >
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
-                {/* Between the hero and the docked composer. */}
-                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
-                      Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
-                  <div className="acpmux-home-area">
-                    {dotGridArm !== "off" && (
-                      <AgentDotGrid
-                        sessions={snapshot.sessions}
-                        currentId={snapshot.sessionId}
-                        onSelect={selectSession}
-                        size={dotGridArm === "compact" ? "compact" : "regular"}
-                      />
-                    )}
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine
@@ -1555,7 +1634,7 @@ export function drawPaneBody({
                   fallback={snapshot.presence}
                 />
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
+                {dockFoot && composer}
               </div>
             </Activity>
           )}
@@ -1599,6 +1678,7 @@ export function drawPaneBody({
             <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
               <BackgroundTasksPanel
                 groups={backgroundList}
+                loading={backgroundListing}
                 readsOutput={
                   chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&

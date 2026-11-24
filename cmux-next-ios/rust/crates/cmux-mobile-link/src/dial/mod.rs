@@ -99,6 +99,12 @@ impl TransportKind {
     }
 }
 
+/// A [`DialOptions::impair_inbound`] hook: whether the datagram came through
+/// this side's TURN allocation, where from, and its size in bytes, to its fate
+/// (`None` drops it, `Some(delay)` delivers it that much later).
+#[doc(hidden)]
+pub type ImpairInbound = fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>;
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
@@ -142,6 +148,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: called with each plain UDP datagram's length as
+    /// WireGuard hands it to the OS (the bytes a radio sends).
+    #[doc(hidden)]
+    pub on_udp_sent: Option<fn(&std::net::SocketAddr, usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -156,7 +166,7 @@ pub struct DialOptions {
     /// `testing::shape_by_profile` (feature `testing`) plays a named phone
     /// link profile.
     #[doc(hidden)]
-    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>>,
+    pub impair_inbound: Option<ImpairInbound>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -248,6 +258,7 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
             input_lane: true,
@@ -275,6 +286,40 @@ pub fn turn_url_count(servers: &[IceServer]) -> usize {
         .count()
 }
 
+/// The peer address a direct path's bytes go to, for telling the LAN from the internet:
+/// `None` on a relayed path, before a route, or where the transport does not say.
+pub type PeerAddr = watch::Receiver<Option<std::net::IpAddr>>;
+
+/// A peer address on this network: private, link-local or loopback (IPv4, or IPv6 unique-local
+/// and link-local). Tailnet and CGNAT addresses are routed, so they are not.
+pub fn is_lan(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_lan(std::net::IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                v6.is_loopback()
+                    || (first & 0xffc0) == 0xfe80
+                    || ((first & 0xfe00) == 0xfc00 && !is_cgnat(ip))
+            }
+        },
+    }
+}
+
+/// The route a link's bytes take, as one word: `direct-lan` (a peer address on this network),
+/// `direct-wan` (routed: the internet, a tailnet, CGNAT), `direct` (direct, address unknown),
+/// `relay` (a TURN server, over UDP, TCP or TLS) or `none`.
+pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static str {
+    match (path, peer) {
+        (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
+        (LinkPath::Direct, Some(_)) => "direct-wan",
+        (LinkPath::Direct, None) => "direct",
+        (LinkPath::Turn | LinkPath::TurnTls, _) => "relay",
+        (LinkPath::NoPath, _) => "none",
+    }
+}
+
 /// Whether `ip` is in 100.64.0.0/10 (Tailscale and other CGNAT overlays).
 pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -287,14 +332,45 @@ pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// Where a direct path's peer address is, as one word: `lan` (on this network, [`is_lan`]),
+/// `tailnet` (100.64.0.0/10 or Tailscale's IPv6 range, [`is_cgnat`]: a tailnet, or a carrier's
+/// CGNAT), `wan` (any other routed address) or empty (relayed, no route yet, or unknown). The
+/// phone's DEBUG hand-off receipt names it, so a dev link over Tailscale is never taken for the
+/// LAN or internet path a user without Tailscale gets.
+pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
+    // An IPv4-mapped IPv6 peer is its IPv4 address.
+    let peer = peer.map(|ip| match ip {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, std::net::IpAddr::V4),
+        ip => ip,
+    });
+    match peer {
+        Some(ip) if is_cgnat(ip) => "tailnet",
+        Some(ip) if is_lan(ip) => "lan",
+        Some(_) => "wan",
+        None => "",
+    }
+}
+
 /// A byte stream a link can run on.
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
+
+/// The two WireGuard static public keys a tunnel handshook with (base64, as
+/// in `wg-init` and `wg-resp`): the dialer's (the phone's) and the
+/// answerer's (the Mac's). `auth`'s identity proofs cover them (PROTOCOL.md
+/// "Mac identity"), so the keys each side signs are the ones its own tunnel
+/// authenticated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelKeys {
+    pub dialer: String,
+    pub answerer: String,
+}
 
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
     pub path: watch::Receiver<LinkPath>,
+    pub peer: PeerAddr,
     /// Holds the peer connection or tunnel open.
     pub guard: Box<dyn Any + Send>,
     /// The input lane's stream, when both sides negotiated one. It may open
@@ -304,6 +380,14 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Holds the transport while the link is parked (WireGuard); `None`
+    /// when it cannot be held (WebRTC).
+    pub hold: Option<crate::link::HoldHook>,
+    /// Pings and pongs as datagrams, when both sides listed
+    /// [`crate::link::LIVENESS_LANE`] (WireGuard).
+    pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -470,10 +554,14 @@ pub struct Connected {
     pub link: Link,
     pub transport: TransportKind,
     pub path: watch::Receiver<LinkPath>,
+    /// The peer address of a direct path ([`route_name`]).
+    pub peer: PeerAddr,
     pub session_id: String,
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -484,6 +572,36 @@ pub async fn connect(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, None).await
+}
+
+/// Phone side, a redial: `signaling` is the signaling reconnect, and the
+/// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
+/// TURN allocation starts now, beside the reconnect, instead of after it:
+/// its round trips overlap the reconnect's. Nothing is allocated before
+/// this is called, and an allocation the dial never takes (the reconnect
+/// failed, or this future was dropped) is released at once. Marks
+/// `signaling_connected` when the reconnect is done, then [`connect`]'s
+/// marks (`turn_early_allocated` when the allocation is in hand). Returns
+/// the client with the link.
+pub async fn connect_after<E: std::fmt::Display>(
+    signaling: impl Future<Output = Result<SignalingClient, E>>,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+) -> Result<(SignalingClient, Connected), DialError> {
+    refuse_unreachable(kind, options)?;
+    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
+    options.timeline.mark("signaling_connected");
+    let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
+    Ok((signaling, connected))
+}
+
+/// A dial that cannot work with what `options` offer fails at once.
+fn refuse_unreachable(kind: TransportKind, options: &DialOptions) -> Result<(), DialError> {
     if options.relay_only && kind == TransportKind::WebRtc && turn_url_count(&options.ice_servers) == 0 {
         return Err(DialError::Transport(
             "relay only needs a TURN server, and the service offered none".into(),
@@ -494,13 +612,28 @@ pub async fn connect(
     {
         return Err(DialError::Transport(reason.into()));
     }
+    Ok(())
+}
+
+/// [`connect`] on `signaling`, a WireGuard dial taking the TURN allocation
+/// `early` when a redial started one.
+async fn connect_on(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<wireguard::EarlyTurn>,
+) -> Result<Connected, DialError> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
     options.timeline.mark("dial_start");
-    let result =
-        tokio::time::timeout(options.timeout, dialer.dial(signaling, mac, &session_id, events, options))
-            .await;
+    let dial = match early {
+        Some(early) => wireguard::dial_wireguard(signaling, mac, &session_id, events, options, Some(early)),
+        None => dialer.dial(signaling, mac, &session_id, events, options),
+    };
+    let result = tokio::time::timeout(options.timeout, dial).await;
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
@@ -515,12 +648,26 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
+    })
 }
 
 /// Mac side: answer `first` and run a link on the result.
@@ -552,17 +699,239 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_route_is_lan_wan_or_relay_by_its_path_and_peer_address() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on ethernet and a phone on the same home wifi.
+        assert_eq!(route_name(LinkPath::Direct, ip("192.168.1.23")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("10.0.0.5")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("169.254.3.4")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fe80::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd12:3456::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("::ffff:192.168.1.23")), "direct-lan");
+        // A hole-punched public address, a carrier's CGNAT, a tailnet: routed.
+        assert_eq!(route_name(LinkPath::Direct, ip("203.0.113.9")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("100.101.102.103")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd7a:115c:a1e0::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("2001:db8::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, None), "direct");
+        assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
+        assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
+        assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    #[test]
+    fn a_peer_is_on_this_network_a_tailnet_or_the_internet() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on the phone's own wifi or ethernet.
+        assert_eq!(peer_scope(ip("192.168.1.23")), "lan");
+        assert_eq!(peer_scope(ip("10.0.0.5")), "lan");
+        assert_eq!(peer_scope(ip("fe80::1")), "lan");
+        assert_eq!(peer_scope(ip("::ffff:192.168.1.23")), "lan");
+        // Tailscale (and a carrier's CGNAT), IPv4, IPv4-mapped and IPv6: never the LAN.
+        assert_eq!(peer_scope(ip("100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("100.64.0.1")), "tailnet");
+        assert_eq!(peer_scope(ip("::ffff:100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("fd7a:115c:a1e0::1")), "tailnet");
+        // A hole-punched public address.
+        assert_eq!(peer_scope(ip("203.0.113.9")), "wan");
+        assert_eq!(peer_scope(ip("100.128.0.1")), "wan");
+        assert_eq!(peer_scope(ip("2001:db8::1")), "wan");
+        // A relayed path, or no route yet.
+        assert_eq!(peer_scope(None), "");
+    }
+
+    /// A Mac on `signaling` that answers every session (`answer`), or
+    /// takes them and never answers.
+    async fn mac(signaling: &crate::testing::FakeSignaling, answer: bool) -> (String, SignalingClient) {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id)
+            .await
+            .expect("Mac signaling");
+        let serving = mac.clone();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Some(session) = serving.next_session().await {
+                if !answer {
+                    held.push(session);
+                    continue;
+                }
+                let events = SessionEvents {
+                    backend: serving.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, options) =
+                    (serving.clone(), DialOptions { include_loopback: true, ..DialOptions::default() });
+                tokio::spawn(async move {
+                    if let Ok(connected) = answer_on(&mac, session.first, events, &options).await {
+                        // Held for the rest of the test.
+                        std::mem::forget(connected);
+                    }
+                });
+            }
+        });
+        (mac_id, mac)
+    }
+
+    async fn answer_on(
+        mac: &SignalingClient,
+        first: SignalEnvelope,
+        events: SessionEvents,
+        options: &DialOptions,
+    ) -> Result<Connected, DialError> {
+        super::answer(mac, first, events, options, LinkConfig::default()).await
+    }
+
+    fn relayed(turn: &crate::testing::TestTurn) -> DialOptions {
+        DialOptions {
+            include_loopback: true,
+            relay_only: true,
+            ice_servers: vec![turn.udp_only()],
+            timeout: Duration::from_secs(10),
+            ..DialOptions::default()
+        }
+    }
+
+    /// Waits up to 5 s for the TURN server to hold `count` allocations.
+    async fn held(turn: &crate::testing::TestTurn, count: usize) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while turn.allocations() != count {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        true
+    }
+
+    /// A redial's TURN allocation is made while signaling reconnects (the
+    /// reconnect here finishes only once the server holds it), and the dial
+    /// rides that allocation: no second one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_redial_allocates_turn_while_signaling_reconnects() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let turn = crate::testing::TestTurn::start().await;
+        let (mac_id, _mac) = mac(&signaling, true).await;
+        let options = relayed(&turn);
+        assert_eq!(turn.allocations(), 0, "nothing is held before the redial");
+        let reconnect = async {
+            if !held(&turn, 1).await {
+                return Err("no TURN allocation while signaling reconnected");
+            }
+            SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone")
+                .await
+                .map_err(|_| "signaling")
+        };
+        let (_phone, connected) =
+            connect_after(reconnect, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .expect("the redial connects");
+        assert_eq!(*connected.path.borrow(), LinkPath::Turn);
+        let at = |name: &str| options.timeline.get(name).unwrap_or_else(|| panic!("no {name} mark"));
+        assert!(at("turn_early_allocated") <= at("signaling_connected"));
+        assert!(at("signaling_connected") <= at("dial_start"));
+        assert!(at("dial_start") <= at("turn_allocated"));
+        assert_eq!(turn.allocations(), 1, "the dial took the early allocation");
+    }
+
+    /// An early allocation whose signaling reconnect fails is released.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_redial_whose_signaling_fails_releases_its_turn_allocation() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = relayed(&turn);
+        let reconnect = async {
+            let allocated = held(&turn, 1).await;
+            Err::<SignalingClient, _>(if allocated { "signaling down" } else { "not allocated" })
+        };
+        let result =
+            connect_after(reconnect, "mac", TransportKind::WireGuard, &options, LinkConfig::default()).await;
+        assert!(
+            matches!(&result, Err(DialError::Signaling(reason)) if reason == "signaling down"),
+            "{:?}",
+            result.err()
+        );
+        assert!(held(&turn, 0).await, "{} allocations still held", turn.allocations());
+    }
+
+    /// A redial dropped mid-dial (the Mac never answers), and one dropped
+    /// while signaling still reconnects, hold no allocation afterwards.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_abandoned_redial_releases_its_turn_allocation() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let turn = crate::testing::TestTurn::start().await;
+        let (mac_id, _mac) = mac(&signaling, false).await;
+        let options = relayed(&turn);
+        let reconnect = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone");
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
+        let waited = tokio::select! {
+            result = &mut redial => panic!("an unanswered dial ended: {:?}", result.err()),
+            waited = async {
+                let allocated = held(&turn, 1).await;
+                // The dial took it and waits for the Mac's answer.
+                while options.timeline.get("wg_init_sent").is_none() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                allocated
+            } => waited,
+        };
+        assert!(waited, "the redial allocated");
+        drop(redial);
+        assert!(held(&turn, 0).await, "{} allocations held after the abandoned dial", turn.allocations());
+
+        let options = relayed(&turn);
+        let reconnect = std::future::pending::<Result<SignalingClient, &str>>();
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
+        let allocated = tokio::select! {
+            _ = &mut redial => unreachable!("the reconnect never ends"),
+            allocated = held(&turn, 1) => allocated,
+        };
+        assert!(allocated, "the redial allocated while signaling reconnects");
+        drop(redial);
+        assert!(
+            held(&turn, 0).await,
+            "{} allocations held after the abandoned reconnect",
+            turn.allocations()
+        );
+    }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {
         SignalingEvent::Error {

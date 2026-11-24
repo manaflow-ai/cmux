@@ -1,4 +1,5 @@
 #!/bin/sh
+# tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
 # webviews app (diff, markdown and editor pages) and the Chief memory inspector,
@@ -144,6 +145,12 @@ if [ "$MODE" = from ]; then
   done
   # The check an in-tree build runs (build-optchat-inspector-web.sh --check): the page the
   # prebuilt tree generated for this source key must be the committed one.
+  # A pull request build that left optional pages out (scripts/ci/oops/isolate.py) is installed only where
+  # such a build may run; a strict build (nightly, release, a push, a local build) builds every page itself.
+  if [ -s "$FROM_ROOT/$PAGES/__oops-dropped" ] && ! python3 "$ROOT/scripts/ci/oops/isolate.py" allowed | grep -q '^allowed'; then
+    echo "error: $FROM_ROOT left out optional pages ($(tr '\n' ' ' < "$FROM_ROOT/$PAGES/__oops-dropped")); this build compiles every page: build the web bundles instead" >&2
+    exit 1
+  fi
   if ! cmp -s "$FROM_ROOT/$INSPECTOR/index.html" "$ROOT/$INSPECTOR/index.html"; then
     echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
     exit 1
@@ -216,7 +223,9 @@ if [ -n "$OUT_ROOT" ]; then
   "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 fi
 
-if [ -z "$OUT_ROOT" ]; then
+if [ -z "$OUT_ROOT" ] && [ -s "$ROOT/$PAGES/__oops-dropped" ]; then
+  echo "web bundles built without the optional pages $(tr '\n' ' ' < "$ROOT/$PAGES/__oops-dropped")(ci-oops; not stamped, so the next build rebuilds them)"
+elif [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
   mv "$STAMP.tmp" "$STAMP"
   echo "web bundles built ($(cut -c1-12 "$STAMP"))"

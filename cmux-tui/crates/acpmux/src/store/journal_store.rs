@@ -878,12 +878,23 @@ impl Store for JournalStore {
             lsn
         };
         let Some(lsn) = lsn else { return Ok(()) };
-        match self.inner.journal.wait_durable(lsn, Duration::from_secs(30)) {
-            Ok(()) => Ok(()),
-            Err(cmux_journal::WaitError::Timeout) => {
-                anyhow::bail!("the event journal did not sync within 30 s")
+        // In slices of [`FULL_WAIT`]: while the disk is full, a record the writer did not write
+        // within one may never be, and the caller gets the store's `disk.full` refusal at once
+        // instead of waiting out the 30 s (the gate's lines are answered the same way).
+        let limit = Duration::from_secs(30);
+        let started = Instant::now();
+        loop {
+            let left = limit.saturating_sub(started.elapsed());
+            match self.inner.journal.wait_durable(lsn, left.min(FULL_WAIT)) {
+                Ok(()) => return Ok(()),
+                Err(cmux_journal::WaitError::Timeout) => {
+                    self.inner.space.refuse()?;
+                    if started.elapsed() >= limit {
+                        anyhow::bail!("the event journal did not sync within 30 s");
+                    }
+                }
+                Err(error) => return Err(anyhow::anyhow!("the event journal: {error}")),
             }
-            Err(error) => Err(anyhow::anyhow!("the event journal: {error}")),
         }
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
@@ -1004,6 +1015,21 @@ impl Store for JournalStore {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(id, || Store::scan_heads(&self.inner.local, id, visit))
     }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
+    }
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        Store::adoption_checkpoint(&self.inner.local, id)
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_adoption_checkpoint(&self.inner.local, id, bytes)
+    }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
     fn flush(&self) -> Result<()> {
         self.inner.checkpoint()
@@ -1025,6 +1051,7 @@ impl Store for JournalStore {
     fn durability(&self) -> Option<Durability> {
         let inner = Arc::downgrade(&self.inner);
         let asker = Arc::downgrade(&self.inner);
+        let full = Arc::downgrade(&self.inner);
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
@@ -1039,7 +1066,8 @@ impl Store for JournalStore {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();
                 // A full disk: no restart (it would find the disk as full); the reply waits
-                // for the writer's retry, which the freed reserve lets write ([`space`]).
+                // for the writer's retry, which the freed reserve lets write ([`space`]), at
+                // most [`FULL_WAIT`] (`full` below answers it then).
                 if stats.out_of_space || inner.space.is_full() {
                     return false;
                 }
@@ -1059,6 +1087,10 @@ impl Store for JournalStore {
                         false
                     }
                 }
+            }),
+            full: Arc::new(move || {
+                let inner = full.upgrade()?;
+                inner.space.refuse().err().map(|refusal| refusal.to_string())
             }),
         })
     }
@@ -1186,8 +1218,76 @@ impl Store for JournalStore {
     fn is_cold(&self, id: &str) -> bool {
         Store::is_cold(&self.inner.local, id)
     }
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.fenced(id, || Store::offload_cold(&self.inner.local, id))
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Store::register_cloud_root(&self.inner.local)
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         Store::on_rehydrate(&self.inner.local, hook)
+    }
+    /// The chat's newest journal record, read after the segments were listed, goes with the
+    /// archives: every line of a segment sealed before the listing was journaled at or before
+    /// it. A segment goes cold only once the checkpoint covers it (`prepare_cold_segments`), so
+    /// a replay (`journal_store/repair.rs`, `hub/journal_restore.rs`) rewrites only the tail past
+    /// it, never a cold segment.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        let staged = self
+            .inner
+            .fenced(id, || Store::stage_cold_segments(&self.inner.local, id, max, level))?;
+        let lsn = self.inner.order.lock_or_recover().log_lsn.get(id).copied();
+        Ok(staged.map(|mut staged| {
+            staged.lsn = lsn;
+            staged
+        }))
+    }
+    /// A checkpoint through the staged pass's newest record, with no lock of the chat held.
+    /// False while frozen, or when the checkpoint stopped short of it.
+    fn prepare_cold_segments(&self, _id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        let covered = |inner: &Inner| {
+            let order = inner.order.lock_or_recover();
+            !order.frozen && staged.lsn.is_none_or(|lsn| lsn <= order.checkpointed)
+        };
+        if covered(&self.inner) {
+            return Ok(true);
+        }
+        self.inner.checkpoint()?;
+        Ok(covered(&self.inner))
+    }
+    /// Only once the checkpoint covers the pass (it runs one when the caller did not). The
+    /// renames, the removals and the folder syncs run in `counted_sync`: a failed sync freezes
+    /// the store, as a failed log sync does.
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        if !self.prepare_cold_segments(id, &staged)? {
+            return Ok(ColdMoved::default());
+        }
+        let inner = &self.inner;
+        inner.counted_sync("a cold log segment failed to sync", || {
+            Store::commit_cold_segments(&inner.local, id, staged)
+        })
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        Store::settle_cold_segments(&self.inner.local, id)
+    }
+    /// The renames, removals and folder syncs run in `counted_sync`, as a move's do. The bytes
+    /// are the archive's, which the checkpoint already covered when it went cold.
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        let inner = &self.inner;
+        inner.counted_sync("a warmed log segment failed to sync", || {
+            Store::warm_cold_segments(&inner.local, id)
+        })
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        Store::on_segment_sealed(&self.inner.local, hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        Store::on_log_grown(&self.inner.local, hook)
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's

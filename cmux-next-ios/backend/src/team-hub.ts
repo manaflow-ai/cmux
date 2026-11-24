@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
+import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
@@ -30,6 +31,11 @@ export interface Ingress {
   colo: string | null
   country: string | null
   continent: string | null
+  /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
+  lat?: number | null
+  lon?: number | null
+  /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
+  rtt?: Partial<Record<string, number>>
 }
 
 /** The most a `link_stat` frame may be (PROTOCOL.md "Link stats"; the phone's are under 768 bytes). */
@@ -37,7 +43,7 @@ export const MAX_LINK_STAT_FRAME = 2048
 /** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
 export const LINK_STAT_MIN_GAP_MS = 5000
 const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
-const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "none"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
@@ -58,6 +64,8 @@ const LINK_STAT_MARKS = new Set([
   "first_pong"
 ])
 const LINK_STAT_MAX_MS = 600_000
+/** The most slow keys a `link_stat` carries (`cmux-mobile-link` `key_echo::MAX_SPIKES`). */
+const LINK_STAT_MAX_SPIKES = 6
 const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
 
 /**
@@ -103,6 +111,34 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
+  for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
+    const k = f[field]
+    if (typeof k !== "object" || k === null || Array.isArray(k)) continue
+    const r = k as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const p99 = num(r.p99, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && p99 !== undefined && max !== undefined) {
+      Object.assign(line, { [`${prefix}N`]: n, [`${prefix}P50`]: p50, [`${prefix}P95`]: p95, [`${prefix}P99`]: p99, [`${prefix}Max`]: max })
+    }
+  }
+  const spikeCount = num(f.spikeCount, 100_000)
+  if (spikeCount) line.spikeCount = spikeCount
+  if (Array.isArray(f.spikes)) {
+    // [seconds since up, ack ms (-1: none yet), echo ms], at most LINK_STAT_MAX_SPIKES.
+    const spikes: number[][] = []
+    for (const s of f.spikes.slice(0, LINK_STAT_MAX_SPIKES)) {
+      if (!Array.isArray(s) || s.length !== 3) continue
+      const at = num(s[0], 30 * 86_400)
+      const ack = s[1] === -1 ? -1 : num(s[1], LINK_STAT_MAX_MS)
+      const echo = num(s[2], LINK_STAT_MAX_MS)
+      if (at !== undefined && ack !== undefined && echo !== undefined) spikes.push([at, ack, echo])
+    }
+    if (spikes.length) line.spikes = spikes
+  }
   Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
   return line
 }
@@ -200,7 +236,9 @@ export interface SeedMac {
   machineId?: string | null
 }
 
-const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
+// `wg-relay` (0.17.0): a side joined the session's WebSocket relay and asks its peer to join too (PROTOCOL.md
+// "WebSocket relay"); forwarded like any signal of the session, and carrying nothing else.
+const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "wg-relay", "bye"])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MEMBER_TTL_MS = 60_000
 const NON_MEMBER_TTL_MS = 15_000
@@ -316,6 +354,31 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
+
+  // Used only on the reserved TURN cache object. Out-of-order writes from
+  // different Worker isolates must keep the newer mint.
+  async readIce(): Promise<CachedIce | undefined> {
+    const entry = await this.ctx.storage.get<CachedIce>("turn-credentials")
+    return entry && Date.now() < entry.usableUntil ? entry : undefined
+  }
+
+  async writeIce(entry: CachedIce): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const current = await tx.get<CachedIce>("turn-credentials")
+      if (entry.usableUntil <= Date.now() || (current && current.issuedAt > entry.issuedAt)) return
+      await tx.put("turn-credentials", entry)
+      await tx.setAlarm(entry.usableUntil)
+    })
+  }
+
+  async alarm(): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const entry = await tx.get<CachedIce>("turn-credentials")
+      if (!entry) return
+      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      else await tx.delete("turn-credentials")
+    })
+  }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
   async isMember(teamId: string, caller: Caller, owner: HubOwner): Promise<boolean> {
@@ -500,6 +563,35 @@ export class TeamHub extends DurableObject<Env> {
     this.schema()
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
     return { closed }
+  }
+
+  /**
+   * The other party of link session `sessionId` when `deviceId` is one of its two (PROTOCOL.md "WebSocket relay"):
+   * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
+   * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
+   */
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<{ peer: string; ingress: Ingress | null } | null> {
+    this.bind(owner)
+    const s = this.session(sessionId)
+    if (!s) return null
+    const peer = s.initiator === deviceId ? s.responder : s.responder === deviceId ? s.initiator : null
+    if (!peer) return null
+    // Where the peer's signal socket entered Cloudflare (and its netcheck): the relay's other end, for placement.
+    const sock = this.ctx.getWebSockets(peer).find((ws) => !this.attach(ws)?.replaced)
+    return { peer, ingress: (sock && this.attach(sock)?.ingress) ?? null }
+  }
+
+  /**
+   * The kind of `deviceId` when it is one of this owner's registered devices, as this hub knows it (null when the
+   * hub has not seen it, or it was removed): the three-way hub admits only the owner's own devices (PROTOCOL.md
+   * "Three-way hub"). The Worker falls back to the database on null.
+   */
+  async hubDevice(owner: HubOwner, deviceId: string): Promise<"mac" | "phone" | null> {
+    this.bind(owner)
+    if (this.sql.exec(`SELECT 1 FROM forgotten WHERE device_id = ?`, deviceId).toArray().length > 0) return null
+    const row = this.sql.exec<{ owner_key: string; kind: string }>(`SELECT owner_key, kind FROM devices WHERE device_id = ?`, deviceId).toArray()[0]
+    if (!row || row.owner_key !== ownerOf(owner).ownerKey) return null
+    return row.kind === "mac" ? "mac" : "phone"
   }
 
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */

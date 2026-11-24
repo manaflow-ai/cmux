@@ -115,23 +115,7 @@
             "org.keepassxc.KeePassXC",
             "1password",
             "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
+            "com.apple.systempreferences"
           ],
           "keywords": [
             "computer use",
@@ -312,7 +296,7 @@
               "note": "OpenAI's reference loop: no wait."
             }
           ],
-          "default": "adaptive",
+          "default": "openai",
           "swift_enum": {
             "name": "ComputerUseSettle"
           },
@@ -350,6 +334,32 @@
             "agent activity",
             "screenshot",
             "chat"
+          ]
+        },
+        {
+          "key": "computerUse.whileLocked",
+          "note": "Off by default. On, while the screen is locked the engine still runs app and window lists, window captures by window id and background input to a window; foreground input, display captures, launches and permission prompts stay refused with mac_locked (cmux_computer_use::locked; cmuxterm-hq docs/design/locked-screen-computer-use.md).",
+          "title": {
+            "key": "settings.computerUse.whileLocked",
+            "text": "Keep Working While Locked"
+          },
+          "help": {
+            "key": "settings.computerUse.whileLocked.help",
+            "text": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          },
+          "summary": {
+            "key": "settings.computerUse.whileLocked.summary",
+            "text": "Lets agents use app windows while the Mac is locked"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "locked",
+            "lock screen",
+            "screen lock",
+            "background",
+            "while locked"
           ]
         },
         {
@@ -500,6 +510,41 @@
       ]
     },
     {
+      "name": "hosts",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.sshLinks",
+        "text": "SSH Links"
+      },
+      "note": "Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.",
+      "rows": [
+        {
+          "key": "machines.hosts",
+          "note": "A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.",
+          "title": {
+            "key": "settings.machines.hosts",
+            "text": "Hosts"
+          },
+          "help": {
+            "key": "settings.machines.hosts.help",
+            "text": "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."
+          },
+          "kind": "text",
+          "swift_owner": "HostsSetting",
+          "default": [],
+          "keywords": [
+            "hosts",
+            "machines",
+            "computers",
+            "ssh",
+            "remote",
+            "endpoints"
+          ],
+          "page_hidden": "a list of host objects, edited in cmux-next.json"
+        }
+      ]
+    },
+    {
       "name": "cloud",
       "section": "machines",
       "group": {
@@ -634,6 +679,54 @@
             "back",
             "machine"
           ]
+        },
+        {
+          "key": "cloud.autoCloud",
+          "name": "autoCloud",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Hidden until it ships; the plan gate still applies.",
+          "title": {
+            "key": "settings.cloud.autoCloud",
+            "text": "Auto Places Chats in Cloud"
+          },
+          "help": {
+            "key": "settings.cloud.autoCloud.help",
+            "text": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "page_hidden": "AutoCloud preview; cmux-next.json only until it ships",
+          "keywords": [
+            "cloud",
+            "auto",
+            "place",
+            "where"
+          ]
+        },
+        {
+          "key": "cloud.agentMemory.follow",
+          "name": "agentMemoryFollow",
+          "title": {
+            "key": "settings.cloud.agentMemory.follow",
+            "text": "Carry Your Agent Memory to Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.agentMemory.follow.help",
+            "text": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "agent",
+            "memory",
+            "claude",
+            "agents",
+            "skills",
+            "commands",
+            "sync",
+            "follow",
+            "machine"
+          ]
         }
       ]
     },
@@ -711,11 +804,35 @@
           },
           "help": {
             "key": "settings.mobile.allowIPhoneConnections.help",
-            "text": "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
+            "text": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
           },
           "summary": {
             "key": "settings.mobile.allowIPhoneConnections.summary",
             "text": "Lets your iPhone reach this Mac"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "remote",
+            "connect"
+          ]
+        },
+        {
+          "key": "mobile.autoApprovePhones",
+          "title": {
+            "key": "settings.mobile.autoApprovePhones",
+            "text": "Approve Phone Requests Automatically"
+          },
+          "help": {
+            "key": "settings.mobile.autoApprovePhones.help",
+            "text": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect."
+          },
+          "summary": {
+            "key": "settings.mobile.autoApprovePhones.summary",
+            "text": "New phones on your account connect without asking"
           },
           "kind": "toggle",
           "default": false,
@@ -723,8 +840,10 @@
             "iphone",
             "phone",
             "mobile",
-            "remote",
-            "connect"
+            "approve",
+            "allow",
+            "pair",
+            "automatic"
           ]
         },
         {
@@ -985,6 +1104,39 @@
           ]
         },
         {
+          "key": "remote.agentShareIdleMinutes",
+          "note": "Read by the daemon each time an owner's agent turns sharing on under the account's \"My agents can turn screen sharing and control on my machines\" (cmux-tui-util user_settings::agent_share_idle_minutes; cmux-tui-core remote_host/agent_share.rs AutoOff). The person's own sharing never turns itself off.",
+          "title": {
+            "key": "settings.remote.agentShareIdleMinutes",
+            "text": "Agent Sharing Turns Off After"
+          },
+          "help": {
+            "key": "settings.remote.agentShareIdleMinutes.help",
+            "text": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          },
+          "summary": {
+            "key": "settings.remote.agentShareIdleMinutes.summary",
+            "text": "Minutes with no viewer before an agent's sharing turns off"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "cmux remote",
+            "screen sharing",
+            "mac screen",
+            "agents",
+            "idle",
+            "timeout",
+            "turn off"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "name": "ultra",
           "note": "Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.",
@@ -1045,6 +1197,62 @@
           }
         },
         {
+          "key": "transport.tailnetCarrier",
+          "name": "tailnetCarrier",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "title": {
+            "key": "settings.transport.tailnetCarrier",
+            "text": "Tailscale Carrier"
+          },
+          "help": {
+            "key": "settings.transport.tailnetCarrier.help",
+            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          },
+          "summary": {
+            "key": "settings.transport.tailnetCarrier.summary",
+            "text": "Use direct Tailscale paths when available"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.off",
+                "text": "Off"
+              },
+              "note": "Do not add Tailscale candidates."
+            },
+            {
+              "value": "direct-only",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.directOnly",
+                "text": "Direct Only"
+              },
+              "note": "Add only paths tailscaled reports as direct."
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.on",
+                "text": "On"
+              },
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "tailscale",
+            "tailnet",
+            "wireguard",
+            "transport",
+            "direct",
+            "relay"
+          ],
+          "swift_enum": {
+            "name": "TailnetCarrierMode"
+          }
+        },
+        {
           "key": "remote.screenSharingProfile",
           "name": "screenSharingProfile",
           "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
@@ -1095,6 +1303,155 @@
           "swift_enum": {
             "name": "ScreenSharingProfile"
           }
+        }
+      ]
+    },
+    {
+      "name": "remoteDesktop",
+      "section": "general",
+      "group": {
+        "key": "settings.group.cmuxRemote",
+        "text": "cmux Remote"
+      },
+      "note": "The viewer's defaults for a new Screen Sharing session (remoteDesktop.*, plans/cmux-next/remote-desktop.md section 16). MacScreenPages seeds each session's toolbar picks from them, and the session's cmux.rd offer carries them (a=cmux-rd-max-width and -max-fps from the quality, -max-fps capped, -max-kbps); a toolbar pick still wins for its session.",
+      "rows": [
+        {
+          "key": "remoteDesktop.quality",
+          "note": "The quality a new Screen Sharing session starts at: Auto fits the stream to the pane, Sharp Text streams the host display's full size at up to 60 fps, Smooth Motion streams 1920 wide at the display's rate, Low Bandwidth streams 1280 wide at up to 60 fps (MacScreenRdDocument.wish).",
+          "title": {
+            "key": "settings.remoteDesktop.quality",
+            "text": "Screen Sharing Quality"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.quality.help",
+            "text": "The quality a new Screen Sharing session starts at. The session's toolbar can still change it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              },
+              "note": "Fits the stream to the pane."
+            },
+            {
+              "value": "sharpText",
+              "title": {
+                "key": "settings.remoteDesktop.quality.sharpText",
+                "text": "Sharp Text"
+              },
+              "note": "The host display's full size, up to 60 fps."
+            },
+            {
+              "value": "smoothMotion",
+              "title": {
+                "key": "settings.remoteDesktop.quality.smoothMotion",
+                "text": "Smooth Motion"
+              },
+              "note": "1920 wide at the display's frame rate."
+            },
+            {
+              "value": "lowBandwidth",
+              "title": {
+                "key": "settings.remoteDesktop.quality.lowBandwidth",
+                "text": "Low Bandwidth"
+              },
+              "note": "1280 wide, up to 60 fps."
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "mac screen",
+            "quality",
+            "resolution",
+            "sharp text",
+            "smooth motion",
+            "low bandwidth"
+          ],
+          "swift_enum": {
+            "name": "RemoteDesktopQuality"
+          }
+        },
+        {
+          "key": "remoteDesktop.maxFps",
+          "note": "A cap on the frame rate a Screen Sharing session asks for (a=cmux-rd-max-fps is the quality's rate, at most this). auto: no cap beyond the quality's (this Mac's display refresh).",
+          "title": {
+            "key": "settings.remoteDesktop.maxFps",
+            "text": "Screen Sharing Frame Rate Limit"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.maxFps.help",
+            "text": "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              }
+            }
+          ],
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "count",
+            "placeholder": 60
+          },
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "fps",
+            "frame rate",
+            "frames per second",
+            "refresh"
+          ]
+        },
+        {
+          "key": "remoteDesktop.maxBitrateMbps",
+          "note": "The bitrate a new Screen Sharing session may use, in Mbit/s (a=cmux-rd-max-kbps, times 1000). auto: the host's own cap. The toolbar's Customize > Bitrate starts at it.",
+          "title": {
+            "key": "settings.remoteDesktop.maxBitrateMbps",
+            "text": "Screen Sharing Bitrate Limit"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.maxBitrateMbps.help",
+            "text": "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide."
+          },
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.remoteDesktop.auto",
+                "text": "Auto"
+              }
+            }
+          ],
+          "range": {
+            "min": 0.5,
+            "max": 80,
+            "step": 0.5,
+            "unit": "count",
+            "placeholder": 10
+          },
+          "default": "auto",
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "bitrate",
+            "bandwidth",
+            "mbps",
+            "megabits",
+            "data"
+          ]
         }
       ]
     },

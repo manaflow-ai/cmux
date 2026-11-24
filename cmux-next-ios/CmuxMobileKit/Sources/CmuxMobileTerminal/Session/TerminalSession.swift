@@ -24,6 +24,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
+    /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
+    /// (``TerminalPaintTally``, `phone-frames` `paint`).
+    case paintMark(seq: Int, receivedMs: Double)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
@@ -66,24 +70,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
         !isAttached && sessionStarted
     }
 
-    /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
-    public var label: String? {
-        switch self {
-        case .connecting(let mac):
-            guard let mac, !mac.isEmpty else { return "Connecting…" }
-            return "Connecting to \(mac)…"
-        case .reattaching:
-            return "Reattaching…"
-        case .offline(let mac):
-            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
-            return "\(mac) is offline"
-        case .failed(let message):
-            return message
-        case .attached:
-            return nil
-        }
-    }
-
     /// The quiet line by the composer once an outage has lasted
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
@@ -92,7 +78,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .connecting(let mac): return "Connecting to \(named(mac))…"
         case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
-        case .offline: return label
+        case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
         }
@@ -153,6 +139,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
     /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
     public static let composerSendNotSentNotice = "Your message was not sent."
+    /// Said when the composer's message may have reached the Mac's terminal but its answer never
+    /// came (the link failed after it went out): its text stays out of the composer, so a second
+    /// Send never types it twice.
+    public static let composerSendMaybeSentNotice = "Your message may have been sent. Check the terminal before sending it again."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and
@@ -183,9 +173,12 @@ public protocol TerminalSession: AnyObject {
     /// writes 60 ms apart: a draft could stay unsent in the program's prompt.
     /// Returns false when this session cannot (no Mac daemon, or one without
     /// `send-expect-agent-v1`): the screen then pastes through its mirror.
-    /// `notSent` is called once, on the main actor, if the text is dropped,
-    /// refused or answered with an error: the screen then gives it back.
-    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool
+    /// `notSent` is called once, on the main actor, if the text never reached
+    /// the terminal (dropped before it went out, or refused): the screen then
+    /// gives it back. `maybeSent` is called instead when it went out and no
+    /// answer came in time: it may have been typed, so the text stays out of
+    /// the composer (a second Send would type it twice).
+    func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -263,6 +256,9 @@ public protocol TerminalSession: AnyObject {
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
+    /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
+    /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
+    func reportPaint(_ samples: [TerminalPaintTally.Sample])
 }
 
 extension TerminalSession {
@@ -270,7 +266,7 @@ extension TerminalSession {
     public func sendReply(_ bytes: Data) { send(bytes) }
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
-    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool { false }
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -308,6 +304,8 @@ extension TerminalSession {
 
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
     public var hostGridOwnerName: String? { nil }
 }
