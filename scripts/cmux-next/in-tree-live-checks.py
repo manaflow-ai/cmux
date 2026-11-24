@@ -2049,7 +2049,30 @@ RAW["app_env"] = opts.app_env
 # up in the other in-tree mode): a bare Popen answered by a leftover app of the tag reported in_tree off with
 # CMUX_IN_TREE_PAGES=1 (step verify-live-e67776ff-cmux19).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import bundle_id, launch_app  # noqa: E402
+
+
+def clear_run_marker(app_path):
+    """Removes the app's crash run marker (`AppRunMarker`: run.json, run.signal and run.exception in Application
+    Support/cmux-next/<bundle id>), only those three files of this app's own bundle id. The harness ends each run with
+    debug.quit and a kill after its wait, which can leave the marker, and the next launch of the tag then showed "cmux
+    restarted after a problem" over every still (other Mac, 2026-11-24: every launch 07:18 to 07:59 logged "previous run
+    ended unexpectedly signal=0"). A real crash of this run still leaves its marker, its report and its log line."""
+    bid = bundle_id(app_path)
+    if not bid:
+        return {"error": "no bundle id"}
+    safe = "".join(c if c.isalnum() or c in ".-" else "_" for c in bid)
+    folder = os.path.join(os.path.expanduser("~/Library/Application Support/cmux-next"), safe)
+    removed = []
+    for name in ("run.json", "run.signal", "run.exception"):
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            os.unlink(path)
+            removed.append(name)
+    return {"folder": folder, "removed": removed}
+
+
+RAW["run_marker_cleared"] = clear_run_marker(opts.app)
 app = None
 try:
     try:
