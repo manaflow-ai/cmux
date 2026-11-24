@@ -220,6 +220,15 @@ public final class KeyboardPinTrace: NSObject {
         } else {
             parts.append("field=-")
         }
+        if let field = field(in: window) {
+            let rect = MobileKeyboardProbe().onScreen(field, in: window)
+            let point = CGPoint(x: 38, y: rect.minY - 30)
+            parts.append(String(format: "hp=%.0f,%.0f", point.x, point.y))
+            parts.append("uihit=" + Self.describeChain(window.hitTest(point, with: nil)))
+            parts.append("axhit=" + Self.axHit(window, point))
+            parts.append(String(format: "hp2=%.0f,%.0f", 368.0, point.y))
+            parts.append("axhit2=" + Self.axHit(window, CGPoint(x: 368, y: point.y)))
+        }
         let line = parts.joined(separator: " ")
         let summary = [
             "fj=\(fieldSteps.jumps)",
@@ -231,6 +240,30 @@ public final class KeyboardPinTrace: NSObject {
         ].joined(separator: " ")
         probe.accessibilityValue = line + " " + summary
         write(line)
+    }
+
+    static func describeChain(_ view: UIView?) -> String {
+        var names: [String] = []
+        var current = view
+        while let v = current, names.count < 6 {
+            names.append(String(describing: type(of: v)).replacingOccurrences(of: " ", with: "_") + (v.accessibilityIdentifier.map { "#" + $0 } ?? ""))
+            current = v.superview
+        }
+        return names.isEmpty ? "nil" : names.joined(separator: "<")
+    }
+
+    static func axHit(_ window: UIWindow, _ point: CGPoint) -> String {
+        let selector = NSSelectorFromString("_accessibilityHitTest:withEvent:")
+        guard window.responds(to: selector) else { return "nosel" }
+        typealias Fn = @convention(c) (AnyObject, Selector, CGPoint, UIEvent?) -> AnyObject?
+        let fn = unsafeBitCast(window.method(for: selector), to: Fn.self)
+        guard let hit = fn(window, selector, point, nil) else { return "nil" }
+        let object = hit as? NSObject
+        let id = (hit as? UIAccessibilityIdentification)?.accessibilityIdentifier ?? "-"
+        let label = (object?.accessibilityLabel ?? "-").replacingOccurrences(of: " ", with: "_")
+        var chain = ""
+        if let view = hit as? UIView { chain = "~" + describeChain(view) }
+        return String(describing: type(of: hit)).replacingOccurrences(of: " ", with: "_") + "#" + id + "@" + label + chain
     }
 
     /// The keyboard as drawn, window coordinates; nil when none is on screen.
