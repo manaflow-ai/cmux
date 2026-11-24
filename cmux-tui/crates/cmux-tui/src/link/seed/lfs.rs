@@ -8,7 +8,7 @@
 //! upload ([`stage_objects`], which checks every object's SHA-256 first). Off unless
 //! `CMUX_SEED_LFS` is `1`: [`enabled`].
 
-use std::io::{Read as _, Write as _};
+use std::io::{Read as _, Seek as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -108,16 +108,17 @@ fn scan_inner(top: &Path, lfs_dir: &Path, commit: &str) -> Result<Vec<LfsFile>, 
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
+    // The oids go in through a file, so a full pipe cannot stall git.
+    let mut input = tempfile::tempfile().map_err(|error| error.to_string())?;
+    for (oid, _) in &candidates {
+        writeln!(input, "{oid}").map_err(|error| error.to_string())?;
+    }
+    input.rewind().map_err(|error| error.to_string())?;
     let mut command = git::at(top);
-    command.args(["cat-file", "--batch"]).stdin(Stdio::piped()).stdout(Stdio::piped());
+    command.args(["cat-file", "--batch"]).stdin(Stdio::from(input)).stdout(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("cannot run git: {error}"))?;
-    let mut stdin = child.stdin.take().ok_or("no stdin")?;
-    let input: String = candidates.iter().map(|(oid, _)| format!("{oid}\n")).collect();
-    // Written on its own thread so a full pipe in either direction cannot stall the other.
-    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
     let mut out = Vec::new();
     child.stdout.take().ok_or("no stdout")?.read_to_end(&mut out).map_err(|e| e.to_string())?;
-    let _ = writer.join();
     let status = child.wait().map_err(|error| error.to_string())?;
     if !status.success() {
         return Err(format!("git cat-file exited with {status}"));
