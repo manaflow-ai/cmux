@@ -17,6 +17,50 @@ function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = 
 }
 
 export const SCENARIOS: Record<string, () => SimScenario> = {
+  // Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and
+  // messages and situations come in and subagents come in and out", "i am still seeing flickers and flashes of
+  // bullshit. sub-second in and out bullshit." A coordinator's busy turn: thoughts between quick commands,
+  // steers that land mid-turn, subagents that start and finish, another agent's message, a turn that settles
+  // and a prompt sent right after it.
+  churn: () => {
+    const b = sim(
+      "churn",
+      "A busy coordinator turn: quick commands, thoughts, steers, subagents in and out, then a prompt right after the turn settles.",
+    );
+    b.prompt("Find out why the land keeps waiting on broker calls.");
+    b.think("Reading the land's log first.", { chunks: 2 });
+    b.tool("Inspect stuck wt reclaim process", { ms: 400 });
+    b.think("The stdout pipe is full at 16384 bytes.", { chunks: 2 });
+    b.tool("List open files of the stuck process", { ms: 300 });
+    b.say("Its stdout pipe holds 16384 bytes, which looks like a full buffer. I'll find who holds the read end.", {
+      chunks: 3,
+    });
+    b.tool("Find the reader end of the pipe", { ms: 350 });
+    b.subagent("Fix doubled handbook row on hq main", { ms: 2_500, report: "finished" });
+    b.steer("not sure why there are 595 held for you", { after: 300, readMs: 1_200 });
+    b.tool("Inspect tail and parent processes", { ms: 300 });
+    b.think("I'm puzzled why tail -3 seems alive but isn't reading.", { chunks: 2 });
+    b.say("Leo's question first: why 595 messages are held for me.", { chunks: 2 });
+    for (let call = 0; call < 3; call += 1) b.tool(`Show acpmux inbox step ${call + 1}`, { ms: 250 + call * 150 }, 150);
+    b.think("I'm looking for where the held count in the chat UI comes from.", { chunks: 2 });
+    b.subagent("Summarize held inbox messages by sender", { ms: 1_800, report: "finished" });
+    b.steer("and the pill keeps popping in and out", { after: 200, readMs: 800 });
+    b.steer("remove it", { after: 400, readMs: 600 });
+    b.tool("Show my acpmux session info", { ms: 300 });
+    b.think("Both steers ask for the same thing.", { chunks: 2 });
+    for (let call = 0; call < 4; call += 1) b.tool(`rg -n held src/part${call}.ts`, { ms: 200 + call * 100 }, 120);
+    b.say("The held count is the inbox's unread total; I'll take the pill out.", { chunks: 3 });
+    b.turnEnd();
+    b.wait(4_000);
+    // The prompt sent right after the turn settled (Leo, 21:41Z: "it was as if briefliy the worked for
+    // disappeared and then reappeared").
+    b.prompt("these should just be gone", 0);
+    b.think("Sorting out what Leo asked for.", { chunks: 2 });
+    b.tool("Find lanes owning update pill and chat folding", { ms: 600 });
+    b.say("Two lanes own these; I'll forward it.", { chunks: 2 });
+    return b.turnEnd().build();
+  },
+
   basic: () =>
     sim("basic", "One prompt: a thought, commands with text between, a reply, the turn ends.")
       .prompt("The retry test is flaky. Find out why and fix it.")

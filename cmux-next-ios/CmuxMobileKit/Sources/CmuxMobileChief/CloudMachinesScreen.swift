@@ -282,7 +282,6 @@ struct NewCloudMachineSheet: View {
                 Section {
                     TextField("Name (optional)", text: $name)
                         .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
                         .accessibilityIdentifier("cloudMachines.new.name")
                 }
                 Section {

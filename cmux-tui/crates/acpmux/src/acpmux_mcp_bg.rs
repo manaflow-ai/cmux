@@ -49,14 +49,14 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). A running turn reads it at its next tool step; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop. A row carries only what you cannot read off it: this chat's session and folder are on the page once, and a field at its default (no exit yet, no signal, no error) is left off.",
             "inputSchema": {"type": "object", "properties": {"description": description,
                 "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
                 "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
                 "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
-                "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
-        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
+                "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false: the command is cut, as every other bg_* result cuts it). bg_output reads one task's output."}}}}),
+        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). The bytes come back as text, with no base64 copy of them. Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
@@ -139,6 +139,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             Ok(r) => {
                 let (line, status) = outcome("bg_start", &r);
                 let mut structured = r;
+                trim_echo(&mut structured);
                 structured.set("summary", json!(line));
                 structured.set("status", json!(status));
                 let id = structured.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -190,6 +191,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
             }
             let mut structured = r;
+            trim_echo(&mut structured);
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
@@ -328,6 +330,30 @@ impl TaskWait {
     }
 }
 
+/// What a result need not carry back to the agent that made the call: the command the caller
+/// itself just sent, whole, and `bg_output`'s base64 `data`, the same bytes `text` already
+/// carries. Measured on one VM in the week to 2026-11-24 (`scripts/measure/bg-echo-bytes.py`):
+/// 1,000,679 characters of echoed command and 2,019,596 of base64 over 3,597 results, about
+/// 839,000 tokens for nothing. A command of up to [`CMD_KEPT`] characters stays byte-identical
+/// (reading it back is how one checks what was stored when a start failed); a longer one is cut
+/// here and `bg_list` with `full: true` still reads the whole stored command.
+fn trim_echo(structured: &mut Value) {
+    let Some(o) = structured.as_object_mut() else { return };
+    // `text` is those bytes already; base64 of them costs a third again for nothing.
+    if o.contains_key("text") && o.remove("data").is_some() {
+        o.insert("dataOmitted".into(), json!("the bytes are in text; no base64 copy"));
+    }
+    if let Some(command) = o.get("command").and_then(Value::as_str) {
+        if command.chars().count() > CMD_KEPT {
+            o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
+            o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
+        }
+    }
+}
+
+/// How much of a task's own command a single-task result carries back (`trim_echo`).
+const CMD_KEPT: usize = super::bg_list::COMMAND_CHARS * 2;
+
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
 /// the daemon put it in its view), or for a list how many run, finished and failed.
 fn outcome(name: &str, r: &Value) -> (String, &'static str) {
@@ -383,10 +409,14 @@ fn task_line(t: &Value) -> String {
         (_, Some(signal)) => format!(" (signal {signal})"),
         _ => String::new(),
     };
-    let what = match s("description") {
-        "" => s("command").to_owned(),
-        d => format!("{d}: {}", s("command")),
-    };
+    // The caller sent this command; the line needs only enough of it to name the task.
+    let what = super::bg_list::cut(
+        &match s("description") {
+            "" => s("command").to_owned(),
+            d => format!("{d}: {}", s("command")),
+        },
+        super::bg_list::COMMAND_CHARS,
+    );
     let by = t.get("startedBy").filter(|v| v.is_object()).map_or(String::new(), |sub| {
         format!("  (started by {})", crate::hub::bg_owner_words(Some(sub)))
     });
@@ -412,6 +442,33 @@ fn summary(name: &str, r: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A result carries the bytes once and the caller's own command only as far as it names the
+    /// task: no base64 copy of `text`, and a long command cut (measured waste in `trim_echo`).
+    #[test]
+    fn a_result_echoes_neither_the_bytes_twice_nor_a_whole_command() {
+        let long = format!("cargo test {}", "x".repeat(4000));
+        let mut r = json!({"id": "bg-1", "command": long, "state": "exited",
+            "text": "out\n", "data": "b3V0Cg==", "totalBytes": 4});
+        trim_echo(&mut r);
+        assert_eq!(r.get("data"), None, "text already carries those bytes");
+        assert!(r["dataOmitted"].is_string());
+        let kept = r["command"].as_str().unwrap();
+        assert!(kept.chars().count() <= CMD_KEPT, "{} chars", kept.chars().count());
+        assert!(kept.starts_with("cargo test x") && kept.ends_with('\u{2026}'));
+        assert!(r["commandCut"].as_str().unwrap().contains("full: true"));
+        // A command short enough to read back is left byte-identical: after a start that failed,
+        // reading it is how one checks what was stored.
+        let mut short = json!({"id": "bg-2", "command": "ls  -l\n", "text": "", "data": ""});
+        trim_echo(&mut short);
+        assert_eq!(short["command"], json!("ls  -l\n"));
+        assert_eq!(short.get("commandCut"), None);
+        // The text line cuts it too, so one result never carries the command twice whole.
+        let line = task_line(&json!({"id": "bg-1", "state": "exited", "exitCode": 0,
+            "description": "a long one", "command": long, "tail": "out"}));
+        assert!(line.chars().count() < 200, "{line}");
+        assert!(line.contains("a long one: cargo test x") && line.contains('\u{2026}'));
+    }
 
     /// A list's outcome counts its tasks by status; the list runs while any task runs.
     #[test]
