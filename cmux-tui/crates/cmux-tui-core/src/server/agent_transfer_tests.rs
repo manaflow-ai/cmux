@@ -1355,7 +1355,10 @@ fn a_tail_first_move_stages_the_tail_and_sends_the_history_after() {
     assert_eq!(begun["history_later"], json!(true));
     let sent = fake.frame();
     assert_eq!(sent["method"], json!("_acpmux/transfer_begin"));
-    assert_eq!(sent["params"], json!({"sessionId":SESSION,"prepareId":"pre_1","afterSeq":7}));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION,"interrupt":false,"prepareId":"pre_1","afterSeq":7})
+    );
     let _manifest_read = fake.frame();
     let _session_read = fake.frame();
     // Target: the receive takes the stage.
@@ -1396,7 +1399,7 @@ fn a_begin_without_a_prepare_sends_todays_params() {
     let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
     let begun = ok_data(&begun).clone();
     assert!(begun.get("staged").is_none() && begun.get("history_later").is_none(), "{begun}");
-    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION}));
+    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"interrupt":false}));
     // An unknown prepare is refused before acpmux hears of it.
     let unknown = client.request(json!({"cmd":"agent-transfer-begin","surface":surface,
                                         "prepare_id":"pre_nope"}));
