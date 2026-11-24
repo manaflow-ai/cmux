@@ -12,12 +12,10 @@ import CmuxNextFocusUI
 /// changes. A press runs the action through `ActionRegistry.perform`, the
 /// same path as the palette, the menu and the CLI.
 ///
-/// Show/Hide All Windows registers only while `app.globalHotKey` is on
-/// (off by default, coordinator decision 2026-10-06: a system-wide key is
-/// taken from every other app only when the user asks for it), and Start
-/// Agent from Any App while `app.startAgentGlobalHotKey` is on (on by
-/// default since Leo's 2026-11-08 quit-gaps ask, so a new user finds it;
-/// cx-hkat); turning a setting off releases its key.
+/// Show/Hide All Windows registers only while `app.globalHotKey` is on (off by
+/// default, coordinator decision 2026-10-06), Start Agent from Any App while
+/// `app.startAgentGlobalHotKey` is on (on by default since Leo's 2026-11-08
+/// quit-gaps ask, so a new user finds it); turning one off releases its key.
 @Observable
 final class GlobalHotKeyService {
     /// Actions whose key is not registered: another app holds it, or
