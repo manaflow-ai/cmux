@@ -399,6 +399,19 @@ class Robustness(unittest.TestCase):
                "pull_requests": [{"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
         self.assertEqual(ga.analyze_pr(gh, run, ROOT, "")["state"], "noop")
 
+    def test_a_green_run_edits_the_guards_line_of_the_bot_status_comment(self) -> None:
+        # analyze_pr hands report_pr the comments it read; the bot's status comment must survive that hand-off.
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        status = ga.pr_status.render({"guards": ga.PR_MARKER + "\nold"})
+        gh.comments = lambda number: [{"id": 3, "body": status, "user": {"login": ga.pr_status.BOT}}]  # type: ignore[method-assign]
+        run = {"id": 9, "conclusion": "success", "head_sha": "abc",
+               "pull_requests": [{"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
+        report = ga.analyze_pr(gh, run, ROOT, "")
+        self.assertEqual(report["state"], "green")
+        writer = ga.Writer(None, True)
+        ga.report_pr(writer, gh, "manaflow-ai/cmux", report)
+        self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/3")
+
     def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         run = {
