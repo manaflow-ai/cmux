@@ -35,9 +35,20 @@ fn dogfood_a_chat_works_before_the_checkout_lands() {
     let base = git(&mac, &["rev-parse", "HEAD"]);
     write(&mac.join("DOGFOOD.md"), "an edit of the person's\n");
     // A head with hooks that run at start is never marked (`harness_head::START_SETTINGS`):
-    // the person's edit takes them out, so the chat can start at the head.
+    // the person's edit takes them out, so the chat can start at the head. A head that has
+    // them waits for the whole checkout, as today.
     for settings in cmux_git::harness_head::START_SETTINGS {
         let _ = std::fs::remove_file(mac.join(settings));
+    }
+    // Nor is one whose links point out of it (`.claude/skills/x -> ../../skills/x`): it
+    // takes them out too.
+    for entry in git(&mac, &["ls-files", "-s"]).lines() {
+        if let Some((mode, path)) = entry.split_once('\t')
+            && mode.starts_with("120000 ")
+            && cmux_git::harness_head::in_head(path, "")
+        {
+            let _ = std::fs::remove_file(mac.join(path));
+        }
     }
     let world = World { home, remote: PathBuf::new(), mac, base: base.clone() };
     let snapshot = world.snapshot("dogfood", &[&base]);
