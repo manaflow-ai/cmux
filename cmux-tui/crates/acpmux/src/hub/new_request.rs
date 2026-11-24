@@ -162,6 +162,9 @@ pub struct NewRequest {
     /// The owner's Cloud credential for this chat's agent (`_meta.acpmux.credentials`, unix
     /// socket only, `agent_credentials.rs`): kept on the session in memory, never in its meta.
     pub credential: Option<crate::agent_credentials::AgentCredential>,
+    /// The creator's key (`_meta.acpmux.createKey`, local socket only, `create_key.rs`): a
+    /// create sent again with it, after a restart cut its reply, gets the session it made.
+    pub create_key: Option<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
