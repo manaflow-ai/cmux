@@ -2736,6 +2736,15 @@ def test_helper_named_only_in_the_warm_sources_table_is_not_run() -> None:
     assert helper_areas({".github/other.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
 
 
+def test_helper_named_only_in_a_test_data_fixture_is_not_run() -> None:
+    # cmux#50036's web/tests/fixtures/vercel-ignore-replay.json lists changed
+    # paths; its test reads it, nothing executes it.
+    fixture = {"web/tests/fixtures/replay.json": '{"paths": ["scripts/ci/helper.py"]}\n'}
+    assert helper_areas(fixture) == areas()
+    # A JSON file outside a tests/fixtures/ directory still fails open.
+    assert helper_areas({"web/fixtures-config.json": '{"run": "scripts/ci/helper.py"}\n'}) is None
+
+
 def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run() -> None:
     mac_job = "  mac:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/caller.py\n"
     ci = ROUTED_TREE[".github/workflows/ci.yml"] + mac_job

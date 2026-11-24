@@ -113,6 +113,12 @@ def _owned_pattern() -> re.Pattern[str]:
 
 
 POOL_ORDER_VARIABLE = "CI_PR_POOL_ORDER"
+# A MACOS_RUNNER_* variable may name an owned pull request Mac pool: the guard's owned shape
+# (glaeda-std-xcode-26.6), its GUI pool (glaeda-gui-std-xcode-26.6) or the iOS simulator pool (glaeda-ios-sim).
+# Never a runner name (glaeda-runner-*), a side lane's or the trusted pool's label: those stay refused. Every job
+# that reads one of these on a pull request keeps forks off it with its own guard (head.repo.full_name).
+MACOS_RUNNER_PREFIX = "MACOS_RUNNER_"
+OWNED_MAC_LABEL = re.compile(r"glaeda-(aws-)?(gui-)?(xl|std|light)-xcode-[0-9]+(\.[0-9]+)*|glaeda-ios-sim")
 
 
 def pool_order_reason(order: str) -> str | None:
@@ -342,6 +348,11 @@ def drifted_runner_variables(
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue
+        elif name.startswith(MACOS_RUNNER_PREFIX) and OWNED_MAC_LABEL.fullmatch(value.strip()):
+            # Owned Macs first is the settled routing (Leo, 2026-11-19: Linux first, then owned Macs; the cloud
+            # is an overflow switch nothing depends on). A signing job's variable is still held to an ephemeral
+            # label by check_repo_variables.py (signing_runner_variables.allowed_value).
+            reason = None
         else:
             reason = forbidden_reason(value.strip())
         if reason is not None:

@@ -191,6 +191,9 @@ struct SidebarNewLocalWorkspaceTests {
     }
 
     @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        // Chief Home would be a second workspace in the new window.
+        let chiefHomeOff = ChiefHomeOffForTesting()
+        defer { chiefHomeOff.restore() }
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)
         #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))
