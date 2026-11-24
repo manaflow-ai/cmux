@@ -67,11 +67,14 @@ on:
   # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
-  # Every non-lane branch of this repository publishes its pushed head too
-  # (cx-r2is), so a same-repository branch can repair its own tree without a
-  # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
-  # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
-  # for): tree-preflight's superseded step skips the rest before any build
+  # Every non-lane branch of this repository publishes its tree on request only
+  # (ci-min-per-pr-30; a pull request head's push was 29.8k runner-min a day,
+  # 25.8 per merged PR, 11-22 21Z..11-23 21Z): a dispatch of this workflow on
+  # the branch (the hot verify rust look sends one), a cmux-next dispatch, or
+  # the Cmux-Daemon-Tests: run trailer asks for it, so a same-repository branch
+  # can still repair its own tree without a hand-pushed cmux-tui-pin-* ref.
+  # vars.CMUX_TUI_BRANCH_ON_REQUEST=0 restores "any open pull request head"
+  # (cx-r2is). tree-preflight's superseded step skips the rest before any build
   # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
   # this push trigger entirely because their trees have no nightly or release
   # consumer. The feat-cmux-next tree-request workflow remains the repair path
@@ -242,6 +245,8 @@ jobs:
           SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+          # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
+          CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
       # BRANCH-INPUTS-GATE: a pull request head whose tree key equals its merge base's (it changes no
       # tree-key input) builds nothing: no musl, macOS or daemon-test leg (interim-coord, 2026-11-21:
@@ -402,6 +407,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+          # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
+          CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           # Set (a sha or 'unknown') only when this push is its coalescing window's one build.
           COALESCE_BASE: ${{ needs.coalesce.outputs.base }}
@@ -1871,6 +1878,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+          # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
+          CMUX_TUI_BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -5391,6 +5400,15 @@ jobs:
             helper=(--screen-sharing-helper "$record")
           else
             echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
+          fi
+          # The commit's tree key (computed here: tree-preflight is skipped for a push whose inputs are unchanged):
+          # the payload names it, so a Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/,
+          # never the ad-hoc bytes. Without one the file still goes out and Team-signed apps wait for the next.
+          if tree_key="$(timeout 120 python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)" \
+             && [[ "$tree_key" =~ ^[0-9a-f]{40}$ ]]; then
+            helper+=(--tree-key "$tree_key")
+          else
+            echo "::warning::no tree key for $GITHUB_SHA; its Mac live update file names none"
           fi
           export ml GITHUB_SHA GITHUB_RUN_ID only
           timeout 900 bash -euo pipefail -c '
