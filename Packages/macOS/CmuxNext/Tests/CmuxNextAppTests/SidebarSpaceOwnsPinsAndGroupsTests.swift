@@ -195,6 +195,7 @@ import Testing
             SidebarDocRow(key: "itm_link", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_link"),
             SidebarDocRow(key: "itm_tab", kind: "tab", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_tab"),
             SidebarDocRow(key: "itm_app", kind: "app", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_app"),
+            SidebarDocRow(key: "itm_orphan", kind: "app", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_orphan"),
             SidebarDocRow(key: "itm_legacy", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_legacy"),
         ]
         let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
@@ -498,18 +499,31 @@ import Testing
                 "the move and its update go in one change: applied \(remote.applied), moved \(remote.moved)")
     }
 
-    /// Pin actions use the document path too: a link pinned from Work persists Work's space with the move, instead
-    /// of taking the legacy remote.pin path that had no `extra.room`.
+    /// Pinning a mixed selection stamps only the top-level item entering Pinned. A member pinned inside
+    /// its group and an item already in Pinned both retain their owner.
     @Test func aPinActionIntoPinnedTakesTheActingSpace() async throws {
-        let remote = RecordingRemote(document: Self.linkDocument)
+        let document = Data("""
+        {"revision":"1","sections":[
+          {"id":"sec_custom","kind":{"type":"custom"},"order":"a","title":"Links"},
+          {"id":"sec_pinned","kind":{"type":"pinned"},"order":"b","region":"top"}
+        ],"items":[
+          {"id":"itm_g","section":"sec_custom","order":"a","body":{"type":"group","name":"G"}},
+          {"id":"itm_l","section":"sec_custom","order":"b","body":{"type":"url","url":"https://new.example"}},
+          {"id":"itm_member","section":"sec_custom","parent":"itm_g","order":"a","body":{"type":"url","url":"https://member.example"}},
+          {"id":"itm_prev","section":"sec_pinned","order":"a","body":{"type":"url","url":"https://pinned.example"}}
+        ]}
+        """.utf8)
+        let remote = RecordingRemote(document: document)
         let store = try await Self.loadedStore(remote)
         store.newItemRoom = { Self.work }
-        store.pin(["itm_l"], title: "Pin")
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !remote.moved.isEmpty }
-        let sent = remote.applied.flatMap { $0 }
-        #expect(sent.contains { $0["op"] as? String == "pin" }, "the Pin action did not use the canonical pin op: \(remote.applied)")
-        #expect(Self.roomUpdate(sent, item: "itm_l") == Self.work,
-                "the Pin action did not persist the acting space: \(remote.applied)")
+        let ids = ["itm_l", "itm_member", "itm_prev"]
+        store.pin(ids, title: "Pin")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !remote.pinned.isEmpty }
+        let ops = try #require(remote.applied.first)
+        #expect(ops.first?["op"] as? String == "pin")
+        #expect(ops.first?["items"] as? [String] == ids)
+        #expect(ops.count == 2 && Self.roomUpdate(ops, item: "itm_l") == Self.work)
+        #expect(store.shownRecords.items["itm_member"]?.parent == "itm_g")
     }
 
     /// Groups do not carry `extra.room`: pinning one outside Pinned and pinning one already in Pinned both use the
