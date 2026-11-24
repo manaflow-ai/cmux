@@ -88,6 +88,7 @@ fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
             subsessions: false,
             displays: None,
             hosted: false,
+            hosted_cloud: false,
             github: false,
             desktop_lease: None,
         })
@@ -140,6 +141,7 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
             subsessions: false,
             displays: None,
             hosted: false,
+            hosted_cloud: false,
             github: false,
             desktop_lease: None,
         })
