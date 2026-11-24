@@ -28,6 +28,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 pub use crate::error::WgError;
+use crate::handshake_retry::HandshakeRetry;
 use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
@@ -408,6 +409,8 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// Resends a lost initiation while data waits for the session.
+    handshake_retry: HandshakeRetry,
     /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
     wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
@@ -512,6 +515,7 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            handshake_retry: HandshakeRetry::default(),
             wait_for_handshake_until: None,
             last_inbound: None,
             resumed: false,
@@ -540,11 +544,17 @@ impl Driver {
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
             let hello = self.hello_deadline();
+            // A held crossed handshake defers the resend, never busy-wakes.
+            let retry = self
+                .handshake_retry
+                .deadline(self.pacer.srtt())
+                .map(|due| self.wait_for_handshake_until.map_or(due, |end| due.max(end)));
             let next_tick = [
                 self.schedule.next_tick(),
                 self.probe_deadline,
                 self.pace_deadline,
                 watchdog,
+                retry,
                 hello,
                 self.stack.release_deadline(),
             ]
@@ -579,6 +589,7 @@ impl Driver {
             self.wakeups.fetch_add(1, Ordering::Relaxed);
             self.catch_up_timers();
             self.run_watchdog();
+            self.run_handshake_retry();
             match event {
                 Event::Datagram(count, origin) => {
                     // A count past the buffer is not a datagram: drop it.
@@ -735,12 +746,18 @@ impl Driver {
         // Nor does a side start again within INITIATION_PENDING of its own
         // last initiation: duplicated copies of a crossed initiation would
         // otherwise restart both ends until REKEY_TIMEOUT.
-        if self.tunn.time_since_last_handshake().is_none()
+        let no_session = self.tunn.time_since_last_handshake().is_none();
+        if no_session
             && self.pacer.has_queued()
             && self.wait_for_handshake_until.is_none()
             && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
         {
             self.initiate_handshake();
+        }
+        if no_session {
+            self.handshake_retry.set_waiting(now, self.pacer.has_queued());
+        } else {
+            self.handshake_retry.on_session();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
             let (packet, priority) = match self.pacer.pop_classified(now) {
