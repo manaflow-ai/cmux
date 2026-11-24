@@ -335,7 +335,7 @@ export function EnvironmentPicker({
       offersDevices
         ? [
             ...(auto ? ["auto" as const] : []),
-            "cloud" as const,
+            ...(cloudRow ? ["cloud" as const] : []),
             "machines" as const,
             ...devices.filter(environmentReady),
           ].slice(0, 9)
@@ -618,7 +618,7 @@ export function EnvironmentPicker({
     checkedRow?.startsWith(SAVED) === true &&
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   // A manual machine (This Mac or one of the person's own) is the pick: Machine… is checked, Auto is not.
-  const machinePicked = offersDevices && !autoPicked && !clouded && !sandboxed;
+  const machinePicked = offersDevices && !autoPicked && !cloudChecked && !sandboxed;
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest
   // greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
   const readyFirst = (items: Environment[]) => [

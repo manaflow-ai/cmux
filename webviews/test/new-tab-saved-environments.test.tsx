@@ -539,7 +539,7 @@ test("a saved local environment that is only a folder is in the folder menu, not
   await click(environmentButton());
   await pickFolderRow(APP);
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.autoPlacePick", { pick: "this Mac" })}`,
+    `${t("composer.environment")}: ${t("composer.thisMac")}`,
   );
   expect(folderButton()).not.toBeNull();
   // It is still the saved environment: Edit environment opens it.

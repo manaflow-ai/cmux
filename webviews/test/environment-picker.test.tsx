@@ -179,8 +179,8 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
 }
 
 const doc = () => dom.window.document;
-// A new chat on this Mac reads Auto until the person picks a place (Auto · where Auto puts the chat now).
-const autoChip = (pick = "this Mac") => `${t("composer.environment")}: ${t("composer.autoPlacePick", { pick })}`;
+// A new chat on this Mac reads This Mac until the person picks a place (Auto is picked by the app, runMode.auto).
+const autoChip = () => `${t("composer.environment")}: ${t("composer.thisMac")}`;
 const computerButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
     [t("composer.environment"), t("composer.computer")].some((name) =>
@@ -1483,7 +1483,14 @@ const alone = { sessions: [], peers: [], peerKinds: {}, peerConnected: {} };
 
 // The shipped strip heads a new chat, which always has Run as (`runMode`): its Cloud row is where the chat
 // runs (cmux#47677: with no new chat there is no Cloud row at all).
-const shipped = { stripLayout: "where-machine", runMode: { mode: "persistent", onMode: () => undefined } };
+const shipped = {
+  stripLayout: "where-machine",
+  runMode: {
+    mode: "persistent",
+    onMode: () => undefined,
+    auto: { picked: false, onPick: () => undefined, look: "orbit" },
+  },
+};
 const noNewChat = { stripLayout: "where-machine" };
 const chipButton = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
@@ -1499,7 +1506,7 @@ const popoverLabels = (kind: string) =>
   popoverRows(kind).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 // A new chat's Where list (Leo, 2026-11-23: "i think so. i think this is good as a start."): Auto, Cloud
 // only and Machine…, which cascades beside the list with This Mac, the person's own machines and Add Machine….
-const whereLabels = [t("composer.autoPlace"), t("composer.cloudOnly"), t("composer.machineMenu")];
+const whereLabels = [t("composer.auto"), t("composer.cloudOnly"), t("composer.machineMenu")];
 const cascadeItems = () => [...doc().querySelectorAll<HTMLElement>('.acpmux-env-cascade [role="option"]')];
 const cascadeLabels = () => cascadeItems().map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 /// Opens the Where list and its Machine… cascade, beside it.
@@ -1682,10 +1689,8 @@ test("Leo's menu: the moved actions keep their homes in the app (palette, File m
 test("Leo's menu: Where shows where it runs, the machine chip which machine, each with its icon", async () => {
   await mount(true, shipped);
   const face = () => computerButton()!;
-  expect(face().querySelector(".acpmux-env-icon")!.getAttribute("data-kind")).toBe("auto");
-  expect(face().querySelector(".acpmux-location-label")!.textContent).toBe(
-    t("composer.autoPlacePick", { pick: "this Mac" }),
-  );
+  expect(face().querySelector(".acpmux-env-icon")!.getAttribute("data-kind")).toBe("local");
+  expect(face().querySelector(".acpmux-location-label")!.textContent).toBe(t("composer.thisMac"));
   await openMachines();
   await act(async () =>
     rows()
