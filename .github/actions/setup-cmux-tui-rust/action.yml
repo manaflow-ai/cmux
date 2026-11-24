@@ -13,9 +13,14 @@ runs:
     # Hosted images ship rustup; a self-hosted image may not,
     # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
     # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
-    # install below.
+    # install below. A runner with a distro rustc and cargo in /usr/bin makes
+    # rustup-init print "error: cannot install while Rust is installed" before
+    # it goes on under -y; that line read as a failure in triage, so the PATH
+    # check is skipped (rustup's own switch for adopting a distro Rust).
     - name: Ensure rustup is available
       shell: bash
+      env:
+        RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
       run: |
         set -euo pipefail
         # GITHUB_PATH goes in front of everything, so writing ~/.cargo/bin there when PATH
@@ -162,6 +167,45 @@ runs:
         PY
         cargo --version
         rustc --version
+    # cargo nextest is cmux-tui's test runner: cmux-tui/.config/nextest.toml's `ci` profile,
+    # scripts/ci/cmux-tui-rust-check.sh's test mode and cmux-tui-testbox-warmup.yml all run it. So
+    # `cmux-ci test --setup rust -- '... cargo nextest run ...'` is the call an agent reaches for --
+    # and it used to dispatch a whole fleet run, wait, and die on "error: no such command: `nextest`"
+    # (runs 45086122865 and 45086659367: 175.9 s and 109.4 s of fleet time, two total losses, one
+    # hour apart). The fast-checks Rust setup now carries the repository-pinned, checksummed build
+    # (scripts/ci/install-nextest.sh, the same one the gates use), installed into the sticky
+    # fast-checks cache disk so a host fetches the 5 MB tarball once.
+    #
+    # Only the fast-checks copy of this action installs it: GITHUB_ACTION_PATH is under
+    # .fast-checks-checkout exactly when .github/workflows/fast-checks.yml's "Set up pinned Rust"
+    # step ran it (no other workflow checks the repo out under that name), so the other callers of
+    # this action get the same toolchain, the same PATH and the same timing as before. A download
+    # that fails warns and leaves nextest absent rather than failing a rust setup whose command does
+    # not need it: no fast check can go red here that was green before.
+    - name: Carry the pinned cargo-nextest for fast checks
+      shell: bash
+      run: |
+        set -uo pipefail
+        case "${GITHUB_ACTION_PATH:-}" in
+          */.fast-checks-checkout/.github/actions/setup-cmux-tui-rust*) ;;
+          *) echo "not the fast-checks checkout: cargo-nextest is left to the caller"; exit 0 ;;
+        esac
+        checkout="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd -P)"
+        installer="$checkout/scripts/ci/install-nextest.sh"
+        if [[ ! -f "$installer" ]]; then
+          echo "::warning::this snapshot has no scripts/ci/install-nextest.sh; cargo nextest will not be on PATH"
+          exit 0
+        fi
+        tools="$checkout/.build/tools"
+        # The caches stickydisk, so the tarball is fetched once per host; the checkout's own
+        # .build is wiped by every `clean: true` checkout.
+        [[ -z "${RUNNER_TEMP:-}" ]] || tools="$RUNNER_TEMP/fast-checks-cache/tools"
+        if ! dir="$(CMUX_NEXTEST_TOOLS_ROOT="$tools" bash "$installer")"; then
+          echo "::warning::the pinned cargo-nextest did not install; a cargo nextest command will fail with no such command"
+          exit 0
+        fi
+        echo "$dir" >> "$GITHUB_PATH"
+        PATH="$dir:$PATH" cargo nextest --version
     # Last, so rustup installs with the host's CARGO_HOME. Every later step
     # (rust-cache restore and its post-step cleanup among them) then uses a
     # CARGO_HOME that no other runner instance on the host can delete from.

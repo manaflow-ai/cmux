@@ -50,7 +50,7 @@ fn modified(path: &Path) -> SystemTime {
 }
 
 /// The newest entry per name among `paths` (a crate built more than once keeps old hashes around).
-fn newest<'a>(paths: impl Iterator<Item = (String, PathBuf)>) -> BTreeMap<String, PathBuf> {
+fn newest(paths: impl Iterator<Item = (String, PathBuf)>) -> BTreeMap<String, PathBuf> {
     let mut newest: BTreeMap<String, PathBuf> = BTreeMap::new();
     for (name, path) in paths {
         match newest.get(&name) {
