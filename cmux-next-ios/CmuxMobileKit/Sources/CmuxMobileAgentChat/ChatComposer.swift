@@ -62,7 +62,7 @@ struct ChatComposer: View {
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
-    private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
+    private var collapsedTarget: Bool { collapsible && !hasContent && !expandRequested && !focus.wrappedValue }
     /// Follows `collapsedTarget` inside an explicit `.cmuxMobileSmooth` animation.
     /// Losing focus to the keyboard's dismissal changes the target in an
     /// update that carries no animation, and the capsule snapped shut while
@@ -114,8 +114,8 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
         #if DEBUG

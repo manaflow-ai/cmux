@@ -163,8 +163,7 @@ public final class MobileKeyboardDock: NSObject {
         guard let view, view.window != nil else { return }
         let constant = notifiedConstant
         guard handedBack || notifiedTop.constant != constant else { return }
-        notifiedTop.constant = constant
-        view.setNeedsLayout()
+        let risingFromRest = !handedBack && notifiedTop.constant == -restInset && constant < -restInset
         // UIKit posts these inside the keyboard's animation; a nested animation
         // inherits its remaining duration and curve, so the composer rides it.
         var remaining = UIView.inheritedAnimationDuration
@@ -177,6 +176,8 @@ public final class MobileKeyboardDock: NSObject {
             options.insert(UIView.AnimationOptions(rawValue: UInt(cut.curve.rawValue) << 16))
         }
         guard remaining > 0 else {
+            notifiedTop.constant = constant
+            view.setNeedsLayout()
             view.layoutIfNeeded()
             return
         }
@@ -186,8 +187,14 @@ public final class MobileKeyboardDock: NSObject {
         // reversing the keyboard mid-flight. `.beginFromCurrentState` makes the
         // reversal start from where the stack is on screen.
         // motion: allow inherits the system keyboard's own animation (or, for a reversal UIKit posts unanimated, the cut one's; Reduce Motion lays it out at once).
+        // On a normal show, lay out the subviews when UIKit commits the
+        // keyboard animation. A drag or reversal still flushes its endpoint.
+        let layoutAtCommit = risingFromRest && UIView.inheritedAnimationDuration > 0
+        if layoutAtCommit { options.insert(.layoutSubviews) }
         UIView.animate(withDuration: remaining, delay: 0, options: options) {
-            view.layoutIfNeeded()
+            self.notifiedTop.constant = constant
+            view.setNeedsLayout()
+            if !layoutAtCommit { view.layoutIfNeeded() }
         }
     }
 

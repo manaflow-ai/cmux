@@ -120,14 +120,17 @@ final class KeyboardInjectBenchUITests: XCTestCase {
     @MainActor func testSettleChat() throws { try run(Self.chat, mode: nil, rounds: 20) }
     @MainActor func testSettleTerminal() throws { try run(Self.terminal, mode: nil, rounds: 20) }
 
+    @MainActor func testSettleChatWithoutSampler() throws { try run(Self.chat, mode: nil, rounds: 20, sampleStacks: false) }
+    @MainActor func testSettleTerminalWithoutSampler() throws { try run(Self.terminal, mode: nil, rounds: 20, sampleStacks: false) }
+
     @MainActor
-    private func run(_ surface: Surface, mode injected: String?, rounds: Int) throws {
+    private func run(_ surface: Surface, mode injected: String?, rounds: Int, sampleStacks: Bool = true) throws {
         let mode = injected ?? "settle"
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += Self.base + surface.arguments + (injected.map { ["-cmux-mobile-kbd-inject", $0] } ?? [])
-        if injected == nil {
+        if injected == nil && sampleStacks {
             // Settle runs also carry the input latency trace: every main-thread
             // iteration of 4 ms and more with its stacks, sampled every 4 ms to
             // 200 ms, so a show's busy ticks from tap to first keyboard frame

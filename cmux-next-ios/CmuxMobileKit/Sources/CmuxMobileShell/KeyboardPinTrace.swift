@@ -158,13 +158,20 @@ public final class KeyboardPinTrace: NSObject {
     private var busy: CFTimeInterval = 0
     private var wakes = 0
 
-    /// Notes every touch the window gets and never takes one: it fails at once.
+    /// Observe the physical release timestamp even when the main queue delivers it late.
     private final class TouchMarker: UIGestureRecognizer {
         var onTouch: ((UIView?, CGPoint?) -> Void)?
+        var onRelease: ((TimeInterval) -> Void)?
+        override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+        override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
             onTouch?(touches.first?.view, touches.first.map { $0.location(in: nil) })
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            if let touch = touches.first { onRelease?(touch.timestamp) }
             state = .failed
         }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = .failed }
     }
 
     private lazy var touchMarker: TouchMarker = {
@@ -178,6 +185,10 @@ public final class KeyboardPinTrace: NSObject {
             self.write(String(format: "t=%.4f ev=touchBegan x=%.1f y=%.1f view=%@", CACurrentMediaTime() - self.start,
                               point?.x ?? -1, point?.y ?? -1, view.map { KeyboardInputInjector.name($0) } ?? "-"))
             self.injector?.touchBegan(view: view)
+        }
+        marker.onRelease = { [weak self] released in
+            guard let self else { return }
+            self.write(String(format: "t=%.4f ev=touchEnded", released - self.start))
         }
         return marker
     }()
