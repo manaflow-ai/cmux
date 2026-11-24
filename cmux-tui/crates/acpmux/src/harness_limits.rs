@@ -62,8 +62,30 @@ pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] = &[
     ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
 ];
 
+/// What an agent chat's `claude` gets on top of [`CLAUDE_ENV`]: the same capacity watchdog as a
+/// terminal's ([`CLAUDE_TERMINAL_ENV`]), with a total time budget. An Agent-tool subagent runs
+/// inside its parent's `claude`, so acpmux's continuation never sees it fail: on 2026-11-24
+/// four of one coordinator's helpers died on Claude Code's own 529 retries (Leo: "fix 529s
+/// properly with better designs"). With the watchdog a subagent rides out a capacity storm in
+/// place. With no budget the parent turn would too, forever, and a sustained 529 would never
+/// end a turn into acpmux's continuation and smaller-model failover (`hub/auto_resume.rs`,
+/// `capacityFallbackAfter`); the chat would just sit silent. The budget is a total, not a cap
+/// per wait: measured on Claude Code 2.1.331 against a server answering only 529s,
+/// `MAX_WAIT_MS=20000` sent its last request 20 s after the first and exited 1 with
+/// "API Error: 529 Overloaded" (a capacity error, `turn_errors::is_capacity_error`); 60000 did
+/// so at 60 s; with it unset the waits grew to 72 s and went on. Two minutes covers a short
+/// storm and still lets a long one fail the turn over. A rate limit stays acpmux's
+/// (`hub/rate_hold.rs`): a 0 budget for a usage limit. A person who set any of
+/// [`CLAUDE_RETRY_CHOICES`] keeps theirs and gets none of these.
+pub const CLAUDE_CHAT_ENV: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "capacity"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "120000"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
+];
+
 /// Claude Code's own retry settings: one set by the person means they chose how it retries,
-/// so [`CLAUDE_TERMINAL_ENV`] is left out whole.
+/// so [`CLAUDE_TERMINAL_ENV`] and [`CLAUDE_CHAT_ENV`] are left out whole.
 pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
     "CLAUDE_CODE_RETRY_WATCHDOG",
     "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE",
@@ -189,9 +211,13 @@ pub fn launch_args(
 }
 
 /// The Claude knobs `env` (what the harness would get) leaves unset, with
-/// acpmux's values.
+/// acpmux's values: [`CLAUDE_ENV`], and [`CLAUDE_CHAT_ENV`] unless `env` sets any of
+/// [`CLAUDE_RETRY_CHOICES`].
 pub fn claude_env(env: &[(String, String)]) -> Vec<(&'static str, &'static str)> {
-    CLAUDE_ENV.iter().copied().filter(|(k, _)| !env.iter().any(|(key, _)| key == k)).collect()
+    let set = |name: &str| env.iter().any(|(key, _)| key == name);
+    let retry_chosen = CLAUDE_RETRY_CHOICES.iter().any(|name| set(name));
+    let chat = if retry_chosen { &[][..] } else { CLAUDE_CHAT_ENV };
+    CLAUDE_ENV.iter().chain(chat).copied().filter(|(k, _)| !set(k)).collect()
 }
 
 /// `args` of a `codex app-server` launch with acpmux's config overrides
@@ -388,6 +414,48 @@ mod tests {
 
     fn words(w: &[&str]) -> Vec<String> {
         w.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    fn pairs(p: &[(&str, &str)]) -> Vec<(String, String)> {
+        p.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    }
+
+    /// An agent chat's Claude Code waits a 529 out in place for at most two minutes, so its
+    /// subagents ride out a short storm and a long one still ends the turn into acpmux's
+    /// continuation and failover (Leo, 2026-11-24: "fix 529s properly with better designs").
+    #[test]
+    fn a_chat_gets_the_capacity_watchdog_with_a_budget_unless_the_person_chose_retries() {
+        let lifted = claude_env(&[]);
+        for knob in CLAUDE_ENV.iter().chain(CLAUDE_CHAT_ENV) {
+            assert!(lifted.contains(knob), "{knob:?} in {lifted:?}");
+        }
+        let get = |name: &str| lifted.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
+        assert_eq!(get("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE"), Some("capacity"));
+        assert_eq!(get("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS"), Some("120000"));
+        assert_eq!(get("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS"), Some("0"));
+        // A terminal's watchdog has no budget: nobody behind it fails a turn over.
+        assert!(
+            !CLAUDE_TERMINAL_ENV
+                .iter()
+                .any(|(k, _)| *k == "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS")
+        );
+        // Any retry choice of the person's keeps the whole set out; the other knobs stay.
+        for choice in CLAUDE_RETRY_CHOICES {
+            let lifted = claude_env(&pairs(&[(choice, "7")]));
+            for knob in CLAUDE_CHAT_ENV {
+                assert!(!lifted.contains(knob), "{choice}: {knob:?} in {lifted:?}");
+            }
+            assert!(lifted.iter().all(|(k, _)| k != choice), "{choice}");
+            assert!(lifted.contains(&CLAUDE_ENV[0]), "{choice}");
+        }
+        // A knob the env sets is never set again.
+        let lifted = claude_env(&pairs(&[("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "5")]));
+        assert!(lifted.iter().all(|(k, _)| *k != "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"));
+        assert!(lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG", "1")));
+        // What the budget ends a turn with is a capacity error acpmux continues.
+        assert!(crate::turn_errors::is_capacity_error(
+            "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment."
+        ));
     }
 
     #[test]
