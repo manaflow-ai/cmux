@@ -11,6 +11,12 @@ import {
   cloudPlanFacts,
   includedStandardMachineHours,
 } from "../services/billing/cloudPlans";
+import {
+  CLOUD_COMPARE_ROWS,
+  CLOUD_COMPARE_ROW_IDS,
+  printableCompareRows,
+  type CloudCompareRow,
+} from "../services/billing/cloudCompare";
 
 // The cmux Cloud plans preview (/next/cloud): every figure from cloudPlans.ts, the price book's copy.
 
@@ -37,6 +43,7 @@ mock.module("next-intl/server", () => ({
 mock.module("../app/[locale]/components/site-header", () => ({ SiteHeader: () => <header /> }));
 
 const { default: NextCloudPlansPage } = await import("../app/[locale]/(landing)/next/cloud/page");
+const { CloudCompareBlock } = await import("../app/[locale]/(landing)/next/cloud/compare-block");
 
 async function renderPage(lang: string) {
   locale = lang;
@@ -84,6 +91,52 @@ describe("cmux Cloud plans", () => {
       for (const word of ["vm", "sandbox", "hybrid", "sync", "slot", "machine minute", "freestyle", "autocloud", "unlimited"]) {
         expect(page).not.toMatch(new RegExp(`\\b${word}\\b`));
       }
+    }
+  });
+});
+
+describe("the comparison block prints only measured rows", () => {
+  test("today: agents at once and the unused month, in that order", async () => {
+    expect(printableCompareRows().map((row) => row.id)).toEqual(["agentsAtOnce", "unusedMonth"]);
+    const html = await renderPage("en");
+    expect(html).toContain('data-testid="cloud-compare-agentsAtOnce"');
+    expect(html).toContain('data-testid="cloud-compare-unusedMonth"');
+    for (const id of CLOUD_COMPARE_ROW_IDS.filter((id) => !["agentsAtOnce", "unusedMonth"].includes(id))) {
+      expect(html).not.toContain(`cloud-compare-${id}`);
+    }
+    const page = text(html);
+    expect(page).toContain("Close your laptop. Your agents keep working.");
+    expect(page).toContain("10 started together, all ready within 20 seconds");
+  });
+
+  test("a row with no proof cannot print, even with copy", () => {
+    locale = "en";
+    const t = translator("nextCloudPlans");
+    const unproven: CloudCompareRow[] = CLOUD_COMPARE_ROWS.map((row) => ({ ...row, proof: null }));
+    expect(renderToString(<CloudCompareBlock t={t} rows={unproven} />)).toBe("");
+    const one: CloudCompareRow[] = [
+      { id: "unusedMonth", proof: null },
+      { id: "agentsAtOnce", proof: { source: "test" }, values: { machines: 10, seconds: 20 } },
+    ];
+    const html = renderToString(<CloudCompareBlock t={t} rows={one} />);
+    expect(html).toContain("cloud-compare-agentsAtOnce");
+    expect(html).not.toContain("cloud-compare-unusedMonth");
+  });
+
+  test("every proven row has its copy in English and Japanese", () => {
+    type Catalog = { nextCloudPlans: { compare: { rows: Record<string, Record<string, unknown> | undefined> } } };
+    for (const catalog of [enMessages, jaMessages] as unknown as Catalog[]) {
+      const rows = catalog.nextCloudPlans.compare.rows;
+      for (const row of printableCompareRows()) {
+        for (const key of ["label", "server", "planTab", "cmux"]) expect(typeof rows[row.id]?.[key]).toBe("string");
+      }
+    }
+  });
+
+  test("never the forbidden claims", async () => {
+    for (const lang of ["en", "ja"]) {
+      const page = text(await renderPage(lang)).toLowerCase();
+      for (const claim of ["cheaper than", "unlimited", "per vcpu", "per dollar"]) expect(page).not.toContain(claim);
     }
   });
 });

@@ -11,6 +11,7 @@ import {
   type CloudPlanFacts,
 } from "../../../../../services/billing/cloudPlans";
 import { isNextPricingPreviewEnabled } from "../../../../../services/billing/nextPricingPreview";
+import { CloudCompareBlock } from "./compare-block";
 
 /** Preview page: never indexed, never linked from the live site. */
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -69,12 +70,16 @@ export default async function NextCloudPlansPage({ params }: { params: Promise<{
           <span className="text-muted">{` · ${t("previewNote")}`}</span>
         </div>
 
-        <h1 className="max-w-3xl text-3xl font-medium tracking-tight sm:text-4xl">{t("title")}</h1>
+        <p className="text-sm font-medium text-muted">{t("title")}</p>
+        <h1 className="mt-2 max-w-3xl text-3xl font-medium tracking-tight sm:text-4xl">{t("headline")}</h1>
+        <p className="mt-3 max-w-2xl text-lg tracking-tight">{t("subhead")}</p>
         <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-muted">
           {t("lede", { vcpus: NEXT_STANDARD_MACHINE_VCPUS, memory: NEXT_STANDARD_MACHINE_MEMORY_GB })}
         </p>
 
         <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">{cloudPlanFacts().map(card)}</div>
+
+        <CloudCompareBlock t={t} />
       </main>
     </div>
   );
