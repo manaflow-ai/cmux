@@ -152,6 +152,8 @@ fn request(
         body,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
+        // Only a `token` action asks for permissions.
+        permissions: None,
     })
 }
 
