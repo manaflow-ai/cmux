@@ -225,6 +225,9 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
+pub mod peer_dial_gate;
+pub(crate) mod peer_notice_outbox;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -372,6 +375,7 @@ pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
+pub(crate) mod unread_records;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
