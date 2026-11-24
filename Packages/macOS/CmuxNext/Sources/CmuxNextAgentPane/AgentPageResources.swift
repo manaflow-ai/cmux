@@ -18,6 +18,9 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     /// The theme key the page would get now (``AgentPageEvent/theme(_:surface:)``'s `key`), nil
     /// until the pane sets it: the page draws its copy only under the theme it was drawn in.
     var themeKey: @MainActor () -> String? = { nil }
+    /// The pane's own theme values the page would get now (``AgentPageEvent/theme(_:surface:)``'s
+    /// `agent`), nil until the pane sets it: a copy drawn under another theme takes their colors.
+    var agentTheme: @MainActor () -> JSONValue? = { nil }
     /// The page's app sections, whose bundle images it serves under `__appbundle/` (``AppsPanelsPageProvider``).
     weak var appBundles: AppsPanelsPageProvider?
 
@@ -72,7 +75,8 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
         // After a sign-out the copy read before it is dropped, and the page is answered with none.
         let kept = keeps && current ? read?.kept : nil
         (ahead, read) = (nil, nil)
-        return PageResource(data: AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), kept: kept),
+        return PageResource(data: AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(),
+                                                                                 agentTheme: agentTheme(), kept: kept),
                             mimeType: "text/javascript")
     }
 
@@ -85,7 +89,8 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
         let chat = session()
         let read = aheadIsCurrent ? ahead.flatMap { $0.session == chat ? $0.read : nil } : nil
         (ahead, self.read) = (nil, nil)
-        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), read: read),
+        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(),
+                                                                                       agentTheme: agentTheme(), read: read),
                             mimeType: "text/javascript")
     }
 
