@@ -282,6 +282,15 @@ def selector(job: dict, where: str) -> str:
     raise AssertionError(f"unknown location {where!r}")
 
 
+# Every other own-branch route that names cmux-linux past its fork branches (cmux#49215 moved the rest of the
+# RUNNER_POOLS reads; tests/test_ci_same_repo_linux_owned_first.py is the rule) takes the same checks.
+CMUX_LINUX |= {
+    (workflow, job_id, where)
+    for workflow, job_id, where, _label in EXPECTED
+    if selector(load(workflow)["jobs"][job_id], where).endswith(CMUX_LINUX_TAIL)
+}
+
+
 class LinuxCompileRunners(unittest.TestCase):
     def test_each_compile_job_runs_on_its_measured_size(self) -> None:
         docs: dict[str, dict] = {}
@@ -293,7 +302,7 @@ class LinuxCompileRunners(unittest.TestCase):
                 value = selector(job, where)
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
-                    self.assertNotIn("vars.LINUX_RUNNER", value)
+                    self.assertEqual(SHARED_VARIABLE.findall(value), [], value)
                     self.assertNotIn("inputs.runner", value)
                     continue
                 route = route_ref(label, workflow, job_id)
@@ -330,8 +339,16 @@ class LinuxCompileRunners(unittest.TestCase):
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
                 if (workflow, job_id, where) in CMUX_LINUX:
-                    fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
-                    self.assertEqual(value, "${{ " + OWNER + FORK_PULL_REQUEST.format(label=fork_label) + "'cmux-linux' }}")
+                    self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
+                    prefix = PREFIX.get((workflow, job_id, where), (None, ""))[0]
+                    if prefix is not None:
+                        self.assertTrue(value.startswith("${{ " + prefix), value)
+                    elif (workflow, job_id) in OWNER_ONLY:
+                        self.assertTrue(value.startswith("${{ " + OWNER), value)
+                    else:
+                        # A fork keeps the Blacksmith size it had; only the own-repository run moved.
+                        fork = re.escape(OWNER + FORK_PULL_REQUEST.format(label="LABEL")).replace("LABEL", r"blacksmith-\d+vcpu-ubuntu-2404")
+                        self.assertRegex(value, r"^\$\{\{ " + fork, value)
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
                 # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.

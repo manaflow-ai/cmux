@@ -12,6 +12,7 @@ import CmuxNextPhoneAccess
 import Foundation
 import Observation
 import os
+import CmuxNextHostedChief
 import CmuxNextWakeups
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
@@ -57,7 +58,7 @@ final class CloudService {
     @ObservationIgnored let agentCredentials = CloudAgentCredentials()
     @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
     @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (CloudStartChat.wireSetup)
-    @ObservationIgnored private let machines: MachineRegistry
+    @ObservationIgnored let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
@@ -117,6 +118,9 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
+    /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
+    @ObservationIgnored let computerControl = ChiefComputerControlStore()
     /// Move to Cloud's CLI and machine folders.
     @ObservationIgnored var move = CloudMoveSetup()
     /// What Retry does for each chat whose move stopped.
@@ -429,6 +433,8 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Each plan read's turn: an older read that lands late does not replace a newer one.
+    @ObservationIgnored private var planGeneration = 0
     /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
@@ -471,9 +477,9 @@ final class CloudService {
         do {
             let list = try await appServerMachines()
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
-            machines.cloudLimits = nil
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
+            readPlan(account: account)
             changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
@@ -484,8 +490,40 @@ final class CloudService {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(CloudAppOpFailure.logText(error), privacy: .public)")
+            // The plan is its own read: a list that fails (the API not answering at launch) must not
+            // leave a paying account behind a paywall until the next list.
+            readPlan(account: account)
             return false
         }
+    }
+
+    /// The team's plan (`cloud.plan.get`) as the limits every plan gate reads (the Chief's Computer
+    /// tab, the create gate, the phone's Cloud links), read with each list, whether the list answered
+    /// or not. The list no longer carries them; a plan that cannot be read keeps the last one, so a
+    /// blip shows no paywall. Only the latest read for the account signed in now lands.
+    private func readPlan(account: [String?]) {
+        planGeneration += 1
+        let generation = planGeneration
+        // task-owner: fire-and-forget plan read; result lands only for the latest generation and signed-in account, nothing to cancel
+        Task { [weak self] in
+            guard let self else { return }
+            let answer: JSONValue
+            do { answer = try await appOps("cloud.plan.get", .object([:]), nil, .script) } catch {
+                logger.error("plan read failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            guard planGeneration == generation, listAccount == account, auth.isSignedIn else { return }
+            planRead(answer)
+        }
+    }
+
+    /// Lands one `cloud.plan.get` answer: the limits the gates read, then ``planObserved``, so a plan
+    /// that turned paid after an upgrade shows its welcome card. An answer without a plan reports none.
+    func planRead(_ answer: JSONValue) {
+        let limits = CloudMachineLimits(nextPlan: answer)
+        machines.cloudLimits = limits
+        logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
+        if let limits { planObserved(limits.planId) }
     }
 
     /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
@@ -688,7 +726,7 @@ final class CloudService {
             if again { request.idempotencyKey = UUID().uuidString }
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
         }
-        logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
@@ -708,7 +746,7 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
-        listedMachineIDs.insert(machine.id)
+        listedMachineIDs.insert(machine.id); session.answeredAt = answeredAt // the record the create's (or spare claim's) answer just gave
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session

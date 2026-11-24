@@ -14,13 +14,19 @@ struct FeedSwipeAction: Identifiable {
     var tint: Color
     /// The action removes the row (Done): UIKit slides it out (the destructive style) and the list deletes it.
     var removesRow = false
+    /// The haptic that confirms the outcome once the action runs: a full swipe ends with no look at
+    /// the screen, so Allow should feel different from Deny (UIKit's own haptic marks only the
+    /// full-swipe threshold, the same for every action).
+    var outcome: FeedSwipeOutcome = .none
     var action: @MainActor () -> Void
 
     /// The row's action as UIKit draws it on a swipe: the system slide, capsule, full-swipe stretch and haptic.
     @MainActor var contextualAction: UIContextualAction {
         let action = action
+        let outcome = outcome
         let contextual = UIContextualAction(style: removesRow ? .destructive : .normal, title: title) { @MainActor _, _, completion in
             action()
+            outcome.play()
             completion(true)
         }
         contextual.image = UIImage(systemName: systemImage)
@@ -35,6 +41,22 @@ extension [FeedSwipeAction] {
         let configuration = UISwipeActionsConfiguration(actions: map(\.contextualAction))
         configuration.performsFirstActionWithFullSwipe = true
         return configuration
+    }
+}
+
+/// How a swipe's outcome feels: a decision that grants is a success (an Allow's once it went out),
+/// one that refuses (or an Allow that failed) a warning,
+/// filing a row away a light tap; opening and read state need none (the screen changes or the dot does).
+enum FeedSwipeOutcome {
+    case none, granted, refused, filed
+
+    @MainActor func play() {
+        switch self {
+        case .none: break
+        case .granted: UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case .refused: UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        case .filed: UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8)
+        }
     }
 }
 
@@ -71,7 +93,7 @@ extension FeedItem {
         let read = isRead
             ? FeedSwipeAction(id: "unread", title: "Unread", systemImage: "envelope.badge", tint: FeedSwipeTint.read) { store.markUnread(id) }
             : FeedSwipeAction(id: "read", title: "Read", systemImage: "envelope.open", tint: FeedSwipeTint.read) { store.markRead(id) }
-        let done = FeedSwipeAction(id: "done", title: "Done", systemImage: "checkmark", tint: FeedSwipeTint.archive, removesRow: true) {
+        let done = FeedSwipeAction(id: "done", title: "Done", systemImage: "checkmark", tint: FeedSwipeTint.archive, removesRow: true, outcome: .filed) {
             withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.markDone(id) }
         }
         guard resolution == nil else { return [done, read] }
@@ -82,20 +104,23 @@ extension FeedItem {
             let deny = request.phoneOptions.first(where: { $0.kind == .rejectOnce }) ?? request.phoneOptions.first(where: { !$0.isAllow })
             var actions: [FeedSwipeAction] = []
             if let deny {
-                actions.append(FeedSwipeAction(id: "deny", title: "Deny", systemImage: "xmark.shield", tint: FeedSwipeTint.destructive) {
+                actions.append(FeedSwipeAction(id: "deny", title: "Deny", systemImage: "xmark.shield", tint: FeedSwipeTint.destructive, outcome: .refused) {
                     withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(id, option: deny) }
                 })
             }
             if let allow {
                 // The allow is signed with the approval key, no prompt (verify/phone-approvals.md).
+                // Its haptic waits for the signed allow to go out: success once sent, a warning if it failed.
                 actions.append(FeedSwipeAction(id: "allow", title: "Allow", systemImage: "checkmark.shield", tint: FeedSwipeTint.approve) {
-                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(id, option: allow) }
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
+                        store.respond(id, option: allow) { sent in (sent ? FeedSwipeOutcome.granted : .refused).play() }
+                    }
                 })
             }
             return actions
         case .question(let question) where question.isPending:
             let answer = FeedSwipeAction(id: "answer", title: "Answer", systemImage: "arrowshape.turn.up.left", tint: FeedSwipeTint.read, action: open)
-            let decline = FeedSwipeAction(id: "decline", title: "Decline", systemImage: "xmark", tint: FeedSwipeTint.destructive) {
+            let decline = FeedSwipeAction(id: "decline", title: "Decline", systemImage: "xmark", tint: FeedSwipeTint.destructive, outcome: .refused) {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.decline(id) }
             }
             return [decline, answer]

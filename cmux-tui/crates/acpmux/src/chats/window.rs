@@ -68,6 +68,8 @@ pub struct WindowSpec {
     keys: Option<Vec<String>>,
     /// The typed query, ranked by the palette ranker (the filter's own substring text is off).
     query: Option<String>,
+    /// The query's plain words, a quoted phrase one: what a `content` window looks for.
+    words: Vec<String>,
     untitled: String,
     /// The client's choice history, parsed once when the spec is read.
     history: Option<ParsedHistory>,
@@ -109,14 +111,13 @@ impl WindowSpec {
             .ok_or("window must be a non-empty string")?
             .to_owned();
         let mut filter = ChatQuery::from_params(params)?;
-        // The query is ranked (`rank`), not the filter's substring match.
-        let query = params
-            .get("query")
-            .and_then(Value::as_str)
-            .map(str::trim)
+        // The query's words are ranked (`rank`), not the filter's substring match; its operators
+        // (`since:7d`, `harness:codex`, `in:cmux`, `-word`; `terms.rs`) stay in the filter, and a
+        // query of operators alone lists the newest chats they pass.
+        let words = std::mem::take(&mut filter.terms.words);
+        let query = Some(words.join(" "))
             .filter(|q| !q.is_empty())
             .map(|q| q.chars().take(512).collect::<String>());
-        filter.text = None;
         let untitled = params
             .get("untitled")
             .and_then(Value::as_str)
@@ -171,6 +172,7 @@ impl WindowSpec {
             exclude: strings("exclude")?.unwrap_or_default().into_iter().collect(),
             keys: strings("keys")?,
             query,
+            words,
             untitled,
             history,
             count,
@@ -372,7 +374,7 @@ fn ranked_rows(
         .filter_map(|&i| candidates.get(i))
         .map(|(key, chat)| (key.clone(), row_value(chat, activity)))
         .collect();
-    let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
+    let needle = text.filter(|_| spec.content).zip(Needle::of_words(spec.words.clone()).ok());
     let mut filling = false;
     if let Some((text, needle)) = needle {
         filling = !text.filled();

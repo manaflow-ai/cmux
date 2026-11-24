@@ -35,6 +35,9 @@ import Foundation
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
+/// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
+///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
+///   came before the chat opens (an attach page of them), the rest stream at their recorded pace (CoordSimReplaySource).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -74,6 +77,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
+    public var events: String?
+    /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
+    public var eventsHistory: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -100,6 +107,8 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
+        eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
     }
 
     /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).

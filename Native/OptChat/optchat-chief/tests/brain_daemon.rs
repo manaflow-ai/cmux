@@ -55,28 +55,62 @@ fn the_hermes_gateway_runs_in_the_chiefs_home_and_ends_with_the_host() {
 
     let gateway = brain_gateway::start_hermes(&hermes, &home, &|_| {}).unwrap();
     let pid = gateway.pid() as i32;
-    assert!(wait_for(|| home.join("grandchild").exists()), "the gateway did not start");
+    assert!(
+        wait_for(|| home.join("grandchild").exists()),
+        "the gateway did not start"
+    );
     let args = std::fs::read_to_string(home.join("seen-args")).unwrap();
     assert_eq!(args.trim(), "gateway run --quiet");
     let env = std::fs::read_to_string(home.join("seen-env")).unwrap();
-    assert!(env.contains(&format!("HERMES_HOME={}", home.display())), "{env}");
+    assert!(
+        env.contains(&format!("HERMES_HOME={}", home.display())),
+        "{env}"
+    );
     // Its own gateway rendezvous: the user's own Hermes gateway never serves the Chief.
-    assert!(env.contains(&format!("HERMES_GATEWAY_LOCK_DIR={}", home.join("gateway-locks").display())), "{env}");
-    assert!(!env.contains("sk-person-key"), "a provider key reached the gateway: {env}");
-    assert_eq!(std::fs::read_to_string(home.join("chief-gateway.pid")).unwrap().trim(), pid.to_string());
-    let grandchild: i32 = std::fs::read_to_string(home.join("grandchild")).unwrap().trim().parse().unwrap();
+    assert!(
+        env.contains(&format!(
+            "HERMES_GATEWAY_LOCK_DIR={}",
+            home.join("gateway-locks").display()
+        )),
+        "{env}"
+    );
+    assert!(
+        !env.contains("sk-person-key"),
+        "a provider key reached the gateway: {env}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join("chief-gateway.pid"))
+            .unwrap()
+            .trim(),
+        pid.to_string()
+    );
+    let grandchild: i32 = std::fs::read_to_string(home.join("grandchild"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
 
     // A host that starts again ends the gateway the earlier one left, then runs its own.
     std::mem::forget(gateway);
     let _ = std::fs::remove_file(home.join("grandchild"));
     let again = brain_gateway::start_hermes(&hermes, &home, &|_| {}).unwrap();
-    assert!(wait_for(|| !alive(grandchild)), "the earlier gateway's group was not ended");
+    assert!(
+        wait_for(|| !alive(grandchild)),
+        "the earlier gateway's group was not ended"
+    );
     assert!(wait_for(|| home.join("grandchild").exists()));
-    let new_grandchild: i32 = std::fs::read_to_string(home.join("grandchild")).unwrap().trim().parse().unwrap();
+    let new_grandchild: i32 = std::fs::read_to_string(home.join("grandchild"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
 
     // The host lets go: the whole process group ends and the pid file goes.
     drop(again);
-    assert!(wait_for(|| !alive(new_grandchild)), "the gateway's group outlived the host");
+    assert!(
+        wait_for(|| !alive(new_grandchild)),
+        "the gateway's group outlived the host"
+    );
     assert!(!home.join("chief-gateway.pid").exists());
 }
 
@@ -106,9 +140,19 @@ fn a_hermes_gateway_that_never_gets_ready_is_an_error_and_leaves_nothing_running
     let e = brain_gateway::start_hermes_within(&idle, &home2, Duration::from_secs(1), &|_| {})
         .err()
         .expect("a gateway that never holds its lock is not ready");
-    assert!(e.to_string().contains("did not hold its gateway.lock"), "{e}");
-    let me: i32 = std::fs::read_to_string(home2.join("me")).unwrap().trim().parse().unwrap();
-    assert!(wait_for(|| !alive(me)), "the gateway that was not ready is still running");
+    assert!(
+        e.to_string().contains("did not hold its gateway.lock"),
+        "{e}"
+    );
+    let me: i32 = std::fs::read_to_string(home2.join("me"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        wait_for(|| !alive(me)),
+        "the gateway that was not ready is still running"
+    );
 }
 
 #[test]
@@ -125,7 +169,10 @@ fn a_pid_file_naming_another_program_is_never_signalled() {
     std::fs::write(home.join("chief-gateway.pid"), other.id().to_string()).unwrap();
     let hermes = fake_hermes(dir.path());
     let gateway = brain_gateway::start_hermes(&hermes, &home, &|_| {}).unwrap();
-    assert!(alive(other.id() as i32), "a pid of another program was signalled");
+    assert!(
+        alive(other.id() as i32),
+        "a pid of another program was signalled"
+    );
     drop(gateway);
     let _ = other.kill();
     let _ = other.wait();

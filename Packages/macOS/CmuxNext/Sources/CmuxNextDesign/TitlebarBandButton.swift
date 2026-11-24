@@ -181,7 +181,7 @@ public final class TitlebarBandButton: ClickableButton {
     public var opensMenuWhenDisabled = false
     /// Shows the right-click menu (tests record it instead).
     public var presentContextMenu: @MainActor (NSMenu, NSEvent, TitlebarBandButton) -> Void = { menu, event, button in
-        NSMenu.popUpContextMenu(menu, with: event, for: button)
+        NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: button)
     }
 
     /// Told `true` as a menu this button opened (press, long-press or right-click) shows and

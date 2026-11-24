@@ -1541,10 +1541,13 @@ while True:
             threading.Thread(target=end_background_agent, daemon=True).start()
         # "own-turn: FIFO :: TEXT": once the test writes FIFO, while the chat is idle, a background
         # shell ends and Claude Code runs a turn of its own for its task notification that says
-        # TEXT (acpmux hub/background_turn.rs).
-        if said.strip().startswith("own-turn:"):
-            gate, text = said.strip()[len("own-turn:"):].split(" :: ", 1)
+        # TEXT (acpmux hub/background_turn.rs). "own-turn-fail: FIFO :: ERROR": that turn fails
+        # with ERROR as its result (a 429's "API Error: ...", `is_error`).
+        own = next((p for p in ("own-turn:", "own-turn-fail:") if said.strip().startswith(p)), None)
+        if own:
+            gate, text = said.strip()[len(own):].split(" :: ", 1)
             gate = gate.strip()
+            failed = own == "own-turn-fail:"
 
             def own_turn():
                 with open(gate) as g:
@@ -1555,8 +1558,8 @@ while True:
                 send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_own1"}}})
                 send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                          "delta": {"type": "text_delta", "text": text}}})
-                send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
-                      "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
+                send({"type": "result", "subtype": "success", "is_error": failed, "result": text,
+                      "num_turns": 1, "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
             threading.Thread(target=own_turn, daemon=True).start()
         if said.strip() == "late-agent-ask":

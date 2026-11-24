@@ -70,6 +70,7 @@ import Testing
                 "automationsDirectory": "/Users/me/.config/cmux/automations",
                 "customizeDirectory": "/Users/me/.config/cmux/customize",
                 "agentSkillsDirectory": "/Users/me/.config/cmux/skills",
+                "agentCommandsDirectory": "/Users/me/.config/cmux/commands",
                 "githubWorktrees": "/Users/me/.config/cmux/github-worktrees",
                 "recoveryDrafts": "/Users/me/Library/Application Support/cmux-next/recovery",
                 "agentHome": "/Users/me/Library/Application Support/cmux/agent-home",
@@ -93,6 +94,7 @@ import Testing
         #expect(environment["CMUX_AUTOMATIONS_DIR"] == Self.dev.automationsDirectory.path)
         #expect(environment["CMUX_CUSTOMIZE_DIR"] == Self.dev.customizeDirectory.path)
         #expect(environment["CMUX_AGENT_SKILLS_DIR"] == Self.dev.agentSkillsDirectory.path)
+        #expect(environment["CMUX_COMMANDS_DIR"] == Self.dev.agentCommandsDirectory.path)
         #expect(environment["CMUX_NEXT_CLOUD_SECRETS_SERVICE"] == "cmux-cloud-secret.com.cmuxterm.app.debug.my-tag")
         #expect(Self.otherTag.cloudSecretsService != Self.dev.cloudSecretsService)
         #expect(environment.values.allSatisfy { !$0.contains("/.config/cmux") })

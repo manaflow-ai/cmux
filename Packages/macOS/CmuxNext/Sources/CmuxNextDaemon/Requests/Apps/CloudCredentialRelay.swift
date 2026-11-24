@@ -65,11 +65,11 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     public struct Session: Sendable, Equatable {
         public var signedIn: Bool
+        public var backend: String?
         public var team: String?
 
-        public init(signedIn: Bool, team: String?) {
-            self.signedIn = signedIn
-            self.team = team
+        public init(signedIn: Bool, team: String?, backend: String? = nil) {
+            (self.signedIn, self.backend, self.team) = (signedIn, backend, team)
         }
     }
 
@@ -95,6 +95,11 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     /// Whether a user is signed in, without minting (the live ``session`` mints for its team): the
     /// relay's own checks, so one relay call starts at most one mint.
     let signedIn: @Sendable () async -> Bool
+    /// The fixed backend origin and token-team extractor used by fenced calls.
+    /// Unfenced calls keep the legacy path; fenced calls fail closed when the
+    /// live relay has not supplied these bindings.
+    let backendOrigin: String?
+    let tokenTeam: @Sendable (String) -> String?
     /// How long one ``relayOp`` call may take before it answers `owner.timed_out` naming its step:
     /// inside the daemon's 30 s provider deadline (cmux-tui-core `apps/relay.rs`), so the server hears
     /// why rather than "the cmux app did not answer in time".
@@ -133,7 +138,9 @@ public nonisolated struct CloudCredentialRelay: Sendable {
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
                 signedIn: (@Sendable () async -> Bool)? = nil,
                 allowedOps: @escaping @Sendable () async -> Set<String>,
-                carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier) {
+                carrierSocket: @escaping CarrierSocket = CloudCredentialRelay.noCarrier,
+                backendOrigin: String? = nil,
+                tokenTeam: @escaping @Sendable (String) -> String? = { _ in nil }) {
         self.post = post
         self.token = token
         self.invalidate = invalidate
@@ -141,6 +148,8 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         self.signedIn = signedIn ?? { await session().signedIn }
         self.allowedOps = allowedOps
         self.carrierSocket = carrierSocket
+        self.backendOrigin = backendOrigin
+        self.tokenTeam = tokenTeam
     }
 
     /// Answers one provider call of the `credential` family.
@@ -152,7 +161,11 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         switch call.op {
         case Self.sessionOp:
             let state = await session()
-            return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
+            return Answer(ok: true, body: .object([
+                "signed_in": .bool(state.signedIn),
+                "backend": state.backend.map(JSONValue.string) ?? .null,
+                "team": state.team.map(JSONValue.string) ?? .null,
+            ]))
         case Self.relayOp:
             return await relay(call.params)
         case Self.carrierSocketOp:
@@ -187,7 +200,14 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
         guard await signedIn() else { return Self.notSignedIn }
-        let key = params["idempotency_key"]?.stringValue
+        let parsedFence = Self.parseFence(params)
+        guard case .success(let fence) = parsedFence else {
+            guard case .failure(let error) = parsedFence else {
+                return Self.failure("credential.fence_invalid", "credential.relay fence is malformed")
+            }
+            return Self.failure("credential.fence_invalid", error.message)
+        }
+        let key = fence.key
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
         let path: String
         if let key {
@@ -197,6 +217,9 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         } else {
             path = "v1/read"
         }
+        // Backend and team are local credential checks. Only the backend's
+        // declared optimistic-concurrency field crosses the HTTP boundary.
+        if let revision = fence.revision { envelope["expected_revision"] = .string(revision) }
         guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else {
             return Self.failure("validation.invalid", "credential.relay params are not JSON")
         }
@@ -206,19 +229,31 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             let message = "the credential relay gave up on \(op) after \(bound) while \(step.name)"
             Self.logger.error("credential relay: \(message, privacy: .public)")
             return Self.failure("owner.timed_out", message, retryable: true)
-        }) { await send(op, path, body, step) }
+        }) { await send(op, path, body, fence, step) }
     }
 
     /// One relayed op: a token (the held one or one mint; a second only after the Worker refused the
     /// first with 401), then the POST. A failed mint and a failed POST each answer and log what failed;
     /// neither carries the token.
-    private func send(_ op: String, _ path: String, _ body: Data, _ step: Step) async -> Answer {
+    private func send(_ op: String, _ path: String, _ body: Data, _ fence: ScopeFence, _ step: Step) async -> Answer {
         do {
-            var reply = try await post(path, body, try await mint(op, step))
+            let firstToken = try await mint(op, step)
+            if let refusal = Self.scopeRefusal(fence, backendOrigin: backendOrigin, tokenTeam: tokenTeam, bearer: firstToken) {
+                return refusal
+            }
+            var reply = try await post(path, body, firstToken)
             if reply.status == 401 {
                 // A stale token: mint once more, then the Worker's answer stands.
                 await invalidate()
-                reply = try await post(path, body, try await mint(op, step))
+                let retryToken = try await mint(op, step)
+                if let refusal = Self.scopeRefusal(fence, backendOrigin: backendOrigin, tokenTeam: tokenTeam, bearer: retryToken) {
+                    return refusal
+                }
+                reply = try await post(path, body, retryToken)
+            }
+            if fence.isFenced,
+               let refusal = Self.validateResponse(reply.status, body: reply.body, op: op, key: fence.key) {
+                return refusal
             }
             return Self.answer(status: reply.status, body: reply.body)
         } catch let refused as MintRefused {
@@ -252,6 +287,94 @@ public nonisolated struct CloudCredentialRelay: Sendable {
 
     /// A failed mint, as the answer the app server gets.
     private struct MintRefused: Error { var answer: Answer }
+
+    private struct FenceError: Error {
+        let message: String
+    }
+
+    private struct ScopeFence: Sendable {
+        let key: String?
+        let backend: String?
+        let team: String?
+        let revision: String?
+
+        var isFenced: Bool { backend != nil || team != nil || revision != nil }
+    }
+
+    private static func parseFence(_ params: JSONValue) -> Result<ScopeFence, FenceError> {
+        func string(_ name: String) -> Result<String?, FenceError> {
+            guard let value = params[name] else { return .success(nil) }
+            guard let value = value.stringValue, !value.isEmpty else {
+                return .failure(FenceError(message: "credential.relay \(name) must be a non-empty string"))
+            }
+            return .success(value)
+        }
+        guard case .success(let key) = string("idempotency_key"),
+              case .success(let backend) = string("expected_backend"),
+              case .success(let team) = string("expected_team"),
+              case .success(let revision) = string("expected_revision") else {
+            return .failure(FenceError(message: "credential.relay fence is malformed"))
+        }
+        if let backend, normalizedOrigin(backend) == nil {
+            return .failure(FenceError(message: "credential.relay expected_backend must be a bare Cloud origin"))
+        }
+        let count = [backend, team, revision].compactMap { $0 }.count
+        if count == 0 { return .success(ScopeFence(key: key, backend: nil, team: nil, revision: nil)) }
+        if key == nil {
+            guard backend != nil, team != nil, revision == nil else {
+                return .failure(FenceError(message: "credential.relay reads require expected_backend and expected_team only"))
+            }
+        } else {
+            guard backend != nil, team != nil, let revision,
+                  revision.utf8.count <= 128,
+                  revision.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else {
+                return .failure(FenceError(message: "credential.relay mutations require decimal expected_revision, expected_backend, and expected_team"))
+            }
+        }
+        return .success(ScopeFence(key: key, backend: backend, team: team, revision: revision))
+    }
+
+    /// A scoped lifecycle response is correlated before its body is handed to
+    /// the Rust adapter. A 200 with another operation or idempotency key could
+    /// otherwise grant the wrong observation; leave that intent unresolved so
+    /// the server can reconcile it by its original key.
+    private static func validateResponse(_ status: Int, body: Data, op: String, key: String?) -> Answer? {
+        guard status == 200 else { return nil }
+        guard let reply = try? JSONDecoder().decode(JSONValue.self, from: body),
+              case .object = reply,
+              reply["op"]?.stringValue == op else {
+            return failure("credential.response_invalid", "the cmux API answered a different or malformed operation", retryable: true)
+        }
+        if let key, reply["idempotency_key"]?.stringValue != key {
+            return failure("credential.response_invalid", "the cmux API answered a different or missing idempotency key", retryable: true)
+        }
+        return nil
+    }
+
+    private static func scopeRefusal(_ fence: ScopeFence, backendOrigin: String?, tokenTeam: @Sendable (String) -> String?, bearer: String) -> Answer? {
+        guard fence.backend != nil || fence.team != nil || fence.revision != nil else { return nil }
+        guard let expectedBackend = fence.backend, let backendOrigin,
+              normalizedOrigin(expectedBackend) == backendOrigin else {
+            return failure("credential.scope_refused", "the credential token is bound to a different Cloud backend")
+        }
+        guard let expectedTeam = fence.team, tokenTeam(bearer) == expectedTeam else {
+            return failure("credential.scope_refused", "the credential token is bound to a different Cloud team")
+        }
+        return nil
+    }
+
+    public static func normalizedOrigin(_ raw: String) -> String? {
+        guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(), !host.isEmpty,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else { return nil }
+        let local = ["127.0.0.1", "localhost", "::1"].contains(host)
+        guard scheme == "https" || (scheme == "http" && local) else { return nil }
+        let defaultPort = scheme == "https" ? 443 : 80
+        let port = url.port.flatMap { $0 == defaultPort ? nil : $0 }
+        let hostPart = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return "\(scheme)://\(hostPart)\(port.map { ":\($0)" } ?? "")"
+    }
 
     /// The step one relay call is in, for its timeout answer.
     private nonisolated final class Step: Sendable {

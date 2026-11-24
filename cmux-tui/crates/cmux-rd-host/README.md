@@ -10,9 +10,16 @@ policy): `cmux-rd-core`.
 ```
 cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
-cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--mode view|control] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
+
+The bench requests control by default. With `--mode view --input click --samples 1`,
+it sends the same click and watches the decoded marker for one second. In the active
+bench report, `input_sent` counts attempted samples and `input_acked` records whether
+the host acknowledged the last event. A view-only host acknowledges discarded input.
+`marker_changes` counts observed counter changes after the first sample begins, and
+`g2g_ms` measures the time to the expected counter for each successful sample.
 
 ## macOS host
 
@@ -484,3 +491,20 @@ readback). Stage distributions include startup; sample vectors cap at 8192.
 Duration is bounded to 2–30 seconds, sockets have timeouts, and the host and
 viewer each have a deadline. Keep this harness and motion source unchanged
 when comparing before/after optimization results.
+
+The Windows host prefers DXGI Desktop Duplication and falls back to GDI if the
+primary output cannot be duplicated or access is lost. `--capture gdi` and
+`--capture dxgi` select a backend explicitly; forced DXGI fails by HRESULT rather
+than measuring GDI under the DXGI name. The workflow runs both through the same
+loopback harness and motion source. JSON `capture_details` identifies the backend,
+fallback reason, acquired frames and copied bytes.
+
+Duplication retains one CPU BGRA surface and one staging texture. It copies dirty
+rectangles and move destinations from the complete current desktop texture,
+respects row pitch, and uses a full copy for initialization or fragmented damage.
+It avoids full-frame hashing. Encoding still converts the full frame, so no
+unchanged-region conversion claim is made. An unchanged acquisition reuses the
+last surface when feedback requests a frame. Memory is bounded to a 256 MiB CPU
+surface plus the matching staging texture and at most 1 MiB metadata per list.
+The existing capture surface excludes a separately supplied hardware cursor;
+this preserves the GDI BitBlt behavior. Rotated outputs retain the GDI path.

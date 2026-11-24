@@ -10,24 +10,13 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::design::Finding;
+use super::scene_type;
 
 /// The file a folder's own design system lives in.
 pub(super) const FILE: &str = "cmux-design.json";
 
 /// The format a design system file declares.
 const FORMAT: &str = "cmux.design/1";
-
-/// cmux's type roles: name, the SDK helper that draws it (`widget.ts`, `TYPE_ROLES`), point
-/// size, weight. Apple's widget text styles, and the sizes the web scene renders.
-const CMUX_ROLES: [(&str, &str, f64, &str); 7] = [
-    ("numeral", "BigNumber", 34.0, "semibold"),
-    ("heading", "Heading", 20.0, "semibold"),
-    ("title", "Headline", 15.0, "semibold"),
-    ("label", "Label", 13.0, "semibold"),
-    ("body", "Body", 13.0, "regular"),
-    ("caption", "Caption", 12.0, "regular"),
-    ("footnote", "Footnote", 11.0, "regular"),
-];
 
 /// cmux's spacing scale, in points (the SDK's `SPACE`): a 4 pt grid with 2 and 6 for tight rows.
 const CMUX_SPACE: [f64; 11] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
@@ -81,13 +70,15 @@ impl System {
     pub(super) fn cmux() -> Self {
         Self {
             name: "cmux".into(),
-            roles: CMUX_ROLES
+            // cmux's type roles come from the one scene type table both renderers draw
+            // (`scene_type.rs`, schemas/type-scale/scene-type.json).
+            roles: scene_type::roles()
                 .iter()
-                .map(|(name, helper, size, weight)| Role {
-                    name: (*name).into(),
-                    helper: Some(helper),
-                    size: *size,
-                    weight: (*weight).into(),
+                .map(|role| Role {
+                    name: role.name.clone(),
+                    helper: role.helper.as_deref(),
+                    size: role.size,
+                    weight: role.weight.clone(),
                 })
                 .collect(),
             space: CMUX_SPACE.to_vec(),
