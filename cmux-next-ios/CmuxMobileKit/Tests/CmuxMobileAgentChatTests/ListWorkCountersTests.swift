@@ -193,5 +193,66 @@ import UIKit
         #expect(host.list.layoutsMadeNow <= visible + 4,
                 "\(host.list.layoutsMadeNow) rows laid out on the main thread for \(visible) on screen")
     }
+
+    // MARK: The open builds where it opens (#47189 r3: subagent-2000, subagent-stream)
+
+    /// A running subagent with `count` items (the last one still streaming).
+    static func runningLongStore(_ count: Int) -> AgentChatStore {
+        let store = finishedLongStore(count)
+        store.apply(.subagent(AgentSubagentChange(id: "s", state: .running, at: ChatTranscriptSourceTests.at)))
+        return store
+    }
+
+    /// The host in an iPhone-sized window, after its first layouts only (no frame let go: what
+    /// the open itself costs).
+    static func openNow(_ store: AgentChatStore) -> (SubagentTranscriptHost, UIWindow) {
+        let host = SubagentTranscriptHost(store: store, subagentID: "s")
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.isHidden = false
+        ChatTranscriptSourceTests.settle(window)
+        return (host, window)
+    }
+
+    /// A finished 2000-item transcript's open weighs the rows at its top, not all of them.
+    @Test func openingALongFinishedTranscriptWeighsItsTopOnly() {
+        let (host, _) = Self.openNow(Self.finishedLongStore())
+        let visible = host.list.collectionView.indexPathsForVisibleItems.count
+        #expect(visible > 0)
+        #expect(host.list.rowsWeighed <= 200,
+                "the open weighed \(host.list.rowsWeighed) rows on the main thread for \(visible) on screen")
+    }
+
+    /// A running transcript's open lays out on the main thread the rows one screen holds at its
+    /// end, not 24.
+    @Test func openingARunningTranscriptLaysOutOneScreenOnTheMainThread() {
+        let (host, _) = Self.openNow(Self.runningLongStore(200))
+        let view = host.list.collectionView
+        let visible = view.indexPathsForVisibleItems.count
+        #expect(visible > 0)
+        #expect(host.list.layoutsMadeNow <= visible + 4,
+                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen")
+    }
+
+    /// A running transcript's older rows, put in above its end after the open, move nothing the
+    /// reader sees: the last row on screen stays where it is (0.5 pt), frame after frame.
+    @Test func olderRowsPutInAboveARunningEndMoveNothing() async {
+        let (host, window) = Self.openNow(Self.runningLongStore(2000))
+        let view = host.list.collectionView
+        func lastOnScreen() -> (id: Int, y: CGFloat)? {
+            let paths = view.indexPathsForVisibleItems.sorted()
+            guard let path = paths.last, let cell = view.cellForItem(at: path) else { return nil }
+            return (path.item, cell.convert(cell.bounds, to: window).maxY)
+        }
+        guard let start = lastOnScreen() else { Issue.record("no row on screen"); return }
+        var worst: CGFloat = 0
+        for _ in 0..<40 {
+            await Self.frame(window)
+            guard let now = lastOnScreen() else { continue }
+            worst = max(worst, abs(now.y - start.y))
+        }
+        #expect(worst <= 0.5, "the end on screen moved \(worst) pt while older rows came in above it")
+        #expect(host.follows, "the reader still follows the end")
+    }
 }
 #endif
