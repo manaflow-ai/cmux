@@ -21,6 +21,7 @@ mod composer_outbox;
 mod follow_camera;
 mod link_side;
 mod mac_screen;
+mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
