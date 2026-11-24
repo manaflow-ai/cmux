@@ -59,6 +59,13 @@ pub(super) fn note_drag(writer: &super::MessageWriter, in_drag_transaction: bool
     }
 }
 
+/// Whether a resize came from the verified cmux app (`Actor::Frontend`): only the app's drags mark the connection and
+/// note a drag. A CLI or agent connection sending the same command stays at its QoS, so automation cannot hold the
+/// interaction state up or promote its connection for good (router review follow-up F1 on #53142).
+pub(super) fn from_app(actor: &crate::workspace_registry::Actor) -> bool {
+    matches!(actor, crate::workspace_registry::Actor::Frontend { .. })
+}
+
 /// An app view's terminal took a new size (`resize-attached-view`): a window live resize or a divider drag moves
 /// the view every frame and sends it, with no layout command until the release. Notes a drag, so lower classes
 /// yield while the pointer moves. The connection is not marked: the view's size alone is not the person's keys.
@@ -125,5 +132,18 @@ pub(crate) fn current_thread_qos() -> u32 {
     #[cfg(not(target_os = "macos"))]
     {
         0
+    }
+}
+
+#[cfg(test)]
+mod from_app_tests {
+    use crate::workspace_registry::Actor;
+
+    #[test]
+    fn only_the_verified_app_counts_as_a_drag() {
+        assert!(super::from_app(&Actor::Frontend { install_id: "signed_app".into() }));
+        assert!(!super::from_app(&Actor::local_user()));
+        assert!(!super::from_app(&Actor::Terminal { id: "t1".into() }));
+        assert!(!super::from_app(&Actor::Peer { id: "peer:websocket".into() }));
     }
 }
