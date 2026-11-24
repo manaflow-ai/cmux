@@ -1,0 +1,414 @@
+{
+  "_doc": "ci-oops class a (infra): a red that is the machine's, not the code's. act_retry.py re-runs it on a fresh runner; it wakes no one. Owner: helper 1a (lane ci-self-heal). Each rule's `fixture` names its real log excerpt under tools/ci-oops/fixtures/infra/. Regexes are re.search, case-insensitive, per log line (oops_core.py). Rules that read a line a test could also print (OOM, disk, network, 5xx, cache, download, timeout, artifacts) carry `none`: the code-failure markers of cmux classify_failures (a failed test, a compile error), which outweigh them, so a test's expected ENOSPC in a red test job stays the code's.",
+  "rules": [
+    {
+      "id": "infra.runner_shutdown",
+      "class": "infra",
+      "any": [
+        "The runner has received a shutdown signal",
+        "Runner .* (?:was|has been) (?:stopped|terminated|deprovisioned)"
+      ],
+      "why": "the runner was stopped mid-job (preemption, host restart, Blacksmith reclaim)"
+    },
+    {
+      "id": "infra.runner_lost",
+      "class": "infra",
+      "any": [
+        "The hosted runner encountered an error",
+        "The hosted runner: .* lost communication",
+        "The self-hosted runner: .* lost communication with the server",
+        "lost communication with the server"
+      ],
+      "why": "the runner went away: GitHub fails the job after 10 minutes without it"
+    },
+    {
+      "id": "infra.not_acquired",
+      "class": "infra",
+      "any": [
+        "The job was not acquired by Runner of type",
+        "was not acquired by Runner"
+      ],
+      "why": "GitHub handed the job to a runner that never took it"
+    },
+    {
+      "id": "infra.runner_refused",
+      "class": "infra",
+      "any": [
+        "recent account payments have failed",
+        "spending limit needs to be increased",
+        "The job was not started because",
+        "refused at setup by its runner",
+        "No runner matching the specified labels was found"
+      ],
+      "why": "the job was refused before it started (billing-refused hosted runner, no runner for its label, or the runner's own setup refusal): never the PR's red. act_retry waits while RUNNER_POOLS still names the dead label (hq#14387 run 44517256143, hq#14433 run 44520476170, 2026-11-19)",
+      "fixture": "runner_refused_billing.log"
+    },
+    {
+      "id": "infra.no_step_ran",
+      "class": "infra",
+      "when": [
+        "no_step_ran"
+      ],
+      "why": "the job failed before any workflow step ran: its runner died or was never set up"
+    },
+    {
+      "id": "infra.setup_refused",
+      "class": "infra",
+      "when": [
+        "setup_failed"
+      ],
+      "why": "the runner's own setup step failed (glaeda's job-started hook refusing a busy host, an image pull)"
+    },
+    {
+      "id": "infra.oom",
+      "class": "infra",
+      "any": [
+        "Out of memory: Killed process",
+        "oom-kill",
+        "OOMKilled",
+        "\\bKilled\\b.*signal 9|signal: killed|SIGKILL",
+        "Process completed with exit code 137",
+        "LLVM ERROR: out of memory",
+        "fatal error: runtime: out of memory",
+        "JavaScript heap out of memory",
+        "error: could not compile .* \\(signal: 9, SIGKILL",
+        "c\\+\\+: fatal error: Killed signal terminated program",
+        "ld(?:\\.lld)?: error: .*(?:Cannot allocate memory|out of memory)"
+      ],
+      "retries": 1,
+      "why": "the kernel killed the job's process for memory: one re-run, then it stays red (a bigger rung, not a third try)",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.disk_full",
+      "class": "infra",
+      "any": [
+        "No space left on device",
+        "ENOSPC",
+        "You are running out of disk space",
+        "System.IO.IOException: There is not enough space on the disk"
+      ],
+      "why": "the runner's disk filled. Three or more ENOSPC lines outweigh the test failures the full disk caused (hq run 44508779820, 2026-11-19: two test jobs, 41 and 17 failures, all ENOSPC); one line is a test's own, and the code markers keep it the code's",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ],
+      "min": 3,
+      "fixture": "disk_full.log"
+    },
+    {
+      "id": "infra.network",
+      "class": "infra",
+      "any": [
+        "Could not resolve host",
+        "Temporary failure in name resolution",
+        "getaddrinfo (?:EAI_AGAIN|ENOTFOUND)",
+        "\\bECONNRESET\\b",
+        "\\bETIMEDOUT\\b",
+        "\\bECONNREFUSED\\b.*(?:registry|github|npmjs|crates\\.io|ghcr|docker)",
+        "Connection reset by peer",
+        "TLS handshake timeout",
+        "net/http: request canceled while waiting for connection",
+        "SSL_ERROR_SYSCALL",
+        "OpenSSL SSL_(?:read|connect): .*(?:Connection reset|SSL_ERROR)",
+        "RPC failed; curl \\d+",
+        "fatal: unable to access 'https://.*': (?:Failed to connect|Could not resolve|Recv failure|The requested URL returned error: 5\\d\\d)",
+        "error: RPC failed",
+        "early EOF",
+        "Failed to connect to .* port \\d+",
+        "spurious network error",
+        "failed to download from `https://"
+      ],
+      "why": "a network fault between the runner and a registry, GitHub or a mirror",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.upstream_5xx",
+      "class": "infra",
+      "any": [
+        "(?:HTTP|status|status code|returned error:?) ?(?:502|503|504)\\b",
+        "\\b(?:502 Bad Gateway|503 Service (?:Temporarily )?Unavailable|504 Gateway Time-?out)\\b",
+        "Internal Server Error.*(?:api\\.github\\.com|codeload|objects\\.githubusercontent|pipelines\\.actions)",
+        "Response status code does not indicate success: 5\\d\\d",
+        "toomanyrequests: You have reached your pull rate limit",
+        "Failed to (?:download|fetch) action",
+        "Unable to (?:download|resolve) action",
+        "An error occurred while (?:downloading|provisioning)"
+      ],
+      "why": "GitHub, a registry or an action download answered 5xx or rate-limited the runner",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.cache_service",
+      "class": "infra",
+      "any": [
+        "Failed to (?:restore|save) cache.*(?:5\\d\\d|timeout|ECONNRESET|socket hang up)",
+        "Cache service responded with 5\\d\\d",
+        "Our services aren't available right now",
+        "reserveCache failed",
+        "getCacheEntry failed",
+        "sccache: error: (?:Server startup failed|Timed out waiting for server)",
+        "sccache: Compile terminated by signal",
+        "stickydisk.*(?:failed|timeout|error)",
+        "blacksmith.*(?:cache|sticky).*(?:failed|unavailable|timed out)"
+      ],
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ],
+      "why": "the cache service or sticky disk failed, not the code"
+    },
+    {
+      "id": "infra.toolchain_download",
+      "class": "infra",
+      "any": [
+        "error: failed to download",
+        "rustup: .*(?:could not download|error downloading)",
+        "error: component download failed",
+        "Unable to (?:download|fetch|install) (?:Node|Bun|Go|Xcode|the toolchain)",
+        "zig: .*(?:download|fetch) failed",
+        "curl: \\((?:6|7|18|28|35|52|56)\\)",
+        "wget: unable to resolve host"
+      ],
+      "why": "a toolchain or dependency download failed in setup",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.timeout",
+      "class": "infra",
+      "any": [
+        "The job running on runner .* has exceeded the maximum execution time",
+        "has exceeded the maximum execution time of \\d+ minutes"
+      ],
+      "when": [
+        "cancelled_mid_step"
+      ],
+      "why": "the job ran out of time with a step cancelled under it: a stalled runner or pool more often than a hang; one re-run, then it stays red",
+      "retries": 1,
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.runner_hook_refused",
+      "class": "infra",
+      "any": [
+        "glaeda-cmux-runner-hook: refused: "
+      ],
+      "why": "an owned runner's job-started hook refused the job (host busy or out of capacity); from cmux classify_failures runner-hook-refused"
+    },
+    {
+      "id": "infra.product_restore_failed",
+      "class": "infra",
+      "any": [
+        "^CMUX_TEST_PRODUCT_RESTORE \\{.*\"outcome\": \"failure\"",
+        "Unexpected app-host preparation outcome",
+        "^Could not take this Mac's gui token for the app-host tests \\(take-gui exited "
+      ],
+      "why": "the runner did not restore the compiled products or prepare the app-host home; from cmux classify_failures"
+    },
+    {
+      "id": "infra.mixed_products",
+      "class": "infra",
+      "any": [
+        "dyld\\[\\d+\\]: Symbol not found: "
+      ],
+      "why": "a binary loaded a framework from another build (stale products on the runner); from cmux classify_failures",
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ]
+    },
+    {
+      "id": "infra.xcode_pin_missing",
+      "class": "infra",
+      "any": [
+        "\\[cmux-ci machine: xcode-pin-missing\\]",
+        "^Pinned Xcode developer dir (?:does not exist|has no usable macOS SDK): ",
+        "^This macOS \\d+ runner has no Xcode \\S+, the version scripts/ci/xcode-pins\\.txt pins"
+      ],
+      "retries": 1,
+      "why": "the runner lacks the Xcode the job pins: a re-run lands on another runner; from cmux classify_failures"
+    },
+    {
+      "id": "infra.artifact_download",
+      "class": "infra",
+      "any": [
+        "^Unable to download artifact\\(s\\): .*Artifact download failed after \\d+ retries",
+        "Failed to (?:download|upload) artifact.*(?:5\\d\\d|ECONNRESET|timeout|socket hang up)",
+        "Unable to (?:upload|finalize) artifact.*(?:5\\d\\d|timeout)"
+      ],
+      "none": [
+        "error\\[E\\d{4}\\]",
+        "^error: could not compile .*due to",
+        "test result: FAILED",
+        "^\\s*FAIL(?:ED)?[: ]",
+        "^FAILED \\((?:failures|errors)=",
+        "^(?:FAIL|ERROR): test\\w* \\(",
+        "^\\(fail\\) ",
+        "AssertionError",
+        "assertion .*failed",
+        "panicked at",
+        "error TS\\d+:",
+        "\\S+\\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\\d+:\\d+: error: ",
+        "\\.swift:\\d+: error: -\\[",
+        "^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)",
+        "^RATCHET_NEW_FAILURE ",
+        "^--- FAIL: ",
+        "^FAIL\\t",
+        "^FAIL$",
+        "^panic: "
+      ],
+      "why": "GitHub's artifact storage did not deliver or take the artifact; from cmux classify_failures"
+    }
+  ]
+}

@@ -168,11 +168,40 @@ struct MobileMacBrowserNetworkTests {
         await network.stop()
     }
 
+    @Test(.timeLimit(.minutes(1))) func siblingInstancesTakeOverLoopbackPortsWithoutSharingOwnership() async throws {
+        let port = try freePort()
+        let listing = MobileTunnelListeningPorts(ports: [port: "127.0.0.1"], allowsNonLoopbackHosts: false)
+        let stableMac = FakeMac(listing: listing)
+        let nightlyMac = FakeMac(listing: listing)
+        let registry = LoopbackPortRegistry()
+        let stable = makeNetwork(mac: stableMac, direct: RecordingDirect(), registry: registry, instanceTag: "stable")
+        let nightly = makeNetwork(mac: nightlyMac, direct: RecordingDirect(), registry: registry, instanceTag: "nightly")
+
+        _ = try await stable.prepare(loopbackPort: port)
+        #expect(try await rawExchange(port: port, payload: "stable") == "stable<eof>")
+        _ = try await nightly.prepare(loopbackPort: port)
+        #expect(stable.forwards[port] == nil)
+        #expect(nightly.forwards[port] != nil)
+        #expect(registry.entry(for: port)?.owner == nightly.registryOwner)
+        await stable.stop()
+        #expect(registry.entry(for: port)?.owner == nightly.registryOwner)
+        #expect(try await rawExchange(port: port, payload: "nightly") == "nightly<eof>")
+        #expect(stableMac.opens == ["127.0.0.1:\(port)"])
+        #expect(nightlyMac.opens == ["127.0.0.1:\(port)"])
+        await nightly.stop()
+        #expect(registry.entry(for: port) == nil)
+    }
+
     // MARK: Helpers
 
-    private func makeNetwork(mac: FakeMac, direct: RecordingDirect, registry: LoopbackPortRegistry) -> MobileMacBrowserNetwork {
+    private func makeNetwork(
+        mac: FakeMac,
+        direct: RecordingDirect,
+        registry: LoopbackPortRegistry,
+        instanceTag: String? = nil
+    ) -> MobileMacBrowserNetwork {
         MobileMacBrowserNetwork(
-            macDeviceID: "mac-1",
+            pairingKey: MacPairingKey(macDeviceID: "mac-1", instanceTag: instanceTag),
             openLane: { host, port in try mac.open(host: host, port: port) },
             listPorts: { mac.listing },
             registry: registry,
