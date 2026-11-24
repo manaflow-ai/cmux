@@ -280,17 +280,15 @@ class HistoryFetchTests(unittest.TestCase):
                               env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", **env},
                               capture_output=True, text=True)
 
-    def has(self, sha: str) -> bool:
-        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
-                              capture_output=True).returncode == 0
-
     def test_deepens_until_the_merge_base_and_no_further(self):
         result = self.fetch(CMUX_PR_HISTORY_DEPTHS="8 128")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("depth 128", result.stdout)
         self.assertEqual(git(self.clone, "merge-base", self.base, self.head), self.fork)
         self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
-        self.assertFalse(self.has(self.other), "an unrelated branch's commits came along")
+        # Looking up the missing SHA with cat-file -e can fetch it from the promisor.
+        stored = git(self.clone, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)").splitlines()
+        self.assertNotIn(self.other, stored, "an unrelated branch's commits came along")
         # What the jobs read: the changed paths and the stale-inputs guard's ancestry.
         self.assertEqual(git(self.clone, "diff", "--name-only", f"{self.base}...{self.head}"), "pr.txt")
         git(self.clone, "merge-base", "--is-ancestor", self.base, f"{self.merge}^1")
