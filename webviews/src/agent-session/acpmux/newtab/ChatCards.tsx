@@ -4,7 +4,7 @@ import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { ShortcutKeycaps } from "../ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
 import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
