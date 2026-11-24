@@ -69,7 +69,7 @@
 // FIXTURE=replay REPLAY=FILE serves a recorded (sanitized) chat instead, a coordinator's notices and all.
 // FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
 // settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
-// NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
+// NO_TAIL=1 serves no kept tail; NO_COPY=1 no saved copy (with NO_TAIL=1, an update's revive: nothing kept); WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // ROWS_WINDOW=FILE puts the page on the row store (v2): the daemon advertises attach-hold-v1 and the host answers
 // `chat.rows.open` with this window (acpmux-core's `bench_first_window` writes it for the same REPLAY), one link round
 // trip after the open. The settled line's rowStore says every round drew from it. A chat on the store keeps no
@@ -146,6 +146,9 @@ for (const [name, value] of [
 /// waits for the pipe and half a round trip. The copy and the kept tail are the app's own, so they do not cross it.
 const LINK_NAME = process.env.LINK ?? "local";
 const NO_TAIL = process.env.NO_TAIL === "1";
+/// NO_COPY=1 serves no saved copy in any mode: an update's relaunch, whose copy another build wrote, so the page
+/// refuses it. With NO_TAIL=1 that is a revive after an update: nothing of the chat is in the page or the host.
+const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
@@ -1376,6 +1379,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -1527,7 +1541,7 @@ try {
   };
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+    servedCopy = NO_COPY || ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
@@ -1843,6 +1857,13 @@ try {
                   ]
                 : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
