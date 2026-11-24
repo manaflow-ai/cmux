@@ -55,9 +55,17 @@ const UDP_GRACE: Duration = Duration::from_millis(250);
 /// STUN retransmission timeout on a stream: TCP already retransmits, so
 /// a request is repeated only when the server truly did not answer.
 const STREAM_RTO_MS: u16 = 1500;
-/// A send through the allocation that took this long is logged (one is
-/// a UDP write, microseconds).
-const SEND_WAIT_LOGGED: Duration = Duration::from_millis(10);
+/// A send through the allocation still running after this long waits on
+/// the turn crate's lock (one that does not is a UDP write: microseconds).
+/// Its refresh timers hold that lock for a whole transaction with the TURN
+/// server (`turn` 0.17 `client/relay_conn.rs`: CreatePermission every
+/// 120 s, Refresh at half the allocation's lifetime), a round trip on a
+/// good link and 200 ms more per lost request or answer, and every send
+/// waited behind it: keystrokes stalled on a timer. Past this, datagrams
+/// to a peer the allocation already reached go to the server directly, as
+/// Send indications (its permission is still installed: the refresh only
+/// extends it), until the stuck send finishes.
+const SEND_BYPASS_AFTER: Duration = Duration::from_millis(5);
 /// Datagrams received from the TURN server before new ones are dropped.
 const INBOUND_QUEUE: usize = 1024;
 /// Bound on the TCP connect and TLS handshake to a TURN server.
@@ -527,33 +535,12 @@ impl TurnCarrier {
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
-        let sender = {
-            let (relay, queue) = (Arc::clone(&relay), Arc::clone(&queue));
-            tokio::spawn(async move {
-                let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
-                    std::collections::HashMap::new();
-                while let Some(Queued { datagram, to }) = queue.next().await {
-                    if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
-                        continue;
-                    }
-                    let asked = tokio::time::Instant::now();
-                    let sent = relay.send_to(&datagram, to).await;
-                    let waited = asked.elapsed();
-                    if waited >= SEND_WAIT_LOGGED {
-                        tracing::debug!(waited_ms = waited.as_millis() as u64, %to, "TURN send waited");
-                    }
-                    match sent {
-                        Ok(_) => {
-                            failed.remove(&to);
-                        }
-                        Err(error) => {
-                            tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
-                            failed.insert(to, tokio::time::Instant::now());
-                        }
-                    }
-                }
-            })
-        };
+        // Where a Send indication goes when the turn crate's lock holds a send
+        // (see `send_loop`); None when the name does not resolve (no bypass).
+        let server_addr =
+            tokio::net::lookup_host(&turn_serv_addr).await.ok().and_then(|mut addrs| addrs.next());
+        let sender =
+            tokio::spawn(send_loop(Arc::clone(&relay), Arc::clone(&conn), server_addr, Arc::clone(&queue)));
         let receiver = {
             let relay = Arc::clone(&relay);
             tokio::spawn(async move {
@@ -616,6 +603,118 @@ impl TurnCarrier {
 /// Whether a TURN client error is a 437 (Allocation Mismatch).
 fn is_allocation_mismatch(error: &str) -> bool {
     error.contains("error 437")
+}
+
+/// The allocation's sender: every queued datagram through `relay`, in order.
+/// A send that waits on the turn crate's lock past [`SEND_BYPASS_AFTER`] is
+/// left running, and this datagram and the ones after it go to `server` as
+/// Send indications on `conn` (peers not reached before are dropped: their
+/// permission may not exist yet). When the stuck send finishes, its copy of
+/// the datagram goes out too; WireGuard's replay window drops it.
+async fn send_loop(
+    relay: Arc<dyn Conn + Send + Sync>,
+    conn: Arc<dyn Conn + Send + Sync>,
+    server: Option<SocketAddr>,
+    queue: Arc<ClassQueue>,
+) {
+    type Send =
+        std::pin::Pin<Box<dyn std::future::Future<Output = webrtc::util::Result<usize>> + std::marker::Send>>;
+    let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    // Peers a send through the allocation reached: their permission exists.
+    let mut reached: std::collections::HashSet<SocketAddr> = std::collections::HashSet::new();
+    // The send held by the lock, its peer, since when, and what went around it.
+    let mut stuck: Option<(Send, SocketAddr, tokio::time::Instant, usize)> = None;
+    let note = |sent: webrtc::util::Result<usize>,
+                to: SocketAddr,
+                failed: &mut std::collections::HashMap<SocketAddr, tokio::time::Instant>,
+                reached: &mut std::collections::HashSet<SocketAddr>| match sent {
+        Ok(_) => {
+            failed.remove(&to);
+            reached.insert(to);
+        }
+        Err(error) => {
+            tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
+            failed.insert(to, tokio::time::Instant::now());
+        }
+    };
+    loop {
+        let next = tokio::select! {
+            biased;
+            sent = async { stuck.as_mut().map(|stuck| stuck.0.as_mut()).expect("guarded").await }, if stuck.is_some() => {
+                if let Some((_, to, since, around)) = stuck.take() {
+                    tracing::debug!(
+                        waited_ms = u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        around,
+                        %to,
+                        "TURN send waited on the client's lock; sent around it as Send indications"
+                    );
+                    note(sent, to, &mut failed, &mut reached);
+                }
+                continue;
+            }
+            next = queue.next() => next,
+        };
+        let Some(Queued { datagram, to }) = next else { return };
+        if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
+            continue;
+        }
+        if let Some((_, _, _, around)) = stuck.as_mut() {
+            if reached.contains(&to)
+                && let Some(server) = server
+            {
+                *around += usize::from(send_indication(&*conn, server, &datagram, to).await);
+            }
+            continue;
+        }
+        let mut send: Send = {
+            let (relay, datagram) = (Arc::clone(&relay), datagram.clone());
+            Box::pin(async move { relay.send_to(&datagram, to).await })
+        };
+        match tokio::time::timeout(SEND_BYPASS_AFTER, send.as_mut()).await {
+            Ok(sent) => note(sent, to, &mut failed, &mut reached),
+            Err(_) => {
+                let around = match server {
+                    Some(server) if reached.contains(&to) => {
+                        usize::from(send_indication(&*conn, server, &datagram, to).await)
+                    }
+                    _ => 0,
+                };
+                stuck = Some((send, to, tokio::time::Instant::now(), around));
+            }
+        }
+    }
+}
+
+/// `datagram` to `to` through the allocation as a TURN Send indication
+/// (RFC 8656 §11), written straight to the server on `conn`: no lock of the
+/// turn crate's. Whether it was written.
+async fn send_indication(
+    conn: &(dyn Conn + Send + Sync),
+    server: SocketAddr,
+    datagram: &[u8],
+    to: SocketAddr,
+) -> bool {
+    use webrtc::stun::fingerprint::FINGERPRINT;
+    use webrtc::stun::message::{CLASS_INDICATION, METHOD_SEND, Message, MessageType, Setter};
+    use webrtc::turn::proto::data::Data;
+    use webrtc::turn::proto::peeraddr::PeerAddress;
+
+    let raw = {
+        let setters: Vec<Box<dyn Setter>> = vec![
+            Box::new(webrtc::stun::agent::TransactionId::new()),
+            Box::new(MessageType::new(METHOD_SEND, CLASS_INDICATION)),
+            Box::new(Data(datagram.to_vec())),
+            Box::new(PeerAddress { ip: to.ip(), port: to.port() }),
+            Box::new(FINGERPRINT),
+        ];
+        let mut message = Message::new();
+        if message.build(&setters).is_err() {
+            return false;
+        }
+        message.raw
+    };
+    conn.send_to(&raw, server).await.is_ok()
 }
 
 /// Retransmission timeout of [`release_allocation`]'s requests, doubled per
@@ -817,6 +916,113 @@ fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `Conn` that records what is sent on it; its `send_to` waits while
+    /// `held` is true, as the turn crate's relay waits while a refresh holds
+    /// its lock.
+    struct Recorder {
+        sent: std::sync::Mutex<Vec<(Vec<u8>, SocketAddr)>>,
+        held: watch::Receiver<bool>,
+    }
+
+    #[async_trait::async_trait]
+    impl Conn for Recorder {
+        async fn connect(&self, _addr: SocketAddr) -> webrtc::util::Result<()> {
+            Ok(())
+        }
+        async fn recv(&self, _buf: &mut [u8]) -> webrtc::util::Result<usize> {
+            std::future::pending().await
+        }
+        async fn recv_from(&self, _buf: &mut [u8]) -> webrtc::util::Result<(usize, SocketAddr)> {
+            std::future::pending().await
+        }
+        async fn send(&self, _buf: &[u8]) -> webrtc::util::Result<usize> {
+            Ok(0)
+        }
+        async fn send_to(&self, buf: &[u8], target: SocketAddr) -> webrtc::util::Result<usize> {
+            let _ = self.held.clone().wait_for(|held| !*held).await;
+            self.sent.lock().unwrap().push((buf.to_vec(), target));
+            Ok(buf.len())
+        }
+        fn local_addr(&self) -> webrtc::util::Result<SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+        fn remote_addr(&self) -> Option<SocketAddr> {
+            None
+        }
+        async fn close(&self) -> webrtc::util::Result<()> {
+            Ok(())
+        }
+        fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+            self
+        }
+    }
+
+    /// Leo, 2026-11-24: "im also still noticing in intervals lag spikes when
+    /// just typing on phone". Over TURN every send waited out the turn
+    /// crate's permission refresh (every 120 s, a round trip to the server,
+    /// 104 and 202 ms in `typing_echo` at lte with the server 70 ms away).
+    /// While a send is held, keys to a peer already reached go around it as
+    /// Send indications, at once; the held one still goes when it is let go.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_send_held_by_a_refresh_goes_around_it_as_send_indications() {
+        let (hold, held) = watch::channel(false);
+        let relay = Arc::new(Recorder { sent: Default::default(), held });
+        let (_never, free) = watch::channel(false);
+        let conn = Arc::new(Recorder { sent: Default::default(), held: free });
+        let server: SocketAddr = "127.0.0.1:3478".parse().unwrap();
+        let peer: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        let stranger: SocketAddr = "127.0.0.1:5001".parse().unwrap();
+        let queue = Arc::new(ClassQueue::default());
+        let task = tokio::spawn(send_loop(relay.clone(), conn.clone(), Some(server), Arc::clone(&queue)));
+        let key = |n: u8| Queued { datagram: Bytes::from(vec![n; 16]), to: peer };
+        let settle = || tokio::time::sleep(Duration::from_millis(50));
+
+        queue.push(key(0), SendClass::Input);
+        settle().await;
+        assert_eq!(relay.sent.lock().unwrap().len(), 1, "the first key goes through the relay");
+
+        hold.send_replace(true);
+        let held_at = tokio::time::Instant::now();
+        for n in 1..=3 {
+            queue.push(key(n), SendClass::Input);
+        }
+        queue.push(Queued { datagram: Bytes::from_static(b"never reached"), to: stranger }, SendClass::Input);
+        settle().await;
+        let around = conn.sent.lock().unwrap().clone();
+        assert_eq!(around.len(), 3, "keys 1 to 3 went around the held send; the stranger did not");
+        for ((raw, to), n) in around.iter().zip(1u8..) {
+            assert_eq!(*to, server);
+            let mut message = webrtc::stun::message::Message::new();
+            message.raw = raw.clone();
+            message.decode().expect("a STUN message");
+            assert_eq!(
+                message.typ,
+                webrtc::stun::message::MessageType::new(
+                    webrtc::stun::message::METHOD_SEND,
+                    webrtc::stun::message::CLASS_INDICATION
+                )
+            );
+            use webrtc::stun::message::Getter as _;
+            let mut data = webrtc::turn::proto::data::Data::default();
+            data.get_from(&message).expect("DATA");
+            assert_eq!(data.0, vec![n; 16]);
+            let mut to_peer = webrtc::turn::proto::peeraddr::PeerAddress::default();
+            to_peer.get_from(&message).expect("XOR-PEER-ADDRESS");
+            assert_eq!((to_peer.ip, to_peer.port), (peer.ip(), peer.port()));
+        }
+        assert!(held_at.elapsed() < Duration::from_millis(200));
+        assert_eq!(relay.sent.lock().unwrap().len(), 1, "nothing passed the held relay");
+
+        hold.send_replace(false);
+        settle().await;
+        assert_eq!(relay.sent.lock().unwrap().len(), 2, "the held key went once let go");
+        queue.push(key(4), SendClass::Input);
+        settle().await;
+        assert_eq!(relay.sent.lock().unwrap().len(), 3, "and the relay carries keys again");
+        assert_eq!(conn.sent.lock().unwrap().len(), 3);
+        task.abort();
+    }
 
     /// lossy-3 lost 2 dials in 20 (lan_roundtrip, before): the server's
     /// answer to the Allocate was lost, the client's retransmit met the
