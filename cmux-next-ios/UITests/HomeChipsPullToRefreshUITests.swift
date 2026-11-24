@@ -121,7 +121,7 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
             // it into the 186 pt that starts a refresh (420 pt of drag gives only about 180 pt).
             fullPull(app)
             attach(app, "ptr-2-refreshing-\(mode)")
-            XCTAssertGreaterThan(first.frame.minY, rest + 40, "the rows sit under the refresh slot\n\(app.debugDescription)")
+            XCTAssertGreaterThan(first.frame.minY, rest + 40, "the rows sit under the refresh slot; \(readout(app))")
             // Done (4 s): the slot closes and the rows settle back where they were.
             sleep(6)
             XCTAssertEqual(first.frame.minY, rest, accuracy: 2, "the slot closed\n\(app.debugDescription)")
@@ -140,9 +140,16 @@ final class HomeChipsPullToRefreshUITests: XCTestCase {
         waitOutQuietBound()
         attach(app, "ptr-updating-before-pull-light")
         fullPull(app)
-        XCTAssertTrue(updatingChip(app).waitForNonExistence(timeout: 3), "no Updating during the pull\n\(app.debugDescription)")
+        XCTAssertTrue(updatingChip(app).waitForNonExistence(timeout: 3), "no Updating during the pull; \(readout(app))")
         attach(app, "ptr-updating-hidden-during-pull-light")
         app.terminate()
+    }
+
+    /// The pull control's own state (DEBUG, with the rig's refresh): attached, furthest pull, refreshes.
+    @MainActor
+    private func readout(_ app: XCUIApplication) -> String {
+        let element = app.descendants(matching: .any)["list.pullToRefresh.readout"]
+        return element.exists ? "readout: \(element.value as? String ?? "?")" : "readout: missing (the probe never found the list)"
     }
 
     /// From just under the toolbar to the bottom of the screen, slowly, then let go.

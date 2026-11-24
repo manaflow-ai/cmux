@@ -38,6 +38,18 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
         private var offsetObservation: NSKeyValueObservation?
         /// A check for the list coming to rest is queued.
         private var awaitingRest = false
+        /// UI tests' readout (`CMUX_MOBILE_LIST_REFRESH_SECONDS` set): whether it found the list,
+        /// the furthest pull, and how many refreshes ran, as this view's accessibility value.
+        private let readout = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"] != nil
+        private var furthest: CGFloat = 0
+        private var began = 0
+
+        private func publish() {
+            guard readout else { return }
+            isAccessibilityElement = true
+            accessibilityIdentifier = "list.pullToRefresh.readout"
+            accessibilityValue = "attached=\(control != nil) list=\(scrollView.map { Int($0.bounds.height) } ?? 0) furthest=\(Int(furthest)) began=\(began) refreshing=\(control?.isRefreshing == true)"
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -52,12 +64,16 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
                   let scroll = Self.firstCollectionView(in: controller.view) else { return }
             scrollView = scroll
             control = ListPullToRefresh(scrollView: scroll) { [weak self] in
+                self?.began += 1
+                self?.publish()
                 await self?.action?()
+                self?.publish()
             }
             offsetObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.scrolled() }
             }
             scroll.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+            publish()
         }
 
         func detach() {
@@ -71,6 +87,10 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
 
         private func scrolled() {
             guard let control, let scrollView else { return }
+            if readout, scrollView.isDragging {
+                furthest = max(furthest, -(scrollView.contentOffset.y + scrollView.adjustedContentInset.top))
+                publish()
+            }
             control.scrolled()
             if !scrollView.isDragging, scrollView.isDecelerating { awaitRest() }
         }
@@ -78,7 +98,9 @@ struct ListPullToRefreshProbe: UIViewRepresentable {
         @objc private func panned(_ pan: UIPanGestureRecognizer) {
             guard pan.state == .ended || pan.state == .cancelled || pan.state == .failed,
                   let control, let scrollView else { return }
-            var target = scrollView.contentOffset
+            // UIKit's own pan target ran first: it bounces to the top. The control opens its slot
+            // there (as from Workspaces' `scrollViewWillEndDragging`); the bounce then ends in it.
+            var target = CGPoint(x: 0, y: -scrollView.adjustedContentInset.top)
             control.willEndDragging(targetContentOffset: &target)
             awaitRest()
         }
