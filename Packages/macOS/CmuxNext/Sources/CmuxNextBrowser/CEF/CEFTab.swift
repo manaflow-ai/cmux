@@ -105,6 +105,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// manual clock.
     @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
+    /// Creation retries spent since the last browser this tab got (``creationFailed(_:)`` retries once).
+    @ObservationIgnored var creationRetries = 0
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
@@ -414,6 +416,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
+        creationRetries = 0
         // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
         if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
@@ -494,10 +497,24 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // What the page area shows, and when the document takes it over, are in
     // `CEFTab+LoadingBackground`.
 
-    func creationFailed() {
+    /// Where a browser failed to be made (named in the log and on the error page, so the next occurrence names itself).
+    enum CreationFailureSite: String {
+        case contextProxy, profileProxy, createWindow, tabAdd, windowTimeout
+    }
+
+    /// The first failure retries once; the second shows the page's error, naming the site.
+    func creationFailed(_ site: CreationFailureSite) {
         isCreationPending = false
+        let engineUp = runtime.shim != nil && runtime.acceptsNewBrowsers
+        runtime.logger.error("CEF tab \(self.id.rawValue, privacy: .public) creation failed at \(site.rawValue, privacy: .public) (try \(self.creationRetries + 1), engine up \(engineUp))")
+        if creationRetries < 1, !isClosed, engineUp {
+            creationRetries += 1
+            host.retryCreation(of: self)
+            return
+        }
         agentRelay.resumeWaiters(false)
-        let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
+        let message = engineUp ? Strings.cefCreationFailed(site.rawValue) : Strings.cefUnavailable
+        let error = BrowserLoadError(domain: "CEF", code: -1, message: message, failingURL: pendingURL)
         let id = makeNavigationID()
         machine.apply(.started(id, url: pendingURL))
         machine.apply(.failed(id, error))
