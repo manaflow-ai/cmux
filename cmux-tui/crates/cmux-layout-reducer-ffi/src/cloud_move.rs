@@ -2,7 +2,9 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, targets, wait};
+use cmux_cloud_start_core::moves::{
+    autosize, cli, folder, ledger, pin, progress, seed, targets, wait,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -44,6 +46,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             cli::read(request.reading, &request.output)
+        }
+        // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_progress" => {
+            let facts: progress::Facts = read(request)?;
+            to_value(progress::line(&facts))?
         }
         b"cloud_move_restarted_daemon" => {
             let answer: cli::Answer = read(request)?;
@@ -334,6 +341,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_start_redial" => {
             let look: wait::RedialLook = read(request)?;
             json!({ "redial": to_value(wait::start_redial(look))? })
+        }
+        b"cloud_move_rereads_record" => {
+            let look: wait::RecordLook = read(request)?;
+            json!({ "rereads": wait::rereads_record(look) })
         }
         b"cloud_move_relinked" => {
             #[derive(Deserialize)]

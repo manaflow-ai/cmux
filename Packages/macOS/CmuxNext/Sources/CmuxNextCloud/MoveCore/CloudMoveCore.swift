@@ -29,6 +29,16 @@ public nonisolated struct CloudMoveCore: Sendable {
         return call("relinked", Request(before: before, now: now, refusedCounts: refusedCounts), as: Reply.self)?.relinked ?? false
     }
 
+    /// Whether an attach reads a machine's record again before it connects (`moves::wait::rereads_record`), for a machine
+    /// with no daemon connection that does not read paused: not when a create's or claim's answer gave it as running
+    /// less than `answeredAgo` ago within Rust's window. An FFI that does not answer reads again, as before.
+    public func rereadsRecord(running: Bool, answeredAgo: Duration?) -> Bool {
+        struct Request: Encodable { var running: Bool, answeredAgoMs: Int64? }
+        struct Reply: Decodable { var rereads: Bool }
+        let ms = answeredAgo.map { $0.components.seconds * 1000 + $0.components.attoseconds / 1_000_000_000_000_000 }
+        return call("rereads_record", Request(running: running, answeredAgoMs: ms.map { max(0, $0) }), as: Reply.self)?.rereads ?? true
+    }
+
     /// Whether an answer is the machine's older daemon refusing it (`machine_outdated`, not `side` `source`).
     public func updatesBeforeCopyingAgain(ok: Bool, errorCode: String?, side: String?) -> Bool {
         struct Request: Encodable { var ok: Bool, errorCode: String?, side: String? }
@@ -61,7 +71,7 @@ public nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDel
 
 extension Duration {
     /// Whole milliseconds, rounded down.
-    nonisolated var wholeMilliseconds: Int64 {
+    public nonisolated var wholeMilliseconds: Int64 {
         let (seconds, attoseconds) = components
         return seconds * 1000 + attoseconds / 1_000_000_000_000_000
     }

@@ -367,6 +367,11 @@ public final class DesignSettings {
     public var cornerFlush: CornerFlush? {
         didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.tabShape`: how blocky the tabs of every tab bar and the sidebar's rows are (``TabShape``): block (the
+    /// default) or rounded; a change repaints, as the tone does. The gooey look is `appearance.cornerFlush` flush-goo.
+    public var tabShape: TabShape = .block {
+        didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
     /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
     /// without writing either setting. A change repaints, as the corner does.
