@@ -1156,6 +1156,11 @@ pub(crate) fn overlay(
     values.into_iter().collect()
 }
 
+/// This machine's delivered `machine.env` under `home`.
+pub(crate) fn machine_env_path(home: &std::path::Path) -> std::path::PathBuf {
+    machine::path(home)
+}
+
 /// Whether an env name may come from a person's or machine's declarations:
 /// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
 pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
