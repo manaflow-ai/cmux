@@ -9,13 +9,13 @@ import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { installCardRects, settingsCardSizes } from "../../../test/support/settingsCardSizes";
-import { manyKeys, manyShares } from "../../../test/support/settingsCardFixtures";
 
 const restore = installDom();
 afterAll(() => restore());
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage, settle, click } = await import("./testing");
+const { manyKeys, manyShares } = await import("../../../test/support/settingsCardFixtures");
 const { mockLongLibrary } = await import("./mockLibrary");
 
 const NOW = Date.now();
