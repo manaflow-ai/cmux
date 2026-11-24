@@ -71,6 +71,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     public init(queue: DispatchQueue? = nil, window: TimeInterval = CoalescingFileWriter.defaultWindow,
                 maximumQueuedBytes: Int = CoalescingFileWriter.defaultMaximumQueuedBytes,
                 onError: @escaping @Sendable (URL, any Error) -> Void = { _, _ in }) {
+        // blocking-allow: the writer's one utility queue, bounded by maximumQueuedBytes, listed in threading-model.md
         self.queue = queue ?? DispatchQueue(label: "com.cmuxterm.app.next.coalescing-file-writer", qos: .utility)
         self.window = window
         self.maximumQueuedBytes = maximumQueuedBytes
@@ -133,7 +134,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     /// Runs everything pending now and waits for it: for app termination, under its deadline.
     public func flush() {
         // concurrency-allow: termination only, after the quit deadline is armed; never from the writer's own queue
-        queue.sync { drain() }
+        queue.sync { drain() }  // blocking-allow: quit-time flush under the quit's deadline, documented on flush()
     }
 
     private func enqueue(_ job: Job) {
@@ -198,7 +199,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
             switch job.work {
             case .replace(let produce, let options, let then):
                 guard let data = try produce() else {
-                    try? FileManager.default.removeItem(at: job.url)
+                    try? FileManager.default.removeItem(at: job.url)  // blocking-allow: runs only on the writer's own background queue
                     state.withLock { $0.diskWrites += 1 }
                     return
                 }
