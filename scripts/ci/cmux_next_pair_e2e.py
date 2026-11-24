@@ -353,8 +353,35 @@ def main():
 
     last = {}
 
+    def host_card():
+        """The Settings page's iPhone card (`iphone` in `cmux.settings.host.lists`, a ref after #48532
+        removed the Mobile Pairing page), {} until it answers; a hidden Settings page opens while none is live."""
+        r = rpc("debug.page", {"page": "cmux.settings", "action": "call", "op": "cmux.settings.host.lists"})
+        if "no live page" in str(r.get("error", "")):
+            rpc("debug.page", {"page": "cmux.settings", "action": "open"})
+            return {}
+        value = r.get("value") if isinstance(r.get("value"), dict) else {}
+        card = value.get("iphone")
+        return card if isinstance(card, dict) else {}
+
+    def card_phones(card):
+        return [row for row in (card.get("phones") or []) if isinstance(row, dict)]
+
     def status():
-        """The Mobile Pairing page's status (opening the page while it has none)."""
+        """The Mobile Pairing page's status (opening the page while it has none). On a ref without that
+        page, the Settings iPhone card's, with connectedPhones counted from its paired, connected rows."""
+        if not expects_code:
+            card = host_card()
+            if not card:
+                return {}
+            value = dict(card, connectedPhones=sum(1 for row in card_phones(card)
+                                                   if row.get("paired") is True and row.get("connected") is True))
+            if (value.get("phase"), value["connectedPhones"]) != (last.get("phase"), last.get("connectedPhones")):
+                print(f"Mac iPhone card: phase {value.get('phase')} status {value.get('status')!r}, "
+                      f"{value['connectedPhones']} connected phone(s)", flush=True)
+            last.clear()
+            last.update(value)
+            return value
         r = rpc("debug.page", {"page": PAGE, "action": "call", "op": "cmux.mobilePairing.status"})
         if "no live page" in str(r.get("error", "")):
             rpc("action.run", {"action": "palette.mobileConnect", "focus": True})
@@ -428,7 +455,7 @@ def main():
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     offline = os.environ.get("CMUX_PAIR_E2E_OFFLINE") == "1"
-    offline_ok = True
+    offline_ok = not offline  # offline mode passes only when its leg ran and passed
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0" and not offline
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
@@ -484,7 +511,7 @@ def main():
         # Signed in, hostd online, iPhone connections on: the page shows the code. A page still
         # without one at 60 s is sampled once (where the app waits), then the wait goes on.
         deadline = time.monotonic() + (300 if expects_code else 60)
-        qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {})
+        qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {}) if expects_code else {}
         if not qr and expects_code:
             try:  # evidence only: a failure here never replaces the run's own verdict
                 why = preparing_evidence(app, a.out, deadline)
@@ -598,6 +625,10 @@ def main():
             if discovery and paired and not offline:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
+        elif offline:
+            app, paired, offline_ok = pair_by_tag_and_walk(app, exe, env, a, simctl, phone_env, phone_log, streams,
+                                                           status, host_card, card_phones, rpc, phone_shot,
+                                                           phone_settled, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
         if proof is not None:
             if not paired:
@@ -633,6 +664,10 @@ def main():
             # The public archive is an allowlist in Cloud mode. Raw screenshots,
             # pairing/app logs and failure captures remain unavailable to upload.
             allowlist_public_cloud_artifact(a.out)
+    if offline:
+        note(f"- offline walk: {'PASS' if paired and offline_ok else 'FAIL'} (paired {bool(paired)}, offline leg "
+             f"{'passed' if offline_ok else 'failed or never ran'})")
+        return 0 if paired and offline_ok else 1  # never green unpaired: the walk is the run
     if not url and not expects_code and proof is None:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     if discovery:
@@ -1421,7 +1456,67 @@ def png_width(path):
         return 0
 
 
-def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note, pair_url):
+
+def phone_team_id(simctl, udid, bundle_id):
+    """The phone's team (cmuxMobile.lastTeamID, else the team of a cmuxMobile.live.mac.<team> key), from its
+    defaults once live data has run; "" when neither is there."""
+    r = subprocess.run(simctl + ["spawn", udid, "defaults", "read", bundle_id, "cmuxMobile.lastTeamID"],
+                       capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    r = subprocess.run(simctl + ["spawn", udid, "defaults", "read", bundle_id], capture_output=True, text=True)
+    m = re.search(r'"?cmuxMobile\.live\.mac\.([^"\s=]+)"?\s*=', r.stdout or "")
+    return m.group(1) if m else ""
+
+
+def pair_by_tag_and_walk(app, exe, env, a, simctl, phone_env, phone_log, streams, status, host_card, card_phones, rpc,
+                         phone_shot, phone_settled, note):
+    """A ref after #48532 (no pairing code): the tagged DEBUG Mac auto-approves its own tag's phone
+    (IPhoneDevAutoApprove; the rig builds the phone as dev.cmux.mobile.<mac tag>). The phone is launched
+    focused on the Mac (CMUX_MOBILE_FOCUS_MAC, its device id from the Settings iPhone card), and paired is
+    True only when the Mac's card lists a paired, connected phone. Returns (app, paired, offline_ok)."""
+    t1 = time.monotonic()
+    card = wait_for(lambda: (lambda c: c if c.get("device_id") else None)(host_card()), 90, every=2) or {}
+    mac_id = card.get("device_id") or ""
+    if not mac_id:
+        note(f"- pairing (by tag): NOT paired: the Mac's Settings iPhone card gave no device_id in 90 s "
+             f"(card {json.dumps({k: card.get(k) for k in ('allowed', 'phase', 'status')})})")
+        return app, False, False
+    if not a.bundle_id.startswith("dev.cmux.mobile.iospair-"):
+        note(f"- pairing (by tag): the phone is {a.bundle_id}, not dev.cmux.mobile.<the Mac's tag>: "
+             "the Mac will not auto-approve it")
+    subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
+                   env=dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC=mac_id), check=True, capture_output=True)
+    phone_log.wait(re.compile(r"live data on"), 60)
+
+    def paired_row():
+        c = host_card()
+        rows = [r for r in card_phones(c) if r.get("paired") is True and r.get("connected") is True]
+        return (c, rows[0]) if rows else None
+
+    got = wait_for(paired_row, 180, every=2)
+    took = time.monotonic() - t1
+    card = got[0] if got else host_card()
+    rows = [{k: r.get(k) for k in ("title", "paired", "connected")} for r in card_phones(card)]
+    team_id = phone_team_id(simctl, a.udid, a.bundle_id)
+    phone_settled()
+    note(f"- pairing (by tag, no code on this ref): {'PAIRED' if got else 'NOT paired'} in {took:.0f} s; Mac "
+         f"{mac_id[:8]}…, card phase {card.get('phase')!r} status {card.get('status')!r} allowed "
+         f"{card.get('allowed')}, pending {len(card.get('pending') or [])}, phones {rows}; phone team "
+         f"{'found' if team_id else 'NOT found'}; phone {phone_shot('phone-paired')}")
+    if not got:
+        return app, False, False
+    if not team_id:
+        note("- offline walk: no team id in the phone's defaults (cmuxMobile.lastTeamID / cmuxMobile.live.mac.*): "
+             "it cannot scope the phone to the Mac")
+        return app, True, False
+    app, ok = offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note,
+                          None, mac_team=(mac_id, team_id))
+    return app, True, ok
+
+def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status, rpc, phone_shot, note, pair_url,
+                mac_team=None):
     """cmux#52200, on one recording, each step at the default and the largest Dynamic Type:
     1  the Mac's network cut (pf drops its sockets): "<Mac> is offline" with "Last seen";
     1b the Mac frozen (SIGSTOP of its tree: sockets stay open, the process cannot answer): "<Mac> isn't responding";
@@ -1546,9 +1641,9 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
         single-Mac view where MacRecoveryPanel draws. Written while the app is not running."""
         import urllib.parse
         q = urllib.parse.parse_qs(urllib.parse.urlparse(pair_url or "").query)
-        mac_id, team_id = (q.get("mac") or [""])[0], (q.get("team") or [""])[0]
+        mac_id, team_id = mac_team or ((q.get("mac") or [""])[0], (q.get("team") or [""])[0])
         if not (mac_id and team_id):
-            log("scope", ok=False, why="no mac/team in the pairing link")
+            log("scope", ok=False, why="no mac/team (pairing link or the Mac's card and the phone's team)")
             return False
         r = subprocess.run(simctl + ["spawn", a.udid, "defaults", "write", a.bundle_id,
                                      "cmuxMobile.workspaces.macFilter." + team_id, "-string", mac_id],

@@ -875,6 +875,11 @@ if [[ "$mode" == pair-e2e ]]; then
   # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
   build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+  if [[ "${CMUX_PAIR_E2E_OFFLINE:-}" == 1 ]]; then
+    # Since #48532 there is no pairing code: a tagged DEBUG Mac auto-approves the phone of its own tag
+    # (IPhoneDevAutoApprove: the bundle id after "dev.cmux.mobile."), so the phone's bundle carries it.
+    build_settings+=("CMUX_MOBILE_TAG=.$mac_tag")
+  fi
 fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
