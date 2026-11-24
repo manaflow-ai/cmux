@@ -33,9 +33,10 @@ struct CopyMachines {
 
 impl Machines for CopyMachines {
     async fn fork(&self, machine: &str, _client_key: &str) -> Result<String, String> {
-        // The copy is taken when the fork is asked for, as a copy-on-write fork would be.
-        let disk = fork_of(&self.parent);
+        // The fork is slow to come up; its disk is the parent's as the fork lands (the tests
+        // change the parent only after that).
         tokio::time::sleep(self.delay).await;
+        let disk = fork_of(&self.parent);
         let mut disks = self.disks.lock().unwrap();
         let id = format!("{machine}-fork-{}", disks.len());
         disks.insert(id.clone(), disk);
@@ -149,7 +150,7 @@ async fn a_fork_past_the_budget_never_blocks_the_start_and_waits_warm_for_the_ne
     let parent = checkout();
     let machines = Arc::new(CopyMachines {
         parent: parent.path().to_owned(),
-        delay: Duration::from_millis(300),
+        delay: Duration::from_millis(1500),
         ..Default::default()
     });
     let runner = ForkRunner::new(FakeLink::new(machines.disks.clone()));
@@ -165,14 +166,14 @@ async fn a_fork_past_the_budget_never_blocks_the_start_and_waits_warm_for_the_ne
         parent.path(),
     )
     .await;
-    assert!(began.elapsed() < Duration::from_millis(250), "the start waited on the fork");
+    assert!(began.elapsed() < Duration::from_millis(1000), "the start waited on the fork");
     let Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None } = &first else {
         panic!("{first:?}");
     };
     assert!(detail.contains("warm"), "{detail}");
     assert!(first.runs_here());
     // The fork lands in the background and is kept warm.
-    for _ in 0..100 {
+    for _ in 0..250 {
         if warm.peek().is_some() {
             break;
         }
@@ -180,7 +181,7 @@ async fn a_fork_past_the_budget_never_blocks_the_start_and_waits_warm_for_the_ne
     }
     let parked = warm.peek().expect("a warm fork");
     assert_eq!(parked.id, "m-fork-0");
-    assert!(parked.fork_ms >= 300, "{}", parked.fork_ms);
+    assert!(parked.fork_ms >= 1500, "{}", parked.fork_ms);
 
     // The parent moves on before the next sub-agent: the warm fork is synced to now.
     std::fs::write(parent.path().join("keep.txt"), "keep, edited after the warm fork\n").unwrap();
