@@ -27,7 +27,9 @@ use super::super::cloud_start_chat::{self, Machine, Runner, step_result};
 use super::super::{GlobalArgs, OutputMode, vm_ready};
 use super::Start;
 
-/// The hidden verb the start spawns: `cmux cloud hybrid-drive --session ID --machine new|ID`.
+/// The hidden verb the start spawns: `cmux cloud hybrid-drive ID new|MACHINE`. The chat and its
+/// target are plain words: `--session` and `--machine` are globals that name a daemon, and the
+/// global parser takes them before the verb sees them.
 pub(in crate::cli) const DRIVE_VERB: &str = "hybrid-drive";
 /// The hidden verb the nightly read-back runs: `cmux cloud hybrid-status`, `{enabled, off, ...}`.
 pub(in crate::cli) const STATUS_VERB: &str = "hybrid-status";
@@ -249,10 +251,7 @@ pub(super) fn drive_words(
 ) -> Vec<String> {
     let mut words = cloud_start_chat::forwarded_globals(global);
     let gate = gate_ms.to_string();
-    words.extend(
-        ["cloud", DRIVE_VERB, "--session", session, "--machine", target, "--gate-ms", &gate]
-            .map(str::to_owned),
-    );
+    words.extend(["cloud", DRIVE_VERB, session, target, "--gate-ms", &gate].map(str::to_owned));
     words
 }
 
@@ -684,16 +683,27 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
 }
 
+/// The driver's chat, target and gate cost, from the words after its verb.
+pub(super) fn drive_args(rest: &[String]) -> Option<(String, String, String)> {
+    let [session, target, flags @ ..] = rest else { return None };
+    if session.starts_with('-') || target.starts_with('-') {
+        return None;
+    }
+    let gate = flags
+        .iter()
+        .position(|word| word == "--gate-ms")
+        .and_then(|at| flags.get(at + 1))
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_owned());
+    Some((session.clone(), target.clone(), gate))
+}
+
 fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
-    let value = |flag: &str| {
-        rest.iter().position(|word| word == flag).and_then(|at| rest.get(at + 1)).cloned()
-    };
-    let (Some(session), Some(target)) = (value("--session"), value("--machine")) else {
-        eprintln!("usage: cmux cloud {DRIVE_VERB} --session ID --machine new|ID");
+    let Some((session, target, gate)) = drive_args(rest) else {
+        eprintln!("usage: cmux cloud {DRIVE_VERB} ID new|MACHINE");
         return 2;
     };
     // The start's own cost, then the plan read again for the next start (off the start's path).
-    let gate = value("--gate-ms").unwrap_or_else(|| "unknown".to_owned());
     println!("{}gate {gate} ms", hybrid::PREFIX);
     let plan = refresh_plan();
     println!("{}", json!({"plan": plan}));

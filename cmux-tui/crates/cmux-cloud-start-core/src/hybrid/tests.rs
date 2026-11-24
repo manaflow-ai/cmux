@@ -127,7 +127,7 @@ fn a_turn_that_only_answers_goes_on_to_its_end() {
 #[test]
 fn a_prompt_sent_while_the_chat_moves_is_delivered_once_to_where_it_landed() {
     let moving = run(State::default(), &[(Event::Begin, 0), (Event::MachineReady, 10)]).0;
-    let (state, effects) = run(moving.clone(), &[(prompt("p1"), 11), (prompt("p2"), 12)]);
+    let (state, effects) = run(moving, &[(prompt("p1"), 11), (prompt("p2"), 12)]);
     assert_eq!(effects, [Effect::Hold { id: "p1".into() }, Effect::Hold { id: "p2".into() }]);
     let (landed, effects) = run(state.clone(), &[(Event::MoveCommitted, 20)]);
     let delivered: Vec<_> =

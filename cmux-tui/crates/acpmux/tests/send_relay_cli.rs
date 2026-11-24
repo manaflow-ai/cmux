@@ -430,7 +430,8 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         legs.push((mode, stall_leg(&dir, "idle", runs, 0, mode)));
         legs.push((mode, stall_leg(&dir, "cpu hogs", runs, cores * 10, mode)));
     }
-    // A kept listing (a minute old): plain `ls` serves it and does not wait on the relay.
+    // A kept listing (a minute old): plain `ls` reads the stalled relay for it once, by 250 ms,
+    // then lists it at once while the refresh that miss started runs.
     write_kept_listing(&dir);
     if !report_only {
         legs.push((Mode::Warm, stall_leg(&dir, "idle", runs, 0, Mode::Warm)));
@@ -451,7 +452,8 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         }
     }
 
-    // The kept listing's rows are listed, marked stale.
+    // The kept listing's rows are listed with their asOfMs, not marked `stale` (a down peer's
+    // copy), so the table shows their state, never `peer down`.
     let ls = cli(&dir, &["--json", "ls"]);
     assert!(ls.status.success(), "{}", text(&ls));
     let v: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
@@ -463,7 +465,11 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         .filter(|r| r["sessionId"] == "01far-kept")
         .collect();
     assert_eq!(kept.len(), 1, "{v}");
-    assert_eq!(kept[0]["stale"], true, "{v}");
+    assert!(kept[0].get("stale").is_none(), "{v}");
+    assert!(kept[0]["asOfMs"].as_u64().is_some(), "{v}");
+    let table = cli(&dir, &["ls", "--all"]);
+    let table_out = String::from_utf8_lossy(&table.stdout);
+    assert!(!table_out.contains("peer down"), "{table_out}");
     let said = String::from_utf8_lossy(&ls.stderr);
     assert!(
         said.contains("from the last listing, refreshing; listed as of 1m ago"),
