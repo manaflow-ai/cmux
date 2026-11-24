@@ -362,6 +362,9 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Holds the transport while the link is parked (WireGuard); `None`
+    /// when it cannot be held (WebRTC).
+    pub hold: Option<crate::link::HoldHook>,
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
@@ -590,6 +593,9 @@ pub async fn connect(
     let (dialed, session_id) = dial_transport(signaling, mac, kind, options).await?;
     let link_config = reliable_config(link_config, dialed.reliable, None);
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
     if let Some(liveness) = dialed.liveness {
         link.attach_liveness_datagrams(liveness);
@@ -633,9 +639,12 @@ pub async fn resume(
     // The input and media lanes stay as they were: a reliable link carries
     // input on its main carrier. Its liveness datagrams ride the new tunnel.
     drop(dialed.lane);
-    link.resume(dialed.stream, Some(dialed.guard))
+    link.resume_carrier(dialed.stream, Some(dialed.guard))
         .await
         .map_err(|error| DialError::Transport(error.to_string()))?;
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     if let Some(liveness) = dialed.liveness {
         link.attach_liveness_datagrams(liveness);
     }
@@ -721,6 +730,11 @@ pub async fn answer(
             crate::Accepted::New(link) => (link, false),
             crate::Accepted::Resumed(link) => (link, true),
         };
+        // A resumed link's new carrier is a new transport: its hook replaces
+        // the last carrier's.
+        if let Some(hold) = dialed.hold {
+            link.set_hold_hook(hold);
+        }
         if let Some(liveness) = dialed.liveness {
             link.attach_liveness_datagrams(liveness);
         }
@@ -740,6 +754,9 @@ pub async fn answer(
     }
     let link =
         Link::new(dialed.stream, Role::Mac, reliable_config(link_config, false, None), Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
     if let Some(liveness) = dialed.liveness {
         link.attach_liveness_datagrams(liveness);
@@ -801,6 +818,105 @@ mod tests {
         let registry = std::sync::Arc::new(crate::ResumeRegistry::default());
         let agreed = reliable_config(today, true, Some(&registry)).reliable.expect("on when agreed");
         assert!(agreed.registry.is_some_and(|r| std::sync::Arc::ptr_eq(&r, &registry)));
+    }
+
+    /// Frames one way between a phone and a Mac, with each one's type
+    /// noted: what the other end's reader would see.
+    fn tap(
+        from: tokio::io::DuplexStream,
+        to: tokio::io::DuplexStream,
+        seen: std::sync::Arc<std::sync::Mutex<Vec<crate::frame::FrameType>>>,
+    ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_util::codec::{FramedRead, FramedWrite};
+        let one_way = |read, write, seen: std::sync::Arc<std::sync::Mutex<Vec<_>>>| {
+            tokio::spawn(async move {
+                let mut source = FramedRead::new(read, crate::frame::FrameCodec);
+                let mut sink = FramedWrite::new(write, crate::frame::FrameCodec);
+                while let Some(Ok(frame)) = source.next().await {
+                    seen.lock().unwrap().push(frame.kind);
+                    if sink.send(frame).await.is_err() {
+                        return;
+                    }
+                }
+                // The end closed its side: the other end reads that too.
+                let _ = sink.close().await;
+            })
+        };
+        let (from_read, from_write) = tokio::io::split(from);
+        let (to_read, to_write) = tokio::io::split(to);
+        (one_way(from_read, to_write, seen.clone()), one_way(to_read, from_write, seen))
+    }
+
+    /// A mixed pair, both ways round: an end that never offers `reliable`
+    /// (and so knows no frame type above 5) links with one that does, by the
+    /// dial's own negotiation, and the link runs without the sequenced mode:
+    /// no seq, ack, hello or bye frame crosses the wire in either direction.
+    #[tokio::test]
+    async fn a_mixed_pair_links_without_the_reliable_frames_either_way() {
+        use crate::frame::FrameType;
+        use crate::link::ChannelEvent;
+        use bytes::Bytes;
+        for (phone_new, mac_new) in [(false, true), (true, false)] {
+            let label = if phone_new { "new phone, old Mac" } else { "old phone, new Mac" };
+            let phone_options = DialOptions { reliable: phone_new, ..DialOptions::default() };
+            let mac_options = DialOptions { reliable: mac_new, ..DialOptions::default() };
+            let phone_lanes = offered_lanes(&phone_options, false, false);
+            let mac_lanes = offered_lanes(&mac_options, false, false);
+            let phone_agreed = reliable_agreed(&phone_options, &mac_lanes);
+            let mac_agreed = reliable_agreed(&mac_options, &phone_lanes);
+            assert!(!phone_agreed && !mac_agreed, "{label}: only one side offered it");
+            let quick =
+                LinkConfig { keepalive: Some(std::time::Duration::from_millis(20)), ..LinkConfig::default() };
+            let registry = std::sync::Arc::new(crate::ResumeRegistry::default());
+            let phone_config = reliable_config(quick.clone(), phone_agreed, None);
+            let mac_config = reliable_config(quick, mac_agreed, Some(&registry));
+
+            let (phone_end, phone_tap) = tokio::io::duplex(64 * 1024);
+            let (mac_tap, mac_end) = tokio::io::duplex(64 * 1024);
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (up, down) = tap(phone_tap, mac_tap, seen.clone());
+            let phone = Link::new(phone_end, Role::Phone, phone_config, None);
+            // As `answer` builds it when the dial did not agree on it.
+            let mac = Link::new(mac_end, Role::Mac, mac_config, None);
+            assert!(phone.reliable_stats().is_none() && mac.reliable_stats().is_none(), "{label}");
+
+            let server = mac.clone();
+            let echo = tokio::spawn(async move {
+                let mut incoming = server.accept().await.expect("incoming");
+                while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                    incoming.channel.send(bytes).await.unwrap();
+                }
+            });
+            let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+            for round in 0..3u8 {
+                channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
+                match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
+                    Ok(Some(ChannelEvent::Data(bytes))) => {
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                    }
+                    other => panic!("{label}: unexpected {other:?}"),
+                }
+            }
+            phone.ping().await.expect("a round trip");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            channel.close("done", "").await;
+            phone.close("done");
+            mac.closed().await;
+            let _ = echo.await;
+            up.abort();
+            down.abort();
+            let seen = seen.lock().unwrap().clone();
+            assert!(seen.contains(&FrameType::Ping) && seen.contains(&FrameType::Data), "{label}: {seen:?}");
+            let reliable_frames: Vec<_> = seen
+                .iter()
+                .filter(|kind| {
+                    matches!(kind, FrameType::Seq | FrameType::Ack | FrameType::Hello | FrameType::Bye)
+                })
+                .collect();
+            assert!(reliable_frames.is_empty(), "{label}: reliable frames on the wire {reliable_frames:?}");
+            assert!(seen.iter().all(|kind| (*kind as u8) <= 5), "{label}: {seen:?}");
+        }
     }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {

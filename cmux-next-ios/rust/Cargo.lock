@@ -562,6 +562,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-transport",
  "cmux-wg",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "rcgen",

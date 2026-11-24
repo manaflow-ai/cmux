@@ -1320,7 +1320,7 @@ impl LinkRig {
         self.carrier = Some(carrier);
         let _ = self.macs.send(mac_stream);
         if self.reliable {
-            let report = self.phone.resume(phone_stream, None).await.expect("the link resumed");
+            let report = self.phone.resume_carrier(phone_stream, None).await.expect("the link resumed");
             Some(report.round_trips)
         } else {
             self.phone = Link::new(phone_stream, Role::Phone, link_config(false, None), None);

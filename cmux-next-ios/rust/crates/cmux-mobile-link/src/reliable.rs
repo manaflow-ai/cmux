@@ -13,10 +13,11 @@
 //! The bookkeeping is `cmux_remote_protocol::reliable` (the core the
 //! Mac-to-remote link's lanes share), keyed here by channel.
 //!
-//! Wire (types 5 to 8 of [`crate::frame::FrameType`], never sent to a peer
-//! that did not offer `reliable`):
+//! Wire (types 6 to 9 of [`crate::frame::FrameType`]; type 5 is the parked
+//! link's `deflated data`. Never sent to a peer that did not offer
+//! `reliable`):
 //! - `seq` (channel `c`): `u64 seq | u8 inner type | inner payload`, for every
-//!   open, data and close of channel `c`. Sequences start at 1 per channel and
+//!   open, data (plain or deflated) and close of channel `c`. Sequences start at 1 per channel and
 //!   per direction.
 //! - `ack` (channel 0): `u32 n | n x (u32 channel, u64 seq)`: everything of
 //!   those channels through `seq` arrived.
@@ -195,7 +196,9 @@ pub(crate) fn open_seq(mut payload: Bytes) -> Option<(u64, FrameType, Bytes)> {
     }
     let sequence = payload.get_u64();
     let kind = FrameType::from_u8(payload.get_u8())?;
-    matches!(kind, FrameType::Open | FrameType::Data | FrameType::Close).then_some((sequence, kind, payload))
+    // A parked Mac's deflated data is a channel frame like any other.
+    matches!(kind, FrameType::Open | FrameType::Data | FrameType::DeflatedData | FrameType::Close)
+        .then_some((sequence, kind, payload))
 }
 
 pub(crate) fn ack_payload(acks: &[(u32, u64)]) -> Bytes {
