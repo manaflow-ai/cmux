@@ -17,8 +17,8 @@
 //! stream control and input still go first and stale video is dropped.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -26,6 +26,12 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, Wr
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+use webrtc::stun::agent::TransactionId;
+use webrtc::stun::attributes::{ATTR_NONCE, ATTR_REALM, ATTR_USERNAME};
+use webrtc::stun::fingerprint::FINGERPRINT;
+use webrtc::stun::integrity::MessageIntegrity;
+use webrtc::stun::message as stun_message;
+use webrtc::stun::textattrs::{Nonce, Realm, Username};
 use webrtc::util::Conn;
 
 use super::DialOptions;
@@ -324,6 +330,8 @@ impl<S: AsyncRead + AsyncWrite + Send + Sync + 'static> Conn for StreamConn<S> {
 /// plain UDP to `relayed`, and this side sends through the TURN server to
 /// the peer's public endpoints.
 pub struct TurnCarrier {
+    /// Peer addresses to ask the server's permission for ahead of any datagram.
+    permits: mpsc::UnboundedSender<Vec<SocketAddr>>,
     pub relayed: SocketAddr,
     pub transport: TurnTransport,
     queue: Arc<ClassQueue>,
@@ -471,9 +479,13 @@ impl TurnCarrier {
             (Some(_), Some(peer)) => peer.to_string(),
             _ => server.address.clone(),
         };
+        // Watch the server's replies for the realm and nonce a CreatePermission
+        // of ours needs (the `turn` crate keeps them to itself).
+        let auth = Arc::new(Mutex::new(None));
+        let conn: Arc<dyn Conn + Send + Sync> = Arc::new(TapConn { inner: conn, auth: Arc::clone(&auth) });
         let config = webrtc::turn::client::ClientConfig {
             stun_serv_addr: String::new(),
-            turn_serv_addr,
+            turn_serv_addr: turn_serv_addr.clone(),
             username: server.username.clone(),
             password: server.credential.clone(),
             realm: String::new(),
@@ -493,28 +505,20 @@ impl TurnCarrier {
             }
         };
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
+        let server_addr: Option<SocketAddr> = turn_serv_addr.parse().ok();
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
+        let (permits, permit_requests) = mpsc::unbounded_channel();
         let sender = {
             let (relay, queue) = (Arc::clone(&relay), Arc::clone(&queue));
-            tokio::spawn(async move {
-                let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
-                    std::collections::HashMap::new();
-                while let Some(Queued { datagram, to }) = queue.next().await {
-                    if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
-                        continue;
-                    }
-                    match relay.send_to(&datagram, to).await {
-                        Ok(_) => {
-                            failed.remove(&to);
-                        }
-                        Err(error) => {
-                            tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
-                            failed.insert(to, tokio::time::Instant::now());
-                        }
-                    }
-                }
-            })
+            let early = EarlyPermits {
+                conn: Arc::clone(&conn),
+                server: server_addr,
+                auth,
+                username: server.username.clone(),
+                password: server.credential.clone(),
+            };
+            tokio::spawn(sender_loop(relay, queue, early, permit_requests))
         };
         let receiver = {
             let relay = Arc::clone(&relay);
@@ -545,13 +549,36 @@ impl TurnCarrier {
             None => watch::channel(false).1,
         };
         tracing::info!(%relayed, server = server.address, transport = ?server.transport, "TURN allocation for WireGuard");
-        Ok(Self { relayed, transport: server.transport, queue, inbound, tasks, relay, client, conn, dead })
+        Ok(Self {
+            permits,
+            relayed,
+            transport: server.transport,
+            queue,
+            inbound,
+            tasks,
+            relay,
+            client,
+            conn,
+            dead,
+        })
     }
 
     /// Queue one datagram to `to` through the TURN server, in `class`
     /// (dropped past its class's bound; WireGuard and TCP retransmit).
     pub fn send(&self, datagram: &[u8], to: SocketAddr, class: SendClass) {
         self.queue.push(Queued { datagram: Bytes::copy_from_slice(datagram), to }, class);
+    }
+
+    /// Ask the server for permission to send to `targets` now, all in one
+    /// request, ahead of the first datagram: until the server answers, the
+    /// datagrams go as Send indications right behind the request (a server
+    /// handles one client's requests in order), instead of each datagram's
+    /// first send waiting a round trip for its own permission. Put the
+    /// address that matters first.
+    pub fn permit(&self, targets: &[SocketAddr]) {
+        if !targets.is_empty() {
+            let _ = self.permits.send(targets.to_vec());
+        }
     }
 
     /// Whether the allocation's stream to the server failed (never for UDP).
@@ -572,6 +599,217 @@ impl TurnCarrier {
         tokio::spawn(async move {
             let _ = conn.close().await;
         });
+    }
+}
+
+/// Realm and nonce of the TURN server, as its error replies gave them.
+type TurnAuth = Arc<Mutex<Option<(Realm, Nonce)>>>;
+
+/// The connection to the TURN server, which notes the realm and nonce of
+/// the server's error replies (401 to the first request, 438 for a stale
+/// nonce) on their way to the `turn` client.
+struct TapConn {
+    inner: Arc<dyn Conn + Send + Sync>,
+    auth: TurnAuth,
+}
+
+impl TapConn {
+    fn observe(&self, data: &[u8]) {
+        if !stun_message::is_message(data) {
+            return;
+        }
+        let mut message = stun_message::Message::new();
+        message.raw = data.to_vec();
+        if message.decode().is_err() || message.typ.class != stun_message::CLASS_ERROR_RESPONSE {
+            return;
+        }
+        if let (Ok(realm), Ok(nonce)) =
+            (Realm::get_from_as(&message, ATTR_REALM), Nonce::get_from_as(&message, ATTR_NONCE))
+        {
+            *self.auth.lock().unwrap_or_else(PoisonError::into_inner) = Some((realm, nonce));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Conn for TapConn {
+    async fn connect(&self, addr: SocketAddr) -> webrtc::util::Result<()> {
+        self.inner.connect(addr).await
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> webrtc::util::Result<usize> {
+        let len = self.inner.recv(buf).await?;
+        self.observe(&buf[..len]);
+        Ok(len)
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> webrtc::util::Result<(usize, SocketAddr)> {
+        let (len, from) = self.inner.recv_from(buf).await?;
+        self.observe(&buf[..len]);
+        Ok((len, from))
+    }
+
+    async fn send(&self, buf: &[u8]) -> webrtc::util::Result<usize> {
+        self.inner.send(buf).await
+    }
+
+    async fn send_to(&self, buf: &[u8], target: SocketAddr) -> webrtc::util::Result<usize> {
+        self.inner.send_to(buf, target).await
+    }
+
+    fn local_addr(&self) -> webrtc::util::Result<SocketAddr> {
+        self.inner.local_addr()
+    }
+
+    fn remote_addr(&self) -> Option<SocketAddr> {
+        self.inner.remote_addr()
+    }
+
+    async fn close(&self) -> webrtc::util::Result<()> {
+        self.inner.close().await
+    }
+
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+        self
+    }
+}
+
+/// What the sender needs to write its own CreatePermission and Send
+/// indications to the server.
+struct EarlyPermits {
+    conn: Arc<dyn Conn + Send + Sync>,
+    server: Option<SocketAddr>,
+    auth: TurnAuth,
+    username: String,
+    password: String,
+}
+
+fn peer_address(addr: &SocketAddr) -> webrtc::turn::proto::peeraddr::PeerAddress {
+    webrtc::turn::proto::peeraddr::PeerAddress { ip: addr.ip(), port: addr.port() }
+}
+
+impl EarlyPermits {
+    /// One CreatePermission for every address in `targets`, written at once.
+    /// `false` when there is nothing to send it with (no realm and nonce
+    /// seen yet, or the server's address is not an IP).
+    async fn request(&self, targets: &[SocketAddr]) -> bool {
+        let Some(server) = self.server else { return false };
+        let Some((realm, nonce)) = self.auth.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+            return false;
+        };
+        let Some(raw) = self.permission_request(targets, realm, nonce) else { return false };
+        self.conn.send_to(&raw, server).await.is_ok()
+    }
+
+    fn permission_request(&self, targets: &[SocketAddr], realm: Realm, nonce: Nonce) -> Option<Vec<u8>> {
+        let integrity = MessageIntegrity::new_long_term_integrity(
+            self.username.clone(),
+            realm.text.clone(),
+            self.password.clone(),
+        );
+        let mut setters: Vec<Box<dyn stun_message::Setter>> = vec![
+            Box::new(TransactionId::new()),
+            Box::new(stun_message::MessageType::new(
+                stun_message::METHOD_CREATE_PERMISSION,
+                stun_message::CLASS_REQUEST,
+            )),
+        ];
+        for target in targets {
+            setters.push(Box::new(peer_address(target)));
+        }
+        setters.push(Box::new(Username::new(ATTR_USERNAME, self.username.clone())));
+        setters.push(Box::new(realm));
+        setters.push(Box::new(nonce));
+        setters.push(Box::new(integrity));
+        setters.push(Box::new(FINGERPRINT));
+        let mut message = stun_message::Message::new();
+        message.build(&setters).ok()?;
+        Some(message.raw)
+    }
+
+    /// A Send indication to `to`: the server relays it once it has a
+    /// permission for `to`, and drops it before.
+    async fn indicate(&self, datagram: &[u8], to: SocketAddr) -> bool {
+        let Some(server) = self.server else { return false };
+        let mut message = stun_message::Message::new();
+        let built = message.build(&[
+            Box::new(TransactionId::new()),
+            Box::new(stun_message::MessageType::new(
+                stun_message::METHOD_SEND,
+                stun_message::CLASS_INDICATION,
+            )),
+            Box::new(webrtc::turn::proto::data::Data(datagram.to_vec())),
+            Box::new(peer_address(&to)),
+            Box::new(FINGERPRINT),
+        ]);
+        built.is_ok() && self.conn.send_to(&message.raw, server).await.is_ok()
+    }
+}
+
+/// The task that sends the queued datagrams through the allocation.
+///
+/// The `turn` crate's `send_to` waits for the server's answer to the
+/// CreatePermission of a peer address's first datagram, holding every other
+/// send behind it (a round trip each, one address after another). So an
+/// address named to [`TurnCarrier::permit`] gets its permission request
+/// written at once, with the others in the same request, and its datagrams
+/// go as Send indications right behind it until the crate has made its own
+/// permissions (one background `send_to` per address, the first datagram
+/// going twice; a duplicate WireGuard datagram is dropped by the peer).
+async fn sender_loop(
+    relay: Arc<dyn Conn + Send + Sync>,
+    queue: Arc<ClassQueue>,
+    early: EarlyPermits,
+    mut permit_requests: mpsc::UnboundedReceiver<Vec<SocketAddr>>,
+) {
+    let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    // Addresses with a permission request of ours on the wire: whether the
+    // crate was asked to make its own yet.
+    let mut early_permits: std::collections::HashMap<SocketAddr, bool> = std::collections::HashMap::new();
+    let warming = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    loop {
+        let queued = tokio::select! {
+            biased;
+            Some(targets) = permit_requests.recv() => {
+                let fresh: Vec<SocketAddr> =
+                    targets.into_iter().filter(|addr| !early_permits.contains_key(addr)).collect();
+                if !fresh.is_empty() && early.request(&fresh).await {
+                    for addr in fresh {
+                        early_permits.insert(addr, false);
+                    }
+                }
+                continue;
+            }
+            queued = queue.next() => queued,
+        };
+        let Some(Queued { datagram, to }) = queued else { break };
+        if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
+            continue;
+        }
+        if let Some(warmed) = early_permits.get_mut(&to) {
+            if !*warmed {
+                *warmed = true;
+                warming.fetch_add(1, Ordering::SeqCst);
+                let (relay, warming, datagram) = (Arc::clone(&relay), Arc::clone(&warming), datagram.clone());
+                tokio::spawn(async move {
+                    let _ = relay.send_to(&datagram, to).await;
+                    warming.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+            if warming.load(Ordering::SeqCst) > 0 && early.indicate(&datagram, to).await {
+                continue;
+            }
+        }
+        match relay.send_to(&datagram, to).await {
+            Ok(_) => {
+                failed.remove(&to);
+            }
+            Err(error) => {
+                tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
+                failed.insert(to, tokio::time::Instant::now());
+            }
+        }
     }
 }
 
@@ -767,5 +1005,89 @@ mod tests {
         let (mut client, mut server) = tokio::io::duplex(64);
         server.write_all(&[0xC0, 0, 0, 0]).await.unwrap();
         assert!(read_message(&mut client, &mut buffer).await.is_err());
+    }
+
+    /// A UDP relay in front of `target` that holds every datagram `delay`
+    /// each way (a phone far from its TURN server); returns its address.
+    async fn delaying_proxy(target: SocketAddr, delay: Duration) -> SocketAddr {
+        let front = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let back = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let address = front.local_addr().unwrap();
+        let client = Arc::new(std::sync::Mutex::new(None::<SocketAddr>));
+        {
+            let (front, back, client) = (Arc::clone(&front), Arc::clone(&back), Arc::clone(&client));
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 65_536];
+                while let Ok((len, from)) = front.recv_from(&mut buffer).await {
+                    *client.lock().unwrap() = Some(from);
+                    let (back, data) = (Arc::clone(&back), buffer[..len].to_vec());
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        let _ = back.send_to(&data, target).await;
+                    });
+                }
+            });
+        }
+        tokio::spawn(async move {
+            let mut buffer = vec![0u8; 65_536];
+            while let Ok((len, _)) = back.recv_from(&mut buffer).await {
+                let Some(to) = *client.lock().unwrap() else { continue };
+                let (front, data) = (Arc::clone(&front), buffer[..len].to_vec());
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let _ = front.send_to(&data, to).await;
+                });
+            }
+        });
+        address
+    }
+
+    /// The first datagram to each of two peers, 100 ms from the TURN server
+    /// each way: the `turn` crate alone waits a round trip for each peer's
+    /// permission, one peer after the other (about 300 ms for the first
+    /// datagram, 500 ms for the second). With the permissions asked for at
+    /// once and the datagrams right behind them, both arrive in one way.
+    #[tokio::test]
+    async fn permissions_go_out_together_and_ahead_of_the_first_datagrams() {
+        let turn = crate::testing::TestTurn::start().await;
+        let udp_port: u16 = turn.udp_only().urls[0]
+            .split(':')
+            .nth(2)
+            .and_then(|rest| rest.split('?').next())
+            .and_then(|port| port.parse().ok())
+            .expect("the TURN UDP port");
+        let delay = Duration::from_millis(100);
+        let proxy = delaying_proxy(SocketAddr::from(([127, 0, 0, 1], udp_port)), delay).await;
+        let server = TurnServer {
+            address: proxy.to_string(),
+            host: "127.0.0.1".into(),
+            transport: TurnTransport::Udp,
+            username: "cmuxMobile".into(),
+            credential: "secret".into(),
+        };
+        let carrier = TurnCarrier::allocate_inner(server, &DialOptions::default()).await.expect("allocation");
+        let first = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let second = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (first_addr, second_addr) = (first.local_addr().unwrap(), second.local_addr().unwrap());
+        carrier.permit(&[first_addr, second_addr]);
+        let started = tokio::time::Instant::now();
+        carrier.send(b"first", first_addr, SendClass::Control);
+        carrier.send(b"second", second_addr, SendClass::Control);
+        let mut buffer = [0u8; 64];
+        let (len, _) = tokio::time::timeout(Duration::from_secs(3), first.recv_from(&mut buffer))
+            .await
+            .expect("first datagram")
+            .unwrap();
+        assert_eq!(&buffer[..len], b"first");
+        let first_at = started.elapsed();
+        let (len, _) = tokio::time::timeout(Duration::from_secs(3), second.recv_from(&mut buffer))
+            .await
+            .expect("second datagram")
+            .unwrap();
+        assert_eq!(&buffer[..len], b"second");
+        let second_at = started.elapsed();
+        let round_trip = delay * 2;
+        assert!(first_at < round_trip, "the first datagram waited for its permission: {first_at:?}");
+        assert!(second_at < round_trip, "the second datagram waited for its permission: {second_at:?}");
     }
 }
