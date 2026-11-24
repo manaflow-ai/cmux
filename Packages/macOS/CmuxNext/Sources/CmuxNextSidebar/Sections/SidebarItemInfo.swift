@@ -176,8 +176,11 @@ extension SidebarBuiltIn {
         }
     }
 
-    /// The built-in's cmux icon.
-    public var icon: IconName {
+    /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
+    ///
+    /// The Chief Activity item draws the sparkles symbol, not the cmux pack's `agent.chief` crown (Lawrence
+    /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
+    public var icon: IconName? {
         switch self {
         case .home: .home
         case .settings: .settings
@@ -191,7 +194,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: .agentChief
+        case .chief: nil
         case .automations: .automation
         }
     }
