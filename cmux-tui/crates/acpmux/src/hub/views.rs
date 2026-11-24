@@ -704,7 +704,7 @@ impl Hub {
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
-        let waiting = super::subsession_send::waiting_on(session);
+        let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
