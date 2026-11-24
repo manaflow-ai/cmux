@@ -68,7 +68,7 @@ fn hub_refuses_a_key_in_argv_and_bad_arguments() {
     }
     assert!(parse_err("call stripe.* ").contains("not an action"));
     assert!(parse_err("call stripe.refund.create --args [1]").contains("JSON object"));
-    assert!(parse_err("call stripe.refund.create --invocation-id short").contains("8 to 128"));
+    assert!(parse_err("call stripe.refund.create --invocation-id abc").contains("8 to 128"));
     assert!(parse_err("audit --limit 0").contains("1 to 200"));
     assert!(parse_err("audit --limit 201").contains("1 to 200"));
     assert!(parse_err("audit --before 0").contains("seq"));
@@ -470,4 +470,95 @@ fn hub_answers_keep_the_hub_fields() {
     );
     let a = answer(&parse_ok("audit"), 200, &json!({"audit": [], "next": null}));
     assert!(a.get("next").is_none());
+}
+
+#[test]
+fn hub_overview_shapes_one_chief_card_per_waiting_approval() {
+    let refund = json!({
+        "id": "hcall_1", "status": "approval_required", "action": "stripe.refund.create", "connection": "hubc_1",
+        "summary": "Refund 12.00 USD of 25.00 USD on Stripe charge ch_1", "amount": 1200, "currency": "usd",
+        "policy": {"effect": "ask", "rule": "hubr_1", "reason": "rule hubr_1 says ask"},
+        "approval": {"id": "apr_000000000000000000000001", "expiresAt": "2026-11-24T09:30:00Z"},
+        "requestedBy": {"kind": "agent", "user": "leo", "agent": "support-bot"},
+    });
+    let over_limit = json!({
+        "id": "hcall_2", "status": "approval_required", "action": "stripe.refund.create", "connection": "hubc_gone",
+        "summary": "Refund 80.00 USD on Stripe charge ch_2", "amount": 8000, "currency": "usd",
+        "policy": {"effect": "ask", "rule": "hubr_2", "reason": "over the limit of 100.00 USD a day (40.00 USD so far)"},
+        "approval": {"id": "apr_000000000000000000000002", "expiresAt": "2026-11-24T10:00:00Z"},
+        "requestedBy": {"kind": "agent", "user": "leo"},
+    });
+    let by_default = json!({
+        "id": "hcall_3", "status": "approval_required", "action": "github.issues.comment", "summary": "Comment on o/r#4",
+        "policy": {"effect": "ask", "reason": "no rule for github.issues.comment; send-external actions ask a person by default"},
+        "approval": {"id": "apr_000000000000000000000003", "expiresAt": "2026-11-24T10:00:00Z"},
+    });
+    let o = overview([
+        ok(
+            json!({"connections": [{"id": "hubc_1", "provider": "stripe", "account": "Acme", "status": "active"}]}),
+        ),
+        ok(
+            json!({"approvals": [refund, over_limit, by_default, {"id": "hcall_4", "status": "succeeded"}]}),
+        ),
+        ok(json!({"paused": false, "rules": [
+            {"id": "hubr_1", "owner": "team", "action": "stripe.refund.create", "effect": "ask",
+             "when": {"amountGt": 1000, "currency": "usd"}},
+            {"id": "hubr_2", "owner": "user", "action": "stripe.refund.create", "effect": "allow",
+             "limit": {"amount": 10000, "window": "day", "over": "ask"}},
+        ]})),
+        ok(json!({"audit": []})),
+    ]);
+    let cards = o["approvalCards"].as_array().expect("cards");
+    assert_eq!(cards.len(), 3, "only calls that wait get a card: {cards:?}");
+    let c = &cards[0];
+    assert_eq!(c["approvalId"], "apr_000000000000000000000001");
+    assert_eq!(c["callId"], "hcall_1");
+    assert_eq!(c["agentText"], "agent support-bot");
+    assert_eq!(c["integrationText"], "Stripe · Acme");
+    assert_eq!(c["actionText"], "Refund");
+    assert_eq!(c["amountText"], "12.00 USD");
+    assert_eq!(c["line"], "Refund 12.00 USD of 25.00 USD on Stripe charge ch_1");
+    assert_eq!(c["ruleText"], "Team rule: Ask before Stripe refunds over 10.00 USD");
+    assert_eq!(c["expiresText"], "Expires 2026-11-24 09:30 UTC");
+    // A connection the overview did not list still names its integration; a limit says why it asked.
+    assert_eq!(cards[1]["integrationText"], "Stripe");
+    assert_eq!(cards[1]["agentText"], "an agent");
+    assert_eq!(
+        cards[1]["ruleText"],
+        "Your rule: Allow Stripe refunds; at most 10000 (minor units) a day, then ask; \
+         over the limit of 100.00 USD a day (40.00 USD so far)"
+    );
+    // No rule: the hub's default decided, and its reason says so.
+    assert_eq!(cards[2]["integrationText"], "GitHub");
+    assert_eq!(cards[2]["actionText"], "comment");
+    assert_eq!(
+        cards[2]["ruleText"],
+        "Rule: no rule for github.issues.comment; send-external actions ask a person by default"
+    );
+    assert_eq!(cards[2]["amountText"], Value::Null);
+}
+
+#[test]
+fn hub_call_view_says_what_an_answer_did() {
+    let outcome = |call: Value| {
+        let v = call_view(&call);
+        (v["outcomeText"].as_str().map(str::to_owned), v["outcomeTone"].as_str().map(str::to_owned))
+    };
+    let pair = |t: &str, tone: &str| (Some(t.to_owned()), Some(tone.to_owned()));
+    assert_eq!(
+        outcome(json!({"status": "succeeded", "providerRef": "re_123"})),
+        pair("Approved. It ran (re_123).", "done")
+    );
+    assert_eq!(outcome(json!({"status": "succeeded"})), pair("Approved. It ran.", "done"));
+    assert_eq!(outcome(json!({"status": "denied"})), pair("Denied. Nothing ran.", "denied"));
+    assert_eq!(
+        outcome(
+            json!({"status": "failed", "error": {"code": "stripe.error", "message": "charge already refunded"}})
+        ),
+        pair("Approved, but it failed: charge already refunded", "failed")
+    );
+    assert_eq!(outcome(json!({"status": "outcome_unknown"})).1, Some("failed".to_owned()));
+    assert_eq!(outcome(json!({"status": "expired"})).1, Some("denied".to_owned()));
+    assert_eq!(outcome(json!({"status": "approval_required"})), (None, None));
+    assert_eq!(outcome(json!({"status": "running"})), (None, None));
 }

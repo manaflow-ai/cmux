@@ -229,6 +229,13 @@ pub struct Workload {
     pub last_busy_at: Option<u64>,
 }
 
+impl Snapshot {
+    /// Whether an `acpmux` process (a daemon, or a CLI call) is in the process list.
+    pub fn acpmux_running(&self) -> bool {
+        self.procs.iter().any(|p| !p.kthread && p.comm == "acpmux")
+    }
+}
+
 impl Workload {
     pub fn busy(&self) -> bool {
         !(self.busy_processes.is_empty()

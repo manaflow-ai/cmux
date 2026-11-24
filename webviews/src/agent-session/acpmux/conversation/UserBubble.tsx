@@ -58,8 +58,18 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalo
 import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
-import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
-import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
+import { sentVideoFor, sentVideoOf, sentVideosOf, withoutRepeatedVideos, type SentVideo } from "./sentVideos";
+import {
+  recordedFiles,
+  isImageOriginal,
+  linkedImagePath,
+  SENT_IMAGE_HEIGHT,
+  sentImageWidth,
+  sentImageSize,
+} from "./userBubbleModel";
+import { readLinkedImage } from "../chips/host";
+import { useMessageScope } from "../chips/messageScope";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
@@ -113,7 +123,7 @@ export function UserBubble({
         row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
           file.kind === "link" ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }] : [],
         )
-  )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
+  )?.filter((file) => !sentVideoFor(file, videos));
   // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
   // that do not become legacy file chips.
   const hasAttachment = Boolean(
@@ -162,16 +172,32 @@ export function UserBubble({
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
-  const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
+  // A video attached twice is one tile (sentVideos.ts `withoutRepeatedVideos`), as the row's
+  // estimate measures it (bubbleParts.ts `bubbleLayout`).
+  const stripMedia = withoutRepeatedVideos(orderedParts?.filter(isStripMedia).filter(banded) ?? [], videos);
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
-  const shownParts = orderedParts?.filter((part) => !banded(part));
+  const shownParts = withoutRepeatedVideos(orderedParts?.filter((part) => !banded(part)) ?? [], videos);
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const renderFile = useCallback(
     (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
       const video = sentVideoOf(part, videos);
-      return video ? (
+      if (video)
+        return (
+          <span className="cv-user__inline-image">
+            <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
+          </span>
+        );
+      // An image that went as its file's link is its thumbnail (userBubbleModel.ts `linkedImagePath`).
+      const path = linkedImagePath(part);
+      return path ? (
         <span className="cv-user__inline-image">
-          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
+          <SentLinkedImage
+            name={part.name}
+            path={path}
+            mimeType={part.mimeType}
+            source={part.source}
+            chip={<PromptFile part={part} />}
+          />
         </span>
       ) : undefined;
     },
@@ -208,7 +234,7 @@ export function UserBubble({
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
-  const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
+  const hasBubble = strip ? shownParts.some(readsAsText) : hasInterleaved || Boolean(text.trim());
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
   return (
@@ -219,9 +245,22 @@ export function UserBubble({
       {looseImages.length > 0 && <SentImages images={looseImages} />}
       {showsLegacyFiles && (
         <div className="cv-user__files">
-          {files!.map((file, index) => (
-            <FileAttachment key={index} file={file} />
-          ))}
+          {files!.map((file, index) => {
+            // An image that went as its file's link is its thumbnail (userBubbleModel.ts `linkedImagePath`).
+            const path = linkedImagePath(file);
+            return path ? (
+              <SentLinkedImage
+                key={index}
+                name={file.name}
+                path={path}
+                mimeType={file.mimeType}
+                source={file.source}
+                chip={<FileAttachment file={file} />}
+              />
+            ) : (
+              <FileAttachment key={index} file={file} />
+            );
+          })}
         </div>
       )}
       {stripMedia.length > 0 && (
@@ -251,7 +290,7 @@ export function UserBubble({
                 <InlinePromptContent
                   rowId={row.id}
                   messageAt={row.at}
-                  parts={shownParts!}
+                  parts={shownParts}
                   show={show}
                   renderImage={renderImage}
                   renderFile={renderFile}
@@ -375,24 +414,39 @@ export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
 /// re-render or a remount draws the same <img> at once). Its slot holds the thumbnail's own shape
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
 /// it), and says "Couldn't load image" when the image cannot be drawn. A read that still failed
-/// after its tries again (imageEntries.ts) says so with Retry, never nothing. An image acpmux no
-/// longer has shows nothing. It fades in on its first draw only.
-export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
+/// after its tries again, or went unanswered past IMAGE_READ_MS (imageEntries.ts), says so with
+/// Retry, never nothing and never a spinner that waits forever. An image acpmux no longer has shows
+/// nothing. It fades in on its first draw only.
+export const SentImage = memo(function SentImage({
+  image,
+  read,
+  fallback = null,
+  path,
+}: {
+  image: PromptImage;
+  path?: string;
+  /// Reads the image by its id (a dataURL), when acpmux does not keep it (`SentLinkedImage`).
+  read?: (id: string) => Promise<string | undefined>;
+  /// What draws when the image cannot be read or decoded; nothing by default.
+  fallback?: ReactNode;
+}) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
   // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
-  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: read ?? promptImage }, image);
   const [failed, setFailed] = useState<string>();
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
-  if (shown.status === "missing") return null;
+  if (shown.status === "missing") return <>{fallback}</>;
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
   // (conversation.css), never past the bubble's edge.
   const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
-  if (shown.status === "failed" || (shown.src !== undefined && failed === shown.src))
+  const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
+  if (broken && fallback !== null) return <>{fallback}</>;
+  if (broken)
     return (
       <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
@@ -454,7 +508,11 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
-      onClick={() => openImage(src, label)}
+      onClick={() => {
+        if (path && shown.thumbnail) {
+          void readLinkedImage(path).then((full) => openImage(full ?? src, label, path));
+        } else openImage(src, label, path);
+      }}
     >
       {thumbnail}
     </button>
@@ -469,6 +527,37 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
     </span>
   );
 });
+
+/// An image a prompt sent as its file's link (userBubbleModel.ts `linkedImagePath`): the image,
+/// read from its file by the host (`image.load`, as a reply's image is), in a sent image's
+/// thumbnail. One the host cannot read here (another machine's chat, a read-only transcript, a
+/// file gone) is its file chip, never a nameless "0 byte" one.
+function SentLinkedImage({
+  name,
+  path,
+  mimeType,
+  source,
+  chip,
+}: {
+  name: string;
+  path: string;
+  mimeType?: string;
+  source?: PromptImage["source"];
+  chip: ReactNode;
+}) {
+  const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
+  const read = useCallback(() => readLinkedImage(path), [path]);
+  if (scope?.host !== undefined || readOnly) return <>{chip}</>;
+  return (
+    <SentImage
+      image={{ id: `file:${path}`, mimeType: mimeType || "image/png", name, ...(source ? { source } : {}) }}
+      read={read}
+      path={path}
+      fallback={chip}
+    />
+  );
+}
 
 /// A prompt open for typing: Enter sends, Shift-Enter breaks the line, Escape cancels. Edit and
 /// resend uses it here; a message card's Reply too (IncomingMessageCard.tsx), under `label`,

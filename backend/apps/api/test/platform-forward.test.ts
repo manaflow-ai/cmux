@@ -74,6 +74,10 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
   ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
   ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
+  // Cloud apps (RFD 0003): a machine's `cmux app publish|versions|rollback|ls`, sent by its agent to this origin.
+  ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
+  ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
+  ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
