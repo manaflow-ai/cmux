@@ -34,7 +34,7 @@ export default componentEntry<Props>({
         function Stage({ on = true, menu = false }: Props) {
           setExperimentSwitches(on ? { composerCustomizer: true } : {});
           return (
-            <div style={{ padding: menu ? "24px 24px 24px" : "180px 24px 24px" }}>
+            <div style={{ padding: menu ? "var(--ds-space-5)" : "calc(var(--ds-space-5) * 7.5) var(--ds-space-5) var(--ds-space-5)" }}>
               <form
                 className="acpmux-composer"
                 style={{ position: "relative" }}
@@ -44,9 +44,9 @@ export default componentEntry<Props>({
                   className="acpmux-composer-box"
                   style={{
                     minHeight: 64,
-                    borderRadius: 14,
+                    borderRadius: "var(--ds-radius-card)",
                     border: "1px solid color-mix(in srgb, currentColor 18%, transparent)",
-                    padding: 12,
+                    padding: "var(--ds-space-3)",
                   }}
                 >
                   <span style={{ opacity: 0.5 }}>Ask anything</span>
@@ -67,27 +67,27 @@ export default componentEntry<Props>({
                       position: "absolute",
                       left: "50%",
                       top: "100%",
-                      marginTop: 2,
+                      marginTop: "var(--grid-half-step)",
                       transform: "translateX(-50%)",
                       minWidth: 280,
-                      padding: 5,
-                      borderRadius: 8,
+                      padding: "var(--cmux-menu-highlight-inset)",
+                      borderRadius: "var(--ds-radius-popup)",
                       background: "Canvas",
-                      boxShadow: "0 8px 28px rgb(0 0 0 / 0.28)",
-                      fontSize: 13,
+                      boxShadow: "var(--ui-popup-shadow)",
+                      fontSize: "var(--text-body)",
                     }}
                   >
                     {MENU.map(({ group, rows }) => (
                       <div key={group}>
-                        <div style={{ padding: "4px 10px", opacity: 0.55, fontSize: 11, fontWeight: 600 }}>{group}</div>
+                        <div style={{ padding: "var(--ds-space-1) var(--cmux-menu-state-x)", opacity: 0.55, fontSize: "var(--text-caption)", fontWeight: 600 }}>{group}</div>
                         {rows.map((row) => (
                           <div
                             key={row.label}
                             role="menuitemcheckbox"
                             aria-checked={row.on === true}
-                            style={{ padding: "3px 10px" }}
+                            style={{ padding: "var(--grid-half-step) var(--cmux-menu-state-x)" }}
                           >
-                            <span style={{ display: "inline-block", width: 16 }}>{row.on ? "✓" : ""}</span>
+                            <span style={{ display: "inline-block", width: "var(--ds-icon-16)" }}>{row.on ? "✓" : ""}</span>
                             {row.label}
                           </div>
                         ))}
@@ -96,10 +96,10 @@ export default componentEntry<Props>({
                     <div
                       style={{
                         borderTop: "1px solid color-mix(in srgb, currentColor 15%, transparent)",
-                        margin: "4px 0",
+                        margin: "var(--ds-space-1) 0",
                       }}
                     />
-                    <div role="menuitem" style={{ padding: "3px 10px 3px 26px" }}>
+                    <div role="menuitem" style={{ padding: "var(--grid-half-step) var(--cmux-menu-state-x) var(--grid-half-step) calc(var(--cmux-menu-state-x) + var(--ds-icon-16))" }}>
                       All Customizations…
                     </div>
                   </div>
