@@ -82,13 +82,26 @@ default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's b
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
-cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --approve-first | --no-auth]
+cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --approve-first | --no-auth] [--backend dev|tag-stack|<origin>]
 ```
 
 When the person is waiting on the phone right now, add `--urgent`: the iPhone step goes ahead of the
 simulator queue and the Mac build moves up the Mac queue, each logged with the reason. An agent's own
 end-of-task run does not use it. A step that ends because no sign-in session reached it from this Mac
 is sent once more by itself.
+
+**Backend.** Both apps talk to the tag's own backend stack by default. `review.sh` runs
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug>` beside the fleet builds, then:
+- the Mac app gets the stack's tailnet origin (`backend.json`);
+- the phone gets its public origin, `https://api.s<N>.wdev.cmux.dev`, which works off the tailnet
+  behind the authenticating gateway. Its readiness receipt must name the stack's mobile Worker. When
+  every public slot is held, the phone gets the tailnet origin too, and the `Backend:` line says
+  "tailnet only".
+
+The report's `Backend:` line names both. An `up` that fails falls back to the shared dev Workers,
+with the reason on that line. `--backend dev` keeps the shared dev Workers and touches no stack.
+`--backend tag-stack` uses the stack as it is, with no `up`. The allowlist and its threat model:
+[SECURITY.md](SECURITY.md), "A tag's own Cloud backend".
 
 The default is the rule for every dev build on a phone: signed in with the `personal` account and
 paired with the same-tag Mac at once, and still both after the person relaunches the app or the
