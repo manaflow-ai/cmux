@@ -356,6 +356,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
 mod capacity_retry;
+mod outage;
 mod titles;
 mod tool_installs;
 mod tool_paths;

@@ -14627,6 +14627,11 @@ export class AcpmuxDirectClient {
   /// The perf watch (`_acpmux/perf`, perf_watch.rs): the Inspector's Perf tab turns it on and reads
   /// it, and perfReporter.ts reports the page's own timings. A `read` with `waitMs` waits for the
   /// next event (at most 30 s).
+  /// This machine's load and swap verdict (`_acpmux/host_overload`, host_overload.rs): acpmux reads
+  /// the host and applies the thresholds; the pane only draws it (OverloadNotice.tsx).
+  hostOverload(): Promise<unknown> {
+    return this.request("_acpmux/host_overload", {});
+  }
   perf(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/perf", params);
   }
