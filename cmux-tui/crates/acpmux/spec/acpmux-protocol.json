@@ -1030,6 +1030,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
