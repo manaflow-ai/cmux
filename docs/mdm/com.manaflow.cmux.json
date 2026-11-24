@@ -5629,7 +5629,7 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
