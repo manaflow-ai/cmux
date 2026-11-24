@@ -1,5 +1,5 @@
-import CmuxNextDaemon
-import CmuxNextTerminalFind
+public import CmuxNextDaemon
+public import CmuxNextTerminalFind
 import Foundation
 
 /// A terminal's whole-history find, served by its daemon (`terminal-find`): Cmd-F in the terminal
