@@ -15,6 +15,10 @@ import Foundation
 /// because the older post's finish also finishes the id, so StoreKit never
 /// offers the changed copy again. On slow CI runners the upgrade's re-delivery
 /// regularly landed inside the previous post of the Pro transaction.
+/// Known limit: when the server defers that changed copy (a network error),
+/// the older post already finished the id, so StoreKit does not offer it
+/// again through `Transaction.unfinished`; the server still learns the change
+/// from Apple's notification.
 public actor BillingTransactionDeliverer {
     private struct Delivery {
         let serial: UInt64

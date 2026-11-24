@@ -245,7 +245,7 @@ final class StoreKitRig {
         session.clearTransactions()
         try await eventually("no transactions or live subscriptions left") {
             if await self.entitledProductIDs().isEmpty, await self.unfinishedIDs().isEmpty,
-               try await self.liveSubscriptionStates().isEmpty {
+               (try? await self.liveSubscriptionStates())?.isEmpty == true {
                 return true
             }
             self.session.clearTransactions()
@@ -255,8 +255,13 @@ final class StoreKitRig {
 
     /// The states of the cmux group's subscriptions that can still renew or
     /// grant: subscribed, billing retry, grace period.
+    /// Throws (without failing the test) when StoreKit lists no product, so a
+    /// transient empty read only retries.
     func liveSubscriptionStates() async throws -> [Product.SubscriptionInfo.RenewalState] {
-        try await subscriptionStatuses().map(\.state).filter { $0 != .expired && $0 != .revoked }
+        guard let subscription = try await Product.products(for: [CmuxProduct.proMonthly]).first?.subscription else {
+            throw CancellationError()
+        }
+        return try await subscription.status.map(\.state).filter { $0 != .expired && $0 != .revoked }
     }
 
     func offer(_ productID: String) throws -> BillingOffer {

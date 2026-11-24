@@ -315,7 +315,9 @@ LANES = {
     "review-gate": Lane(jobs=2, measured=True),
     # billing.yml's ios-billing: the billing packages' swift test and the
     # StoreKit Testing slot on one iPhone simulator, one Mac. Not sim-first:
-    # glaeda does not class ios-billing as a simulator job.
+    # glaeda does not class ios-billing as a simulator job. billing.yml is not
+    # in IOS_WORKFLOWS, so other pickers do not charge an in-flight billing
+    # run's simulator: at most one undercounted job of the SIM_LABEL slots.
     "billing": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.

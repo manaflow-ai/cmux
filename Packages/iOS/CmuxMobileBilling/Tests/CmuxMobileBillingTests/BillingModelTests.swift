@@ -513,10 +513,12 @@ struct BillingRig {
         )
         await api.holdSubmissions()
 
+        // A failed wait releases the held post first, so a broken deliverer
+        // fails the test instead of hanging it on the unreleased post.
         async let first = deliverer.deliver(original)
-        try await until { await api.heldCount == 1 }
+        try await until { await api.heldCount == 1 } onTimeout: { await api.releaseSubmissions() }
         async let second = deliverer.deliver(upgraded)
-        try await until { await deliverer.changedCopiesWaiting == 1 }
+        try await until { await deliverer.changedCopiesWaiting == 1 } onTimeout: { await api.releaseSubmissions() }
         #expect(await api.submitted == ["jws-71"], "the changed copy waits for the older post")
         await api.releaseSubmissions()
         let outcomes = await [first, second]
@@ -541,10 +543,10 @@ struct BillingRig {
         await api.holdSubmissions()
 
         async let first = deliverer.deliver(original)
-        try await until { await api.heldCount == 1 }
+        try await until { await api.heldCount == 1 } onTimeout: { await api.releaseSubmissions() }
         async let changedA = deliverer.deliver(refunded)
         async let changedB = deliverer.deliver(refunded)
-        try await until { await deliverer.changedCopiesWaiting == 2 }
+        try await until { await deliverer.changedCopiesWaiting == 2 } onTimeout: { await api.releaseSubmissions() }
         await api.releaseSubmissions()
         _ = await [first, changedA, changedB]
 
@@ -554,12 +556,19 @@ struct BillingRig {
 
 /// Re-checks an actor-isolated condition between yields until it holds; a
 /// generous deadline only bounds a broken deliverer, it is not a delay.
-private func until(timeout: Duration = .seconds(10), _ condition: () async -> Bool) async throws {
+/// `onTimeout` runs before the throw, so a test can release work its pending
+/// `async let`s wait on (scope exit awaits them).
+private func until(
+    timeout: Duration = .seconds(10),
+    _ condition: () async -> Bool,
+    onTimeout: () async -> Void = {}
+) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     while await !condition() {
         guard clock.now < deadline else {
             Issue.record("condition did not hold within \(timeout)")
+            await onTimeout()
             throw CancellationError()
         }
         await Task.yield()
