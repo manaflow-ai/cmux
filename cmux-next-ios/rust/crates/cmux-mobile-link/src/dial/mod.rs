@@ -148,6 +148,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: called with each plain UDP datagram's length as
+    /// WireGuard hands it to the OS (the bytes a radio sends).
+    #[doc(hidden)]
+    pub on_udp_sent: Option<fn(&std::net::SocketAddr, usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -254,6 +258,7 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
             input_lane: true,
@@ -327,6 +332,25 @@ pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// Where a direct path's peer address is, as one word: `lan` (on this network, [`is_lan`]),
+/// `tailnet` (100.64.0.0/10 or Tailscale's IPv6 range, [`is_cgnat`]: a tailnet, or a carrier's
+/// CGNAT), `wan` (any other routed address) or empty (relayed, no route yet, or unknown). The
+/// phone's DEBUG hand-off receipt names it, so a dev link over Tailscale is never taken for the
+/// LAN or internet path a user without Tailscale gets.
+pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
+    // An IPv4-mapped IPv6 peer is its IPv4 address.
+    let peer = peer.map(|ip| match ip {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, std::net::IpAddr::V4),
+        ip => ip,
+    });
+    match peer {
+        Some(ip) if is_cgnat(ip) => "tailnet",
+        Some(ip) if is_lan(ip) => "lan",
+        Some(_) => "wan",
+        None => "",
+    }
+}
+
 /// A byte stream a link can run on.
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
@@ -345,6 +369,12 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Holds the transport while the link is parked (WireGuard); `None`
+    /// when it cannot be held (WebRTC).
+    pub hold: Option<crate::link::HoldHook>,
+    /// Pings and pongs as datagrams, when both sides listed
+    /// [`crate::link::LIVENESS_LANE`] (WireGuard).
+    pub liveness: Option<crate::link::LivenessDatagrams>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -558,7 +588,13 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
@@ -602,7 +638,13 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
@@ -640,6 +682,27 @@ mod tests {
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    #[test]
+    fn a_peer_is_on_this_network_a_tailnet_or_the_internet() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on the phone's own wifi or ethernet.
+        assert_eq!(peer_scope(ip("192.168.1.23")), "lan");
+        assert_eq!(peer_scope(ip("10.0.0.5")), "lan");
+        assert_eq!(peer_scope(ip("fe80::1")), "lan");
+        assert_eq!(peer_scope(ip("::ffff:192.168.1.23")), "lan");
+        // Tailscale (and a carrier's CGNAT), IPv4, IPv4-mapped and IPv6: never the LAN.
+        assert_eq!(peer_scope(ip("100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("100.64.0.1")), "tailnet");
+        assert_eq!(peer_scope(ip("::ffff:100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("fd7a:115c:a1e0::1")), "tailnet");
+        // A hole-punched public address.
+        assert_eq!(peer_scope(ip("203.0.113.9")), "wan");
+        assert_eq!(peer_scope(ip("100.128.0.1")), "wan");
+        assert_eq!(peer_scope(ip("2001:db8::1")), "wan");
+        // A relayed path, or no route yet.
+        assert_eq!(peer_scope(None), "");
     }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {

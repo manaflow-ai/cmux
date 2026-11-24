@@ -15,6 +15,10 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
+/// Beside a move's bundle: what the first bytes of each agent file a history-later prepare had
+/// copied hash to, `{"native/<label>/<path>": {length, sha256}}` (`export_grown`).
+pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
+
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
     std::fs::read(marker)
@@ -39,6 +43,32 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        self.export_after(session, dest, None)
+    }
+
+    /// `export`; `after` a staged prefix's last seq, its log holds only the records past it
+    /// (`transfer_precopy.rs`).
+    pub(super) fn export_after(
+        &self,
+        session: &Arc<Session>,
+        dest: &Path,
+        after: Option<u64>,
+    ) -> Result<PathBuf> {
+        self.export_grown(session, dest, after, None)
+    }
+
+    /// [`Self::export_after`]; `grown` a history-later prepare's copies of the agent's files and
+    /// what each holds (`transfer_precopy.rs` `PrefixFold`): each that the file now only grew
+    /// past moves into the bundle with that growth appended, and `dest`'s
+    /// [`NATIVE_DIGESTS`] says what its first bytes hash to, so neither the copy nor the
+    /// digest a move asks of them (`transfer_digest`) reads the whole file under the freeze.
+    pub(super) fn export_grown(
+        &self,
+        session: &Arc<Session>,
+        dest: &Path,
+        after: Option<u64>,
+        grown: Option<(&Path, &Value)>,
+    ) -> Result<PathBuf> {
         // What the log holds back goes in first (`store/deferred.rs`).
         anyhow::ensure!(
             self.store_deferred(session),
@@ -59,9 +89,11 @@ impl Hub {
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
-        self.store.scan(&meta.id, 0, &mut |mut e: EventRecord| {
+        let mut images = std::collections::BTreeSet::new();
+        self.scan_off(&meta.id, after.unwrap_or(0), &mut |mut e: EventRecord| {
             // An ask carries the display line acpmux works out now, never a logged one.
             self.display_logged(Some(&**session), &mut e);
+            images.extend(super::prompt_images::ids_named_by(&e.kind, &e.msg));
             let written = serde_json::to_string(&e).map_err(anyhow::Error::from).and_then(|line| {
                 out.write_all(line.as_bytes())?;
                 out.write_all(b"\n")?;
@@ -82,6 +114,16 @@ impl Hub {
             return Err(e);
         }
         out.flush()?;
+        // The images its prompts sent (`prompt_images.rs`), which the log names but does not hold,
+        // the pre-copied prefix's prompts' too.
+        if let Some(after) = after {
+            super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
+        }
+        super::prompt_images::bundle_images(&images, &dir)?;
+        // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log.
+        let composers = session.composers.lock().unwrap_or_else(|e| e.into_inner()).bundled();
+        crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;
         let mut manifest = json!({
@@ -92,13 +134,43 @@ impl Hub {
             "native": [],
             "harness": harness,
         });
+        if let Some(after) = after {
+            manifest.set("afterSeq", json!(after));
+        }
         let mut copied = Vec::new();
         if !native.is_empty() {
             crate::home_fs::create_dirs(dir.join("native"))?;
+            let home = dirs::home_dir().unwrap_or_default();
+            let mut digests = serde_json::Map::new();
             for (label, src) in native {
-                if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
+                let fast = grown.and_then(|(prepared, held)| {
+                    let rel = crate::native::grow_into_from(
+                        &src,
+                        prepared,
+                        &dir.join("native"),
+                        &label,
+                        &home,
+                    );
+                    let rel = rel
+                        .inspect_err(|e| tracing::debug!("native file not grown: {e:#}"))
+                        .ok()??;
+                    let at = format!("native/{rel}");
+                    if let Some(digest) = held.get(&at) {
+                        digests.insert(at, digest.clone());
+                    }
+                    Some(rel)
+                });
+                let rel = match fast {
+                    Some(rel) => Ok(rel),
+                    None => crate::native::copy_into(&src, &dir.join("native"), &label),
+                };
+                if let Ok(rel) = rel {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
+            }
+            if !digests.is_empty() {
+                let digests = Value::Object(digests).to_string();
+                crate::home_fs::write(dest.join(NATIVE_DIGESTS), digests)?;
             }
         }
         // OpenCode keeps its sessions in a database: the session goes as its export. A failed
@@ -122,12 +194,14 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false, false).await
+        self.import_into(bundle, name, false, None, false, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
     /// any client sees it, so no new prompt runs ahead of it. A `guard`ed one (`transfer_guard.rs`)
     /// queues under the guard's control and restores only its own agent file, without its mode.
+    /// A `staged` prefix (`transfer_precopy.rs`) is the log's head; the bundle holds what follows.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn import_into(
         self: &Arc<Self>,
         bundle: &Path,
@@ -136,6 +210,7 @@ impl Hub {
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
+        staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
     ) -> Result<Arc<Session>, RpcError> {
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
@@ -266,8 +341,8 @@ impl Hub {
         }
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
-        let last = match self.copy_bundle_events(bundle, &meta.id, guarded.map(|g| g.guard.control))
-        {
+        let control = guarded.map(|g| g.guard.control);
+        let last = match self.copy_bundle_events(bundle, &meta.id, control, staged) {
             Ok(last) => last,
             Err(e) => {
                 self.drop_failed_import(&meta);
@@ -279,6 +354,11 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         let restored = match guarded {
+            // A history-later move's receive bundle is read by nothing after its finish: its
+            // transcript becomes the home folder's file by a link, not a copy under the freeze.
+            None if staged.is_some_and(|s| s.history_later) => {
+                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+            }
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
@@ -295,6 +375,11 @@ impl Hub {
                 }
             }
         };
+        // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
+        // kept leaves the chat showing that image as missing, as a pruned one does.
+        if let Err(e) = super::prompt_images::restore_images(bundle) {
+            tracing::warn!(session = %meta.id, "moved images not kept: {e:#}");
+        }
         // OpenCode's session is imported into its own database, in the chat's folder here. One
         // that fails leaves the chat to resume from its log, as a chat with no agent store does.
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
@@ -314,6 +399,13 @@ impl Hub {
         }
         if live {
             self.restore_queue(&session);
+            // A bundle from a daemon that wrote none moves the chat without them.
+            if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            {
+                session.composers.lock().unwrap_or_else(|e| e.into_inner()).restore(&v);
+            }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
         }
@@ -357,9 +449,6 @@ impl Hub {
         Ok(session)
     }
 
-    /// Append every record of a bundle's `events/*.ndjson` to the store, in
-    /// file order. Returns the highest sequence copied. Under a guard's `control`, the
-    /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
     fn harness_pi_session_optional(
         root: &Path,
         agent_id: &str,
@@ -837,42 +926,6 @@ impl Hub {
         std::fs::File::open(root)?.sync_all()?;
         Ok(())
     }
-
-    fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {
-        let events_path = bundle.join("events");
-        if !events_path.exists() {
-            return Ok(0);
-        }
-        let mut files: Vec<PathBuf> = Vec::new();
-        for entry in std::fs::read_dir(&events_path)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("ndjson") {
-                files.push(path);
-            }
-        }
-        files.sort();
-        let mut last = 0;
-        for f in files {
-            use std::io::BufRead as _;
-            let file = std::fs::File::open(&f)
-                .map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
-            // Bound memory to one record, including for multi-gigabyte event logs.
-            for (n, line) in std::io::BufReader::new(file).lines().enumerate() {
-                let line = line.map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let mut rec: EventRecord = serde_json::from_str(&line)
-                    .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
-                if let Some(control) = control {
-                    super::transfer_guard::guarded_record(&mut rec, control);
-                }
-                last = last.max(rec.seq);
-                self.store.append(id, &rec)?;
-            }
-        }
-        Ok(last)
-    }
 }
 
 #[cfg(test)]
@@ -922,7 +975,7 @@ mod tests {
         std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
         let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
         for attempt in ["first", "retry"] {
-            let failed = hub.import_into(&bundle, None, true, None, true, true).await;
+            let failed = hub.import_into(&bundle, None, true, None, true, true, None).await;
             let failed = failed.err().map(|e| e.message);
             assert!(
                 failed.as_deref().is_some_and(|m| m.starts_with("import events")),

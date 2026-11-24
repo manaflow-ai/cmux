@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cmux_customize::setup::{self, ExportHeader, Receipt, Reference, SETUP_FILE};
+use cmux_customize::setup::{self, ExportHeader, Receipt, Reference, SETUP_FILE, SetupSource};
 use cmux_customize::{Customize, Error, Roots};
 use serde_json::{Value, json};
 
@@ -102,23 +102,7 @@ fn sample_repo(root: &Path) -> PathBuf {
 
 fn receipt(setup: &setup::Setup, installed: &setup::Installed) -> Receipt {
     let reference = Reference::parse("github.com/manaflow-ai/cmux-setup-sample").unwrap();
-    Receipt {
-        id: setup.manifest.id.clone(),
-        name: setup.manifest.name.clone(),
-        repository: reference.repository(),
-        reference,
-        commit: "a".repeat(40),
-        sha256: setup.sha256.clone(),
-        version: setup.manifest.version.clone(),
-        generation: installed.applied.as_ref().map(|applied| applied.generation.n),
-        before: installed.before,
-        library: installed.applied.as_ref().and_then(|applied| applied.library.clone()),
-        library_created: installed.library_created,
-        actions: setup.actions().clone(),
-        prior_actions: installed.prior_actions.clone(),
-        extensions: Vec::new(),
-        installed_ms: 10,
-    }
+    Receipt::new(setup, installed, SetupSource::Repo { reference }, &"a".repeat(40), Vec::new(), 10)
 }
 
 #[test]
@@ -561,6 +545,401 @@ fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
     );
 }
 
+/// A look: its own theme (selected), a stylesheet, and views
+/// (`customize/`, as a repo holds them: the app `local/customize`).
+fn look(root: &Path, id: &str, color: &str) -> PathBuf {
+    let name = id.split('/').next_back().unwrap();
+    let repo = root.join(name);
+    for dir in ["themes", "customize", "agent-pane"] {
+        fs::create_dir_all(repo.join(dir)).unwrap();
+    }
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "settings": {{"appearance.themeFile": "{name}"}}}}"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        repo.join(format!("themes/{name}.json")),
+        format!("{{ \"name\": \"{name}\", \"colors\": {{ \"background\": \"{color}\" }} }}\n"),
+    )
+    .unwrap();
+    fs::write(repo.join(format!("themes/{name}-only.json")), "{ \"name\": \"only\" }\n").unwrap();
+    fs::write(repo.join("customize/main.js"), format!("// {name}\nvar __cmuxAppExports = {{}};\n"))
+        .unwrap();
+    fs::write(
+        repo.join("customize/cmux-app.json"),
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Views", "version": "1.0.0",
+            "description": "A view", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
+    )
+    .unwrap();
+    repo
+}
+
+/// Every file under `dir`, by path, with its bytes.
+fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut found = std::collections::BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&next) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                found.insert(
+                    path.strip_prefix(dir).unwrap().to_path_buf(),
+                    fs::read(&path).unwrap(),
+                );
+            }
+        }
+    }
+    found
+}
+
+/// Leo: "Shouldn't repos not need to entirely fork cmux? Like just have a bit
+/// of whatever customizations there are. Like dotfiles". Two looks stack as
+/// layers of their own over the person's own edits; removing one takes off
+/// only its layer, and the other look and the edits stay byte for byte.
+#[test]
+fn two_looks_and_your_edits_stack_and_removing_one_leaves_the_rest_byte_for_byte() {
+    let home = Home::new();
+    let customize = home.customize();
+    // Your own: settings with a comment, your own views app and a theme.
+    home.write("cmux-next.json", MINE);
+    home.write("customize/main.js", "// my sidebar\n");
+    home.write(
+        "customize/cmux-app.json",
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+            "description": "My views", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
+    );
+    home.write("themes/mine.json", "{ \"name\": \"mine\" }\n");
+    customize.apply(None, "cli", 1).unwrap();
+
+    let install = |id: &str, color: &str, at: u64| {
+        let read = setup::read_dir(&look(home.dir.path(), id, color)).unwrap();
+        customize.plan_setup(&read, "leo", "0.0.0").unwrap();
+        let installed = customize.install_setup(&read, &format!("setup {id}"), "cli", at).unwrap();
+        let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+        let receipt = Receipt::new(
+            &read,
+            &installed,
+            SetupSource::Repo { reference },
+            &"a".repeat(40),
+            Vec::new(),
+            at,
+        );
+        customize.record_setup(receipt.clone()).unwrap();
+        receipt
+    };
+    let dusk = install("leo/dusk", "#1a1b2e", 10);
+    let dawn = install("leo/dawn", "#fdf6e3", 20);
+    assert_eq!(dusk.layer.as_deref(), Some("setup-leo-dusk"));
+
+    // Your own edits after both: a setting, by hand, applied.
+    let edited = home.read("cmux-next.json").unwrap().replace("\"compact\"", "\"comfortable\"");
+    home.write("cmux-next.json", &edited);
+    customize.apply(Some("my density"), "cli", 30).unwrap();
+
+    // Neither install wrote your views; each look has a layer of its own.
+    let setups = home.config("setups");
+    assert_eq!(home.read("customize/main.js").unwrap(), "// my sidebar\n");
+    let index: Value =
+        serde_json::from_str(&fs::read_to_string(setups.join("layers.json")).unwrap()).unwrap();
+    let apps: Vec<&str> = index["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["app"].as_str().unwrap())
+        .collect();
+    assert_eq!(apps, ["local/setup-leo-dawn", "local/setup-leo-dusk"], "newest on top");
+    assert_eq!(
+        fs::read_to_string(setups.join("setup-leo-dusk/main.js")).unwrap(),
+        "// dusk\nvar __cmuxAppExports = {};\n"
+    );
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(setups.join("setup-leo-dusk/cmux-app.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["id"], json!("local/setup-leo-dusk"));
+
+    let settings_before = home.read("cmux-next.json").unwrap();
+    let mine_before = snapshot(&home.config("customize"));
+    let dawn_layer_before = snapshot(&setups.join("setup-leo-dawn"));
+    let dawn_themes_before =
+        [home.read("themes/dawn.json").unwrap(), home.read("themes/dawn-only.json").unwrap()];
+    let mine_theme_before = home.read("themes/mine.json").unwrap();
+    assert!(settings_before.contains("\"comfortable\""), "{settings_before}");
+
+    // Take the lower look off.
+    let found = customize.setup("leo/dusk").unwrap().unwrap();
+    let removed = customize.remove_setup(&found, "cli", 40).unwrap();
+    assert_eq!(removed.layer.as_deref(), Some("setup-leo-dusk"));
+
+    // Its layer is gone, and only its layer.
+    assert!(!setups.join("setup-leo-dusk").exists());
+    assert!(home.read("themes/dusk-only.json").is_none());
+    let index: Value =
+        serde_json::from_str(&fs::read_to_string(setups.join("layers.json")).unwrap()).unwrap();
+    assert_eq!(index["layers"][0]["app"], json!("local/setup-leo-dawn"));
+    assert_eq!(index["layers"].as_array().unwrap().len(), 1);
+    // The other look, and your edits, byte for byte.
+    assert_eq!(home.read("cmux-next.json").unwrap(), settings_before);
+    assert_eq!(snapshot(&home.config("customize")), mine_before);
+    assert_eq!(snapshot(&setups.join("setup-leo-dawn")), dawn_layer_before);
+    assert_eq!(
+        [home.read("themes/dawn.json").unwrap(), home.read("themes/dawn-only.json").unwrap()],
+        dawn_themes_before
+    );
+    assert_eq!(home.read("themes/mine.json").unwrap(), mine_theme_before);
+    assert_eq!(
+        customize.setups().unwrap().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        [dawn.id.as_str()]
+    );
+}
+
+#[test]
+fn a_setup_turns_off_and_on_in_its_place_and_order_sets_which_look_wins() {
+    let home = Home::new();
+    let customize = home.customize();
+    home.write("cmux-next.json", MINE);
+    let install = |id: &str, color: &str, at: u64| {
+        let read = setup::read_dir(&look(home.dir.path(), id, color)).unwrap();
+        let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+        let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+        let receipt =
+            Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+        customize.record_setup(receipt).unwrap();
+    };
+    install("leo/dusk", "#111111", 10);
+    install("leo/dawn", "#eeeeee", 20);
+    let theme = |home: &Home| home.settings()["appearance"]["themeFile"].clone();
+    assert_eq!(theme(&home), json!("dawn"), "the top look wins a key both set");
+
+    customize.set_setup_on("leo/dawn", false, "cli", 30).unwrap();
+    assert_eq!(theme(&home), json!("dusk"));
+    let index = setup::layers::read_index(&home.config("setups")).unwrap();
+    assert_eq!(index.layers.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["leo/dusk"]);
+    assert!(home.config("setups/setup-leo-dawn/main.js").exists(), "off keeps it installed");
+    customize.set_setup_on("leo/dawn", true, "cli", 40).unwrap();
+    assert_eq!(theme(&home), json!("dawn"));
+
+    customize.order_setups(&["leo/dusk".to_owned()], "cli", 50).unwrap();
+    assert_eq!(theme(&home), json!("dusk"), "the order decides");
+    let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["leo/dusk", "leo/dawn"]);
+}
+
+#[test]
+fn the_first_receipts_file_still_reads() {
+    let home = Home::new();
+    let state = home.dir.path().join("state");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("setups.json"),
+        r#"{"setups": [
+          {"id": "leo/night", "name": "Night", "repository": "github.com/leo/night",
+           "reference": {"host": "github.com", "owner": "leo", "repo": "night", "path": ""},
+           "commit": "abc", "sha256": "def", "installed_ms": 1},
+          {"id": "leo/try", "name": "Try", "repository": "/tmp/try",
+           "reference": {"host": "local", "owner": "leo", "repo": "try", "path": ""},
+           "local": "/tmp/try", "commit": "local-1", "sha256": "1", "installed_ms": 2}
+        ]}"#,
+    )
+    .unwrap();
+    let setups = home.customize().setups().unwrap();
+    assert_eq!(setups.len(), 2);
+    assert!(
+        matches!(&setups[0].source, SetupSource::Repo { reference } if reference.key() == "github.com/leo/night")
+    );
+    assert_eq!(setups[1].source, SetupSource::Folder { path: PathBuf::from("/tmp/try") });
+    assert!(setups.iter().all(|receipt| receipt.on && receipt.layer.is_none()));
+    assert!(home.customize().setup("github.com/leo/night").unwrap().is_some());
+}
+
+/// A setup that sets one action, `shared`, to run `command`.
+fn action_setup(root: &Path, id: &str, command: &str) -> setup::Setup {
+    let name = id.replace('/', "-");
+    let repo = root.join(format!("actions-{name}-{}", command.len()));
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "actions": {{"shared": {{"type": "command", "command": "{command}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    setup::read_dir(&repo).unwrap()
+}
+
+fn install_action(home: &Home, customize: &Customize, id: &str, command: &str, at: u64) {
+    let read = action_setup(home.dir.path(), id, command);
+    let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+    let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+    let receipt =
+        Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+    customize.record_setup(receipt).unwrap();
+}
+
+fn remove_by_id(customize: &Customize, id: &str, at: u64) -> setup::Removed {
+    let receipt = customize.setup(id).unwrap().unwrap();
+    customize.remove_setup(&receipt, "cli", at).unwrap()
+}
+
+/// What the `shared` action runs now (`Null`: there is none).
+fn shared(home: &Home) -> Value {
+    home.settings()["actions"]["shared"]["command"].clone()
+}
+
+const MINE_SHARED: &str =
+    "{ \"actions\": { \"shared\": { \"type\": \"command\", \"command\": \"echo mine\" } } }\n";
+
+fn prior_of(customize: &Customize, id: &str) -> Option<Value> {
+    customize.setup(id).unwrap().unwrap().prior_actions["shared"].clone()
+}
+
+#[test]
+fn removing_one_of_two_setups_that_set_the_same_action_keeps_it_for_the_other() {
+    for first_off in ["leo/a", "leo/b"] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo same", 10);
+        install_action(&home, &customize, "leo/b", "echo same", 20);
+        let mine = Some(json!({ "type": "command", "command": "echo mine" }));
+        assert_eq!(prior_of(&customize, "leo/b"), mine, "both name what was there before them");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!("echo same"), "{first_off} off: the other still sets it");
+        assert!(removed.actions.is_empty(), "{removed:?}");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        let receipt = customize.setup(other).unwrap().unwrap();
+        assert_eq!(receipt.actions["shared"]["command"], json!("echo same"));
+        assert_eq!(receipt.prior_actions["shared"], mine, "its receipt still puts yours back");
+
+        let removed = remove_by_id(&customize, other, 40);
+        assert_eq!(removed.actions, ["shared"]);
+        assert_eq!(shared(&home), json!("echo mine"), "the last one off puts yours back");
+    }
+}
+
+#[test]
+fn two_setups_with_different_values_hand_the_action_down_by_order() {
+    for (first_off, left) in [("leo/b", "echo a"), ("leo/a", "echo b")] {
+        let home = Home::new();
+        home.write("cmux-next.json", MINE_SHARED);
+        let customize = home.customize();
+        install_action(&home, &customize, "leo/a", "echo a", 10);
+        install_action(&home, &customize, "leo/b", "echo b", 20);
+        assert_eq!(shared(&home), json!("echo b"), "the top one wins");
+
+        let removed = remove_by_id(&customize, first_off, 30);
+        assert_eq!(shared(&home), json!(left), "{first_off} off");
+        assert_eq!(removed.shared_actions, ["shared"]);
+        let other = if first_off == "leo/a" { "leo/b" } else { "leo/a" };
+        remove_by_id(&customize, other, 40);
+        assert_eq!(shared(&home), json!("echo mine"));
+        assert!(customize.setups().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn an_action_no_one_had_comes_out_only_with_the_last_setup_that_sets_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo same", 10);
+    install_action(&home, &customize, "leo/b", "echo same", 20);
+    install_action(&home, &customize, "leo/c", "echo c", 30);
+    remove_by_id(&customize, "leo/c", 40);
+    assert_eq!(shared(&home), json!("echo same"));
+    remove_by_id(&customize, "leo/a", 50);
+    assert_eq!(shared(&home), json!("echo same"));
+    assert_eq!(prior_of(&customize, "leo/b"), None);
+    remove_by_id(&customize, "leo/b", 60);
+    assert_eq!(shared(&home), Value::Null);
+    assert_eq!(home.settings()["actions"]["mine"]["command"], json!("ls"));
+}
+
+#[test]
+fn an_action_you_changed_before_a_new_setup_comes_back_when_that_setup_goes() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    let text = home.read("cmux-next.json").unwrap().replace("\"echo a\"", "\"echo hand\"");
+    home.write("cmux-next.json", &text);
+    customize.apply(None, "cli", 15).unwrap();
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    assert!(
+        !customize.setup("leo/a").unwrap().unwrap().actions.contains_key("shared"),
+        "your change made it yours: leo/a no longer puts anything back"
+    );
+
+    let removed = remove_by_id(&customize, "leo/b", 30);
+    assert_eq!(removed.actions, ["shared"]);
+    assert_eq!(shared(&home), json!("echo hand"));
+    let removed = remove_by_id(&customize, "leo/a", 40);
+    assert!(removed.actions.is_empty() && removed.shared_actions.is_empty(), "{removed:?}");
+    assert_eq!(shared(&home), json!("echo hand"));
+}
+
+#[test]
+fn receipts_that_chain_their_priors_still_put_the_first_value_back() {
+    // The receipt file as the previous rule wrote it: each setup's prior is
+    // what was there when it installed (leo/b's is leo/a's value).
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/a", "echo a", 10);
+    install_action(&home, &customize, "leo/b", "echo b", 20);
+    let path = home.dir.path().join("state/setups.json");
+    let mut file: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let rows = file["setups"].as_array_mut().unwrap();
+    let b = rows.iter_mut().find(|row| row["id"] == json!("leo/b")).unwrap();
+    b["prior_actions"]["shared"] = json!({ "type": "command", "command": "echo a" });
+    fs::write(&path, serde_json::to_string(&file).unwrap()).unwrap();
+
+    remove_by_id(&customize, "leo/a", 30);
+    assert_eq!(shared(&home), json!("echo b"));
+    assert_eq!(
+        prior_of(&customize, "leo/b"),
+        Some(json!({ "type": "command", "command": "echo mine" }))
+    );
+    remove_by_id(&customize, "leo/b", 40);
+    assert_eq!(shared(&home), json!("echo mine"));
+}
+
+#[test]
+fn an_update_whose_id_changed_leaves_one_receipt_in_the_old_place() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE_SHARED);
+    let customize = home.customize();
+    install_action(&home, &customize, "leo/below", "echo below", 5);
+    install_action(&home, &customize, "leo/old", "echo old", 10);
+    install_action(&home, &customize, "leo/top", "echo top", 15);
+    let old = customize.setup("leo/old").unwrap().unwrap();
+
+    let taken = action_setup(home.dir.path(), "leo/top", "echo taken");
+    let refused = customize.replace_setup(&old, &taken, "update", "cli", 20);
+    assert!(matches!(refused, Err(Error::Setup(_))), "{refused:?}");
+
+    let renamed = action_setup(home.dir.path(), "leo/renamed", "echo renamed");
+    let installed = customize.replace_setup(&old, &renamed, "update", "cli", 30).unwrap();
+    let reference = Reference::parse("github.com/leo/renamed").unwrap();
+    let receipt =
+        Receipt::new(&renamed, &installed, SetupSource::Repo { reference }, "d", Vec::new(), 30);
+    customize.record_setup(receipt).unwrap();
+    let ids: Vec<String> = customize.setups().unwrap().into_iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["leo/top", "leo/renamed", "leo/below"]);
+}
+
 /// A choice a row renamed (`aliases`, `updates.notify`: `card` is now
 /// `badge`): a setup that sets the old value installs the new one.
 #[test]
@@ -603,4 +982,196 @@ fn a_setup_that_picks_the_corner_treatment_keeps_it() {
     let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
     customize.remove_setup(&found, "cli", 20).unwrap();
     assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
+}
+
+/// A New Tab look as its repo holds it (manaflow-ai/cmux-newtab-cards-look): views that draw the
+/// whole page (`cmux.newtab/1`) in `customize/`, the app `local/customize` there, and the setting
+/// that picks it, `tabs.newTabApp: local/customize`.
+fn new_tab_look(root: &Path, id: &str) -> PathBuf {
+    let name = id.split('/').next_back().unwrap();
+    let repo = root.join(name);
+    fs::create_dir_all(repo.join("customize")).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        format!(
+            r#"{{"cmuxSetup": 1, "id": "{id}", "name": "{name}", "cmuxProfile": 1,
+               "settings": {{"tabs.newTabApp": "local/customize"}}}}"#
+        ),
+    )
+    .unwrap();
+    fs::write(repo.join("customize/main.js"), format!("// {name}\nvar __cmuxAppExports = {{}};\n"))
+        .unwrap();
+    fs::write(
+        repo.join("customize/cmux-app.json"),
+        format!(
+            r#"{{"manifestVersion": 2, "id": "local/customize", "name": "{name}", "version": "1.0.0",
+                "description": "A New Tab page", "engines": {{"cmux": "^2.0"}},
+                "runtime": {{"main": "main.js"}}, "files": ["main.js"],
+                "implements": {{"cmux.newtab/1": {{"export": "renderNewTab", "title": "{name}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    repo
+}
+
+/// Leo, on the New Tab templates: "The templates should be like the customixastikms api you can
+/// build them i don't think they should ship as is"; on setups: "Like dotfiles". A New Tab look
+/// installs as a layer of its own and its `tabs.newTabApp` picks that layer's app,
+/// `local/setup-OWNER-NAME`, never the person's own `local/customize`. Two looks stack: the higher
+/// one's page shows, `order` and `off` change which, a pick of the person's own made after them
+/// stays above both, and removing them leaves the person's own views and settings as they were.
+#[test]
+fn a_new_tab_look_picks_its_own_layer_and_looks_stack_over_your_own_customize() {
+    let home = Home::new();
+    let customize = home.customize();
+    home.write("cmux-next.json", MINE);
+    home.write("customize/main.js", "// my sidebar\n");
+    home.write(
+        "customize/cmux-app.json",
+        r#"{"manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+            "description": "My views", "engines": {"cmux": "^2.0"}, "runtime": {"main": "main.js"},
+            "files": ["main.js"]}"#,
+    );
+    customize.apply(None, "cli", 1).unwrap();
+    let mine = snapshot(&home.config("customize"));
+    let install = |id: &str, at: u64| {
+        let read = setup::read_dir(&new_tab_look(home.dir.path(), id)).unwrap();
+        let plan = customize.plan_setup(&read, "leo", "0.0.0").unwrap();
+        let installed = customize.install_setup(&read, id, "cli", at).unwrap();
+        let reference = Reference::parse(&format!("github.com/{id}")).unwrap();
+        let receipt =
+            Receipt::new(&read, &installed, SetupSource::Repo { reference }, "c", Vec::new(), at);
+        customize.record_setup(receipt).unwrap();
+        plan
+    };
+    let picked = |home: &Home| home.settings()["tabs"]["newTabApp"].clone();
+
+    // The card says what it picks: the layer's app, as it installs.
+    let plan = install("leo/cards", 10);
+    let setting = plan.settings.iter().find(|row| row.key == "tabs.newTabApp").unwrap();
+    assert_eq!(setting.value, json!("local/setup-leo-cards"));
+    assert_eq!(plan.layer.as_deref(), Some("local/setup-leo-cards"));
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "the look picks its own page");
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(home.config("setups/setup-leo-cards/cmux-app.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["id"], json!("local/setup-leo-cards"));
+    assert!(manifest["implements"]["cmux.newtab/1"].is_object(), "the page it draws came along");
+
+    install("leo/threads", 20);
+    assert_eq!(picked(&home), json!("local/setup-leo-threads"), "the newer look is on top");
+    assert_eq!(snapshot(&home.config("customize")), mine, "your own views are never written");
+
+    customize.set_setup_on("leo/threads", false, "cli", 30).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "off: the one below shows");
+    customize.set_setup_on("leo/threads", true, "cli", 40).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-threads"));
+    customize.order_setups(&["leo/cards".to_owned()], "cli", 50).unwrap();
+    assert_eq!(picked(&home), json!("local/setup-leo-cards"), "the order decides");
+
+    // Your own pick after them stays above both.
+    let edited = home
+        .read("cmux-next.json")
+        .unwrap()
+        .replace("\"local/setup-leo-cards\"", "\"local/customize\"");
+    home.write("cmux-next.json", &edited);
+    customize.apply(Some("my new tab"), "cli", 60).unwrap();
+    assert_eq!(picked(&home), json!("local/customize"));
+    customize.order_setups(&["leo/threads".to_owned()], "cli", 70).unwrap();
+    assert_eq!(picked(&home), json!("local/customize"), "your pick is above every look");
+
+    for id in ["leo/cards", "leo/threads"] {
+        let found = customize.setup(id).unwrap().unwrap();
+        customize.remove_setup(&found, "cli", 80).unwrap();
+    }
+    assert!(!home.config("setups/setup-leo-cards").exists());
+    assert!(!home.config("setups/setup-leo-threads").exists());
+    assert_eq!(snapshot(&home.config("customize")), mine);
+    assert_eq!(picked(&home), json!("local/customize"), "your own pick stays yours");
+}
+
+/// A setup with no views of its own keeps a `tabs.newTabApp` it names as written: there is no
+/// layer to point it at.
+#[test]
+fn a_setup_without_views_keeps_the_app_it_names() {
+    let home = Home::new();
+    let customize = home.customize();
+    let repo = home.dir.path().join("pick");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join(SETUP_FILE),
+        r#"{"cmuxSetup": 1, "id": "leo/pick", "name": "Pick", "cmuxProfile": 1,
+           "settings": {"tabs.newTabApp": "local/customize"}}"#,
+    )
+    .unwrap();
+    let read = setup::read_dir(&repo).unwrap();
+    let plan = customize.plan_setup(&read, "leo", "0.0.0").unwrap();
+    assert_eq!(plan.settings[0].value, json!("local/customize"));
+    assert_eq!(plan.layer, None);
+    customize.install_setup(&read, "leo/pick", "cli", 10).unwrap();
+    assert_eq!(home.settings()["tabs"]["newTabApp"], json!("local/customize"));
+}
+
+/// A look with a dark theme and a light variant, as Overdrive ships them.
+fn look_with_a_variant(root: &Path) -> PathBuf {
+    let repo = sample_repo(root);
+    fs::write(
+        repo.join("themes/sample-dawn.json"),
+        "{ \"name\": \"Sample Dawn\", \"colors\": { \"background\": \"#f6f1e7\" } }\n",
+    )
+    .unwrap();
+    repo
+}
+
+/// What `cmux settings set appearance.themeFile NAME` does: one key in the
+/// person's own settings file.
+fn settings_set(home: &Home, key: &[&str], value: Value) {
+    let text = home.read("cmux-next.json").unwrap_or_else(|| "{}\n".to_owned());
+    let path: Vec<String> = key.iter().map(|piece| (*piece).to_owned()).collect();
+    home.write("cmux-next.json", &cmux_config::jsonc::set(&text, &path, &value).unwrap());
+}
+
+/// Removes the look after its light variant was picked by hand, then
+/// `between` ran; the settings must not name a theme file that is gone.
+fn remove_after_picking_the_variant(between: impl Fn(&Home, &Customize)) {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = look_with_a_variant(home.dir.path());
+    let read = setup::read_dir(&repo).unwrap();
+    let customize = home.customize();
+    let installed = customize.install_setup(&read, "setup sample", "cli", 10).unwrap();
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    assert!(home.config("themes/sample-dawn.json").exists());
+
+    // The light variant, picked the way the look's README says.
+    settings_set(&home, &["appearance", "themeFile"], json!("sample-dawn"));
+    between(&home, &customize);
+
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert!(!home.config("themes/sample-dawn.json").exists(), "the look's files go with it");
+    let settings = home.settings();
+    if let Some(theme) = settings["appearance"].get("themeFile").and_then(Value::as_str) {
+        assert!(
+            home.config(&format!("themes/{theme}.json")).exists(),
+            "the settings name the theme file {theme:?}, which the remove deleted: {settings}"
+        );
+    }
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+}
+
+#[test]
+fn removing_a_look_right_after_picking_its_variant_leaves_no_missing_theme() {
+    remove_after_picking_the_variant(|_, _| {});
+}
+
+#[test]
+fn removing_a_look_after_its_variant_was_applied_leaves_no_missing_theme() {
+    // Any apply since (a customize ask, a library toggle) keeps the hand edit.
+    remove_after_picking_the_variant(|home, customize| {
+        settings_set(home, &["appearance", "density"], json!("comfortable"));
+        settings_set(home, &["appearance", "density"], json!("compact"));
+        customize.apply(Some("by hand"), "cli", 15).unwrap();
+    });
 }
