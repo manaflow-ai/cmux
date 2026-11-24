@@ -195,7 +195,7 @@ impl Hub {
         from: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(asker).cloned();
+        let local = self.session_get(asker);
         let Some(p) = local else {
             tracing::debug!(asker, from, "question reply dropped: the asker is no session here");
             return Ok(());
