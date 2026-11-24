@@ -140,7 +140,7 @@ async fn sha256_file(path: &Path) -> Result<String> {
             if n == 0 {
                 return Ok(format!("{:x}", hasher.finalize()));
             }
-            hasher.update(&buf[..n]);
+            hasher.update(buf.get(..n).unwrap_or_default());
         }
     })
     .await?
@@ -249,7 +249,7 @@ async fn head_stream(
             _ => break,
         };
         let take = (chunk.len() as u64).min(total - written) as usize;
-        file.write_all(&chunk[..take]).await?;
+        file.write_all(chunk.get(..take).unwrap_or_default()).await?;
         written += take as u64;
         let elapsed = started.elapsed();
         if !judged && elapsed >= adaptive.after {
