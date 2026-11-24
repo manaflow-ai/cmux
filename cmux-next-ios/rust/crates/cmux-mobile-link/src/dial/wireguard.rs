@@ -50,9 +50,13 @@ pub use super::turn::missing_turn;
 #[path = "wireguard_roam.rs"]
 mod roam;
 use roam::{Control, Session};
+#[path = "wireguard_multipath.rs"]
+pub mod multipath;
 #[path = "wireguard_paths.rs"]
 mod paths;
+pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
+use roam::apply_multipath_to_live_sessions;
 pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
