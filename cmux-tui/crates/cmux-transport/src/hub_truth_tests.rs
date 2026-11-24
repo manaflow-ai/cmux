@@ -64,7 +64,7 @@ fn a_header_that_disagrees_with_the_sealed_triple_is_rejected() {
     assert_eq!(t.stats.mismatches, 2);
     assert_eq!(t.delivered(), None);
     // Edited on the wire: the seal itself fails.
-    let mut edited = payload.clone();
+    let mut edited = payload;
     edited[HUB_HEADER_LEN - 3] ^= 1;
     assert!(matches!(t.on_payload(&key(), &edited), Err(TruthReject::Open(_))));
 }

@@ -98,12 +98,12 @@ impl TruthTracker {
 
     /// The highest position known for `source`.
     pub fn head(&self, source: HubRole) -> Option<HubPos> {
-        self.heads[source.index()]
+        *slot(&self.heads, source)
     }
 
     /// A source reported its head over its own direct link.
     pub fn report_head(&mut self, source: HubRole, head: HubPos) {
-        let slot = &mut self.heads[source.index()];
+        let slot = slot_mut(&mut self.heads, source);
         if slot.is_none_or(|known| head > known) {
             *slot = Some(head);
         }
@@ -160,9 +160,9 @@ impl TruthTracker {
         if let Some(head) = self.head(ahead)
             && head > pos
             && behind_by(pos, head) > self.config.stale_tolerance
-            && self.flagged[ahead.index()] != Some(head)
+            && *slot(&self.flagged, ahead) != Some(head)
         {
-            self.flagged[ahead.index()] = Some(head);
+            *slot_mut(&mut self.flagged, ahead) = Some(head);
             self.stats.stale_picks += 1;
             out.push(TruthEvent::StalePick { source, delivered: pos, ahead, head });
         }
@@ -181,3 +181,20 @@ fn behind_by(pos: HubPos, head: HubPos) -> u64 {
 #[cfg(test)]
 #[path = "hub_truth_tests.rs"]
 mod tests;
+
+/// `role`'s entry of a per-source pair (no index, so nothing to panic on).
+fn slot(pair: &[Option<HubPos>; 2], role: HubRole) -> &Option<HubPos> {
+    let [mac, vm] = pair;
+    match role {
+        HubRole::Mac => mac,
+        HubRole::Vm => vm,
+    }
+}
+
+fn slot_mut(pair: &mut [Option<HubPos>; 2], role: HubRole) -> &mut Option<HubPos> {
+    let [mac, vm] = pair;
+    match role {
+        HubRole::Mac => mac,
+        HubRole::Vm => vm,
+    }
+}

@@ -76,10 +76,6 @@ impl HubRole {
             Self::Vm => Self::Mac,
         }
     }
-
-    pub(crate) fn index(self) -> usize {
-        self as usize - 1
-    }
 }
 
 /// Where a hub frame goes.
@@ -161,24 +157,24 @@ impl HubHeader {
                 _ => return Err(HubHeaderError::To(byte)),
             },
         };
+        let short = HubHeaderError::Short;
         Ok(Self {
-            session: take::<16>(head, 1),
-            pos: HubPos::new(be_u64(&head[17..25]), be_u64(&head[25..33])),
+            session: take::<16>(head, 1).ok_or(short)?,
+            pos: HubPos::new(be_u64(head, 17).ok_or(short)?, be_u64(head, 25).ok_or(short)?),
             source,
             to,
         })
     }
 }
 
-/// `N` bytes of `bytes` at `at`; callers checked the length first.
-fn take<const N: usize>(bytes: &[u8], at: usize) -> [u8; N] {
-    let mut out = [0u8; N];
-    out.copy_from_slice(&bytes[at..at + N]);
-    out
+/// `N` bytes of `bytes` at `at`, or `None` past its end.
+fn take<const N: usize>(bytes: &[u8], at: usize) -> Option<[u8; N]> {
+    bytes.get(at..at.checked_add(N)?)?.try_into().ok()
 }
 
-fn be_u64(bytes: &[u8]) -> u64 {
-    u64::from_be_bytes(take::<8>(bytes, 0))
+/// A big-endian u64 at `at`, or `None` past the end.
+fn be_u64(bytes: &[u8], at: usize) -> Option<u64> {
+    take::<8>(bytes, at).map(u64::from_be_bytes)
 }
 
 /// The session's hub key, held by its sources and viewers and never by a
@@ -295,16 +291,20 @@ pub fn open(key: &HubKey, payload: &[u8]) -> Result<Opened, HubOpenError> {
     let plaintext = cipher
         .decrypt(&nonce(&header), Payload { msg: body, aad: clear })
         .map_err(|_| HubOpenError::Seal)?;
-    if plaintext.len() < HUB_INNER_LEN {
+    let Some((inner, event)) = plaintext.split_first_chunk::<HUB_INNER_LEN>() else {
         return Err(HubOpenError::Inner);
-    }
-    let inner_source = HubRole::from_byte(plaintext[32]).ok_or(HubOpenError::Inner)?;
+    };
+    let inner_err = HubOpenError::Inner;
+    let inner_source = HubRole::from_byte(inner[32]).ok_or(inner_err)?;
     Ok(Opened {
         header,
-        inner_session: take::<16>(&plaintext, 0),
-        inner_pos: HubPos::new(be_u64(&plaintext[16..24]), be_u64(&plaintext[24..32])),
+        inner_session: take::<16>(inner, 0).ok_or(inner_err)?,
+        inner_pos: HubPos::new(
+            be_u64(inner, 16).ok_or(inner_err)?,
+            be_u64(inner, 24).ok_or(inner_err)?,
+        ),
         inner_source,
-        event: plaintext[HUB_INNER_LEN..].to_vec(),
+        event: event.to_vec(),
     })
 }
 

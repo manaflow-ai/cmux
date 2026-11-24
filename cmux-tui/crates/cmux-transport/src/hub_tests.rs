@@ -57,7 +57,7 @@ fn a_relay_that_edits_any_header_byte_is_caught() {
         assert!(open(&key(), &edited).is_err(), "edit at byte {index} went unnoticed");
     }
     // Body edits too.
-    let mut edited = payload.clone();
+    let mut edited = payload;
     *edited.last_mut().unwrap() ^= 1;
     assert_eq!(open(&key(), &edited), Err(HubOpenError::Seal));
 }
