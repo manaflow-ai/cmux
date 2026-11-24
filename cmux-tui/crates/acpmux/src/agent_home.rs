@@ -316,8 +316,14 @@ fn diff(path: &str, old: &str, new: &str) -> String {
     if text.len() <= DIFF_MAX {
         return text;
     }
-    let cut = text[..DIFF_MAX].rfind('\n').map_or(0, |at| at + 1);
-    format!("{}… diff cut at {} KB\n", &text[..cut], DIFF_MAX / 1024)
+    let mut kept = String::with_capacity(DIFF_MAX);
+    for line in text.split_inclusive('\n') {
+        if kept.len().saturating_add(line.len()) > DIFF_MAX {
+            break;
+        }
+        kept.push_str(line);
+    }
+    format!("{kept}… diff cut at {} KB\n", DIFF_MAX / 1024)
 }
 
 #[cfg(test)]
