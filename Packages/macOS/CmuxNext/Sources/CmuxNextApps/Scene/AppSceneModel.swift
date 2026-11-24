@@ -77,6 +77,14 @@ public final class AppSceneModel {
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {
+        // A TextField's edit, submit and cancel carry the text it shows: the mirror takes it, as the
+        // app host does (it sends the app's value back only when it differs from that text). So an
+        // app that clears its draft after a submit clears the field, also when its draft was empty
+        // all along, and an update of another prop leaves the typed text alone.
+        if event == "edit" || event == "submit" || event == "cancel", let text = payload["text"]?.stringValue,
+           let current = scene.nodes[node], current.props["text"]?.stringValue != text {
+            _ = scene.apply([.update(id: node, props: ["text": .string(text)])])
+        }
         interaction?.dispatch(node: node, event: event, payload: payload)
     }
 }

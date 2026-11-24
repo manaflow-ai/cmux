@@ -31,6 +31,13 @@ struct TerminalKeyBar: View {
             KeyBarScrollerKeys(model: model, layout: layout, clipped: clipped)
         }
         .scrollIndicators(.hidden)
+        // At rest a key an edge cuts is not drawn (`KeyBarClipping.isWhole`):
+        // the row ended in a sliver of a key at the trailing edge (iOS release
+        // bar read-back: "no clipped keys"). While the finger scrolls, every
+        // key is drawn.
+        .onScrollPhaseChange { _, phase in
+            if clipped.resting != (phase == .idle) { clipped.resting = phase == .idle }
+        }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             geometry.contentOffset.x + geometry.contentInsets.leading
         } action: { _, new in
@@ -96,11 +103,25 @@ struct TerminalKeyBar: View {
 @Observable @MainActor
 final class KeyBarClippedKeys {
     private(set) var keys: Set<KeyBarKey> = []
+    /// Keys an edge cuts (not wholly inside the visible bounds).
+    private(set) var cut: Set<KeyBarKey> = []
+    /// The row isn't being scrolled: cut keys are not drawn.
+    var resting = true
 
     func set(_ key: KeyBarKey, clipped: Bool) {
         // Write only on a real change: every write invalidates readers.
         if clipped, !keys.contains(key) { keys.insert(key) }
         if !clipped, keys.contains(key) { keys.remove(key) }
+    }
+
+    func set(_ key: KeyBarKey, cut isCut: Bool) {
+        if isCut, !cut.contains(key) { cut.insert(key) }
+        if !isCut, cut.contains(key) { cut.remove(key) }
+    }
+
+    /// Whether `key` is drawn: always while scrolling, at rest only whole.
+    func draws(_ key: KeyBarKey) -> Bool {
+        !(resting && cut.contains(key))
     }
 }
 
@@ -122,6 +143,12 @@ struct KeyBarScrollerKeys: View {
     }
 }
 
+/// Where a scroller key sits against the row's visible bounds.
+struct KeyBarKeyVisibility: Equatable {
+    var activatable: Bool
+    var whole: Bool
+}
+
 /// One scroller key; it reads only its own clipped flag.
 struct KeyBarScrollerKey: View {
     let key: KeyBarKey
@@ -130,6 +157,7 @@ struct KeyBarScrollerKey: View {
 
     var body: some View {
         let isClipped = clipped.keys.contains(key)
+        let drawn = clipped.draws(key)
         Group {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
@@ -141,17 +169,23 @@ struct KeyBarScrollerKey: View {
                 KeyCap(key: key, model: model)
             }
         }
-        .onGeometryChange(for: Bool.self) { proxy in
+        .onGeometryChange(for: KeyBarKeyVisibility.self) { proxy in
             // Measured on iOS 26.5: the scroll view's visible bounds already
             // start after its leading bar (the pinned keys), so a key under
             // them reads as clipped with no offset here.
-            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
-        } action: { visible in
-            clipped.set(key, clipped: !visible)
+            let frame = CGRect(origin: .zero, size: proxy.size)
+            let visible = proxy.bounds(of: .scrollView)
+            return KeyBarKeyVisibility(activatable: KeyBarClipping().isActivatable(frame, in: visible),
+                                       whole: KeyBarClipping().isWhole(frame, in: visible))
+        } action: { visibility in
+            clipped.set(key, clipped: !visibility.activatable)
+            clipped.set(key, cut: !visibility.whole)
         }
+        .opacity(drawn ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: drawn)
         // A key under the pinned keys is neither seen, read nor tapped.
         .accessibilityHidden(isClipped)
-        .allowsHitTesting(!isClipped)
+        .allowsHitTesting(!isClipped && drawn)
     }
 }
 

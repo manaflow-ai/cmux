@@ -1,6 +1,7 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -62,8 +63,7 @@ struct EarlierPromptEditSheet: View {
                     TextEditor(text: $text)
                         .font(.body)
                         .frame(minHeight: 160)
-                        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                        .autocorrectionDisabled()
+                        // Prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                         .textInputAutocapitalization(.never)
                         .focused($focused)
                         .accessibilityLabel("Message")
@@ -137,18 +137,18 @@ struct SessionStatusSheet: View {
                     List {
                         Section(status.harness) {
                             ForEach(status.fields) { field in
-                                Button {
+                                LabeledContent(field.label) {
+                                    SelectableText(copied == field.label ? String(localized: "Copied") : field.value,
+                                                   color: .secondaryLabel)
+                                        .multilineTextAlignment(.trailing)
+                                        .lineLimit(3)
+                                }
+                                .contentShape(.rect)
+                                .onTapGesture {
                                     UIPasteboard.general.string = field.value
                                     copied = field.label
-                                } label: {
-                                    LabeledContent(field.label) {
-                                        Text(copied == field.label ? String(localized: "Copied") : field.value)
-                                            .multilineTextAlignment(.trailing)
-                                            .lineLimit(3)
-                                            .textSelection(.enabled)
-                                    }
                                 }
-                                .tint(.primary)
+                                .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel(Text("\(field.label), \(field.value)"))
                                 .accessibilityHint("Copies the value")
                                 .accessibilityIdentifier("chat.status.\(field.label)")

@@ -35,6 +35,11 @@ pub(crate) const PAGE_WAIT: Duration = Duration::from_secs(120);
 pub(crate) const FINISH_WAIT: Duration = Duration::from_secs(900);
 /// How many times one end is reached again in one move.
 pub(crate) const REOPENS: u32 = 6;
+/// How long one reconnect keeps trying its daemon: a daemon swapped mid-move (an update, a
+/// take-over) is back at the same socket within this.
+pub(crate) const RECONNECT_FOR: Duration = Duration::from_secs(120);
+/// The pause between two tries of one reconnect.
+const RECONNECT_EVERY: Duration = Duration::from_millis(500);
 
 /// Which deadline a request has.
 #[derive(Clone, Copy, Debug)]
@@ -43,6 +48,9 @@ pub(crate) enum Wait {
     Page,
     /// [`FINISH_WAIT`].
     Finish,
+    /// No deadline of this client's own: the daemon bounds its wait itself (a freeze that waits
+    /// for the running turn or its tool call).
+    Turn,
 }
 
 /// How a daemon is reached again.
@@ -85,18 +93,31 @@ pub(crate) struct MoveEnd<'a> {
     reopens: u32,
     /// Its [`Wait::Page`] and [`Wait::Finish`] deadlines.
     waits: (Duration, Duration),
+    /// How long one reconnect keeps trying ([`RECONNECT_FOR`]).
+    reconnect_for: Duration,
 }
 
 impl<'a> MoveEnd<'a> {
     pub(crate) fn new(what: &'static str, client: &'a Client, reach: Option<Reach>) -> Self {
         let waits = (PAGE_WAIT, FINISH_WAIT);
-        Self { what, first: client, now: None, reach, forward: None, reopens: 0, waits }
+        let reconnect_for = RECONNECT_FOR;
+        Self {
+            what,
+            first: client,
+            now: None,
+            reach,
+            forward: None,
+            reopens: 0,
+            waits,
+            reconnect_for,
+        }
     }
 
     /// With other deadlines than [`PAGE_WAIT`] and [`FINISH_WAIT`] (a test's).
     #[cfg(test)]
     pub(crate) fn with_waits(mut self, page: Duration, finish: Duration) -> Self {
         self.waits = (page, finish);
+        self.reconnect_for = page;
         self
     }
 
@@ -125,11 +146,25 @@ impl<'a> MoveEnd<'a> {
         }
         self.reopens += 1;
         tokio::time::sleep(Duration::from_millis(200) * self.reopens).await;
-        let (client, forward) = connect_reach(&reach).await?;
+        // A daemon being swapped is not there for a moment: tried until it is, or the bound.
+        let until = tokio::time::Instant::now() + self.reconnect_for;
+        let (client, forward) = loop {
+            match connect_reach(&reach).await {
+                Ok(reached) => break reached,
+                Err(e) if tokio::time::Instant::now() >= until => return Err(e),
+                Err(_) => tokio::time::sleep(RECONNECT_EVERY).await,
+            }
+        };
         // The old forward (if any) ends here, and the old client with it.
         self.forward = forward;
         self.now = Some(client);
         Ok(())
+    }
+
+    /// [`Self::call`] for a request that is safe to ask again (a read, a stage, a progress
+    /// note), within [`FINISH_WAIT`].
+    pub(crate) async fn request(&mut self, m: &str, params: Value) -> Result<Value> {
+        self.call(m, params, Wait::Finish, true).await
     }
 
     /// `m` with `params`, its answer within `wait`. A dropped or stalled connection is opened
@@ -143,19 +178,23 @@ impl<'a> MoveEnd<'a> {
         retry: bool,
     ) -> Result<Value> {
         let wait = match wait {
-            Wait::Page => self.waits.0,
-            Wait::Finish => self.waits.1,
+            Wait::Page => Some(self.waits.0),
+            Wait::Finish => Some(self.waits.1),
+            Wait::Turn => None,
         };
         loop {
-            let answer =
-                match tokio::time::timeout(wait, self.client().request(m, params.clone())).await {
+            let asked = self.client().request(m, params.clone());
+            let answer = match wait {
+                None => asked.await,
+                Some(wait) => match tokio::time::timeout(wait, asked).await {
                     Ok(answer) => answer,
                     Err(_) => Err(anyhow::Error::new(Stalled(format!(
                         "no answer to {m} from the {} within {}s",
                         self.what,
                         wait.as_secs()
                     )))),
-                };
+                },
+            };
             let e = match answer {
                 Err(e) if dropped(&e) && self.reach.is_some() => e,
                 other => return other,

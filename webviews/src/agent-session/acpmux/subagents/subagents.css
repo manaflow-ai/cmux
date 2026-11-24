@@ -502,11 +502,13 @@ button.cv-subagent > :last-child {
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
   /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
+  /* A theme's hat corner (--cmux-composer-hat-radius), as TaskGoalStrip.css's --acpmux-goal-radius. */
+  --acpmux-tray-radius: var(--cmux-composer-hat-radius, var(--acpmux-composer-radius, var(--grid-composer-radius)));
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
   /* The composer's corner, so the hat and the composer under it are one outline (ask-2351b8cf41). */
-  border-radius: var(--acpmux-composer-radius, var(--grid-composer-radius));
+  border-radius: var(--acpmux-tray-radius);
   background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -1366,11 +1368,6 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: auto;
 }
-/* Started task names use the available sentence width instead of the shared tag's 40% cap. */
-.cv-subagent-started .cv-agent-activity__sentence > .cv-agent-tag {
-  flex: 0 1 auto;
-  max-width: none;
-}
 /* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
    never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
    text-overflow draws the ellipsis; the 20px line keeps it one line. */
@@ -1889,16 +1886,14 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] {
   color: var(--cv-activity-text);
 }
-/* A title that opens the subagent is the link chip (SubagentDoneLine.tsx), yet at rest it stays the
-   plain title, uncut by AgentTag.css's 40%: its wash and ring come only under the pointer or focus,
-   so the clickable bit is what lights (Leo, 2026-11-05). */
-.cv-subagent-failed__text > .cv-agent-tag.is-open {
-  display: block;
-  flex: 0 1 auto;
-  max-width: none;
-}
-.cv-subagent-failed__text > .cv-agent-tag.is-open:not(:hover, :focus-visible, :active) {
-  background: transparent;
+/* A failed line that opens the subagent is one button, the way a tool row that opens is: under the
+   pointer anywhere on the row its words lift and its chevron lights, with no chip, ring or hover
+   card on its title (cmux#52916: "what is the point of this this looks weird?", on a ringed
+   "Subagent" chip and a "Failed · 0s" card over the row above). The reason stays dim. */
+.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]):has(> button.cv-subagent-done):is(:hover, :focus-within)
+  > button.cv-subagent-done
+  > .cv-tool__text {
+  color: var(--cv-text);
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done .cv-tool__icon {
   color: var(--agent-status-failure);
@@ -2034,6 +2029,9 @@ button.cv-subagent > :last-child {
   /* How strong the surface is: faint at rest once revealed, so it reads as a control before the
      pointer reaches it; lit on hover; darker while pressed. */
   --acpmux-tuck-ink: 6%;
+  /* Over the rim's resize band (a resize handle's layer, scrollers.ts RESIZE_HANDLE_CSS), so the
+     revealed tuck keeps the middle of the band's clicks. */
+  z-index: calc(var(--cmux-resize-handle-layer, 2) + 1);
   top: 0;
   width: calc(2 * var(--ds-space-48));
   height: var(--ds-space-3);
@@ -2116,19 +2114,26 @@ button.cv-subagent > :last-child {
 }
 /* Tucked: no height in the bottom stack, so the composer keeps its place; the tab's hover strip
    straddles the composer's top edge, centred on the composer card's column. */
+/* The band over the card is as tall as the pill stands above the card's top edge (half the control,
+   less the tab's 2px under its middle, plus its lift, plus a 2px clearance), so the transcript's rows
+   end under the dock there and no line of text ever runs behind the pill (Leo, 2026-11-22, the "^ 96"
+   pill over a line of the reply). The card keeps its place: the dock stands on the pane's foot and
+   only grows up, and the tab's offset takes the band's height, so the pill stays on the card's line. */
 .acpmux-tray-pull {
   position: relative;
   z-index: var(--layer-raised);
-  height: 0;
+  --acpmux-tray-pull-band: calc(var(--acpmux-tray-pull-control-height) / 2 + var(--acpmux-tray-pull-lift));
+  height: var(--acpmux-tray-pull-band);
   margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
 }
 .acpmux-tray-pull__tab {
-  top: -8px;
+  top: calc(var(--acpmux-tray-pull-band) - 8px);
   width: var(--acpmux-tray-pull-tab-width);
   height: 20px;
 }
 /* The tab's compact control floats over the composer's hairline; the hit strip (where it takes
    clicks) stays put. */
+.acpmux-tray-pull,
 .acpmux-tray-pull__tab,
 .acpmux-tray-pull + .acpmux-composer {
   --acpmux-tray-pull-tab-width: 96px;
@@ -2304,6 +2309,14 @@ button.cv-subagent > :last-child {
 }
 .acpmux-tray-pull[data-mark="3"] + .acpmux-composer {
   --acpmux-tray-pull-gap-digits: 3;
+}
+/* The compact counts past 999 (trayPullTabModel.ts pullTabCountText): "1.2k" (a point is half a
+   digit) and "128k". */
+.acpmux-tray-pull[data-mark="3.5"] + .acpmux-composer {
+  --acpmux-tray-pull-gap-digits: 3.5;
+}
+.acpmux-tray-pull[data-mark="4"] + .acpmux-composer {
+  --acpmux-tray-pull-gap-digits: 4;
 }
 .acpmux-tray-pull[data-side="left"] + .acpmux-composer {
   --acpmux-tray-pull-gap-along: 0;
@@ -2814,6 +2827,142 @@ button.cv-subagent > :last-child {
      colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
      words under a spread icon blur out, and it follows any theme. */
   background: var(--ds-surface-inset);
+  /* glass-raw-blur-allow: an 8 px soften under the hat's fanned faces so the header's words blur out, a backing inside the hat's glass, not a glass surface */
   -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px); /* glass-raw-blur-allow: the same soften, unprefixed */
+}
+
+/* ---------- The count's characters (HatCount.tsx, hatCount.experiment.ts) ----------
+   Leo, 2026-11-22: "have better animations for transitioning between numbers and digit lengths".
+   Every character is one tabular digit wide (a point half one), so the slot's width
+   (TrayPullTab.tsx markWidth) is exactly the characters' and eases on the slot's own clock while
+   they turn. `roll` (ships): each digit a column showing one cell of a 0-9 strip, the strip sliding
+   to the new digit on the move clock, so only the digits that changed move; a new leading digit
+   fades in. `slide` and `fade` stack the old and new numbers in one cell and play them out and in.
+   Reduce Motion and motion off land every change at once. */
+.acpmux-hat-count__roll,
+.acpmux-hat-count__swap {
+  display: inline-flex;
+  height: var(--text-caption--line-height);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-hat-count__col,
+.acpmux-hat-count__char {
+  display: inline-block;
+  width: 1ch;
+  height: var(--text-caption--line-height);
+  overflow: hidden;
+  text-align: center;
+  animation: acpmux-hat-count-in var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-hat-count__char[data-char="point"] {
+  width: 0.5ch;
+}
+.acpmux-hat-count__strip {
+  display: flex;
+  flex-direction: column;
+  transform: translateY(calc(var(--acpmux-hat-digit, 0) * -1 * var(--text-caption--line-height)));
+  transition: transform var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-hat-count__strip > span {
+  height: var(--text-caption--line-height);
+}
+@keyframes acpmux-hat-count-in {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-hat-count__swap {
+  display: inline-grid;
+  overflow: hidden;
+}
+.acpmux-hat-count__swap > .acpmux-hat-count__text {
+  grid-area: 1 / 1;
+  justify-self: end;
+}
+.acpmux-hat-count__swap > [data-leaving] {
+  animation: acpmux-hat-count-fade-out var(--agent-motion-move) var(--agent-ease-out) forwards;
+}
+.acpmux-hat-count__swap > [data-entering] {
+  animation: acpmux-hat-count-fade-in var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-hat-count__swap[data-motion="slide"][data-dir="up"] > [data-leaving] {
+  animation-name: acpmux-hat-count-out-up;
+}
+.acpmux-hat-count__swap[data-motion="slide"][data-dir="up"] > [data-entering] {
+  animation-name: acpmux-hat-count-in-up;
+}
+.acpmux-hat-count__swap[data-motion="slide"][data-dir="down"] > [data-leaving] {
+  animation-name: acpmux-hat-count-out-down;
+}
+.acpmux-hat-count__swap[data-motion="slide"][data-dir="down"] > [data-entering] {
+  animation-name: acpmux-hat-count-in-down;
+}
+@keyframes acpmux-hat-count-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-hat-count-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-hat-count-out-up {
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+@keyframes acpmux-hat-count-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+@keyframes acpmux-hat-count-out-down {
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+@keyframes acpmux-hat-count-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
+  :is(.acpmux-hat-count__col, .acpmux-hat-count__char, .acpmux-hat-count__strip, .acpmux-hat-count__text) {
+  transition: none;
+  animation: none;
+}
+:root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
+  .acpmux-hat-count__swap
+  > [data-leaving] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.acpmux-hat-count__col, .acpmux-hat-count__char, .acpmux-hat-count__strip, .acpmux-hat-count__text) {
+    transition: none;
+    animation: none;
+  }
+  .acpmux-hat-count__swap > [data-leaving] {
+    display: none;
+  }
+}
+
+/* ---------- The pill beside Jump to latest (hatPillPlace.experiment.ts) ----------
+   With the jump stack on the composer's center line, the middle handle stands at a side
+   (jumpPlace.ts hatSide, the left and right rules above). `quiet`: no glass slab, the chevron and
+   the count in muted ink in the gap of the card's top line, the text colour on hover. */
+.acpmux-tray-pull[data-quiet] .acpmux-tray-pull__hat {
+  background: transparent;
+  box-shadow: none;
+}
+.acpmux-tray-pull[data-quiet] .acpmux-tray-pull__slot {
+  color: var(--agent-muted);
+}
+.acpmux-tray-pull[data-quiet] .acpmux-tray-pull__tab:hover .acpmux-tray-pull__slot {
+  color: var(--agent-text);
 }

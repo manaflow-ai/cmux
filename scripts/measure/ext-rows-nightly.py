@@ -64,6 +64,7 @@ class Ctx:
     token: str = field(default_factory=lambda: f"rows{int(time.time())}")
     raw_cli: Path | None = None
     version_seq: int = 0
+    mcp_config: Path | None = None
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
@@ -595,6 +596,23 @@ def first_workspace(snapshot) -> str | None:
     return None
 
 
+def menu_target_passed(logged: list[str], word: str, workspace: str | None, ran: dict) -> bool:
+    # action.run exposes the workspace's public id and its key. app.menu.run passes the key to the op.
+    resolved = ran.get("resolved") or {}
+    if not workspace or resolved.get("id") != workspace or resolved.get("kind") != "workspace":
+        return False
+    for line in logged:
+        try:
+            args = json.loads(line.partition(word + " ")[2])
+        except ValueError:
+            continue
+        target = args.get("target") if isinstance(args, dict) else None
+        if isinstance(target, dict) and target.get("kind") == "workspace" and target.get("id") and (
+                target["id"] == workspace or target["id"] == resolved.get("key")):
+            return True
+    return False
+
+
 def row_menus(ctx: Ctx) -> dict:
     """Context menus on cmux's own surfaces (#43006): a manifest's `contributes.menus` row for the sidebar
     workspace menu is in `apps-list` (what the Mac's menu builder reads at each right-click), and the action
@@ -614,7 +632,7 @@ def row_menus(ctx: Ctx) -> dict:
                        "menu_row_listed": any(r.get("id") == "copy-branch" and r.get("title") == title
                                               for r in rows if isinstance(r, dict)),
                        "row_action_ran_op": bool(logged),
-                       "target_passed": any(str(workspace) in line for line in logged)},
+                       "target_passed": menu_target_passed(logged, word, workspace, ran)},
             "install": install, "menus": rows, "op": op_name, "workspace": workspace, "run": ran,
             "log_lines": logged}
 
@@ -625,6 +643,11 @@ row_menus.needs_app = True
 def row_mcp_tools(ctx: Ctx) -> dict:
     """Agent tools from an extension (#43031): an op whose catalog says `mcp.expose: "default"` is a tool in
     the copy's own `cmux mcp serve` (`tools/list`), and `tools/call` runs it in the app (`apps-logs`)."""
+    # The CLI is a child of the probe, so it needs the copy's config path explicitly.
+    config = ctx.mcp_config
+    if config is None:
+        config = ctx.work / "mcp-settings.json"
+        config.write_text(json.dumps({"agents": {"cmuxMcp": "on"}}))
     install, op_name, word = op_sample(ctx, "mcp", {}, {"mcp": {"expose": "default"}})
     tool = op_name.replace(".", "_").replace("-", "_")
     lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -634,7 +657,8 @@ def row_mcp_tools(ctx: Ctx) -> dict:
              {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
              {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": tool, "arguments": {}}}]
     try:
-        run = subprocess.run([str(ctx.cli), "--socket", ctx.daemon, "mcp", "serve", "--all-tools"],
+        run = subprocess.run([str(ctx.cli), *ctx.globals_, "mcp", "serve", "--all-tools"],
+                             env=os.environ | {"CMUX_NEXT_CONFIG_FILE": str(config.resolve())},
                              input="".join(json.dumps(line) + "\n" for line in lines), capture_output=True,
                              text=True, timeout=60)
         stdout, stderr, exit_ = run.stdout, run.stderr[-2000:], run.returncode
@@ -783,6 +807,7 @@ def main() -> int:
     parser.add_argument("--cli", help="a cmux binary, with --daemon-socket (no Mac app)")
     parser.add_argument("--daemon-socket")
     parser.add_argument("--control-socket")
+    parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
     parser.add_argument("--rows", default=",".join(ROWS))
@@ -806,6 +831,7 @@ def main() -> int:
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
     receipt |= {"daemon_socket": daemon, "control_socket": control}
     ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control,
+              mcp_config=args.mcp_config,
               app=Path(args.app) if args.app else None, pid_file=Path(args.pid_file) if args.pid_file else None)
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
