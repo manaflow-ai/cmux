@@ -483,6 +483,12 @@ export type AcpmuxTurnRetry = {
   maxRetries?: number;
   error?: string;
   errorStatus?: number;
+  /// What acpmux classified the failure as (hub/outage.rs): the connection failed, not the model.
+  cause?: "dns" | "refused" | "timeout" | "unreachable";
+  /// The host that could not be reached, when the harness's words name one.
+  host?: string;
+  /// When the harness tries again, epoch ms (acpmux adds the harness's delay to its own clock).
+  retryAt?: number;
 };
 
 /// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
