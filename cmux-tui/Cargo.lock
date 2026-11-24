@@ -1423,6 +1423,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -2365,12 +2373,17 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-wg",
+ "getrandom 0.3.4",
  "libc",
  "serde",
  "serde_json",
+ "tokio",
  "windows",
  "windows-sys 0.61.2",
  "x11rb",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2423,6 +2436,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
