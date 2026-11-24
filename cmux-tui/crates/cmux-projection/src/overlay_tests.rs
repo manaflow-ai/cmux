@@ -582,6 +582,39 @@ fn a_create_whose_whiteout_cannot_go_leaves_nothing_behind() {
     assert_eq!(overlay.whiteouts(), ["src/a.rs"]);
 }
 
+/// RFD 0007, "Tracked files the skip rules keep home": a file the Mac keeps home stats as it is
+/// there, an open of it (read or write) fails with `EACCES`, and nothing about it is ever asked
+/// of the Mac, read-ahead of its folder included.
+#[test]
+fn a_file_kept_on_the_mac_stats_real_and_opens_as_eacces_without_asking_the_mac() {
+    let (state, manifest, fake) = setup(false);
+    let mut kept = (*manifest).clone();
+    let b = kept.resolve("src/b.rs").unwrap();
+    kept.keep_home(b, "secret: key files are shared only on purpose").unwrap();
+    let manifest = Arc::new(kept);
+    let overlay = open(state.path(), &manifest, &fake);
+    let ino = path_ino(&overlay, "src/b.rs");
+    let attr = overlay.getattr(ino).unwrap();
+    assert_eq!((attr.kind, attr.size, attr.mode), (Type::File, 9, 0o644));
+    assert_eq!(attr.mtime_ns, 1_700_000_000_000_000_000);
+    assert!(names(&overlay, path_ino(&overlay, "src")).contains(&"b.rs".to_owned()));
+    assert_eq!(overlay.open_handle(ino, libc::O_RDONLY), Err(EACCES));
+    assert_eq!(overlay.open_handle(ino, libc::O_RDWR), Err(EACCES));
+    assert_eq!(overlay.open_handle(ino, libc::O_WRONLY | libc::O_TRUNC), Err(EACCES));
+    assert_eq!(overlay.read(ino, 0, 100), Err(EACCES));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0, "nothing was asked of the Mac");
+    // Its folder's read-ahead leaves it out.
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    let batches = fake.batches.lock().unwrap().clone();
+    assert!(batches.iter().all(|batch| !batch.contains(&b)), "{batches:?}");
+    assert!(!batches.is_empty());
+    assert_eq!(
+        kept_text("secret: key files are shared only on purpose"),
+        "kept on the Mac (secret: key files are shared only on purpose); `cmux link access request PATH` asks the person for it"
+    );
+}
+
 /// A manifest of files of `size` bytes each at `paths` (folders are made as they are needed).
 fn sized(files: &[(&str, u64)]) -> Manifest {
     let items = files

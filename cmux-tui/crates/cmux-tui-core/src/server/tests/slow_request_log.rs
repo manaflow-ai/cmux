@@ -128,7 +128,10 @@ fn an_error_reply_gives_a_record_with_no_text_of_the_request() {
 #[test]
 fn a_long_hold_of_the_session_lock_gives_a_record_that_names_the_holder() {
     let logged = Logged::new();
-    logged.mux.with_state(|_| std::thread::sleep(Duration::from_millis(150)));
+    logged.mux.with_state(|_| {
+        cmux_flow_trace::hop("test.long_hold.inside", 77, "00ff");
+        std::thread::sleep(Duration::from_millis(150));
+    });
     logged.mux.with_state(|_| std::thread::sleep(Duration::from_millis(5)));
 
     let (text, records) = logged.records();
@@ -138,6 +141,14 @@ fn a_long_hold_of_the_session_lock_gives_a_record_that_names_the_holder() {
     assert!(records[0]["held_ms"].as_f64().unwrap() >= 150.0, "{text}");
     let holder = records[0]["holder"].as_str().unwrap();
     assert!(holder.contains("slow_request_log.rs:"), "the holder's site: {text}");
+    let recent = records[0]["recent"].as_array().expect("the hops before the hang");
+    assert!(
+        recent.iter().any(|hop| hop["hop"] == "test.long_hold.inside"
+            && hop["flow"] == 77
+            && hop["terminal"] == "00ff"
+            && hop["ago_ms"].as_f64().unwrap() >= 150.0),
+        "the hop inside the hold, with its age: {text}"
+    );
 }
 
 #[test]
