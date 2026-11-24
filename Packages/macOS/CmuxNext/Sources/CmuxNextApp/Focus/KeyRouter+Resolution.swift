@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
 // binding table winner, before the tier check. The table holds the Ghostty
@@ -116,5 +117,16 @@ extension KeyRouter {
         guard keyWindow == .content, candidate.tier != .content else { return false }
         if case .ghostty = candidate.source, case .terminal = focus.resolved { return false }
         return allows(candidate.tier, focus: focus)
+    }
+}
+
+extension BrowserChordTable {
+    /// Whether the focus target is browser content (page, address bar, find
+    /// bar, docked DevTools).
+    nonisolated static func isBrowserContext(_ resolved: FocusState.Resolved) -> Bool {
+        switch resolved {
+        case .browserPage, .addressBar, .findBar, .devTools: true
+        default: false
+        }
     }
 }
