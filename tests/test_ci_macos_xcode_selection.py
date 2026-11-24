@@ -112,7 +112,7 @@ EXEMPT = {
         "runner's Xcode",
     ("cmux-next.yml", "app-compile-fleet"):
         "reads the build fleet's posted compile result (fleet_compile_result.py); "
-        "the compile runs on a fleet worker, never with this runner's Xcode",
+        "the compile runs on a fleet worker, not on this runner",
     ("cmux-next.yml", "fast-tier-fleet"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "run (package-test-lane.sh suites); the suites build on a fleet "

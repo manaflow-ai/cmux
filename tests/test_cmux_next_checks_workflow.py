@@ -3666,7 +3666,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
     LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
-    # Gateway-guarded jobs that, on this event, run on Linux and only read the compile the controller submits
+    # Gateway-guarded jobs that, on this event, run on cmux-linux and only read the compile the controller submits
     # for them (note-556): the guard and fallback stay, the runner no longer waits on the gateway.
     READS_ELSEWHERE = {"app-compile-fleet": "pull_request", "swift-canary-fleet": "pull_request"}
 
@@ -3804,7 +3804,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
                         f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
-                # A pull request's read runs on Linux; the reading still gates it (note-556).
+                # A pull request's read runs on cmux-linux; the reading still gates it (note-556).
                 self.assertEqual(route_of(job, idle), "cmux-linux")
                 none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
