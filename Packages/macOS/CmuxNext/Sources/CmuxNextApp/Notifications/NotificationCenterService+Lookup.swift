@@ -221,13 +221,13 @@ extension NotificationCenterService {
     /// The bit an agent's attention ring carries, apart from manual marks.
     static let attentionRingBase: UInt64 = 1 << 62
 
-    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
-    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) }
+    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays). A tab a strip press holds is no look yet: it rings until the click's mouse-up blinks it out (cmux#46908).
+    func readsOnSight(_ t: TabModel) -> Bool { reads(.focus, t) && isViewed(t.id) && !viewHolds.contains(t.id) }
     /// Going into `t`'s pane by `trigger` reads its ring: it clears every reason the ring draws for, an unread notification, a needs-you request, a mark (a click) and a finished turn (`turn`), by the policy.
     func reads(_ trigger: NotificationTrigger, _ t: TabModel, turn: Bool = false) -> Bool { let p = NotificationPolicy(prefs: preferences), finished = turn && agentFinished[t.id] != nil && t.agentSession != nil && DesignSettings.shared.attention.rings(agentChat: true); return (t.hasUnread || t.attention != nil || t.markedUnread || finished) && (!t.hasUnread || p.clears(trigger, for: source(of: t))) && (!t.markedUnread || trigger == .click) && (t.attention == nil || p.clears(trigger, for: .agent)) && (!finished || p.clears(trigger, for: .agent)) }
-    /// The person went into ringing `pane` (a focus, a click) in the window they look at, its keys or a loading chat's page not attached yet: read it now (cmux#46908). A press reads by its click, after a strip press holds it.
+    /// The person went into ringing `pane` (a focus, a click) in the window they look at, its keys or a loading chat's page not attached yet: read it now (cmux#46908). A press on this pane reads it by its click, after a strip press holds it; one elsewhere (a sidebar row) is no look at it.
     func readOnEntry(_ pane: LayoutPaneID, click: Bool, in content: WorkspaceContentController) -> Bool {
-        guard let services, services.appActiveSource(), click || NSApp?.currentEvent.map({ [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) }) != true,
+        guard let services, services.appActiveSource(), click || NSApp?.currentEvent.map({ [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) && clickedTab(in: $0.window, at: $0.locationInWindow)?.pane == pane }) != true,
               let window = services.windows.controllers.first(where: { $0.content === content }), window.shownTopPage == nil, ownsKey(window) || services.windows.active === window && services.keyWindowSource().map({ services.windows.owner(of: $0) == nil }) == true,
               let model = content.paneModel(key: pane.rawValue), let id = shownTab(of: model), !viewHolds.contains(id), let tab = model.tabs.first(where: { $0.id == id }), reads(click ? .click : .focus, tab, turn: true) else { return false }
         interacted(click ? .click : .focus, tab: tab); return true
