@@ -13,22 +13,25 @@ pinned group is in the Pinned band, shows its pin, and its menu reads Unpin Grou
    the same catalog action (`PinningSurfacesTests`). Its title reads Pin … or Unpin … for the target.
 2. **Pinned first, in the person's order.** A pin goes last among the pins of its container. Pins
    keep their order until the person moves them.
-3. **A workspace pinned inside a group stays in that group.** It lists first among the group's
-   members, after the members pinned before it. It does not move to the Pinned band. (A drag onto
-   the Pinned band still puts it there.)
-4. **A group keeps its pinned members first.** A move cannot put an unpinned member above a pinned
-   one, or a pinned member below an unpinned one; each run keeps to its side. A pinned member dragged
-   out of its group is no longer pinned.
+3. **A workspace pinned from a group goes to the Pinned band, like every other pin** (Leo
+   2026-11-23, ask-b5d3e0efb6, on members pinned inside their group: "these aren't pinned. they're
+   in a ... group."). It goes last in the band and remembers its group and the member it followed.
+   Before this, it stayed in its group, first among its members (`extra.pinned`); a member an older
+   daemon pinned that way still reads pinned and unpins in place.
+4. **A group keeps its older in-group pins first.** A move cannot put an unpinned member above a
+   member flagged `extra.pinned`, or that member below an unpinned one. A flagged member dragged out
+   of its group is no longer pinned.
 5. **Unpin goes to a sensible place.**
-   - A member pinned in its group: right under the group's other pinned members (the top of the
-     unpinned members).
-   - A top-level workspace or group in the Pinned band: back where it was pinned from, after the
+   - A member flagged pinned in its group (an older pin): right under the group's other pinned
+     members (the top of the unpinned members).
+   - A workspace or group in the Pinned band: back where it was pinned from (into its group when it
+     came from one, first there when it was first), after the
      neighbor it sat after, while that neighbor still sits there. Otherwise the top of its machine
      section (Chief's default, 2026-10-20: as Move to Top). The old rule was the end of the section.
 6. **Nested groups (a283, remote groups slice 1).** A top-level group pins and unpins with its whole
-   tree. A nested group, or a workspace in one, pins inside its own parent, first, like a workspace
-   in a group. A member of a pinned tree is not pinned itself: Unpin on it does nothing, and Pin pins
-   it inside its group. Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
+   tree. A nested group, or a workspace in one, pins to the Pinned band (with its subtree) and unpins
+   back into its own parent. A member of a pinned tree is not pinned itself: Unpin and Pin on it do
+   nothing. Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
    a tree back into its machine section, the daemon closes the workspaces that are not open, and the
    groups that this empties go, as when the last workspace closes there.
 7. **Pins survive restart.** Sidebar pins are rows of the daemon's sidebar document (`extra.pinned`,
