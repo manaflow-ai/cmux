@@ -135,6 +135,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
             ChildOutputEnds.closeAfterExit(reading: [outReader, errReader])
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             process.terminationHandler = nil

@@ -198,6 +198,7 @@ package final class ChildProcess: Sendable {
             state.process = process; state.stderrLog = log; state.stderrLogged = 0
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             if process.isRunning { process.terminate() }

@@ -144,6 +144,7 @@ private nonisolated final class Invocation: Sendable {
             return
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             // No child holds a write end, so no EOF comes: release the readers here.

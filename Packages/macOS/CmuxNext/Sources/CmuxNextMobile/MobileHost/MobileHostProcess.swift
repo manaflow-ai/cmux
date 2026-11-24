@@ -65,6 +65,7 @@ public final class MobileHostProcess: Sendable {
             $0.input = feed
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             process.terminationHandler = nil

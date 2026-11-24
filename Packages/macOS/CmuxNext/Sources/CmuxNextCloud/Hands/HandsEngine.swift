@@ -127,6 +127,7 @@ final class HandsEngine {
         let output = stdout.fileHandleForReading
         process.terminationHandler = { _ in ChildOutputEnds.closeAfterExit(reading: [output]) { continuation.finish() } }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             process.terminationHandler = nil
