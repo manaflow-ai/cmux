@@ -193,7 +193,7 @@
   order: -1;
   flex: 1 1 0;
   min-width: 0;
-  margin-inline: 4px auto;
+  margin-inline: 8px auto;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
