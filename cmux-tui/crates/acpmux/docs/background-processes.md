@@ -94,7 +94,8 @@ Process {
   detail?       // the harness's own words on its end (Claude's summary)
   origin        // background | auto_backgrounded | user_backgrounded
                 // (auto_backgrounded: Claude Code moved it at its timeout,
-                // or acpmux did after a minute in the foreground)
+                // or acpmux did after five minutes in the foreground,
+                // or two when the person's message waits)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
   preview?      // {url, port}: the dev server it runs, while it runs

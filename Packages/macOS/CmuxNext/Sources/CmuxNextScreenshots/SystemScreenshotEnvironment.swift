@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// ``ScreenshotEnvironment`` over this Mac: CFPreferences for unsandboxed
@@ -36,20 +37,23 @@ public nonisolated struct SystemScreenshotEnvironment: ScreenshotEnvironment {
     }
 
     public func text(at url: URL) -> String? {
-        guard let attributes = try? FileManager().attributesOfItem(atPath: url.path),
+        guard OtherAppContainers.mayLook(at: url), let attributes = try? FileManager().attributesOfItem(atPath: url.path),
               (attributes[.size] as? Int ?? 0) < 1 << 20 else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
     public func isDirectory(_ url: URL) -> Bool {
+        // A folder in another app's container (Snagit's autosave) is no folder to a `cmux app try` copy.
+        guard OtherAppContainers.mayLook(at: url) else { return false }
         var isDirectory: ObjCBool = false
         return FileManager().fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// A sandboxed app's preferences, from its container (CFPreferences does not read it).
+    /// Never in a `cmux app try` copy: a read in another app's container raises a "Data Access" prompt (``OtherAppContainers``).
     private func containerPreferences(_ domain: String) -> [String: Any] {
         let plist = homeDirectory.appendingPathComponent("Library/Containers/\(domain)/Data/Library/Preferences/\(domain).plist")
-        guard let data = try? Data(contentsOf: plist),
+        guard OtherAppContainers.mayLook(at: plist), let data = try? Data(contentsOf: plist),
               let object = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return [:] }
         return object
     }
