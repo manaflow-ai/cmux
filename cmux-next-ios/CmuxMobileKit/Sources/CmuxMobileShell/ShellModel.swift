@@ -1091,7 +1091,13 @@ extension ShellModel {
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
         }
         #if DEBUG
-        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        if let demo = ScreenSharingService.demoMode() {
+            service.useDemo(demo)
+        } else if live == nil, mockMode {
+            // Mock mode has no account token for the hub: list the mock account's Macs, the ones
+            // Settings › Devices shows (`MockDeviceDirectory`), so both pages say the same.
+            service.useMock { [weak store] in MockDeviceDirectory.hubDevices(store?.teams.flatMap(\.macs) ?? []) }
+        }
         #endif
         screenSharing = service
         ScreenSharingService.current = service

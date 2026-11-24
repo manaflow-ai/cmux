@@ -292,6 +292,10 @@ public struct WorkspacesList: View {
 
     /// Filtered: the Mac and its presence. Else "Updating…" for a slow
     /// refresh, "2 need you", or with several Macs how many are online.
+    /// A failed refresh says nothing here: the rows stay and the list retries
+    /// on its own; the phone being offline is the connection chip's (Leo,
+    /// 2026-11-16: "this needs to shut up"; the iOS release bar read-back's
+    /// "Workspaces stale: no connection text").
     private var subtitle: String {
         if let mac = scopedMac {
             let now = MinuteClock.shared.now
@@ -308,10 +312,6 @@ public struct WorkspacesList: View {
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.
         if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
-        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
-        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
-            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
-        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
