@@ -57,6 +57,7 @@ GATE_SCRIPTS = {
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
+    "protocol skew": "scripts/ci/protocol_skew_check.py",
 }
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
@@ -1172,6 +1173,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("--new-only", calls["web lint"]["argv"])  # per error over the base, not per job
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
+        self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
