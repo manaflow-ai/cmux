@@ -452,6 +452,11 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// events, and may reattach with `resume_offset` and `resume_generation` for
 /// only the missing bytes (server/terminal_resume.rs).
 pub const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
+/// `resume_max_bytes` on a resuming `attach-surface`: an exact resume only when
+/// the missed bytes fit; past it the normal replay (`resume: "gap"`), so a
+/// viewer back from a long time away reads one screen, not megabytes of
+/// output it never sees (cmux-next-ios/design/background-delta-sync.md).
+pub const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
 /// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
@@ -2607,6 +2612,11 @@ enum Command {
         resume_offset: Option<u64>,
         #[serde(default)]
         resume_generation: Option<String>,
+        /// `terminal-resume-bounded-v1`: the most missed bytes this viewer
+        /// takes as an exact resume; more, and the reply is the replay with
+        /// `resume: "gap"`. Absent: no bound (`terminal-resume-v1`).
+        #[serde(default)]
+        resume_max_bytes: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
