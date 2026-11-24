@@ -1,0 +1,289 @@
+{
+  "version": 1,
+  "build": "4528533172801",
+  "notes": "notes/4528533172801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 52711,
+      "title": "ci: jobs that need ancestry fetch feat-cmux-next's history alone, not every branch and tag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52158,
+      "title": "cmux-mobile-host: a VM bridge's address coming and going is not the Mac's network changing (supersedes #50308)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52001,
+      "title": "acpmux: a hub relay from no session names the machine the hub proved, verified",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52003,
+      "title": "chat-index: report heap bytes per chat in stress bench",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52333,
+      "title": "acpmux: one help entry for session route; deps archive and warm write through home_fs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43287,
+      "title": "Cloud page: the last machine list draws in the first frame and stays through a link drop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52665,
+      "title": "cmux-tui: park an idle unattached terminal's daemon mirror",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52550,
+      "title": "ios-network-conditions: run on macOS's bash 3.2 (no declare -A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52772,
+      "title": "Onboarding: say when the Mac is offline; give \"No agent CLIs found\" a next step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52668,
+      "title": "Docs: onboarding path for contributors and agents without team tooling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52812,
+      "title": "carrier: send the service hello behind the last Noise message (RFD 0039 cut 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51886,
+      "title": "base autofix: land the settings exports as progress when their inputs moved",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52806,
+      "title": "acpmux ls: relay rows from the kept listing are not shown as peer down",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42165,
+      "title": "Share Package Installs to Improve cmux: opt-in setting that sends install counts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51340,
+      "title": "acpmux: a streamed record costs what it changed; benches run what ships",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38623,
+      "title": "Palette: Edit Chief, Set Chief Model/Effort, Make Agent a Chief",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51696,
+      "title": "iOS kit: the Instant bench prints again after a red lint, and the kit compiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51238,
+      "title": "NEXT chat: one started line a turn, no fake start rows for subagents first met mid-run (Leo 22:05Z replay)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52694,
+      "title": "Agent docs: name cmux app try . before any dev build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52139,
+      "title": "ci(connection notices): a sidebar section's activate() is its rows' person action; drop three stale allowlist rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51406,
+      "title": "Agent chat: a fling up a long chat stops paying for timers (one timer per quiet stretch, O(1) timestamp labels)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50235,
+      "title": "Extensions: cmux safe-mode bisect finds the extension that breaks cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52067,
+      "title": "cmux-vm image: pin cmux-rd 0.2.9 (release run 45160613949)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52083,
+      "title": "acpmux: read, edit and run commands on a signed-in machine over the hub carrier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52241,
+      "title": "Cloud image probe: repeat a timed-out first browser call for up to 60 s and report each attempt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52323,
+      "title": "iOS terminal: tap the top strip to jump to the last sent line; Jump to bottom bigger, no blank row, no tap-through",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48807,
+      "title": "acpmux: find bare-name relay, peerWake and cmux-ci programs in ~/.local/bin",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48807/hv-508bc29aa981-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52656,
+      "title": "chat-sim: seek to replay ranges and compare reported chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51980,
+      "title": "acpmux: a connection keeps its chat when the chat moves to a peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52728,
+      "title": "Go Back One Session: back to the previous agent chat, from the palette",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49379,
+      "title": "list-workspaces first window: the iPhone's first Home content costs the same at 10, 100 and 1000 workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52006,
+      "title": "webviews: chat floor benchmark, and the relaunch copy paints without a full restyle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36556,
+      "title": "cmux NEXT agent pane: delete the subagentTray debug switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51921,
+      "title": "browser.page.right: open the agent's tab beside the person's current tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42993,
+      "title": "Extension SDK media signal and a media player sample (media.now_playing, media.control) (ask-c571c46e17)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51485,
+      "title": "ios-review-gate: an app's first App Store version takes no What's New",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51225,
+      "title": "Composer: Stop never flickers on quick turns (Rust hysteresis, fade, pulse)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44747,
+      "title": "cmux-next-ios: keep a parked link while the app is in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47236,
+      "title": "cmux-rd-ffi: a session reports stalled after 1.5 s without the host, and resumed on its next bytes (ABI 8)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49652,
+      "title": "Agent pane: theme hooks for the composer, its hat and the split edge",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49652/hv-39bbbf031237-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52089,
+      "title": "cmux theme import reads VS Code color themes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51592,
+      "title": "New Tab: every start that fails comes back to New Tab, never the old empty-chat hero",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52660,
+      "title": "cmux-duress: scenario new turns a reported situation into a scenario; run --pause-ms (finishes #52554)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51387,
+      "title": "Cloud start gate: wait for the install bind and log why the gateway read is empty",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52153,
+      "title": "cmux-tui: a quiet terminal costs the daemon no thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50576,
+      "title": "cmux-next: setting for see-through terminal cell backgrounds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
