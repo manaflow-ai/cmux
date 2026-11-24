@@ -1072,4 +1072,18 @@ impl LinkGroup for IrohLinkGroup {
         }
         Ok(())
     }
+
+    fn is_closed(&self) -> bool {
+        // A held lock is an `open` in flight, which replaces a closed connection itself.
+        self.closed.load(Ordering::Acquire)
+            || self
+                .connection
+                .try_lock()
+                .is_ok_and(|connection| connection.close_reason().is_some())
+    }
+
+    async fn wait_closed(&self) {
+        let connection = self.connection.lock().await.clone();
+        let _ = connection.closed().await;
+    }
 }
