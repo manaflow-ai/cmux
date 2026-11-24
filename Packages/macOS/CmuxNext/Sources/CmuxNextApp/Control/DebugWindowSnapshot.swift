@@ -7,47 +7,12 @@ import CmuxNextScreenshots
 import CmuxNextSettings
 import WebKit
 
-/// `debug.window_snapshot`: one of this app's own windows as the window
-/// server composited it (vibrancy, glass and Metal as on screen; an app may
-/// read its own windows without Screen Recording permission), else drawn
-/// by AppKit (`NSWindow.renderSnapshot`, where Metal content and blur
-/// differ from the screen). `method` says which (plans/cmux-next/windows.md).
-///
-/// Params: `window` (a main window id, or any window's number from
-/// `debug.window_list`: popovers, panels and sheets too), or `kind`
-/// (a `WindowKind` raw value: `main`, `settings`, `debugSettings`,
-/// `appStore`, `onboarding`, ...);
-/// default the key window, else the active main window. `path` is the PNG
-/// to write (default a file in the temporary directory). Returns `path`,
-/// `width`, `height` (pixels), `kind`, `window_number`, `method`
-/// (`composited` or `appkit`), `child_windows` (how many of the window's
-/// visible child windows the image includes) and `child_windows_failed`
-/// (how many it leaves out because the window server gave no image of
-/// them; AppKit drawing never includes a child window). Child windows are
-/// composited by the window server with the window: a Chromium page draws
-/// into its own child window, and overlay panels and popovers sit above content.
-/// `floating_windows` counts the app's other windows the window server shows
-/// above the window and over it, cut to its frame: an open
-/// context menu (not in AppKit's window list), a hover card or popover that is
-/// not its child; another of the app's titled windows in front at the same
-/// level, with its own child windows and sheets, is left out. The window, its
-/// child windows and those windows are one window server composite
-/// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``), so a glass popover or menu
-/// blurs the window under it, as on screen (composited apart, it came out grey). The
-/// async verb also paints each engine's own image of every shown page
-/// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts; a failed
-/// Chromium page, as one waiting in a dialog, shows striped),
-/// and of their docked DevTools (`devtools_not_captured`: striped, Chromium gave no image),
-/// since the window server
-/// leaves out page content other processes draw unless the app has the
-/// Screen Recording grant. `webviews: false` skips the page images (the
-/// window server's image alone).
-///
-/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after 4 s (later while the
-/// pointer is on it), so its pixels are not a reliable assertion: a capture may land before the
-/// fade or after it ends. Every reply therefore carries `refusal_hud`: the message the refusal
-/// toast shows now (null when none) and `refusal_hud_count`, the messages shown so far. Check
-/// those (or `debug.toast`) instead of looking for the toast in the PNG.
+/// The debug.window_snapshot route captures one app window. Select it by main window ID, window number
+/// from debug.window_list, or a WindowKind in the kind parameter. Otherwise the key or active main window wins.
+/// The path defaults to a PNG in the temporary directory. Set webviews to false for native capture alone.
+/// WindowSnapshotRenderer owns the compositing order and reports what was included in the PNG.
+/// On successful native or page capture, refusal_hud and refusal_hud_count describe the toast even during
+/// its fade or after dismissal, when its pixels alone cannot establish whether a refusal appeared.
 enum DebugWindowSnapshot {
     /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
     /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini

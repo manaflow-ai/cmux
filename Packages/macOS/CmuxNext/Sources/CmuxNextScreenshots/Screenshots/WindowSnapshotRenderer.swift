@@ -3,8 +3,14 @@ import CmuxNextDesign
 package import CmuxNextSettings
 package import WebKit
 
-/// Captures a native window and writes the same image and dimensions the debug snapshot route reports.
-/// The app supplies page layers from its browser registry only when the capture needs them.
+/// Captures a window with the window server when available, falling back to AppKit drawing. The server
+/// includes glass and Metal as drawn and can capture the app’s own windows without Screen Recording.
+/// The report gives the PNG path, pixel width and height, window kind and window_number, and the
+/// capture method (composited or appkit). The child_windows and child_windows_failed counts describe
+/// visible children included and omitted. The floating_windows count covers this app's menus, popovers
+/// and cards over the window. Other titled windows at the same level and their children stay out of the image.
+/// Page capture also reports the number of WebKit and Chromium pages captured and failed, and docked
+/// DevTools without a page image.
 @MainActor
 package enum WindowSnapshotRenderer {
     package static func captureNative(window: NSWindow, kind: String, path: String) async -> JSONValue {
