@@ -225517,6 +225517,60 @@
         }
       }
     },
+    "settings.cloud.hybridStart": {
+      "comment": "Settings > Cloud: toggle, off by default, that makes a new Cloud chat answer on this Mac while its Cloud machine starts, then move there.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Start Cloud Chats Here First"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "بدء دردشات السحابة هنا أولاً"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pokreni Cloud chatove prvo ovdje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Start Cloud-chats her først"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-Chats zuerst hier starten"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iniciar los chats en la nube aquí primero"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Démarrer d’abord les chats Cloud ici"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Avvia prima qui le chat Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud チャットをまずここで開始"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចាប់ផ្ដើមការជជែក Cloud នៅទីនេះជាមុន"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 채팅을 먼저 여기서 시작"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Start Cloud-chatter her først"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Najpierw uruchamiaj czaty Cloud tutaj"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Iniciar chats na nuvem aqui primeiro"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сначала запускать чаты Cloud здесь"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เริ่มแชต Cloud ที่นี่ก่อน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud sohbetlerini önce burada başlat"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спершу запускати чати Cloud тут"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Bắt đầu trò chuyện Cloud tại đây trước"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "先在这里开始云端聊天"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "先在這裡開始雲端聊天"}}
+      }
+    },
+    "settings.cloud.hybridStart.help": {
+      "comment": "Settings > Cloud: help for the Start Cloud Chats Here First toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A new Cloud chat answers on this Mac while its Cloud machine starts, then continues there."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تجيب دردشة السحابة الجديدة على جهاز Mac هذا بينما تبدأ آلتها السحابية، ثم تكمل هناك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Novi Cloud chat odgovara na ovom Macu dok se njegova Cloud mašina pokreće, a zatim nastavlja tamo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En ny Cloud-chat svarer på denne Mac, mens dens Cloud-maskine starter, og fortsætter derefter der."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein neuer Cloud-Chat antwortet auf diesem Mac, während seine Cloud-Maschine startet, und läuft dann dort weiter."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un nuevo chat en la nube responde en este Mac mientras se inicia su máquina en la nube y después continúa allí."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Un nouveau chat Cloud répond sur ce Mac pendant que sa machine Cloud démarre, puis continue là-bas."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Una nuova chat Cloud risponde su questo Mac mentre la sua macchina Cloud si avvia, poi continua lì."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しい Cloud チャットは、Cloud マシンの起動中はこの Mac で応答し、その後そちらで続行します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែក Cloud ថ្មីឆ្លើយតបនៅលើ Mac នេះ ខណៈម៉ាស៊ីន Cloud របស់វាកំពុងចាប់ផ្ដើម បន្ទាប់មកបន្តនៅទីនោះ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새 Cloud 채팅은 Cloud 머신이 시작되는 동안 이 Mac에서 응답한 다음 그곳에서 계속됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En ny Cloud-chat svarer på denne Macen mens Cloud-maskinen starter, og fortsetter deretter der."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nowy czat Cloud odpowiada na tym Macu, gdy uruchamia się jego maszyna Cloud, a potem kontynuuje tam."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Um novo chat na nuvem responde neste Mac enquanto a máquina na nuvem inicia e depois continua lá."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Новый чат Cloud отвечает на этом Mac, пока запускается его машина Cloud, а затем продолжается там."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชต Cloud ใหม่จะตอบบน Mac เครื่องนี้ระหว่างที่เครื่อง Cloud เริ่มทำงาน แล้วจึงทำงานต่อที่นั่น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yeni bir Cloud sohbeti, Cloud makinesi başlarken bu Mac'te yanıt verir, ardından orada devam eder."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Новий чат Cloud відповідає на цьому Mac, поки запускається його машина Cloud, а потім продовжується там."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện Cloud mới trả lời trên máy Mac này trong khi máy Cloud của nó khởi động, rồi tiếp tục ở đó."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "新的云端聊天会在其云端机器启动期间先在这台 Mac 上回答，然后在那里继续。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "新的雲端聊天會在其雲端機器啟動期間先在這台 Mac 上回答，然後在那裡繼續。"}}
+      }
+    },
     "settings.cloud.turnCheckpoints": {
       "comment": "Settings > Machines: toggle that saves a whole-machine checkpoint between the turns of a Cloud chat, so a turn can be undone.",
       "extractionState": "manual",
@@ -256410,30 +256464,6 @@
         "vi": { "stringUnit": { "state": "needs_review", "value": "Bố cục hàng cho từng loại không gian làm việc: terminal, tác tử, trình duyệt hoặc hỗn hợp. Được ưu tiên hơn bố cục hàng." } },
         "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "为每种工作区（终端、代理、浏览器或混合）设置的行布局。优先于行布局。" } },
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "為每種工作區（終端機、代理、瀏覽器或混合）設定的列版面配置。優先於列版面配置。" } }
-      }
-    },
-    "settings.cloud.agentMemory.follow": {
-      "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carry Your Agent Memory to Cloud Machines"
-          }
-        }
-      }
-    },
-    "settings.cloud.agentMemory.follow.help": {
-      "comment": "Help for the agent memory toggle: names what travels and who controls it.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
-          }
-        }
       }
     },
     "settings.agentPane.display.layout.messages": {

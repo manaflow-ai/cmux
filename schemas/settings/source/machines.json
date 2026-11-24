@@ -656,6 +656,34 @@
           "swift_owner": "CloudAgentStartSetting"
         },
         {
+          "key": "cloud.hybridStart",
+          "name": "hybridStart",
+          "note": "Off by default: the hybrid chat start (cmux-cloud-start-core hybrid) runs only when this is on and the flag and plan allow it (Leo, 2026-11-24: \"can we put our mvp in?\").",
+          "title": {
+            "key": "settings.cloud.hybridStart",
+            "text": "Start Cloud Chats Here First"
+          },
+          "help": {
+            "key": "settings.cloud.hybridStart.help",
+            "text": "A new Cloud chat answers on this Mac while its Cloud machine starts, then continues there."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "hybrid",
+            "start",
+            "fast",
+            "instant",
+            "local",
+            "this mac",
+            "machine",
+            "boot",
+            "chat",
+            "move"
+          ]
+        },
+        {
           "key": "cloud.turnCheckpoints",
           "name": "turnCheckpoints",
           "title": {
