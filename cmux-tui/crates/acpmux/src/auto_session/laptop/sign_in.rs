@@ -39,6 +39,8 @@ struct Held {
 /// The person's sign-in, asked of the cmux app through the `cmux` CLI.
 pub(super) struct AppSignIn {
     cmux: OsString,
+    /// Whether this daemon is a DEV build's own (it runs from inside that app's bundle).
+    dev_build: bool,
     held: Arc<Mutex<Option<Held>>>,
     /// Owns the tasks that ask the app.
     scope: Arc<cmux_scope::Scope>,
@@ -51,15 +53,18 @@ impl AppSignIn {
         let cmux = std::env::var_os(crate::hosted_mcp::CMUX_BIN_ENV)
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| OsString::from("cmux"));
-        AppSignIn { cmux, held: Arc::new(Mutex::new(None)), scope: Arc::new(scope) }
+        let dev_build = std::env::current_exe().is_ok_and(|exe| crate::daemon::in_dev_bundle(&exe));
+        AppSignIn { cmux, dev_build, held: Arc::new(Mutex::new(None)), scope: Arc::new(scope) }
     }
 }
 
 /// The cmux API a token may go to: one of cmux's own, named by the token's issuer. A pull
 /// request's preview of the API (`cmux-api-preview-<n>`, which signs in as development does)
-/// is one of them: it is how a change to the store is tried before it lands. Nothing else is:
-/// not a loopback or tailnet address the app may be pointed at.
-fn api_of(issuer: &str) -> Option<String> {
+/// is one of them: it is how a change to the store is tried before it lands. So is a DEV
+/// build's own backend (one tag's stack on the dev VM, by its tailnet or public origin), for a
+/// daemon that is a DEV build's own (`dev_build`): the app takes such a backend from no other
+/// bundle. Nothing else is: not a loopback address, and not a tailnet one outside a DEV build.
+fn api_of(issuer: &str, dev_build: bool) -> Option<String> {
     let issuer = issuer.trim().trim_end_matches('/');
     let own = [Backend::Production, Backend::Staging, Backend::Development]
         .into_iter()
@@ -70,12 +75,13 @@ fn api_of(issuer: &str) -> Option<String> {
     }
     match Environment::parse(issuer) {
         Ok(preview @ Environment::Preview(_)) => Some(preview.configuration().api_origin),
+        Ok(Environment::Tailnet(origin)) if dev_build => Some(origin),
         _ => None,
     }
 }
 
 /// The app's `auth.token` answer as the CLI prints it.
-fn parse(stdout: &[u8], now: Instant) -> Held {
+fn parse(stdout: &[u8], now: Instant, dev_build: bool) -> Held {
     #[derive(serde::Deserialize)]
     struct Answer {
         #[serde(default)]
@@ -95,7 +101,7 @@ fn parse(stdout: &[u8], now: Instant) -> Held {
     if token.is_empty() || token.len() > 16_384 || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return refused("cmux could not get a sign-in token");
     }
-    let Some(api) = api_of(&answer.api_origin.unwrap_or_default()) else {
+    let Some(api) = api_of(&answer.api_origin.unwrap_or_default(), dev_build) else {
         return refused("this cmux sign-in is for a cmux Cloud that has no Auto mode");
     };
     // No expiry said: the app's tokens last ten minutes.
@@ -111,7 +117,7 @@ fn parse(stdout: &[u8], now: Instant) -> Held {
 }
 
 /// Runs `cmux --json auth token` and reads its answer.
-async fn mint(cmux: &OsString) -> Held {
+async fn mint(cmux: &OsString, dev_build: bool) -> Held {
     let refused =
         |why: &str| Held { answer: Err(why.to_owned()), until: Instant::now() + REFUSED_FOR };
     let run = tokio::process::Command::new(cmux)
@@ -127,13 +133,14 @@ async fn mint(cmux: &OsString) -> Held {
         Ok(Ok(output)) if !output.status.success() || output.stdout.len() > MAX_ANSWER => {
             refused("cmux is not signed in")
         }
-        Ok(Ok(output)) => parse(&output.stdout, Instant::now()),
+        Ok(Ok(output)) => parse(&output.stdout, Instant::now(), dev_build),
     }
 }
 
 impl OwnerSignIn for AppSignIn {
     fn sign_in(&self) -> impl Future<Output = Result<SignedIn, String>> + Send {
         let (held, cmux, scope) = (self.held.clone(), self.cmux.clone(), self.scope.clone());
+        let dev_build = self.dev_build;
         async move {
             let mut slot = held.lock_owned().await;
             if let Some(known) = slot.as_ref().filter(|known| Instant::now() < known.until) {
@@ -142,7 +149,7 @@ impl OwnerSignIn for AppSignIn {
             // In a task of its own, which keeps the slot: a caller that stops waiting leaves
             // the ask running, and whoever comes next waits for it.
             let asking = scope.spawn_named("auto-session sign-in", async move {
-                let fresh = mint(&cmux).await;
+                let fresh = mint(&cmux, dev_build).await;
                 let answer = fresh.answer.clone();
                 *slot = Some(fresh);
                 answer
@@ -174,28 +181,33 @@ mod tests {
         let good = format!(
             r#"{{"access_token":"tok","expires_in":600,"api_origin":"{issuer}/","team":"t1"}}"#
         );
-        let held = parse(good.as_bytes(), now);
+        let held = parse(good.as_bytes(), now, false);
         let signed_in = held.answer.unwrap();
         assert_eq!(signed_in.api, issuer);
         assert_eq!(signed_in.team.as_deref(), Some("t1"));
         assert_eq!(held.until, now + Duration::from_secs(540));
 
         let elsewhere = r#"{"access_token":"tok","api_origin":"https://example.com"}"#;
-        assert!(parse(elsewhere.as_bytes(), now).answer.is_err());
+        assert!(parse(elsewhere.as_bytes(), now, true).answer.is_err());
         // A pull request's preview of the API is cmux's own; a look-alike host is not.
         let preview = "https://cmux-api-preview-42.debussy.workers.dev";
         let at_preview = format!(r#"{{"access_token":"tok","api_origin":"{preview}/"}}"#);
-        assert_eq!(parse(at_preview.as_bytes(), now).answer.unwrap().api, preview);
+        assert_eq!(parse(at_preview.as_bytes(), now, false).answer.unwrap().api, preview);
         for other in [
             "https://cmux-api-preview-42.debussy.workers.dev.example.com",
             "https://cmux-api-preview-x.debussy.workers.dev",
             "http://127.0.0.1:8787",
         ] {
             let json = format!(r#"{{"access_token":"tok","api_origin":"{other}"}}"#);
-            assert!(parse(json.as_bytes(), now).answer.is_err(), "{other}");
+            assert!(parse(json.as_bytes(), now, true).answer.is_err(), "{other}");
         }
+        // A tag's own stack on the dev VM: a DEV build's daemon only.
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:4321";
+        let at_stack = format!(r#"{{"access_token":"tok","api_origin":"{stack}/"}}"#);
+        assert_eq!(parse(at_stack.as_bytes(), now, true).answer.unwrap().api, stack);
+        assert!(parse(at_stack.as_bytes(), now, false).answer.is_err());
         let none = r#"{"access_token":"","api_origin":"x"}"#;
-        assert!(parse(none.as_bytes(), now).answer.is_err());
-        assert!(parse(b"not json", now).answer.is_err());
+        assert!(parse(none.as_bytes(), now, false).answer.is_err());
+        assert!(parse(b"not json", now, false).answer.is_err());
     }
 }
