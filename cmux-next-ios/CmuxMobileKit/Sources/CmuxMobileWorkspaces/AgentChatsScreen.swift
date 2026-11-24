@@ -299,6 +299,7 @@ struct AgentChatsScreen: View {
             CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
+                .placeholderBound("agentChats.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -328,8 +329,10 @@ struct AgentChatsScreen: View {
                     // The model held it past the quiet gate, so the chip shows at once.
                     if model.stale {
                         ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(1000))
                     } else {
                         ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(1000))
                     }
                 }
                 .padding(.top, 8)

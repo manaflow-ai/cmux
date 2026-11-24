@@ -745,6 +745,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(1000))
                     .transition(.opacity)
             }
         }
