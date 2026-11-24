@@ -32,6 +32,7 @@ mod app_assets;
 pub(crate) mod browser_workspaces;
 pub(crate) mod dual_requests;
 mod ws_peek;
+mod ws_read_ahead;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
 pub use ws_shutdown::WsShutdown;
@@ -1533,7 +1534,7 @@ pub async fn serve_ws_until(
             // Answered through the connection's outbound queue once it is made, in order with
             // every other line and counted against its byte bound (`outbound.rs`).
             let (uploads, replies) = tokio::sync::watch::channel(None);
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
+            let frames = Arc::new(upload_frames::spawn(hub.clone(), origin, proof, replies));
             let read_shutdown = shutdown.clone();
             let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
@@ -1542,27 +1543,25 @@ pub async fn serve_ws_until(
                     biased;
                     () = read_shutdown.closing() => {},
                     () = async {
-                        while let Some(frame) = source.next().await {
-                            let frame = match frame {
-                                Ok(frame) => frame,
-                                // A read error ends the connection; say why, or the client sees only a reset.
-                                Err(e) => {
-                                    tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
-                                    break;
+                        // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
+                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                            let (frames, in_tx) = (frames.clone(), in_tx.clone());
+                            async move {
+                                match frame {
+                                    // After the frames before it are written (`upload_frames::InFlight`).
+                                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                                        frames.in_flight.drained().await;
+                                        in_tx.send(t.to_string()).await.is_ok()
+                                    }
+                                    tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                                    _ => true,
                                 }
-                            };
-                            let sent = match frame {
-                                // After the frames before it are written (`upload_frames::InFlight`).
-                                tokio_tungstenite::tungstenite::Message::Text(t) => {
-                                    frames.in_flight.drained().await;
-                                    in_tx.send(t.to_string()).await.is_ok()
-                                }
-                                tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
-                                _ => true,
-                            };
-                            if !sent {
-                                break;
                             }
+                        })
+                        .await;
+                        // A read error ends the connection; say why, or the client sees only a reset.
+                        if let Some(e) = ended {
+                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
                         }
                     } => {},
                 }
