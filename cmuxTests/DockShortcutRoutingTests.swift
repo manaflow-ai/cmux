@@ -794,6 +794,100 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Focus Last Surface toggles focused Dock surfaces")
+    @MainActor
+    func focusLastSurfaceTogglesFocusedDockSurfaces() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(firstPanel)
+                harness.dock.focusPanel(secondPanel)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                let lastSurface = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(lastSurface, for: .focusHistoryLastSurface)
+
+                #expect(Self.dispatch(lastSurface, in: harness))
+                #expect(harness.dock.focusedPanelId == firstPanel)
+                #expect(Self.dispatch(lastSurface, in: harness))
+                #expect(harness.dock.focusedPanelId == secondPanel)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    /// The History menu's entrypoint for Focus Last Surface. The main area
+    /// holds a target throughout, so falling through to it would move focus.
+    @Test("Focus Last Surface's menu action stays in the focused Dock")
+    @MainActor
+    func focusLastSurfaceMenuActionStaysInFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainWorkspace = harness.mainWorkspace
+                let mainPane = try #require(mainWorkspace.bonsplitController.allPaneIds.first)
+                let firstMainPanel = try #require(mainWorkspace.focusedPanelId)
+                let secondMainPanel = try #require(mainWorkspace.newTerminalSurface(inPane: mainPane, focus: true)?.id)
+                mainWorkspace.focusPanel(firstMainPanel)
+                FocusSurfaceBroadcaster.shared.flush()
+                mainWorkspace.focusPanel(secondMainPanel)
+                FocusSurfaceBroadcaster.shared.flush()
+                harness.appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: harness.window)
+
+                #expect(!harness.appDelegate.performFocusHistoryLastSurfaceShortcut(preferredWindow: harness.window))
+                #expect(mainWorkspace.focusedPanelId == secondMainPanel)
+
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(firstPanel)
+                harness.dock.focusPanel(secondPanel)
+
+                #expect(harness.appDelegate.performFocusHistoryLastSurfaceShortcut(preferredWindow: harness.window))
+                #expect(harness.dock.focusedPanelId == firstPanel)
+                #expect(harness.appDelegate.performFocusHistoryLastSurfaceShortcut(preferredWindow: harness.window))
+                #expect(harness.dock.focusedPanelId == secondPanel)
+                #expect(mainWorkspace.focusedPanelId == secondMainPanel)
+            }
+        }
+    }
+
+    @Test("Focus Last Workspace resolves in the main area, not the focused Dock")
+    @MainActor
+    func focusLastWorkspaceSkipsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let secondWorkspace = harness.tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+                #expect(harness.tabManager.selectedTabId == secondWorkspace.id)
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(firstPanel)
+                harness.dock.focusPanel(secondPanel)
+
+                let lastWorkspace = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(lastWorkspace, for: .focusHistoryLastWorkspace)
+
+                #expect(Self.dispatch(lastWorkspace, in: harness))
+                #expect(harness.tabManager.selectedTabId == harness.mainWorkspace.id)
+                #expect(harness.dock.focusedPanelId == secondPanel)
+
+                #expect(Self.dispatch(lastWorkspace, in: harness))
+                #expect(harness.tabManager.selectedTabId == secondWorkspace.id)
+            }
+        }
+    }
+
     @Test("Customized previous and numbered-surface shortcuts target the focused Dock")
     @MainActor
     func customizedPreviousAndNumberedSurfaceTargetFocusedDock() async throws {
