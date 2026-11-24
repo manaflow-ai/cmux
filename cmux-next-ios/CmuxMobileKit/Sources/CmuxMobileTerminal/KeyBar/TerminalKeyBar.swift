@@ -239,8 +239,7 @@ struct KeyCap: View {
 /// Terminal → Key clicks on (off by default: no sound they did not ask for).
 /// The key row is not the keyboard's input view, so `UIDevice.playInputClick`
 /// stays silent for it; this plays the same system sound, which follows the
-/// ring/silent switch. The one sound call the `NoUngatedHapticsTests`
-/// detector allows here, behind that opt-in.
+/// ring/silent switch. The app's one raw sound call, behind that opt-in.
 enum KeyClick {
     /// `Tock`, the keyboard key click.
     private static let sound: SystemSoundID = 1104
