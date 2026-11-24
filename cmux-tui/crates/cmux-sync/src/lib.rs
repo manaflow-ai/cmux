@@ -1,0 +1,41 @@
+//! One sync engine for chat and session state, and presence, for every replica cmux has: the Mac,
+//! a Cloud VM and the phone (cmuxterm-hq RFD "Real-time sync and presence: what we take from Google
+//! Docs, Discord, Figma and others").
+//!
+//! Leo, 2026-11-24: "honestly there's something incredibly google docs-y about this. discord-y. we
+//! absolutely need to rfd and stripmine those types of things and other actually incredible feats of
+//! engineering and sync-up".
+//!
+//! What it takes from whom:
+//! - [`hlc`]: hybrid logical clocks (Kulkarni et al., 2014): stamps that follow wall time but never
+//!   go backwards and always order an edit after every edit its replica has seen, so a Mac with a
+//!   slow clock cannot lose to an edit it already saw.
+//! - [`map`]: Figma's multiplayer model, property-level last-writer-wins, made state-based so no
+//!   server is needed to merge: every replica can edit offline and any two converge in any order
+//!   (merge is commutative, associative and idempotent). A replica still has a home (the daemon that
+//!   owns the chat), which acks edits like Replicache's push/pull; the pending count is what the
+//!   sidebar shows while offline.
+//! - [`vv`]: version vectors over dots (actor, sequence), so a reconnect is git's have/want: the
+//!   receiver says what it has, the sender ships only what it lacks, in bytes proportional to the
+//!   missed edits and not to the state.
+//! - [`presence`]: Discord's gateway presence: heartbeats with a time to live, never persisted,
+//!   aggregated per person or agent across devices, with per-device sequence numbers so the same
+//!   beat gossiped through two peers counts once.
+//! - [`truth`]: which replica the phone should believe ("the phone sees whichever is most
+//!   truthful"): the one whose version vector dominates, then the freshest heartbeat.
+//!
+//! Nothing here does I/O or reads a clock: the host passes `now` in milliseconds and moves the
+//! [`map::Delta`]s and [`presence::Beat`]s over its own transport, so every rule is tested by
+//! deterministic simulation (`tests/converge.rs`), as Dropbox tested Nucleus.
+
+pub mod hlc;
+pub mod map;
+pub mod presence;
+pub mod truth;
+pub mod vv;
+
+pub use hlc::{Actor, Clock, Stamp};
+pub use map::{Applied, Delta, Entry, Replica, Snapshot, SyncState};
+pub use presence::{Activity, Beat, DeviceKind, Here, HereDevice, Kind, Member, Presence, Status};
+pub use truth::{Report, most_truthful};
+pub use vv::{Dot, Vv};
