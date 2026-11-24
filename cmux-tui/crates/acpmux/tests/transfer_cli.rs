@@ -61,18 +61,72 @@ impl Daemon {
     }
 
     async fn with_peer(tag: &str, target: Option<&Daemon>) -> Self {
+        Self::with_env(tag, target, json!({}), &[], "approve-all").await
+    }
+
+    /// `with_peer`, with `harness_env` in the fake harness's env, `vars` in the daemon's, and
+    /// `policy` its permission policy.
+    async fn with_env(
+        tag: &str,
+        target: Option<&Daemon>,
+        harness_env: Value,
+        vars: &[(&str, &str)],
+        policy: &str,
+    ) -> Self {
+        let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
+        Self::spawn_full(tag, peer, harness_env, false, vars, policy).await
+    }
+
+    /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
+    /// other's peer name each other's socket first).
+    fn place(tag: &str) -> (PathBuf, PathBuf) {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
+        let socket = home.join("s.sock");
+        (home, socket)
+    }
+
+    /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
+    /// with `agent_env`.
+    async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
+        Self::spawn_full(tag, peer, agent_env, false, &[], "approve-all").await
+    }
+
+    /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
+    /// it is holds a live link to it (`session_move::fake_ssh` carries the link).
+    async fn spawn_with(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        linked: bool,
+    ) -> Self {
+        Self::spawn_full(tag, peer, agent_env, linked, &[], "approve-all").await
+    }
+
+    /// [`Self::spawn_with`], with `vars` in the daemon's env and `policy` its permission policy.
+    async fn spawn_full(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        linked: bool,
+        vars: &[(&str, &str)],
+        policy: &str,
+    ) -> Self {
+        let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
-        let path = target.map(|target| {
+        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": "fake", "permissionPolicy": policy});
+        if linked {
+            let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+            let listen = free.local_addr().expect("its address").to_string();
+            config["websocket"] = json!({"listen": listen, "token": format!("token-{tag}")});
+        }
+        let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
-            session_move::fake_ssh(&home, target)
+            session_move::fake_ssh(&home, &peer_home, &peer_socket)
         });
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
-        let socket = home.join("s.sock");
         let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
         if let Some(path) = path {
             command.env("PATH", path);
@@ -84,6 +138,7 @@ impl Daemon {
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
             .env("ACPMUX_AGENT_HOSTS", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
+            .envs(vars.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -138,5 +193,14 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
     assert_eq!(info["moving"], false, "{info}");
 }
 
+#[path = "transfer_cli/move_matrix.rs"]
+mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+
+#[path = "transfer_cli/session_move_follow.rs"]
+mod session_move_follow;
+#[path = "transfer_cli/session_move_live.rs"]
+mod session_move_live;
+#[path = "transfer_cli/session_move_reachable.rs"]
+mod session_move_reachable;

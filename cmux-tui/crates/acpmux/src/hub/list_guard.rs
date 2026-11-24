@@ -17,6 +17,7 @@ use super::session_pages::PageRow;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::HashSet;
+#[cfg(test)]
 use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
@@ -46,23 +47,15 @@ pub(crate) struct Events {
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
     tee: std::sync::OnceLock<Arc<TeeHandle>>,
-    /// Connections' fan-out tasks subscribed now (`Hub::subscribe_fanout`): how many takes each
-    /// event's fan-out clock waits for.
-    fanout_connections: Arc<std::sync::atomic::AtomicUsize>,
-}
-
-/// A connection's fan-out task's place in [`Events::fanout_connections`], given up on drop.
-pub struct FanoutSeat(Arc<std::sync::atomic::AtomicUsize>);
-
-impl Drop for FanoutSeat {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
+    /// Which connections' fan-outs each event wakes (`server/interest.rs`): every send is routed
+    /// as it is broadcast, under the router's lock, so each connection's events keep their order.
+    router: Arc<crate::server::interest::Router>,
 }
 
 impl Events {
     pub(super) fn new(capacity: usize) -> Self {
         Self {
+            router: Arc::new(crate::server::interest::Router::new(capacity)),
             tx: broadcast::channel(capacity).0,
             summary_generation: Arc::new(AtomicU64::new(0)),
             rows: Default::default(),
@@ -71,7 +64,6 @@ impl Events {
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
             tee: Default::default(),
-            fanout_connections: Default::default(),
         }
     }
 
@@ -112,30 +104,25 @@ impl Events {
         }
     }
 
-    /// Every send goes out here: its fan-out clock starts, owed by each connection's fan-out task
-    /// subscribed now (`gauges.fanout`).
-    fn send_now(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        event.row.fanout.arm(self.fanout_connections.load(Ordering::Acquire));
-        self.tx.send(event)
-    }
-
-    /// A connection's fan-out task subscribes: it counts toward each event's fan-out until the
-    /// guard drops.
-    pub(super) fn subscribe_fanout(&self) -> (broadcast::Receiver<HubEvent>, FanoutSeat) {
-        // Counted before it subscribes: an event sent between the two is owed one more take than
-        // it gets, so it is no sample, never a sample taken before every connection had it.
-        self.fanout_connections.fetch_add(1, Ordering::AcqRel);
-        (self.tx.subscribe(), FanoutSeat(self.fanout_connections.clone()))
-    }
-
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
-            return self.send_now(event);
+            return self.broadcast(event);
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
-        self.send_now(event)
+        self.broadcast(event)
+    }
+
+    /// Broadcasts `event` and routes it to the connections that want it (`server/interest.rs`).
+    /// Every send goes through here.
+    fn broadcast(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.router.send(event, |event| self.tx.send(event))
+    }
+
+    /// The connections' routing table (`server/interest.rs`).
+    pub(crate) fn router(&self) -> &Arc<crate::server::interest::Router> {
+        &self.router
     }
 
     /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
@@ -258,7 +245,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.stamp_streamed(&event.session_id);
-        self.send_now(event)
+        self.broadcast(event)
     }
 
     /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
@@ -294,9 +281,9 @@ impl Events {
                 event.list_seq = rows.stamp(key, gone);
             }
             event.peer_batch = true;
-            let _ = self.tx.send(event);
+            let _ = self.broadcast(event);
         }
-        let _ = self.tx.send(HubEvent {
+        let _ = self.broadcast(HubEvent {
             session_id: String::new(),
             record: Arc::new(EventRecord {
                 seq: 0,
@@ -456,6 +443,7 @@ pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
 }
 
 /// Where each row of a list's text is, and the paging keys of each (`at` its place).
+#[cfg(test)]
 pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 /// The reply to `params` that has no `limit` (the whole list, or a filter of it), of `sorted`
@@ -561,6 +549,7 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
 /// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
 /// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
 /// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+#[cfg(test)]
 pub(crate) fn cut_page(
     (text, spans): (&str, &[Range<usize>]),
     rows: &[Value],
@@ -586,11 +575,13 @@ pub(crate) fn cut_page(
 
 /// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
 /// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
+#[cfg(test)]
 pub(crate) enum BuiltRow {
     Tree(Value),
     Peer(String, Arc<RemoteSession>),
 }
 
+#[cfg(test)]
 impl PageRow for BuiltRow {
     fn session_id(&self) -> &str {
         match self {
@@ -622,11 +613,13 @@ impl PageRow for BuiltRow {
 }
 
 /// A row [`serialize_in_order`] writes: its text, and its paging keys.
+#[cfg(test)]
 pub(crate) trait InOrder {
     fn write(&self, out: &mut Vec<u8>);
     fn paging_keys(&self, at: usize) -> Value;
 }
 
+#[cfg(test)]
 impl InOrder for Value {
     fn write(&self, out: &mut Vec<u8>) {
         // A Value always serializes, and Vec's writer cannot fail.
@@ -638,6 +631,7 @@ impl InOrder for Value {
     }
 }
 
+#[cfg(test)]
 impl InOrder for BuiltRow {
     fn write(&self, out: &mut Vec<u8>) {
         match self {
@@ -659,6 +653,7 @@ impl InOrder for BuiltRow {
 
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
+#[cfg(test)]
 pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
@@ -682,6 +677,7 @@ pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
 pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text` ([`fit_row`]).
+#[cfg(test)]
 fn row_text<'a>(
     text: &'a str,
     spans: &[Range<usize>],
@@ -698,7 +694,7 @@ fn row_text<'a>(
 /// `row` (whose paging keys are `key`): whole when it fits in `budget`, else trimmed to fit, its
 /// largest fields first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps
 /// do not.
-fn fit_row<'a, K: PageRow + ?Sized>(
+pub(crate) fn fit_row<'a, K: PageRow + ?Sized>(
     row: &'a str,
     key: &K,
     budget: usize,
@@ -731,10 +727,10 @@ pub(crate) fn fit_text(row: String, budget: usize) -> String {
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
 /// (`session_pages::cursor_after`).
-fn page_cursor(params: &Value, last: &Value) -> String {
+pub(crate) fn page_cursor<K: PageRow + ?Sized>(params: &Value, last: &K) -> String {
     let census = params.get("orderBy").and_then(Value::as_str).is_some_and(|o| !o.is_empty());
     if census {
-        format!("s:{}", last.get("sessionId").and_then(Value::as_str).unwrap_or(""))
+        format!("s:{}", last.session_id())
     } else {
         super::session_pages::cursor_after(last)
     }

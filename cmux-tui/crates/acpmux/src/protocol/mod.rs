@@ -79,6 +79,9 @@ pub struct MessageEvent {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageSender {
+    /// The sender's given name (`session_handle.rs`), shown first: "Mango · HOST/NAME".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     pub name: String,
@@ -270,7 +273,19 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
+        // Saved prompts (`prompts.rs`).
+        keyed::<params::PromptsListParams>(method::MUX_PROMPTS_LIST, Request),
+        keyed::<params::PromptsSaveParams>(method::MUX_PROMPTS_SAVE, Request),
+        keyed::<params::PromptsDeleteParams>(method::MUX_PROMPTS_DELETE, Request),
+        // Stashed drafts (`stash.rs`).
+        keyed::<params::StashListParams>(method::MUX_STASH_LIST, Request),
+        keyed::<params::StashPushParams>(method::MUX_STASH_PUSH, Request),
+        keyed::<params::StashGetParams>(method::MUX_STASH_GET, Request),
+        keyed::<params::StashDropParams>(method::MUX_STASH_DROP, Request),
+        keyed::<params::StashMoveParams>(method::MUX_STASH_MOVE, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
+        keyed::<params::AgentHomeParams>(method::MUX_AGENT_HOME, Request),
+        keyed::<params::AgentHomeResolveParams>(method::MUX_AGENT_HOME_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
@@ -287,6 +302,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
         keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),
         keyed::<params::ProcessKillParams>(method::MUX_PROCESS_KILL, Request),
+        untyped(method::MUX_PROCESS_CENSUS, Request),
         untyped(method::MUX_BG_START, Request),
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
@@ -313,6 +329,8 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
         untyped(method::MUX_WAKE, Request),
+        untyped(method::MUX_SESSION_HOLD, Request),
+        untyped(method::MUX_FLEET_HOLD, Request),
         untyped(method::MUX_KEEP, Request),
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
         keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
@@ -404,6 +422,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COMPUTER_USE_CALL, Request),
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
         untyped(method::MUX_COMPUTER_USE_STATE, Request),
+        untyped(method::MUX_MACHINE_FILES_CALL, Request),
+        untyped(method::MUX_KEYS_MINT, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
@@ -433,6 +453,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
         untyped("_acpmux/chats_search", Request),
+        untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),
@@ -443,12 +464,22 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
+        untyped("_acpmux/transfer_base", Request),
         untyped("_acpmux/transfer_begin", Request),
         untyped("_acpmux/transfer_commit", Request),
+        untyped("_acpmux/transfer_digest", Request),
+        untyped("_acpmux/transfer_end_stale", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_history", Request),
+        untyped("_acpmux/transfer_history_export", Request),
+        untyped("_acpmux/transfer_history_have", Request),
+        untyped("_acpmux/transfer_prepare", Request),
+        untyped("_acpmux/transfer_progress", Request),
         untyped("_acpmux/transfer_read", Request),
         untyped("_acpmux/transfer_receive", Request),
+        untyped("_acpmux/transfer_stage", Request),
+        untyped("_acpmux/transfer_stage_finish", Request),
         untyped("_acpmux/transfer_write", Request),
         // Handoff.
         keyed::<params::HandoffPrepareParams>(method::MUX_HANDOFF_PREPARE, Request),
@@ -527,6 +558,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped(method::MUX_PLACE_CHAT, Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
@@ -567,8 +599,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
+        notification::<events::ChunkDelta>(method::MUX_CHUNK),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
+        notification::<SessionPatch>(method::MUX_SESSION_PATCH),
         notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
