@@ -4337,6 +4337,11 @@ function TranscriptView({
       layout.geometry.topAt(last - 1) + layout.geometry.heightAt(last - 1),
     ]);
     acpmuxPerf.mounted = spans;
+    {
+      const k = JSON.stringify([mountedRanges, standIns]);
+      acpmuxPerf.span(k === (globalThis as any).__diagKey ? "diag.same" : "diag.diff", 1);
+      (globalThis as any).__diagKey = k;
+    }
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
