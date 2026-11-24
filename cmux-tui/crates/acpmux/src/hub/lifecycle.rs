@@ -1278,7 +1278,10 @@ impl Hub {
             meta.created_by.as_ref(),
             session.person.load(std::sync::atomic::Ordering::SeqCst),
         );
-        let profile = &crate::subrouter_priority::profile_with(profile, &meta.name, for_person);
+        let profile = &crate::subrouter_priority::profile_with(
+            profile,
+            self.subrouter_priority(session, &meta, for_person),
+        );
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
