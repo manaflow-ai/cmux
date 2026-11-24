@@ -127,6 +127,23 @@ impl Hub {
         session.meta().last_seq
     }
 
+    /// `stop`, naming who asked (`server/stop_requester.rs`): logged with the stop, and on its
+    /// `stopped` and closing `status` records. A refused conditional stop leaves no name behind.
+    pub(crate) async fn stop_by(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        condition: StopCondition,
+        by: Value,
+    ) -> Result<(), RpcError> {
+        *session.stop_by.lock().unwrap_or_else(|e| e.into_inner()) = Some(by);
+        let result = self.stop(session, purge, condition).await;
+        if result.is_err() {
+            session.stop_by.lock().unwrap_or_else(|e| e.into_inner()).take();
+        }
+        result
+    }
+
     /// Stop the session as `kill` does, or refuse when the condition does not hold.
     pub(crate) async fn stop(
         &self,

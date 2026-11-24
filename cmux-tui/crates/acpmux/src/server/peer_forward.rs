@@ -752,6 +752,16 @@ async fn forward_inner(
         if m == method::SESSION_CANCEL {
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
+        // A stop names who asked here, so the peer that runs it logs them (`stop_requester.rs`).
+        if m == method::MUX_KILL {
+            super::stop_requester::stamp(conn, params, &mut p);
+            tracing::info!(
+                peer = %peer.name,
+                session = %id,
+                by = %p.pointer(&format!("/_meta/acpmux/{}", super::stop_requester::KEY)).cloned().unwrap_or_default(),
+                "stop forwarded to a peer"
+            );
+        }
         bound_page(m, params, &mut p);
         drop_local_kinds(&mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over

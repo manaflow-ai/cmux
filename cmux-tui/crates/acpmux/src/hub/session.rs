@@ -365,6 +365,10 @@ pub struct Session {
     /// How many times the chat was stopped (`kill`). A start reads it when its request came
     /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
     pub(super) stops: AtomicU64,
+    /// Who asked for the stop under way (`stop_requester.rs`): set by `_acpmux/kill` before it
+    /// stops the chat, logged by the stop and carried on its `stopped` and closing `status`
+    /// records; None for a stop the daemon made itself (logged as `daemon`).
+    pub(super) stop_by: StdMutex<Option<Value>>,
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,

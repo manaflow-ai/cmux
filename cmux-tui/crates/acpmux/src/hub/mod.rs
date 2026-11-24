@@ -483,6 +483,8 @@ pub(crate) mod session_hold;
 mod sim_startup;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]
+mod stop_requester_tests;
+#[cfg(test)]
 mod stop_settles_tests;
 mod transcript;
 mod transfer;
@@ -2287,6 +2289,7 @@ impl Hub {
             purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            stop_by: StdMutex::new(None),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
@@ -3349,7 +3352,13 @@ impl Hub {
     /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
     /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        self.write_status(session, status, None);
+        self.write_status(session, status, None, None);
+    }
+
+    /// Closes a chat a stop ended, its `status` record naming who asked for the stop
+    /// (`server/stop_requester.rs`), so the chat's own log says who closed it.
+    pub(super) fn close_stopped_by(&self, session: &Session, by: &Value) {
+        self.write_status(session, SessionStatus::Closed, None, Some(by));
     }
 
     #[cfg(test)]
@@ -3367,7 +3376,7 @@ impl Hub {
         if session.purging.load(Ordering::SeqCst) {
             return false;
         }
-        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
+        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops), None);
         if reopened {
             self.append(session, "mux", "reopened", json!({}));
         }
@@ -3376,7 +3385,13 @@ impl Hub {
 
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
-    fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+    fn write_status(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        reopen: Option<u64>,
+        stopped_by: Option<&Value>,
+    ) -> bool {
         // From before the status is set to after it is logged.
         session.status_writes.fetch_add(1, Ordering::SeqCst);
         struct Done<'a>(&'a AtomicU64);
@@ -3427,7 +3442,11 @@ impl Hub {
                 self.subsession_status(&session.id, link, was, status);
             }
             session.mark_waiting(status == SessionStatus::Waiting);
-            self.append(session, "mux", "status", json!({"status": status.to_string()}));
+            let mut record = json!({"status": status.to_string()});
+            if let Some(by) = stopped_by {
+                record.set("stoppedBy", by.clone());
+            }
+            self.append(session, "mux", "status", record);
             self.save_meta(session);
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.

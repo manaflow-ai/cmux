@@ -3827,7 +3827,9 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked: logged and put on the chat's closing records (`stop_requester.rs`).
+            let by = super::stop_requester::of(conn, &params);
+            heap(|| hub.stop_by(&s, purge, condition, by)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).

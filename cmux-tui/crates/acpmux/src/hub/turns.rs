@@ -2824,6 +2824,22 @@ impl Hub {
         if purge {
             self.audit_purge(&session.id).await?;
         }
+        // Who asked (`server/stop_requester.rs`); a stop the daemon made itself names no client.
+        let by = session
+            .stop_by
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_else(|| json!({"origin": "daemon"}));
+        let status = session.status();
+        tracing::info!(
+            session = %session.id,
+            name = %session.meta().name,
+            status = %status,
+            purge,
+            by = %by,
+            "session stop"
+        );
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
@@ -2870,7 +2886,8 @@ impl Hub {
         self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
-        self.set_status(session, SessionStatus::Closed);
+        self.close_stopped_by(session, &by);
+        session.stop_by.lock().unwrap_or_else(|e| e.into_inner()).take();
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).

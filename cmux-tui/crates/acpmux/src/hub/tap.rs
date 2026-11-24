@@ -190,7 +190,13 @@ impl Hub {
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
                         && tap_session.status() != SessionStatus::Closed;
+                    // A stop under way (`kill` sets `closing` before it ends the agent, and closes
+                    // the chat after): its SIGTERM exit (143) is the stop, not the agent's own.
+                    // Read as `exited ... agent_exited` it looked like a crash, and nobody could
+                    // tell the lanes cut mid-task from dead ones (hq#22914).
+                    let stopping = tap_session.closing.load(Ordering::SeqCst);
                     let intentional = hibernating
+                        || stopping
                         || matches!(
                             tap_session.status(),
                             SessionStatus::Idle | SessionStatus::Closed
@@ -207,7 +213,15 @@ impl Hub {
                             if hibernating {
                                 json!({"code": code, "hibernated": true})
                             } else if intentional {
-                                json!({"code": code})
+                                let by = tap_session
+                                    .stop_by
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .clone();
+                                match by {
+                                    Some(by) => json!({"code": code, "stoppedBy": by}),
+                                    None => json!({"code": code}),
+                                }
                             } else {
                                 let last =
                                     last_stderr.lock().unwrap_or_else(|e| e.into_inner()).take();
