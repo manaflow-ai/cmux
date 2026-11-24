@@ -17,6 +17,7 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
+import { CountLine, countParts, live, type CountPart } from "../summary/LiveCount";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration, spanDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
@@ -94,13 +95,11 @@ export function WorkflowTasks({
       {/* One keyed list preserves phase disclosure and row identity across lifecycle changes. */}
       {[...running, ...finished].map((workflow, index) => (
         <Fragment key={workflow.id}>
-          {/* Only mixed groups need headings; the section already counts what runs. */}
-          {running.length > 0 && finished.length > 0 && (index === 0 || index === running.length) && (
-            <h4 className="acpmux-workflow-tasks__group">
-              {index === 0
-                ? t("rail.running", { count: running.length })
-                : t("rail.finished", { count: finished.length })}
-            </h4>
+          {/* Only mixed groups need a heading, and only the finished one: the running ones lead the
+              list and need no word (Leo, 2026-11-23: ""running" doesn't need text. it can usually just
+              be."); the section already counts what runs. */}
+          {running.length > 0 && finished.length > 0 && index === running.length && (
+            <h4 className="acpmux-workflow-tasks__group">{t("rail.finished", { count: finished.length })}</h4>
           )}
           <WorkflowTask
             workflow={workflow}
@@ -119,14 +118,15 @@ export function WorkflowTasks({
   );
 }
 
-/// "1 running · 2 queued · 3 done": each count that is not zero.
-function countLine(t: Translate, counts: Tally): string[] {
-  return [
-    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
+/// "1 running · 2 queued · 3 done": each count that is not zero, the running ones as their mark and
+/// number (LiveCount.tsx).
+function countLine(t: Translate, counts: Tally): CountPart[] {
+  return countParts(
+    live(counts.running, t("summary.subagents.running", { n: counts.running })),
     counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
     counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
     counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
-  ].filter((part): part is string => typeof part === "string");
+  );
 }
 
 const tokensLabel = (t: Translate, tokens: number) =>
@@ -171,7 +171,7 @@ function WorkflowTask({
         ? undefined
         : t("bgTask.state.completed")
       : stateWord(t, workflow.state);
-  const meta = running
+  const meta: CountPart[] = running
     ? [...countLine(t, counts), ...tokens, ...model]
     : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens, ...model];
   const phases = workflow.phases;
@@ -185,7 +185,11 @@ function WorkflowTask({
         {elapsed !== undefined && <span className="acpmux-session-info-task__time">{formatDuration(elapsed)}</span>}
         {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} solid />}
       </div>
-      {meta.length > 0 && <p className="acpmux-workflow-task__meta">{meta.join(" · ")}</p>}
+      {meta.length > 0 && (
+        <p className="acpmux-workflow-task__meta">
+          <CountLine parts={meta} />
+        </p>
+      )}
       {workflow.description && <p className="acpmux-workflow-task__description">{workflow.description}</p>}
       {phases.length > 0 && (
         <ul className="acpmux-session-info-list acpmux-workflow-task__phases">

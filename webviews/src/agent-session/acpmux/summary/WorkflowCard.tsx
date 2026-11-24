@@ -16,6 +16,7 @@ import { modelName, tally, workflowOf } from "./foldWorkflows";
 import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./workflowView";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
+import { CountLine, countParts, live } from "./LiveCount";
 import { opener, sideTabOpener, listeners } from "./workflowCardModel";
 import { Clock } from "../../../ui/Typography";
 import { intl } from "../../../ui/intl";
@@ -82,18 +83,16 @@ export function WorkflowCard({
   const latest = cardLine(workflow);
   const model = workflowModel(workflow.agents);
   const tokens = workflow.tokens ?? workflow.projectedTokens;
-  // While agents may still spawn, a fraction would read as the total: say what is done and running.
-  const countText =
+  // While agents may still spawn, a fraction would read as the total: say what is done, and what
+  // runs as its mark and its number (LiveCount.tsx).
+  const progressParts =
     count.kind === "progress"
-      ? [
-          count.done > 0 ? t("summary.subagents.done", { n: count.done }) : undefined,
-          count.running > 0 ? t("summary.subagents.running", { n: count.running }) : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : total > 0
-        ? `${done}/${total}`
-        : "";
+      ? countParts(
+          count.done > 0 && t("summary.subagents.done", { n: count.done }),
+          live(count.running, t("summary.subagents.running", { n: count.running })),
+        )
+      : [];
+  const countText = count.kind === "progress" ? "" : total > 0 ? `${done}/${total}` : "";
   return (
     <div className="acpmux-workflow-card-wrap">
       <button
@@ -113,6 +112,11 @@ export function WorkflowCard({
           {/* The selected card names its running phases on its last row, where they have room. */}
           {presentation !== "selected" && phaseNames.length > 0 && (
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
+          )}
+          {progressParts.length > 0 && (
+            <span>
+              <CountLine parts={progressParts} />
+            </span>
           )}
           {countText && <span>{countText}</span>}
           <Clock text={formatDuration(elapsed)} />

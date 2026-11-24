@@ -134,14 +134,19 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
     );
   };
 
+  // What runs is the dot and its number, no word (Leo, 2026-11-23: ""running" doesn't need text. it
+  // can usually just be."); what waits on the person and an error keep theirs. The hover and VoiceOver
+  // still name it ("Running · 3").
+  const runningLabel = t("statusIsland.running", { n: state.running });
   const pillLabel =
     state.waiting > 0
       ? t("needsYou.pillCount", { n: state.waiting })
       : state.tone === "error"
         ? t("statusIsland.failed")
         : state.running > 0
-          ? t("statusIsland.running", { n: state.running })
+          ? String(state.running)
           : t("statusIsland.idle");
+  const pillName = state.waiting === 0 && state.tone !== "error" && state.running > 0 ? runningLabel : undefined;
 
   return (
     <section
@@ -159,13 +164,13 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
             className="acpmux-status-island__pill"
             aria-expanded={state.focus ? false : undefined}
             disabled={!state.focus}
+            aria-label={pillName}
+            title={pillName}
             onClick={toggle}
           >
             <span className="acpmux-status-island__dot" aria-hidden="true" />
             <span className="acpmux-status-island__label">{pillLabel}</span>
-            {state.running > 0 && state.tone !== "running" && (
-              <span className="acpmux-status-island__count">{t("statusIsland.running", { n: state.running })}</span>
-            )}
+            {state.running > 0 && state.tone !== "running" && <RunningCount n={state.running} />}
           </button>
         ) : state.attention ? (
           <IslandAsk
@@ -208,6 +213,25 @@ export function StatusIsland({ state, actions }: { state: IslandState; actions: 
   );
 }
 
+/// How many agents run, beside what the island shows: a running dot and the number, no word; the
+/// hover and VoiceOver name it ("Running · 3").
+function RunningCount({ n }: { n: number }) {
+  const t = useT();
+  const label = t("statusIsland.running", { n });
+  return (
+    <span
+      className="acpmux-status-island__count"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a dot and a number with a spoken name, not an image file
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <span className="acpmux-status-island__count-dot" aria-hidden="true" />
+      {n}
+    </span>
+  );
+}
+
 function IslandHead({
   name,
   harness,
@@ -225,7 +249,7 @@ function IslandHead({
       <span className="acpmux-status-island__dot" aria-hidden="true" />
       <strong className="acpmux-status-island__name">{name}</strong>
       {harness && <span className="acpmux-status-island__harness">{harnessName(harness)}</span>}
-      {running > 0 && <span className="acpmux-status-island__count">{t("statusIsland.running", { n: running })}</span>}
+      {running > 0 && <RunningCount n={running} />}
       <button
         type="button"
         className="acpmux-status-island__collapse"
