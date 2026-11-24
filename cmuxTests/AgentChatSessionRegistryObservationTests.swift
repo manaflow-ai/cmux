@@ -430,6 +430,55 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(livePID == 707)
     }
 
+    /// A plugin's MCP calls after Stop fire PreToolUse with no turn running and no Stop
+    /// after them (#51571). The built-in pill ignores them (the CLI's turnSettled guard);
+    /// agents[].status must too, or a custom sidebar shows the idle session working forever.
+    @MainActor
+    @Test func claudeToolHooksAfterStopDoNotReopenWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "51571000-0000-4000-8000-000000000001"
+        func note(_ name: WorkstreamEvent.HookEventName, _ at: TimeInterval) {
+            registry.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: name,
+                source: "claude",
+                receivedAt: Date(timeIntervalSince1970: at)
+            ))
+        }
+        func state() throws -> ChatAgentState {
+            try #require(registry.record(sessionID: sessionID)).state
+        }
+
+        note(.userPromptSubmit, 1)
+        #expect(try state() == .working(since: Date(timeIntervalSince1970: 1)))
+        note(.stop, 2)
+        #expect(try state() == .idle)
+
+        note(.preToolUse, 3)
+        note(.postToolUse, 4)
+        #expect(try state() == .idle)
+
+        note(.userPromptSubmit, 5)
+        #expect(try state() == .working(since: Date(timeIntervalSince1970: 5)))
+        note(.preToolUse, 6)
+        #expect(try state() == .working(since: Date(timeIntervalSince1970: 5)))
+    }
+
+    /// A session first seen mid-turn (cmux launched while Claude runs) has no settled
+    /// turn to protect: its first PreToolUse still shows it working.
+    @MainActor
+    @Test func claudeToolHookOnAFreshSessionStillShowsWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "51571000-0000-4000-8000-000000000002"
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .preToolUse,
+            source: "claude",
+            receivedAt: Date(timeIntervalSince1970: 7)
+        ))
+        #expect(try #require(registry.record(sessionID: sessionID)).state == .working(since: Date(timeIntervalSince1970: 7)))
+    }
+
     @Test func endedLifecycleIgnoresDelayedNonStartEvents() {
         let delayed = WorkstreamEvent(
             sessionId: "session",
