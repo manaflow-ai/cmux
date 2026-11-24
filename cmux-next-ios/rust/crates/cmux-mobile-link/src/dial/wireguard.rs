@@ -68,17 +68,28 @@ pub const LINK_PORT: u16 = 7420;
 /// 7421 and the media lane's 7422. 7424 is taken by the terminal viewport
 /// diffs (lane ios-terminal-projection-parity, settled 2026-11-22).
 pub const LIVENESS_PORT: u16 = 7423;
-/// Liveness datagrams queued to the tunnel before new ones drop.
-const LIVENESS_QUEUE: usize = 64;
+/// Liveness and class datagrams queued to the tunnel before new ones drop:
+/// a 3.5 KB screen state is three datagrams, sent twice.
+const LIVENESS_QUEUE: usize = 512;
+
+/// Whether this side lists [`crate::classes::CLASSES_LANE`]: on unless
+/// `CMUX_LINK_CLASSES=off` (benches measure the stream-only baseline with it).
+fn classes_offered() -> bool {
+    std::env::var("CMUX_LINK_CLASSES").map_or(true, |value| value != "off")
+}
 
 /// Bind the liveness port and carry its datagrams to and from the link:
 /// to `peer_ip` only, in the tunnel's interactive class (ahead of the
 /// link's TCP), and only datagrams from `peer_ip` back. `None` when the
-/// port cannot be bound: the link's pings stay in its stream.
+/// port cannot be bound: the link's pings stay in its stream. With
+/// `classes` (both sides listed [`crate::classes::CLASSES_LANE`]) the port
+/// carries class datagrams too, queued in the interactive class like any
+/// datagram (Ultra Mode's repair applies to them; pings skip it).
 async fn open_liveness(
     net: &WgNet,
     peer_ip: Ipv4Addr,
     peer_listening: bool,
+    classes: bool,
 ) -> Option<crate::link::LivenessDatagrams> {
     let mut socket = match net.bind_datagram(LIVENESS_PORT).await {
         Ok(socket) => socket,
@@ -96,10 +107,18 @@ async fn open_liveness(
                 datagram = out.recv() => {
                     // The link closed.
                     let Some(datagram) = datagram else { return };
-                    let answer = crate::link::is_liveness_answer(&datagram);
-                    if let Err(cmux_wg::WgError::Shutdown) =
+                    let class = match datagram.first() {
+                        Some(&crate::classes::DATAGRAM_CLASS) => Some(cmux_wg::Priority::Interactive),
+                        Some(&crate::classes::DATAGRAM_SCREEN) => Some(cmux_wg::Priority::Screen),
+                        _ => None,
+                    };
+                    let sent = if let Some(class) = class {
+                        socket.send_to(&datagram, peer, class).await
+                    } else {
+                        let answer = crate::link::is_liveness_answer(&datagram);
                         socket.send_liveness(&datagram, peer, answer).await
-                    {
+                    };
+                    if let Err(cmux_wg::WgError::Shutdown) = sent {
                         return;
                     }
                 }
@@ -114,7 +133,7 @@ async fn open_liveness(
             }
         }
     });
-    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening })
+    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening, classes })
 }
 
 /// How long the input lane's second connection may take before input stays
@@ -601,7 +620,7 @@ fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
         SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
-            cmux_wg::Priority::Interactive => SendClass::Input,
+            cmux_wg::Priority::Interactive | cmux_wg::Priority::Screen => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
             cmux_wg::Priority::Media => SendClass::Media,
         },
@@ -775,7 +794,6 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
-
 struct HybridUnderlay {
     socket: UdpSocket,
     options: DialOptions,
@@ -2216,6 +2234,9 @@ pub(super) fn dial_wireguard<'a>(
                         let mut lanes =
                             super::offered_lanes(options, options.video_lane, options.webrtc_media);
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                        if classes_offered() {
+                            lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                        }
                         lanes
                     },
                     relayed,
@@ -2229,6 +2250,7 @@ pub(super) fn dial_wireguard<'a>(
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
+        let classes_agreed;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
             match events.next().await? {
                 SessionEvent::Signal(envelope) => match envelope.payload {
@@ -2247,6 +2269,8 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        classes_agreed = classes_offered()
+                            && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
                         video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                         webrtc_media_agreed =
                             video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2264,6 +2288,7 @@ pub(super) fn dial_wireguard<'a>(
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
+        let tunnel_keys = super::TunnelKeys { dialer: b64(&public_key), answerer: b64(&peer_key) };
         let spec = TunnelSpec {
             session_id,
             peer_device: mac,
@@ -2293,6 +2318,7 @@ pub(super) fn dial_wireguard<'a>(
             input_lane: agreed,
             path: tunnel.path.clone(),
             peer: tunnel.peer.clone(),
+            tunnel_keys: tunnel_keys.clone(),
         });
         let guard = dormant::Lease::new(&keeper);
         let net = tunnel.session.net()?;
@@ -2327,7 +2353,8 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         // The Mac listed the lane once its port was bound: it listens.
-        let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
+        let liveness =
+            if liveness_agreed { open_liveness(&net, peer_ip, true, classes_agreed).await } else { None };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         // The input lane: a second TCP stream to the same port, opened
@@ -2351,6 +2378,7 @@ pub(super) fn dial_wireguard<'a>(
         let webrtc_media = webrtc_media_agreed && media.is_some();
         dormant::superseded(true, mac);
         Ok(Dialed {
+            tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
             on_link: Some(guard.on_link()),
@@ -2438,6 +2466,7 @@ impl Dialer for WireGuardDialer {
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();
+            let tunnel_keys = super::TunnelKeys { dialer: b64(&peer_key), answerer: b64(&own_public) };
             let spec = TunnelSpec {
                 session_id: &first.session_id,
                 peer_device: &first.from,
@@ -2467,6 +2496,7 @@ impl Dialer for WireGuardDialer {
                 input_lane: agreed,
                 path: tunnel.path.clone(),
                 peer: tunnel.peer.clone(),
+                tunnel_keys: tunnel_keys.clone(),
             });
             let guard = dormant::Lease::new(&keeper);
             let net = tunnel.session.net()?;
@@ -2477,8 +2507,10 @@ impl Dialer for WireGuardDialer {
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
+            let classes_wanted =
+                classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
-                open_liveness(&net, peer_ip, false).await
+                open_liveness(&net, peer_ip, false, classes_wanted).await
             } else {
                 None
             };
@@ -2523,6 +2555,9 @@ impl Dialer for WireGuardDialer {
                                 super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                                if classes_wanted {
+                                    lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                                }
                             }
                             lanes
                         },
@@ -2562,6 +2597,7 @@ impl Dialer for WireGuardDialer {
             let webrtc_media = webrtc_media_wanted && media.is_some();
             dormant::superseded(false, &first.from);
             Ok(Dialed {
+                tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
                 on_link: Some(guard.on_link()),
