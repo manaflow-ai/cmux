@@ -393,6 +393,7 @@ pub fn bind_machine(
             return BindResult::Retry(format!("carrier.json write: {e}"));
         }
     }
+    keep_sccache(store, &file.sccache);
     let saved = serde_json::to_string(&bound).unwrap_or_default();
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
@@ -409,6 +410,32 @@ pub fn bind_machine(
     store.remove(BIND_FILE);
     store.remove(BIND_UNANSWERED_FILE);
     BindResult::Bound(Box::new(bound), first_ticket)
+}
+
+/// The bind's compiler cache settings (`sccache_env.rs`): kept with the section, removed without
+/// one (or with a refused one), so a machine runs with the cache only while its last bind named
+/// it. Best effort: the cache is optional, so a failed write never fails the bind.
+fn keep_sccache(store: &mut dyn Store, section: &super::wire::SccacheSection) {
+    use super::wire::SccacheSection;
+    use crate::sccache_env::{KEPT_FILE, file_text, names};
+    match section {
+        SccacheSection::Env(vars) => match store.write(KEPT_FILE, &file_text(vars), 0o600) {
+            Ok(()) => {
+                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars))
+            }
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: sccache.json write: {e}; compiler cache off");
+                store.remove(KEPT_FILE);
+            }
+        },
+        SccacheSection::Refused(why) => {
+            eprintln!(
+                "cmux-host: cloud: bind: the `sccache` section is refused ({why}); compiler cache off"
+            );
+            store.remove(KEPT_FILE);
+        }
+        SccacheSection::Absent => store.remove(KEPT_FILE),
+    }
 }
 
 /// How long a bind token can live: it expires 15 minutes after the machine
@@ -723,6 +750,33 @@ impl<H: Http> CloudClient<H> {
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
         let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
         super::github_status::reply_for(&answer)
+    }
+
+    /// The person's additions list (`POST /v1/install-counts/additions` on the environment's
+    /// platform as this machine's `vm` install, `additions.rs`). As [`Self::post_as_install`],
+    /// only a 401 or an `auth.*` 403 drops the cached bearer and retries once: a 403
+    /// `install_counts.not_shared` is the answer.
+    pub fn install_additions(&mut self, body: &Value, now_wall_ms: u64) -> Answer {
+        let url =
+            format!("{}{}", self.bound.env.platform_origin(), super::additions::ADDITIONS_PATH);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.post(&url, body, Some(&token)).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

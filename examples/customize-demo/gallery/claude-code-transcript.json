@@ -1,0 +1,21 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-transcript",
+  "description": "Read replies in an 800 pt column with collapsed tool activity and a compact harness label.",
+  "created_ms": 0,
+  "settings": {
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.display.font.preset": "system"
+  },
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-transcript",
+    "name": "Claude Code transcript",
+    "source": "looks/claude-code/transcript"
+  }
+}

@@ -636,6 +636,7 @@ def hibernate_main(args, daemon: Daemon, scratch):
                           "rss_mb": round(rss / 1024, 1),
                           "typed": k % 2})
     print(f"hibernate: {len(chats)} chats idle for {args.idle_wait} s", file=sys.stderr, flush=True)
+    # sleep-ok: the measured idle period; what is left alive after --idle-wait s is the result.
     time.sleep(args.idle_wait)
     for c in chats:
         pids = c.pop("pids")

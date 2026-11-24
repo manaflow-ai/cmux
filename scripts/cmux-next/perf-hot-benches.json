@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after, even when CI also runs it.",
   "paths": {
+    "ios-terminal-native-key": {
+      "what": "one key the iPhone software keyboard types into the terminal (TerminalSurfaceView.insertText): the input router, Ghostty's text input, and the keyboard's text-change announce only where its context needs it",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --key KEY --arg test --arg ui=TerminalTypingWhileStreamingUITests --artifact artifacts/ios-sim/evidence.zip (TYPING_BENCH: keyMainP50ms/P95ms per phase, focused and unfocused)",
+      "owner": "cmux-next iOS"
+    },
     "chat-rows-frame-apply": {
       "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
       "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",
@@ -161,6 +166,11 @@
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
     },
+    "agent-chat-stream-reveal": {
+      "what": "one reveal frame of a streaming agent reply (Markdown.tsx with replyScan.ts): the reply's footnotes and folders read from its tail, its closed blocks drawn from the elements kept for them, so a frame's cost does not grow with the reply",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 60 --modes reply --reply-words 2000,20000 (frame_p50 / frame_p95 and key to frame while one long reply streams)",
+      "owner": "agent chat"
+    },
     "session-list-change": {
       "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
       "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
@@ -195,6 +205,11 @@
       "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
+    },
+    "feed-mirror-commit": {
+      "what": "one commit of the feed client's mirror (client/mirror.rs commit: every owner event, intent and frame tick): recompute the touched ids, wake due snoozes (ledger.rs woken), keep the badge counts",
+      "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (N | p50 | p95 at 1k, 10k and 100k items with a snooze backlog; fails when the 100k p95 passes 3x the 1k p95, or a hook of the 1k/s storm passes 100 us p95)",
+      "owner": "feed"
     }
   }
 }

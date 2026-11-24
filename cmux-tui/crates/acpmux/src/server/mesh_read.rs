@@ -55,6 +55,18 @@ const READ_METHODS: &[&str] = &[
 /// `acpmux last` of it worked).
 const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_WAIT];
 
+/// The changes a read message carries too: each changes one session so that running it twice (the
+/// hub may lease a message again) leaves it as once. The receiver runs one only for a sender its
+/// `controlFrom` trusts with a lifecycle op, never one granted `read` alone. Leo, 2026-11-23:
+/// "the renaming paradigm still hasn't hit yet" (`acpmux rename HOST/ID NAME [--handle]` from a
+/// lane VM answered no_session for every session only the hub reaches, while `acpmux info` of
+/// the same `HOST/ID` worked). A retry of a failed turn too (`_acpmux/retry`): a second delivery
+/// finds the first's turn under way (`retry.busy`) or the turn no longer failed
+/// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
+/// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
+/// _acpmux/retry", so nothing could resume it from here.
+const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
+
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
     matches!(m, method::MUX_EVENTS | method::MUX_ATTACH)
@@ -71,6 +83,8 @@ fn crossing(m: &str) -> &'static [&'static str] {
         _ if pages(m) => EVENT_PARAMS,
         method::MUX_HISTORY => &["limit"],
         method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
+        method::MUX_RENAME => &["newName", "to", "newHandle"],
+        method::MUX_RETRY => &["subagentId"],
         _ => &[],
     }
 }
@@ -104,14 +118,15 @@ const PART_BYTES: usize = 45 * 1024;
 const NO_SESSION: &str = "mesh.read_no_session";
 
 /// The receiving side: run one authorized read and answer it in the ack.
-pub(super) async fn answer(hub: &Arc<Hub>, message: &InMessage) -> Ack {
-    match run(hub, message).await {
+/// `writes`: the sender may also run a [`WRITE_METHODS`] change here.
+pub(super) async fn answer(hub: &Arc<Hub>, message: &InMessage, writes: bool) -> Ack {
+    match run(hub, message, writes).await {
         Ok(result) => Ack::answered(&message.message_id, result),
         Err(why) => Ack::refused(why),
     }
 }
 
-async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
+async fn run(hub: &Arc<Hub>, message: &InMessage, writes: bool) -> Result<String, String> {
     if message.body.len() > MAX_READ_RESULT_BYTES {
         return Err("read body exceeds 64 KiB".into());
     }
@@ -121,7 +136,10 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         return Err("unsupported read body version".into());
     }
     let m = body.get("method").and_then(Value::as_str).unwrap_or_default();
-    if !READ_METHODS.contains(&m) && m != READ_PART {
+    if WRITE_METHODS.contains(&m) && !writes {
+        return Err("mesh.control_not_allowed".into());
+    }
+    if !READ_METHODS.contains(&m) && !WRITE_METHODS.contains(&m) && m != READ_PART {
         return Err(format!("mesh.read_unsupported: {m:?} is not a read"));
     }
     // Only a session of this daemon, by its exact id or whole name, as a resume or stop does.
@@ -239,18 +257,22 @@ pub(crate) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    let carried = READ_METHODS.contains(&m) || m == method::MUX_DETACH;
+    let carried =
+        READ_METHODS.contains(&m) || WRITE_METHODS.contains(&m) || m == method::MUX_DETACH;
     if !(carried || NOT_CARRIED.contains(&m)) || !may_reach_hub(conn) {
         return None;
     }
     let key = session_key(params).ok()?;
     // `HOST/KEY`, or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`),
     // which is how the app opens a listed chat.
-    let named = match key.split_once('/') {
-        Some((host, rest)) => (host.to_owned(), rest),
-        None => (hub.mesh_book_host(key)?, key),
+    // A chat named by its handle (`HOST/Mango`, `Mango`) is read by its id: the hub and the
+    // far daemon know it by id and name only (`Hub::mesh_book_handle`).
+    let named = match (hub.mesh_book_handle(key), key.split_once('/')) {
+        (Some(found), _) => found,
+        (None, Some((host, rest))) => (host.to_owned(), rest.to_owned()),
+        (None, None) => (hub.mesh_book_host(key)?, key.to_owned()),
     };
-    let (host, rest) = (named.0.as_str(), named.1);
+    let (host, rest) = (named.0.as_str(), named.1.as_str());
     if host.is_empty() || rest.is_empty() || !hub.mesh_may_route(key) {
         return None;
     }
@@ -268,7 +290,11 @@ pub(crate) async fn forward(
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    let reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let reply = if READ_METHODS.contains(&m) {
+        read_shared(hub, mesh, host, rest, m, params).await
+    } else {
+        read(mesh.as_ref(), host, rest, m, params).await
+    };
     let mut reply = settle(conn, device.as_deref(), reply);
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
@@ -279,6 +305,57 @@ pub(crate) async fn forward(
         session["via"] = json!("hub");
     }
     Some(reply)
+}
+
+/// `HOST/REST` for `key` when only the hub reaches it for `conn`: named so with a host the hub
+/// lists (a typo of a host is no session), or the bare id of a chat the hub lists for one machine (`hub/mesh_book.rs`), and nothing here or on an ssh peer
+/// resolves it.
+fn hub_only<'a>(hub: &Hub, conn: &Conn, key: &'a str) -> Option<(String, &'a str)> {
+    if !may_reach_hub(conn) {
+        return None;
+    }
+    let (host, rest) = match key.split_once('/') {
+        Some((host, rest)) if hub.mesh_book_has_host(host) => (host.to_owned(), rest),
+        Some(_) => return None,
+        None => (hub.mesh_book_host(key)?, key),
+    };
+    (!host.is_empty() && !rest.is_empty() && hub.mesh_may_route(key)).then_some((host, rest))
+}
+
+/// A session request this daemon answered `no session` for, whose `HOST/KEY` only the hub
+/// reaches and the hub does not carry: said so, with what does reach it, never `no session`
+/// (the session is there; this route to it is not). Every session verb the hub does not carry
+/// gets this, not only the ones [`NOT_CARRIED`] names: 2026-11-23, `acpmux rename HOST/ID`
+/// answered no_session while `acpmux info HOST/ID` worked, as `acpmux history` had on 2026-11-19.
+/// Only a not-found answer changes, so a request this daemon answers for such a key (the app's
+/// view or draft of a hub chat) answers as it did.
+pub(crate) fn explain_no_session(
+    hub: &Hub,
+    conn: &Conn,
+    m: &str,
+    key: Option<&str>,
+    reply: &mut Result<Value, RpcError>,
+) {
+    let Err(e) = reply else { return };
+    if e.code != RpcError::not_found("").code
+        || !super::super::peer_forward::names_a_session(m)
+        || READ_METHODS.contains(&m)
+        || WRITE_METHODS.contains(&m)
+    {
+        return;
+    }
+    let Some((host, rest)) = key.and_then(|key| hub_only(hub, conn, key)) else { return };
+    let instead = match m {
+        method::MUX_KILL => format!("; `acpmux session stop {host}/{rest} --mesh` stops it there"),
+        method::MUX_WAKE | method::SESSION_RESUME => {
+            format!("; `acpmux session resume {host}/{rest} --mesh` resumes it there")
+        }
+        _ => String::new(),
+    };
+    *reply = Err(RpcError::invalid_params(format!(
+        "{host}/{rest} is reached only through the mesh hub, which does not carry {m}{instead}"
+    ))
+    .with_data(json!({"reason": "mesh.read_unsupported", "method": m, "peer": host})));
 }
 
 /// A prompt from the app's pane to a chat the hub lists for this person's other machine
@@ -308,6 +385,10 @@ pub(crate) async fn prompt(
 /// person's other machines (`hub/mesh_book.rs`), that nothing here or on an ssh peer resolves.
 /// None for anything else, which the usual prompt path takes.
 pub(crate) fn hub_prompt_target(hub: &Hub, key: &str) -> Option<String> {
+    // A chat named by its handle goes by its id (`Hub::mesh_book_handle`).
+    if let Some((host, id)) = hub.mesh_book_handle(key) {
+        return hub.mesh_may_route(key).then(|| format!("{host}/{id}"));
+    }
     let target = match key.split_once('/') {
         Some((host, rest)) if !rest.is_empty() && hub.mesh_book_has_host(host) => key.to_owned(),
         Some(_) => return None,
@@ -437,7 +518,16 @@ pub(crate) async fn read(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let text = ask(mesh, host, key, body(m, params)).await?;
+    read_body(mesh, host, key, body(m, params)).await
+}
+
+async fn read_body(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    key: &str,
+    body: String,
+) -> Result<Value, RpcError> {
+    let text = ask(mesh, host, key, body).await?;
     let mut reply: Value = serde_json::from_str(&text)
         .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
     if let Some(held) = reply.get(PARTS).cloned() {
@@ -448,6 +538,38 @@ pub(crate) async fn read(
         object.insert("via".into(), json!("hub"));
     }
     Ok(reply)
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub(crate) struct ReadKey {
+    client: usize,
+    host: String,
+    session: String,
+    body: String,
+}
+
+/// Read through the hub once for callers that arrive while the same route and request are active.
+/// The mesh client's identity is part of the key so a browser device never joins the daemon's
+/// credentialed read or another device's read.
+async fn read_shared(
+    hub: &Hub,
+    mesh: Arc<dyn crate::mesh::MeshHub>,
+    host: &str,
+    key: &str,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let request = ReadKey {
+        client: Arc::as_ptr(&mesh).cast::<()>() as usize,
+        host: host.to_owned(),
+        session: key.to_owned(),
+        body: body(m, params),
+    };
+    hub.mesh_read_flights
+        .run(request.clone(), || async move {
+            read_body(mesh.as_ref(), &request.host, &request.session, request.body).await
+        })
+        .await
 }
 
 /// An answer the receiver holds in parts, read part by part and put together. A page's answer
@@ -539,7 +661,7 @@ async fn ask_once(
     };
     let message = OutMessage {
         to: recipient(host, key),
-        from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
+        from: Sender { host: Some(crate::pairing::mesh_host()), ..Sender::default() },
         kind: Kind::Control,
         op: Some("read".into()),
         body,

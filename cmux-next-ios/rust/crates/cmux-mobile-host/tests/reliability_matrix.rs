@@ -276,7 +276,7 @@ async fn daemon_client(stream: tokio::net::UnixStream, state: Arc<DaemonState>) 
         let mut answer = json!({"id": request["id"], "ok": true, "data": request});
         match request["cmd"].as_str() {
             Some("list-workspaces") => {
-                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed))
+                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed));
             }
             Some("list-personal") => answer["data"] = json!({"groups": [], "workspaces": []}),
             Some("send") => {
@@ -362,6 +362,8 @@ impl Rig {
                         session_id: "matrix-session".into(),
                         video: None,
                         session_exposure: None,
+                        route: None,
+                        path: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,
@@ -732,7 +734,12 @@ async fn cell_host_daemon_restart() {
 
 /// The Mac sleeps under a live link (the stream goes silent and stays
 /// silent). The phone's link must notice and say so: closed within the
-/// keepalive bound, so the app redials instead of showing a frozen session.
+/// keepalive bound (one 15 s ping interval plus `KEEPALIVE_TIMEOUT`, 45 s
+/// since it outlasts a 30 s blackout: about 62 s, was 37 s), and not before
+/// the timeout, so a blackout the network comes back from keeps its link.
+/// It must turn suspect long before: within one ping interval plus
+/// `SUSPECT_AFTER` (about 20 s with no app probes; the app's own
+/// foreground probes make it about 5 s).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_mac_asleep_link_notices() {
@@ -741,12 +748,23 @@ async fn cell_host_mac_asleep_link_notices() {
     rig.toxic.go_offline();
     let began = Instant::now();
     let mut closed = rig.phone.closed_state();
+    let mut suspect = rig.phone.suspect_state();
     let config = LinkConfig::default();
-    let bound = config.keepalive.unwrap_or_default() + config.keepalive_timeout + Duration::from_secs(2);
-    let noticed = tokio::time::timeout(bound, closed.wait_for(Option::is_some)).await.is_ok();
+    let interval = config.keepalive.unwrap_or_default();
+    let suspect_bound = interval + config.suspect_after.unwrap_or_default() + Duration::from_secs(2);
+    let suspected = tokio::time::timeout(suspect_bound, suspect.wait_for(|suspect| *suspect)).await.is_ok();
+    let suspect_after = began.elapsed();
+    assert!(suspected, "a silent link was not suspect after {suspect_after:?}");
+    let bound = interval + config.keepalive_timeout + Duration::from_secs(2);
+    let noticed = tokio::time::timeout_at(began + bound, closed.wait_for(Option::is_some)).await.is_ok();
     let elapsed = began.elapsed();
+    assert!(elapsed >= config.keepalive_timeout || !noticed, "closed after {elapsed:?}, inside the timeout");
     let reason = closed.borrow().clone();
-    report("host_mac_asleep_link_notices", "small", json!({"noticed_ms": ms(elapsed), "reason": reason}));
+    report(
+        "host_mac_asleep_link_notices",
+        "small",
+        json!({"suspect_ms": ms(suspect_after), "noticed_ms": ms(elapsed), "reason": reason}),
+    );
     assert!(noticed, "a silent link stayed open for {elapsed:?}");
     rig.finish().await;
 }

@@ -111,7 +111,7 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
         # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
-        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        # (CmuxMobileSSH runs on Linux: scripts/ci/swift-linux-packages.txt.)
         plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
         self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
@@ -367,7 +367,7 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
         # #49046: a pull request into another base is not a cmux-next PR; one into feat-cmux-next needs full-ci.
-        self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next'"
+        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
                       " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:

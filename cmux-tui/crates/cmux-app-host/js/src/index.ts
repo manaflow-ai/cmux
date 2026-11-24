@@ -8,7 +8,7 @@ import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSi
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
 import { batch, computed, effect, flush, onCleanup, signal, untrack, type Write } from "./reactive.ts"
 import * as views from "./view.ts"
-import { watch } from "./watch.ts"
+import { watch, deliverWatch } from "./watch.ts";
 
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
@@ -31,13 +31,16 @@ function entry<T>(name: string, fn: () => T, fallback: T): T {
   }
 }
 
-function runHandler(label: string, fn: (() => unknown) | undefined) {
-  if (!fn) return
+/** Runs an event handler; returns what it returned (a promise for an async one), undefined when it threw. */
+function runHandler(label: string, fn: (() => unknown) | undefined): unknown {
+  if (!fn) return undefined
   try {
     const r = fn()
     if (r && typeof (r as Promise<unknown>).then === "function") (r as Promise<unknown>).catch((e) => log("error", `${label}: ${describe(e)}`))
+    return r
   } catch (e) {
     log("error", `${label}: ${describe(e)}`)
+    return undefined
   }
 }
 
@@ -93,12 +96,15 @@ function install() {
           ctx.now = now
         }
         state.context = ctx
+        state.mount = mountId
         mount(mountId, () => render(ctx), ctx)
         state.context = null
+        state.mount = null
       })
       return ""
     } catch (e) {
       state.context = null
+      state.mount = null
       widgetClocks.delete(mountId)
       unmount(mountId)
       const message = describe(e)
@@ -120,7 +126,9 @@ function install() {
       if (Number.isFinite(nowMs)) widgetClocks.get(mountId)?.(nowMs)
     }, undefined)
 
-  g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) =>
+  g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) => {
+    // A TextField's submit or cancel settles after its handler's writes have flushed (`settle`).
+    let settle: (() => void) | undefined
     entry("dispatch", () => {
       if (!mountExists(mountId)) return
       const record = nodeRecord(nodeId)
@@ -129,15 +137,34 @@ function install() {
       // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
       state.context = record.mount.context
+      state.mount = mountId
       try {
-        dispatchEvent(record, event, payload)
+        settle = dispatchEvent(record, event, payload)
       } finally {
         state.gesture = null
         state.context = null
+        state.mount = null
       }
     }, undefined)
+    settle?.()
+  }
 
-  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>) {
+  /** After a TextField's submit or cancel: the app's `text` goes back to the field when it differs from
+   * what the field shows (materialize.ts `settle`), once the handler is done: now for a synchronous one,
+   * when its promise settles for an async one, so a field whose app saves first keeps the typed text
+   * meanwhile. */
+  function textSettle(record: NonNullable<ReturnType<typeof nodeRecord>>, result: unknown): (() => void) | undefined {
+    const settle = record.settle
+    if (!settle) return undefined
+    const run = () => entry("settle", settle, undefined)
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      ;(result as Promise<unknown>).then(run, run)
+      return undefined
+    }
+    return run
+  }
+
+  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>): (() => void) | undefined {
       switch (event) {
         case "menu":
           runHandler("menu", menuHandler(record, Array.isArray(payload.path) ? payload.path : []) as (() => unknown) | undefined)
@@ -167,13 +194,22 @@ function install() {
         }
         case "submit":
         case "edit": {
+          // The field's text before its handler runs: the app's value goes back to the field only when
+          // it differs (materialize.ts `shown`), so an edit is never echoed.
+          if (typeof payload.text === "string") record.shown?.(payload.text)
           const h = record.handlers[event] as ((t: string) => unknown) | undefined
-          runHandler(event, h && (() => h(String(payload.text ?? ""))))
-          break
+          const result = runHandler(event, h && (() => h(String(payload.text ?? ""))))
+          return event === "submit" && typeof payload.text === "string" ? textSettle(record, result) : undefined
         }
-        default:
-          runHandler(event, record.handlers[event] as (() => unknown) | undefined)
+        default: {
+          // A TextField's cancel carries the text it shows, as submit does.
+          const text = event === "cancel" && typeof payload.text === "string" ? payload.text : undefined
+          if (text !== undefined) record.shown?.(text)
+          const result = runHandler(event, record.handlers[event] as (() => unknown) | undefined)
+          return text !== undefined ? textSettle(record, result) : undefined
+        }
       }
+      return undefined
   }
 
   // ctxJSON (optional): `{gesture?}`. A gesture is the host-minted user-gesture token of this invocation
@@ -210,6 +246,7 @@ function install() {
 
   g.__cmuxAppResolve = (cbId: number, ok: boolean, json: string) => entry("resolve", () => resolveCall(cbId, ok, json), undefined)
   g.__cmuxAppEvent = (subId: number, json: string) => entry("event", () => deliverEvent(subId, json), undefined)
+  g.__cmuxAppWatch = (watchId: number, json: string) => entry("watch", () => deliverWatch(watchId, json), undefined)
   g.__cmuxAppTimer = (timerId: number) => entry("timer", () => fireTimer(timerId), undefined)
   /** Hosts call this after draining the microtask queue when they want pending effects flushed now. */
   g.__cmuxAppFlush = () => entry("flush", flush, undefined)

@@ -94,7 +94,8 @@ import Testing
                 #expect(abs(lastMidX - column) < 0.5, "\(name): the last mark centers at \(lastMidX), the trailing column at \(column)")
                 #expect(abs(trailing - columnTrailing) < 0.5, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in, column \(columnTrailing)")
             } else {
-                #expect(trailing == slotEnd, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
+                // Within float noise: the row computes the title's end by another sum than this one (4.13333…26 vs …33).
+                #expect(abs(trailing - slotEnd) < 0.001, "\(name): title ends \(trailing) pt in, the column's slot \(slotEnd) pt in")
             }
             #expect(row.title.frame.minX == content, "\(name): the title at the content inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
