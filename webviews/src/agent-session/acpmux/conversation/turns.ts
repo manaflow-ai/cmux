@@ -1086,9 +1086,10 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
-    if (step.superseded) return NO_ASKS;
-    // A recap with nothing to decide asks nothing: the newest question is before it.
+    // A recap with nothing to decide asks nothing: the newest question is before it. Read before
+    // `superseded`, which settleNextSteps sets on every recap a later card follows.
     if (!step.ask.question) continue;
+    if (step.superseded) return NO_ASKS;
     // Answered, or the person said something after it: nothing pins, its card stays answerable.
     if (step.answer !== undefined || spoke) return NO_ASKS;
     // The newest card counts only once a turn came after it: before that it is the chat's last row.

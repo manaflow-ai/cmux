@@ -153,3 +153,24 @@ test("six reworded askings of one merge decision pin as one card, the newest", (
   expect(stack.map((row) => row.nextStep!.ask.question)).toEqual([newest]);
   expect(drawn(later, dismissAsk("chat", askKey(stack[0]!)))).toEqual([]);
 });
+
+test("recap-only wrap-ups after a question never unpin it", () => {
+  clock = 0;
+  const rows = askedAgain(1);
+  const question = turnView(rows, new Set()).find((row) => row.nextStep?.ask.question)!;
+  const recap = (id: string, superseded?: boolean) =>
+    ({ ...line(id, "nextStep"), nextStep: { ask: { recap: "Waiting on CI.", options: [] }, ...(superseded && { superseded }) } }) as AcpmuxRow;
+  // Two background turns each end on a recap with nothing to decide; settleNextSteps marks the older
+  // recap superseded, which must not read as the question being taken over.
+  const view = {
+    rows: [question, peer("m2", "Background task finished."), recap("r1", true), peer("m3", "Background task finished."), recap("r2")],
+    nextSteps: [
+      { at: 0, row: question },
+      { at: 2, row: question },
+      { at: 4, row: question },
+    ],
+  };
+  view.nextSteps[1]!.row = view.rows[2]!;
+  view.nextSteps[2]!.row = view.rows[4]!;
+  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([QUESTION]);
+});
