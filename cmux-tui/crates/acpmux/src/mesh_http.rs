@@ -489,10 +489,10 @@ impl MeshHub for HttpHub {
         ttl_seconds: Option<u64>,
     ) -> BoxFuture<'a, Result<Listen, HubError>> {
         Box::pin(async move {
-            let mut body = json!({"teamAddress": team_address});
-            if let Some(ttl) = ttl_seconds {
-                body["ttlSeconds"] = json!(ttl);
-            }
+            let body = match ttl_seconds {
+                Some(ttl) => json!({"teamAddress": team_address, "ttlSeconds": ttl}),
+                None => json!({"teamAddress": team_address}),
+            };
             decode(
                 self.call(reqwest::Method::POST, "/v1/mesh/listens", Some(&body), CALL_WAIT)
                     .await?,

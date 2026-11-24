@@ -566,12 +566,14 @@ async fn team_listen(daemon: &Arc<Client>, args: &Value) -> Value {
     let Some(op) = arg(args, "op") else {
         return error_result("op is required: open, ls, close or read".to_owned());
     };
-    let mut params = json!({"op": op});
+    let mut params = serde_json::Map::new();
+    params.insert("op".to_owned(), json!(op));
     for key in ["to", "ttlSeconds", "id", "before"] {
         if let Some(value) = args.get(key).filter(|value| !value.is_null()) {
-            params[key] = value.clone();
+            params.insert(key.to_owned(), value.clone());
         }
     }
+    let params = Value::Object(params);
     match daemon.request(method::MUX_TEAM_LISTEN, params).await {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
