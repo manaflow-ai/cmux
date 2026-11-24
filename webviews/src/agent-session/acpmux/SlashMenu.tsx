@@ -116,9 +116,11 @@ export function SlashMenu({
         ? t("composer.slashSkill")
         : command.source === "prompt"
           ? t("composer.slashPrompt")
-          : command.source === "extension"
-            ? (command.extension ?? "cmux")
-            : "cmux";
+          : command.source === "saved"
+            ? t("composer.slashSaved")
+            : command.source === "extension"
+              ? (command.extension ?? "cmux")
+              : "cmux";
   // A tag every row shares tells no row apart: the tags show only for a list of more than one source.
   const tagged = new Set(matches.map(sourceTag)).size > 1;
 
