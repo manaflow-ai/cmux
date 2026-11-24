@@ -31,6 +31,7 @@ let package = Package(
         .library(name: "CmuxMobileScreenSharing", targets: ["CmuxMobileScreenSharing"]),
     ],
     dependencies: [
+        .package(path: "../../Packages/Shared/CmuxEgress"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
         // A message's preview words (MessagePreview), shared with the Mac's Home.
@@ -279,3 +280,8 @@ let package = Package(
     ],
     swiftLanguageModes: [.v6]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxMobileAuth", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileModel"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXAuthCore"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -45,3 +46,8 @@ let package = Package(
         ),
     ]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxAuthRuntime"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

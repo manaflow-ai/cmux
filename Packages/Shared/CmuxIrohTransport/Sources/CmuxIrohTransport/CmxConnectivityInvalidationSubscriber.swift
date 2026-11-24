@@ -1,3 +1,4 @@
+import CmuxEgress
 import CMUXMobileCore
 public import Foundation
 
@@ -173,7 +174,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let task = session.webSocketTask(with: request)
+        let task = CmuxEgress.websocket(session, with: request, site: "CmuxIrohTransport.CmxConnectivityInvalidationSubscriber")
         task.maximumMessageSize = CmxConnectivityInvalidation.maximumFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }

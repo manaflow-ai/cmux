@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "CmuxHomeCore", targets: ["CmuxHomeCore"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
         // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
@@ -47,3 +48,8 @@ let package = Package(
         ),
     ]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxHomeCore"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

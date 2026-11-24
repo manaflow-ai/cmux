@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextDaemon
 import Foundation
 import CoreGraphics
@@ -92,10 +93,11 @@ nonisolated enum IconAssetKind: String {
     /// scaling never block it.
     @concurrent func download(_ url: URL) async throws -> (mediaType: String, data: Data) {
         guard url.scheme?.lowercased() == "https" else { throw IconAssetDownloadError.notHTTPS }
+        CmuxEgress.allowNamed(url)   // an icon the person's own project or page names
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
-        let session = URLSession(configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
+        let session = CmuxEgress.session(site: "CmuxNextApp.IconAssetStore", configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
         // Cancels a body still arriving when the read stops early (too large, cancelled).
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(from: url)

@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXMobileCore"),
         // Grant claims/verifier and terminal-envelope codecs are consumed as
         // stable data contracts; none of the legacy runtime machinery is used.
@@ -60,3 +61,8 @@ let package = Package(
         ),
     ]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxIrxTransport"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}
