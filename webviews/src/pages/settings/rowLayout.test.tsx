@@ -43,6 +43,14 @@ describe("the model", () => {
     expect(writeLayout(layout([]))).toEqual([["name"]]);
   });
 
+  test("a slot-only line is not drawn, as the reducer reads it: the next line holds the name", () => {
+    const read = layout([["icon"], ["name", "branch"]]);
+    expect(read.lines).toEqual([["branch"]]);
+    expect(writeLayout(toggleSlot(read, "progress"))).toEqual([["icon", "name", "branch", "progress"]]);
+    // The name on a later line is dropped, as the reducer drops it (nameMoved).
+    expect(layout([["branch"], ["name"]]).lines).toEqual([["branch"]]);
+  });
+
   test("at most three lines of six text tokens, as the reducer draws", () => {
     const read = layout([
       ["name", "directory", "branch", "process", "agentStatus", "tabCount", "ports", "log"],
@@ -341,6 +349,20 @@ describe("the editor", () => {
     await settle();
     expect(ops(page!.provider, "cmux.settings.reset")).toEqual([]);
     expect(sets(BY_AGENT_KEY).at(-1)!.value).toEqual({ codex: [["name", "ports"]] });
+  });
+
+  test("Add Agent never replaces an agent another writer saved meanwhile", async () => {
+    await open({ mock: { values: { [BY_AGENT_KEY]: { claude: [["name", "branch"]] } } } });
+    await tab("By Agent");
+    (page!.provider as unknown as { values: Map<string, unknown> }).values.set(BY_AGENT_KEY, {
+      claude: [["name", "branch"]],
+      codex: [["name", "ports"], ["branch"]],
+    });
+    await changeValue(editor().querySelector<HTMLInputElement>(".row-layout-agent-field")!, "codex");
+    await click(editor().querySelector('[data-row-layout-action="add-agent"]')!);
+    await settle();
+    expect(sets(BY_AGENT_KEY)).toEqual([]);
+    expect(editor().querySelector('[data-row-layout-entry="codex"]')).not.toBeNull();
   });
 
   test("Reset to Default inside the editor resets the tab shown, never All Rows from By Agent", async () => {

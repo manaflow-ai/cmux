@@ -140,11 +140,18 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
   // kept, and removing the last entry this page showed never resets a map that has gained one.
   // Edits run one after another, each on the map the one before it wrote.
   const entries = useRef<Promise<void>>(Promise.resolve());
-  const writeEntry = (key: LayoutKey, id: string, layout: Layout | null) => {
+  const writeEntry = (key: LayoutKey, id: string, update: EntryUpdate) => {
     entries.current = entries.current
       .then(async () => {
+        const started = Date.now();
         await store.refresh();
-        const next = writeMap(valueOf(store.getSnapshot(), key), id, layout);
+        // A failed or cancelled read leaves the cache as it was: write nothing from it.
+        const read = store.queryClient.getQueryState(store.scopeQuery().queryKey);
+        if (!read || read.status !== "success" || read.dataUpdatedAt < started) return;
+        const stored = valueOf(store.getSnapshot(), key);
+        const layout = update(new Map(readMap(stored)));
+        if (layout === undefined) return;
+        const next = writeMap(stored, id, layout);
         // The last entry gone removes the setting, so nothing is left behind.
         await write(key, Object.keys(next).length === 0 ? null : next);
       })
@@ -190,7 +197,7 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
               inherited={readLayout(states[LINES_KEY].value) !== null}
               {...panel(BY_KIND_KEY)}
               onWrite={(value) => void write(BY_KIND_KEY, value)}
-              onEntry={(id, layout) => writeEntry(BY_KIND_KEY, id, layout)}
+              onEntry={(id, update) => writeEntry(BY_KIND_KEY, id, update)}
               start={startLayout}
             />
           </TabsContent>
@@ -199,7 +206,7 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
               value={states[BY_AGENT_KEY].value}
               {...panel(BY_AGENT_KEY)}
               onWrite={(value) => void write(BY_AGENT_KEY, value)}
-              onEntry={(id, layout) => writeEntry(BY_AGENT_KEY, id, layout)}
+              onEntry={(id, update) => writeEntry(BY_AGENT_KEY, id, update)}
               start={startLayout}
             />
           </TabsContent>
@@ -220,9 +227,12 @@ type PanelProps = {
   start(): Layout;
 };
 
+/** One entry's new layout from the owner's current map: null removes it, undefined writes nothing. */
+type EntryUpdate = (current: ReadonlyMap<string, Layout>) => Layout | null | undefined;
+
 type MapPanelProps = PanelProps & {
-  /** Sets one entry (null removes it), applied to the owner's current map: other entries stay. */
-  onEntry(id: string, layout: Layout | null): void;
+  /** Sets one entry, applied to the owner's current map (read again first): other entries stay. */
+  onEntry(id: string, update: EntryUpdate): void;
 };
 
 /** All Rows (`lines`): one layout, or none (the element switches draw the row). */
@@ -282,7 +292,9 @@ function KindsPanel({
 }: MapPanelProps & { inherited: boolean }) {
   const entries = useMemo(() => readMap(value), [value]);
   const of = new Map(entries);
-  const set = (kind: Kind, layout: Layout | null) => onEntry(kind, layout);
+  const set = (kind: Kind, layout: Layout | null) => onEntry(kind, () => layout);
+  // Customize only a kind with no layout on the owner yet: never replace one saved meanwhile.
+  const customize = (kind: Kind) => onEntry(kind, (current) => (current.has(kind) ? undefined : start()));
   return (
     <>
       {KINDS.map((kind) => {
@@ -313,7 +325,7 @@ function KindsPanel({
                   data-row-layout-action="customize-entry"
                   aria-label={`${t("settingsPage.rowLayout.customize")} ${kindTitle(kind)}`}
                   disabled={disabled}
-                  onClick={() => set(kind, start())}
+                  onClick={() => customize(kind)}
                 >
                   {t("settingsPage.rowLayout.customize")}
                 </Button>
@@ -356,13 +368,15 @@ function AgentsPanel({ value, disabled, refusal, error, onWrite, onEntry, start 
   const entries = useMemo(() => readMap(value), [value]);
   const [draft, setDraft] = useState("");
   const fieldId = useId();
-  const set = (id: string, layout: Layout | null) => onEntry(id, layout);
+  const set = (id: string, layout: Layout | null) => onEntry(id, () => layout);
   const id = agentId(draft);
   const taken = id !== null && entries.some(([key]) => key === id);
   const full = entries.length >= MAX_AGENTS;
   const add = () => {
     if (id === null || taken || full) return;
-    set(id, start());
+    // Checked again on the owner's current map: an agent another writer added meanwhile keeps its
+    // layout, and the map never grows past MAX_AGENTS.
+    onEntry(id, (current) => (current.has(id) || current.size >= MAX_AGENTS ? undefined : start()));
     setDraft("");
   };
   return (

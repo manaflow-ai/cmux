@@ -86,14 +86,18 @@ export function readLayout(value: unknown): Layout | null {
   for (const line of value.slice(0, MAX_LINES)) {
     if (!Array.isArray(line)) continue;
     const out: TextToken[] = [];
+    let named = false;
     for (const token of line) {
       if (!isToken(token) || seen.has(token)) continue;
       seen.add(token);
       if (isSlot(token)) slots.add(token);
-      else if (token !== "name" && out.length < MAX_TOKENS) out.push(token);
+      // The name counts only on the first line drawn; elsewhere the reducer drops it.
+      else if (token === "name") named = lines.length === 0;
+      else if (out.length < MAX_TOKENS) out.push(token);
     }
-    // A line that held only the name or slots still keeps line one's place (the name leads it).
-    if (out.length > 0 || lines.length === 0) lines.push(out);
+    // As the reducer: a line is drawn when something on it is (the name, or text). A slot-only
+    // line is not, so `[["icon"], ["name", "branch"]]` draws Name and Git Branch on line one.
+    if (out.length > 0 || named) lines.push(out);
   }
   if (lines.length === 0) lines.push([]);
   return { slots, lines };
