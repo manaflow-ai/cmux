@@ -11,10 +11,15 @@
 #   cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/rivals.sh --ref SHA \
 #     --artifact artifacts/rivals/results.json [--arg=apps=cmux,claude,...] [--arg=rounds=1] [--arg=warm=3]
 #     [--arg=after=20] [--arg=soak=300] [--arg=sample=10] [--arg=maxload=4] [--arg=quarantined=1]
+#     [--arg=settlecut=90] [--arg=troughevery=S] [--arg=tabs=N] [--arg=signedin=NAME=DIR ...]
+# RFD 0062 (hq docs/rfd/0062-ram-cpu-ceiling-and-growth.md): soak=28800 is the 8 h long-growth soak (troughs read
+# every soak/12 s, forced by a memory-pressure notice when sudo allows); tabs=N adds a background-tabs soak for the
+# browsers; signedin=NAME=DIR a soak from a signed-in profile folder on the bench Mac.
 # Output: RIVALS.md in the log, artifacts/rivals/{results.json,RIVALS.md,samples.jsonl}.
 set -euo pipefail
 apps="cmux,rex,zed,claude,codex,t3code,slack,chrome,edge,helium,safari" rounds=1 warm=3 after=20 soak=300 sample=10 maxload=4
-quarantined=0
+settlecut=90 tabs=0 quarantined=0
+extra=()
 for arg in "$@"; do
   case "$arg" in
     apps=*) apps="${arg#apps=}" ;;
@@ -25,6 +30,10 @@ for arg in "$@"; do
     sample=*) sample="${arg#sample=}" ;;
     maxload=*) maxload="${arg#maxload=}" ;;
     quarantined=*) quarantined="${arg#quarantined=}" ;;
+    settlecut=*) settlecut="${arg#settlecut=}" ;;
+    troughevery=*) extra+=(--trough-every "${arg#troughevery=}") ;;
+    tabs=*) tabs="${arg#tabs=}" ;;
+    signedin=*) extra+=(--signed-in "${arg#signedin=}") ;;
     *) echo "rivals.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -52,12 +61,11 @@ while IFS= read -r line; do
     *=*) bundles+=(--app "$line") ;;
   esac
 done < <(python3 scripts/perf-bench/fetch_browsers.py ${want[@]+"${want[@]}"})
-extra=()
 [ "$quarantined" = 1 ] && extra+=(--quarantined)
 status=0
 python3 scripts/perf-bench/rivals.py run --out "$work/run" --work "$work/profiles" ${bundles[@]+"${bundles[@]}"} \
   --apps "$apps" --rounds "$rounds" --warm "$warm" --after "$after" --soak "$soak" --sample "$sample" \
-  --max-load "$maxload" --cmux-ref "$sha" ${extra[@]+"${extra[@]}"} || status=$?
+  --max-load "$maxload" --settle-cut "$settlecut" --tabs "$tabs" ${extra[@]+"${extra[@]}"} --cmux-ref "$sha" || status=$?
 [ -f "$work/run/meta.json" ] || exit "${status:-1}"
 cp "$work/run/samples.jsonl" "$out/" 2>/dev/null || true
 python3 scripts/perf-bench/rivals.py report --out "$work/run" --md "$out/RIVALS.md" --json "$out/results.json" || status=$?
