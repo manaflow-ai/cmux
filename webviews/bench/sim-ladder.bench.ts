@@ -28,7 +28,7 @@
 // low), per axis and metric, with a per-item noise floor (FLOOR) under both: flat is 1.0, a per-item cost that grows
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
-//   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 1,10,100] [--sessions 3000] [--rows 120]
+//   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
 //     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
@@ -52,7 +52,9 @@ const flag = (name: string) => {
   return at >= 0 ? argv[at + 1] : undefined;
 };
 const AXES = (flag("--axes") ?? "chats,tabs").split(",") as ("chats" | "tabs")[];
-const RUNGS = (flag("--rungs") ?? "1,10,100")
+// 10/50/100: both spans (40 then 50 items) are wide enough for a shared runner to resolve a per-item CPU cost; with 1/10/100
+// the low span (9 items) read under the noise, the floor became the denominator and a real 0.6 ms/s per tab read 1.2-1.3.
+const RUNGS = (flag("--rungs") ?? "10,50,100")
   .split(",")
   .map(Number)
   .sort((a, b) => a - b);
