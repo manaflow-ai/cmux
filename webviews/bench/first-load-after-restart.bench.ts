@@ -829,7 +829,23 @@ try {
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    // At PANE_SOURCE_REF too: the boot script is a pane source like the bundle's.
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+      plugins: [
+        {
+          name: "immutable-pane-baseline",
+          setup: (builder) => {
+            builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
+              const contents = priorSources.get(args.path);
+              return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
+            });
+          },
+        },
+      ],
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -843,6 +859,17 @@ try {
       "Object.assign(globalThis, { captureMiss, captureSnapshot });\n",
   );
   const captureScript = await bundle(captureEntry);
+  // The app's host is there before any page script runs (its WebKit handlers, or the page host's): the
+  // dev host stands in for it from the document's start here, not from the bundle's dev entry (dev.tsx,
+  // which installs it only when the bundle ran and leaves one already there), so a page script that
+  // asks the host first (boot.ts) is answered as in the app.
+  const hostEntry = path.join(work, "host-entry.ts");
+  fs.writeFileSync(
+    hostEntry,
+    `import { devHostParams, installDevHost } from ${JSON.stringify(path.join(webviews, "src/dev-host/host.ts"))};\n` +
+      "const params = devHostParams(location.hash);\nif (params) installDevHost(params);\n",
+  );
+  const hostScript = await bundle(hostEntry);
 
   // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
   // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
@@ -1032,6 +1059,8 @@ try {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    // After installHost, whose setter wraps the handlers it installs.
+    await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 

@@ -144,8 +144,13 @@ impl Outbox {
     pub fn new(nonce: impl Into<String>, hold: Duration) -> Outbox {
         let mut nonce: String = nonce.into();
         // Room for "-" and a u64 within the daemon's limit.
-        nonce.truncate(MAX_KEY_LEN - 21);
-        Outbox { nonce, next_seq: 1, hold: hold.min(DAEMON_KEY_TTL / 2), entries: VecDeque::new() }
+        nonce.truncate(MAX_KEY_LEN.saturating_sub(21));
+        Outbox {
+            nonce,
+            next_seq: 1,
+            hold: hold.min(Duration::from_secs(DAEMON_KEY_TTL.as_secs() / 2)),
+            entries: VecDeque::new(),
+        }
     }
 
     pub fn hold(&self) -> Duration {
@@ -155,7 +160,7 @@ impl Outbox {
     /// A tap on Send: `text` and, with `submit`, its Return. Returns the Send's number.
     pub fn push(&mut self, text: impl Into<String>, submit: bool, now: Instant) -> u64 {
         let seq = self.next_seq;
-        self.next_seq += 1;
+        self.next_seq = self.next_seq.saturating_add(1);
         self.entries.push_back(Entry {
             seq,
             key: format!("{}-{seq}", self.nonce),
@@ -212,13 +217,14 @@ impl Outbox {
     /// write nothing). An answer that comes after that still settles the Send.
     pub fn answer(&mut self, seq: u64, answer: Answer) -> Option<Done> {
         let index = self.entries.iter().position(|e| e.seq == seq && e.tried)?;
+        let entry = self.entries.get(index)?;
         let outcome = match answer {
             Answer::Applied => Outcome::Sent,
             // Nothing written: the text goes back.
-            Answer::Refused => Outcome::NotSent { text: self.entries[index].text.clone() },
-            Answer::Uncertain => Outcome::MaybeSent { text: self.entries[index].text.clone() },
+            Answer::Refused => Outcome::NotSent { text: entry.text.clone() },
+            Answer::Uncertain => Outcome::MaybeSent { text: entry.text.clone() },
             Answer::Lost => {
-                if self.entries[index].in_flight {
+                if entry.in_flight {
                     self.link_lost();
                 }
                 return None;
@@ -294,7 +300,7 @@ impl Outbox {
 
     /// When the oldest Send runs out of hold (for a timer).
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.entries.front().map(|e| e.queued + self.hold)
+        self.entries.front().and_then(|e| e.queued.checked_add(self.hold))
     }
 }
 

@@ -310,6 +310,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
+        let tabs = self.tabs
+        Task { await tabs.read(on: link, macID: macID) }
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
