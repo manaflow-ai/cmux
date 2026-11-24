@@ -75,6 +75,7 @@ use client_socket::{
 };
 
 mod daemon_state;
+mod route_last_good;
 mod startup_progress;
 pub use daemon_state::load_runtime_info;
 use daemon_state::{
@@ -92,6 +93,7 @@ use daemon_state::{
     bounded_unix_socket_connect, fail_state_directory_sync_after, persist_shutdown_outcome,
     read_optional_file, read_runtime_info, remove_shutdown_recovery_evidence,
 };
+use route_last_good::LastGoodRoute;
 use startup_progress::StartupProgress;
 pub use startup_progress::startup_refusal;
 
@@ -768,7 +770,7 @@ fn start_client_runtime_with(
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!(
                     "remote connection did not become ready within {}s ({}): the host may be down or the route wrong; `cmux remote known-daemons` lists the routes paired here, and a longer `--connect-timeout-seconds N` waits more",
-                    startup_timeout.as_secs(),
+                    whole_seconds_up(startup_timeout),
                     match error {
                         mpsc::RecvTimeoutError::Timeout => "no answer",
                         mpsc::RecvTimeoutError::Disconnected => "the client stopped",
@@ -785,6 +787,14 @@ fn start_client_runtime_with(
         finished: finished_rx,
         thread: Some(thread),
     })
+}
+
+/// A budget in whole seconds, rounded up. The CLI hands the runtime what is left of
+/// `--connect-timeout-seconds N` after loading the identity and routes (N minus some
+/// milliseconds), and `Duration::as_secs` truncated that, so a 3 s timeout reported "within 2s".
+fn whole_seconds_up(budget: Duration) -> u64 {
+    let whole = budget.as_secs();
+    if budget.subsec_nanos() == 0 { whole } else { whole.saturating_add(1) }
 }
 
 struct ClientReady {
@@ -943,12 +953,18 @@ async fn dial_first_connection(
         _ => None,
     });
     let progress = &progress;
+    let last_good = LastGoodRoute::open(Some(&options.state_dir), options.expected_daemon);
+    let last_good = last_good.as_ref();
     let dial = cell.dial(options.reconnect, network, || {
         let mut attempt =
-            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone() };
+            RuntimeInitialRouteAttempt { options, shutdown: attempt_shutdown.clone(), last_good };
+        // Read each round: a remembered route that failed last round is forgotten by now.
+        let first = last_good
+            .and_then(|memory| memory.first(&options.routes, options.ssh_bootstrap.upgrade));
         async move {
-            match select_initial_route(
+            match select_initial_route_from(
                 &options.routes,
+                first,
                 options.session,
                 options.lane_policy,
                 client_auth_kind(&options.auth),
@@ -1052,6 +1068,21 @@ pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T, E>,
 ) -> Result<T, InitialRouteSelectionError<E>> {
+    select_initial_route_from(routes, None, session, lane_policy, auth, upgrade, attempt).await
+}
+
+/// [`select_initial_route`] dialing `routes[first]` before the others (the last-known-good
+/// route, [`LastGoodRoute`]), the rest in their own order. Each attempt still gets the route's
+/// index in `routes`. `first` is ignored when `upgrade` is set: SSH at 0 must go first.
+pub(crate) async fn select_initial_route_from<T: Send, E: RouteFailure>(
+    routes: &[ResolvedRouteCandidate],
+    first: Option<usize>,
+    session: SessionId,
+    lane_policy: LanePolicy,
+    auth: AuthKind,
+    upgrade: bool,
+    attempt: &mut impl InitialRouteAttempt<T, E>,
+) -> Result<T, InitialRouteSelectionError<E>> {
     if routes.is_empty() {
         return Err(InitialRouteSelectionError::terminal(E::terminal(
             "remote connection has no route candidates".into(),
@@ -1065,7 +1096,10 @@ pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
     let mut failures = Vec::new();
     let mut last = None;
     let mut retryable = false;
-    for (index, candidate) in routes.iter().enumerate() {
+    let first = first.filter(|&first| !upgrade && first < routes.len());
+    let remembered = first.and_then(|first| Some((first, routes.get(first)?)));
+    let rest = routes.iter().enumerate().filter(|&(index, _)| Some(index) != first);
+    for (index, candidate) in remembered.into_iter().chain(rest) {
         let display_endpoint = sanitized_route(&candidate.endpoint);
         if !candidate.supports_client_auth(auth) {
             failures.push(format!(
@@ -1129,6 +1163,8 @@ pub(crate) async fn select_initial_route<T: Send, E: RouteFailure>(
 struct RuntimeInitialRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
     shutdown: watch::Receiver<bool>,
+    /// The daemon's last-known-good route: told which route connected, and which failed.
+    last_good: Option<&'a LastGoodRoute>,
 }
 
 #[async_trait]
@@ -1146,14 +1182,39 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             Some(self.shutdown.clone()),
         )
         .await
-        .map_err(|error| InitialRouteAttemptError::Route {
-            retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
-            error,
+        .map_err(|error| {
+            if let Some(memory) = self.last_good {
+                memory.failed(endpoint);
+            }
+            InitialRouteAttemptError::Route {
+                retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
+                error,
+            }
         })
     }
 
     async fn connect(
         &mut self,
+        index: usize,
+        request: ConnectRequest,
+    ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
+        let endpoint = request.endpoint.clone();
+        let result = self.connect_route(index, request).await;
+        if let Some(memory) = self.last_good {
+            match &result {
+                Ok(_) => memory.connected(&endpoint),
+                Err(InitialRouteAttemptError::Route { .. }) => memory.failed(&endpoint),
+                // A refusal or a cancel says nothing about the route.
+                Err(InitialRouteAttemptError::Fatal(_)) => {}
+            }
+        }
+        result
+    }
+}
+
+impl RuntimeInitialRouteAttempt<'_> {
+    async fn connect_route(
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
@@ -1962,10 +2023,16 @@ async fn run_daemon(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions::new(
-                            options.allow_insecure_non_loopback,
-                            options.trusted_carrier_websocket,
-                        ),
+                        DirectWebSocketOptions {
+                            // `--remote-ws-trusted-carrier` is the operator's explicit
+                            // opt-in for compatibility machines; the daemon still grants
+                            // carrier auth only to private-address peers.
+                            allow_trusted_carrier_non_loopback: options.trusted_carrier_websocket,
+                            ..DirectWebSocketOptions::new(
+                                options.allow_insecure_non_loopback,
+                                options.trusted_carrier_websocket,
+                            )
+                        },
                     )
                     .await?,
                 ),

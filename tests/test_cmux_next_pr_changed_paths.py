@@ -274,6 +274,18 @@ class HistoryFetchTests(unittest.TestCase):
             "--worktree", "--", "base.txt")
         self.assertEqual((out / "base.txt").read_text(), f"moved {self.MOVES - 1}\n")
 
+    def test_deepens_until_the_merge_reaches_an_older_event_base(self):
+        # The event's base is the PR's fork (the head already merged it), while GitHub merged onto a base that
+        # moved MOVES commits on: the merge base turns up at depth 8, the base side's path to it only at 128.
+        result = subprocess.run([str(FETCH_HISTORY), self.merge, self.fork, self.head], cwd=self.clone,
+                                env={**os.environ, "CMUX_PR_HISTORY_RETRY_S": "0", "CMUX_PR_HISTORY_DEPTHS": "8 128"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("depth 128", result.stdout)
+        # What check-generator-inputs.sh reads: the event base on the merge commit's base side.
+        git(self.clone, "merge-base", "--is-ancestor", self.fork, f"{self.merge}^1")
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+
     def test_unshallows_when_the_depths_fall_short(self):
         result = self.fetch(CMUX_PR_HISTORY_DEPTHS="4 16")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

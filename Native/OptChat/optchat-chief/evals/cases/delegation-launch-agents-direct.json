@@ -2,15 +2,17 @@
   "id": "delegation-launch-agents-direct",
   "group": "delegation",
   "owner": "chief-base-upgrades",
-  "about": "Austin's Chief rule, generalized for base (2026-11-23): \"never spawn a helper subagent just to launch other agents\": asked to start agents on several tasks, the Chief spawns one per task itself",
+  "about": "Austin's Chief rules, generalized for base (2026-11-23, https://github.com/manaflow-ai/cmux/issues/52990): \"send claude\" on several tasks starts one agent chat per task itself (`cmux agents chat new`, its own workspace at the top, the harness's default model), never a helper that starts the others",
   "turns": [
     {
       "text": "send claude on each of these: fix the flaky login test, add a dark mode toggle to settings, update the README install steps",
       "checks": [
-        {"type": "called", "cmd": "spawn", "re": "(?i)login"},
-        {"type": "called", "cmd": "spawn", "re": "(?i)dark mode"},
-        {"type": "called", "cmd": "spawn", "re": "(?i)readme"},
-        {"type": "judge", "rubric": "Passes when the Chief starts one subagent per task itself (three spawned tasks, or one spawn call holding three tasks), each task carrying the user's words for it. Fails when it spawns a single helper whose job is to start or coordinate the other agents, or asks the user anything first."}
+        {"type": "called", "cmd": "cmux", "re": "(?i)agents chat new.*login"},
+        {"type": "called", "cmd": "cmux", "re": "(?i)agents chat new.*dark mode"},
+        {"type": "called", "cmd": "cmux", "re": "(?i)agents chat new.*readme"},
+        {"type": "not_called", "cmd": "cmux", "re": "agents chat new.*--model"},
+        {"type": "not_called", "cmd": "spawn"},
+        {"type": "judge", "rubric": "Passes when the Chief starts one Claude agent chat per task itself (three `cmux agents chat new` calls with --harness claude, each in a new workspace at the top named for its task), each prompt carrying the user's words for its task and telling the agent to open a pull request and keep going until it is ready, with no --model or --effort. Fails when it spawns a subagent or a helper to start the agents, puts two tasks in one chat, opens a terminal, or asks the user anything first."}
       ]
     }
   ]

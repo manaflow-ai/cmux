@@ -325,6 +325,11 @@ PARTS = [
     # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
     # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
     {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
+    # What 10 open agent chats cost one shared renderer beside an empty one (webviews/bench/chat-pages-memory.bench.ts,
+    # goal memory-per-chat in cmuxterm-hq's NOW): renderer PSS empty and at 10, MB per chat and the ratio to empty
+    # (chat_pages_memory.n10.ratio_vs_empty), a Linux reading that does not wait for the one Mac measure host. Its own
+    # part: the suite's default benches already fill its 30-minute cap (about 1 minute).
+    {"name": "web-ui-memory", "where": "linux", "kind": "webui", "needs": "web-ui-memory"},
     # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
@@ -335,6 +340,11 @@ PARTS = [
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
+    # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
+    # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -404,8 +414,11 @@ ROW_PARTS = [
     (r"^webui\.chat_open_paired\.", "web-ui-god"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
     (r"^webui\.million_event_chat\.", "web-ui-million"),
+    (r"^webui\.chat_pages_memory\.", "web-ui-memory"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.sim_ladder\.", "web-ui-ladder"),
+    (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
@@ -1227,6 +1240,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-memory":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll-up":
@@ -1235,6 +1250,10 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-ladder":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-ladder"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-fidelity":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-fidelity"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
@@ -1445,8 +1464,32 @@ def part_order(state, todo, t):
             | set(state.get("part_rows") or {})
         seen = {part_for_row(n) for n in names}
         never = [n for n in never if n not in seen] + [n for n in never if n in seen]
-    first = never + [n for _, _, n in sorted(stale)]
+    # A part with no stored rows that ran and failed in the newest tip measurement goes after the stale ones: it would
+    # otherwise stay first in every measurement, since a failure stores nothing. On 2026-11-24 seven such Linux parts
+    # (coord-sim with no shapes file, web-ui-flat timing out, ...) were ahead of web-ui-god, whose rows were 2.6 days
+    # old and which two measurements in a row ended at their bound before reaching.
+    failing = ran_failed(state)
+    stale_names = [n for _, _, n in sorted(stale)]
+    first = [n for n in never if n not in failing] + stale_names + [n for n in never if n in failing]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+# A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
+# out after N s"), not a part that never ran.
+RAN_FAILED_WHY = re.compile(r"^[a-z0-9-]+( gen)?: (exit -?\d+|timed out after |.*No such file)")
+
+
+def ran_failed(state):
+    """The parts that ran and failed in the newest tip measurement (pure): its history entry's ran_failed, else for an
+    older entry the failed_why reasons that are a run's own failure (RAN_FAILED_WHY)."""
+    for entry in reversed(state.get("history") or []):
+        if not isinstance(entry, dict) or entry.get("kind") != "tip" or "failed_parts" not in entry:
+            continue
+        if isinstance(entry.get("ran_failed"), list):
+            return set(entry["ran_failed"])
+        why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+        return {n for n, w in why.items() if RAN_FAILED_WHY.match(str(w))}
+    return set()
 
 
 def measurement_id(cur):
@@ -2415,6 +2458,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
             ok = has_path(sha, f"{FLAT_100K_BENCH}")
+        elif need == "web-ui-ladder":
+            ok = has_path(sha, f"{SIM_LADDER_BENCH}")
         elif need == "web-ui-scroll-up":
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
@@ -2423,6 +2468,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
+        elif need == "web-ui-memory":
+            ok = has_path(sha, f"{CHAT_PAGES_MEMORY_BENCH}")
         elif need == "infinite-items":
             ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
@@ -2515,7 +2562,9 @@ WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
+CHAT_PAGES_MEMORY_BENCH = "webviews/bench/chat-pages-memory.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
@@ -3302,6 +3351,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
                   for n in failed}
     if failed_why:
         entry["failed_why"] = failed_why
+    # The parts that ran and failed (not those never run): part_order puts them after the stale parts next time.
+    entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -3424,7 +3475,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         streak = [v for v in prev.get("recovering") or [] if isinstance(v, dict)]
         streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url})
         if len(streak) < RECOVER_RUNS:
-            regressions.append({**prev, "recovering": streak})
+            # Its newest reading, so the probe and NOW read this run's value, not the one it was detected at.
+            regressions.append({**prev, "recovering": streak, "last_p95": p95, "last_at": iso(t)})
         else:
             closing[name] = streak[:-1]
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -3439,6 +3491,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
+        # The newest reading of an open regression (this run's value), as a recovering one keeps above.
+        r["last_p95"], r["last_at"] = r["p95"], iso(t)
         regressions.append(r)
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
@@ -4113,6 +4167,14 @@ def prepare_ghostty(root, env, run=run_capped, timeout=900):
     return env, tail
 
 
+WAKEUP_LINE_RE = re.compile(r"(left alone for|at rest for) [0-9.]+ s: [0-9]+ wakeups \(")
+
+
+def webui_wakeup_lines(stdout, limit=40):
+    """The web UI suite's bench lines that count and name an idle page's wakeups (pure), at most LIMIT."""
+    return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4142,6 +4204,11 @@ def cmd_run_linux_part(o):
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
+            # The benches' own lines naming what woke an idle page (chat-switch's "left alone for 10 s: N wakeups
+            # (...); <sources>"): the report keeps only the counts, so the job log carries the callbacks behind a
+            # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
+            for line in webui_wakeup_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
@@ -4699,6 +4766,10 @@ LINUX_REQUESTS_MAX = 2
 # Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
 # reaches the state through a result run or replay-results.
 LINUX_ANSWER_SLACK_MINUTES = 60
+# The Linux parts the controller never runs: cloud-claim reads the production Cloud journey's artifacts with the run's
+# own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
+# windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
+LINUX_RUNNER_ONLY = frozenset({"cloud-claim"})
 
 
 def linux_answer_minutes(part):
@@ -4710,7 +4781,7 @@ def linux_route(cur, part, t, controller, has_script):
     """Where this tick runs Linux part PART: 'request' (ask the build controller), 'wait' (a request is in its answer
     window: nothing else runs it) or 'runner' (the linux job). Keeps cur['linux_requests'][part]; record_part clears
     it. Without the controller route, or at a commit without LINUX_SCRIPT, always 'runner'."""
-    if not controller or not has_script:
+    if not controller or not has_script or part in LINUX_RUNNER_ONLY:
         return "runner"
     asks = cur.setdefault("linux_requests", {})
     ask = asks.get(part) if isinstance(asks.get(part), dict) else None
