@@ -920,7 +920,11 @@ impl Hub {
                 .cloned()
                 .unwrap_or(Value::Null),
             model: current_model(&m),
-            effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
+            // The harness's own report, else the effort its agent was launched at
+            // (`launch_effort.rs`), so a chat whose harness reports none still says it.
+            effort: current_effort(&m)
+                .or_else(|| current_option(&m, "reasoning_effort"))
+                .or_else(|| m.launch_effort.clone()),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
@@ -1483,3 +1487,7 @@ mod time_breakdown_tests {
 #[cfg(test)]
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
+
+#[cfg(test)]
+#[path = "launch_effort_tests.rs"]
+mod launch_effort_tests;

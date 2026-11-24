@@ -985,10 +985,17 @@ impl Hub {
         // a slow git read skips.
         // So is the digest of the profile it starts from (`profile_respawn.rs`): an agent host
         // the next daemon adopts is judged by it, and this start settles a respawn that waited.
+        // And the effort it starts at, from that argv and env (`launch_effort.rs`): what `ls`
+        // shows for a chat whose harness reports no effort of its own.
+        let family = session.meta.lock().unwrap_or_else(|e| e.into_inner()).family.clone();
+        let launch_effort =
+            crate::launch_effort::of_launch(family.as_deref(), &profile.argv, &[&profile.env]);
         let argv_changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
-                || m.launch_digest.as_ref() != Some(&profile.launch_digest);
+                || m.launch_digest.as_ref() != Some(&profile.launch_digest)
+                || m.launch_effort != launch_effort;
+            m.launch_effort = launch_effort;
             // What another launch's agent said at `initialize` (a fork's or a failover's copy)
             // is not this one's: an `asksBeforeTools` claim must come from the agent this start
             // runs (`policy_mode.rs` `claim_distrust`), which `initialize` records again.

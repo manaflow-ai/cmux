@@ -343,6 +343,11 @@ pub struct SessionMeta {
     /// judged too. None before any start, or for a start by an older build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_digest: Option<String>,
+    /// The reasoning effort its agent last started at, read from that start's argv and env
+    /// (`launch_effort::of_launch`): the summary's `effort` when the harness reports none. None
+    /// before any start, when the launch names no effort, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_effort: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,

@@ -178,6 +178,7 @@ mod joined_model_plane;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod launch_credential;
+pub mod launch_effort;
 pub mod launch_policy;
 pub mod left_on_mac;
 pub mod link_v2;
