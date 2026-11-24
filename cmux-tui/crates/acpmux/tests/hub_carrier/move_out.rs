@@ -137,7 +137,18 @@ impl Tickets for MachineTickets {
     }
 }
 
-fn machines(relay: &str, root: &Path, ledgers: &Path) -> Vec<Machine> {
+fn queued_replies(events: &[Value]) -> usize {
+    events
+        .iter()
+        .filter(|e| {
+            e["kind"] == "agent_message_chunk"
+                && e["msg"].pointer("/params/update/content/text").and_then(Value::as_str)
+                    == Some("echo: after the move")
+        })
+        .count()
+}
+
+fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
     let names = ["machine-a", "machine-b", "machine-c"];
     let keys = names.map(|_| random_key());
     let public_keys = keys.each_ref().map(public);
@@ -146,14 +157,14 @@ fn machines(relay: &str, root: &Path, ledgers: &Path) -> Vec<Machine> {
     let mut hooks = BTreeMap::new();
     for (i, name) in names.into_iter().enumerate() {
         let mut cfg = config();
-        cfg.harnesses
-            .get_mut("fake")
-            .unwrap()
-            .env
-            .insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        let mut profile = cfg.harnesses.remove("fake").unwrap();
+        profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.default_harness = Some("cmux-harness".into());
+        cfg.store.mode = StoreMode::Local;
         cfg.web_roots = vec![root.display().to_string()];
-        cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
-        let store = acpmux::store::open(&cfg.store, root).unwrap();
+        cfg.web_asking_modes.insert("cmux".into(), vec!["normal".into()]);
+        let store = acpmux::store::open(&cfg.store, &state.join(name).join("store")).unwrap();
         let hub = Hub::new(cfg, store);
         let peers: BTreeMap<_, _> = public_keys
             .iter()
@@ -175,7 +186,7 @@ fn machines(relay: &str, root: &Path, ledgers: &Path) -> Vec<Machine> {
                 same_user: true,
                 ops: vec!["move".into()],
             }],
-            Some(ledgers.join(name)),
+            Some(state.join(name).join("ledger")),
         )
         .with_own_user(Arc::new(|| Some("user-1".into())));
         let key = public_keys[i].clone();
@@ -204,8 +215,8 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     let root = dir.path().canonicalize().unwrap();
     // Cargo's hermetic test home can live inside a worktree. Give the chat a plain folder.
     std::fs::write(root.join(".git"), "gitdir: ./absent\n").unwrap();
-    let ledgers = tempfile::tempdir().unwrap();
-    let machines = machines(&format!("relay+ws://127.0.0.1:{}", proxy.port), &root, ledgers.path());
+    let state = tempfile::tempdir().unwrap();
+    let machines = machines(&format!("relay+ws://127.0.0.1:{}", proxy.port), &root, state.path());
     let [a, b, c] = machines.as_slice() else { unreachable!() };
     let mut ca = client(a.hub.clone()).await;
     let missing = ca
@@ -230,6 +241,16 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
         "_meta":{"acpmux":{"promptId":key}}})
     };
     ca.call(method::SESSION_PROMPT, prompt("first", "first turn")).await;
+    // The ACP stand-in supplies the turns. Seed the durable harness files only on A.
+    // Every subsequent holder must receive them through the relay.
+    let agent = "fake-session-1";
+    let journal = Path::new(agent).join("journal.ndjson");
+    let history = b"{\"turn\":1}\n";
+    let sessions = |name: &str| state.path().join(name).join("store/sessions");
+    std::fs::create_dir_all(sessions(a.name).join(agent)).unwrap();
+    std::fs::write(sessions(a.name).join(&journal), history).unwrap();
+    let header = json!({"type":"session", "id":agent, "cwd":root});
+    std::fs::write(sessions(a.name).join("review.jsonl"), format!("{header}\n")).unwrap();
     ca.send(method::SESSION_PROMPT, prompt("live", "until-cancel")).await;
     ca.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
     ca.send(method::SESSION_PROMPT, prompt("queued", "after the move")).await;
@@ -257,7 +278,7 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     let on_b = within("queued prompt on B", async {
         loop {
             let events = all_events(&mut cb, id).await;
-            if user_texts(&events).last().is_some_and(|t| t == "after the move") {
+            if queued_replies(&events) > 0 {
                 break events;
             }
             tokio::time::sleep(Duration::from_millis(30)).await;
@@ -266,6 +287,7 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     .await;
     let expected = ["first turn", "until-cancel", "This chat moved ", "after the move"];
     assert_eq!(user_texts(&on_b), expected);
+    assert_eq!(std::fs::read(sessions(b.name).join(&journal)).unwrap(), history);
     let before = bytes();
     a.drive(&format!("machine-b/{id}"), "machine-c", "--after-turn", id).await;
     assert!(bytes() > before);
@@ -273,6 +295,9 @@ async fn a_third_machine_moves_the_chat_and_its_queue_over_the_relay() {
     let mut cc = client(c.hub.clone()).await;
     let on_c = all_events(&mut cc, id).await;
     assert_eq!(user_texts(&on_c), expected);
+    assert_eq!(queued_replies(&on_c), 1, "the queued prompt ran once");
+
+    assert_eq!(std::fs::read(sessions(c.name).join(&journal)).unwrap(), history);
     assert!(on_c.starts_with(&original), "the history on A must be the prefix on C");
     assert!(on_c.windows(2).all(|pair| pair[0]["seq"].as_u64() < pair[1]["seq"].as_u64()));
     assert_eq!(on_c.iter().filter(|e| e["kind"] == "transferred_in").count(), 2);
