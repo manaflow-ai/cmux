@@ -30,8 +30,7 @@ mod window_layout;
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
-    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadRequest, ChatUploadState,
-    ChatUploadedAttachment,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
 };
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{

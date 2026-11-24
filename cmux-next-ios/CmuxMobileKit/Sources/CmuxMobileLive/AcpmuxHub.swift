@@ -991,7 +991,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard hub != nil else { return }
         let nowMs = ChatPromptClock.milliseconds(now())
         promptPayloads[prompt.promptID] = prompt
-        _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, attachmentIds: [], resend: prompt.resend,
+        _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: [], resend: prompt.resend,
                               tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
         pumpPrompts()
     }

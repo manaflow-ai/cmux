@@ -1291,7 +1291,7 @@ final class PendingAgentSource: AgentSessionSource {
             return
         }
         #if canImport(CmuxMobileLinkFFI)
-        guard outbox.push(promptId: promptID, text: text, attachmentIds: [], resend: resend,
+        guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
                           tappedMs: ChatPromptClock.milliseconds(at),
                           nowMs: ChatPromptClock.milliseconds(at)) else { return }
         intents[promptID] = intent

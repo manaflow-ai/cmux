@@ -1336,7 +1336,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func answered(promptId: String)  -> ChatPromptDone?
     
     /**
-     * Its attachments and their uploads (for a progress ring), or none.
+     * Its attachments and their uploads' ends, or none.
      */
     func attachments(promptId: String)  -> [ChatAttachment]?
     
@@ -1358,7 +1358,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     /**
      * The person edits it: in place, or (it may be on the Mac) as `new_prompt_id` in its place.
      */
-    func edit(promptId: String, newPromptId: String, text: String, attachmentIds: [String], nowMs: UInt64)  -> ChatEditStep?
+    func edit(promptId: String, newPromptId: String, text: String, uploadIds: [String], nowMs: UInt64)  -> ChatEditStep?
     
     /**
      * Unwritten prompts given up at `now_ms` (all of them once one is past the hold), in order.
@@ -1396,11 +1396,6 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func nextRequest(nowMs: UInt64)  -> ChatPromptRequest?
     
     /**
-     * The next upload to start, if one may start now.
-     */
-    func nextUpload(nowMs: UInt64)  -> ChatUploadRequest?
-    
-    /**
      * Milliseconds after `now_ms` until something is due (a hold or a retry), or none.
      */
     func nextWakeMs(nowMs: UInt64)  -> UInt64?
@@ -1411,10 +1406,10 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
-     * A tap on Send with its attachments' ids (each to upload). Never waits. False when this
-     * `promptId` is already here.
+     * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
+     * when this `promptId` is already here.
      */
-    func push(promptId: String, text: String, attachmentIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
+    func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
     
     /**
      * The Mac refused it.
@@ -1434,7 +1429,7 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func setHoldMs(holdMs: UInt64) 
     
     /**
-     * The link's state at `now_ms`; coming back, queued prompts and uploads go at once, in order.
+     * The link's state at `now_ms`; coming back, queued prompts go at once, in order.
      */
     func setLink(up: Bool, nowMs: UInt64) 
     
@@ -1444,13 +1439,15 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func unwritten()  -> [String]
     
     /**
-     * An upload failed; the prompt when it gave up (`UploadFailed`).
+     * The uploader gave up on `upload_id`: the prompt holding it, given up (`UploadFailed`),
+     * with its other uploads to cancel.
      */
-    func uploadFailed(promptId: String, attachmentId: String, reason: String, nowMs: UInt64)  -> ChatPromptDone?
+    func uploadFailed(uploadId: String, reason: String)  -> ChatPromptDone?
     
-    func uploadProgress(promptId: String, attachmentId: String, sent: UInt64, total: UInt64) 
-    
-    func uploaded(promptId: String, attachmentId: String, macPath: String, nowMs: UInt64) 
+    /**
+     * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
+     */
+    func uploaded(uploadId: String, macPath: String, nowMs: UInt64) 
     
     /**
      * Its write failed: it goes again after a backoff.
@@ -1542,7 +1539,7 @@ open func answered(promptId: String) -> ChatPromptDone?  {
 }
     
     /**
-     * Its attachments and their uploads (for a progress ring), or none.
+     * Its attachments and their uploads' ends, or none.
      */
 open func attachments(promptId: String) -> [ChatAttachment]?  {
     return try!  FfiConverterOptionSequenceTypeChatAttachment.lift(try! rustCall() {
@@ -1591,14 +1588,14 @@ open func drainUnwritten() -> [ChatPromptTaken]  {
     /**
      * The person edits it: in place, or (it may be on the Mac) as `new_prompt_id` in its place.
      */
-open func edit(promptId: String, newPromptId: String, text: String, attachmentIds: [String], nowMs: UInt64) -> ChatEditStep?  {
+open func edit(promptId: String, newPromptId: String, text: String, uploadIds: [String], nowMs: UInt64) -> ChatEditStep?  {
     return try!  FfiConverterOptionTypeChatEditStep.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_edit(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterString.lower(newPromptId),
         FfiConverterString.lower(text),
-        FfiConverterSequenceString.lower(attachmentIds),
+        FfiConverterSequenceString.lower(uploadIds),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -1689,18 +1686,6 @@ open func nextRequest(nowMs: UInt64) -> ChatPromptRequest?  {
 }
     
     /**
-     * The next upload to start, if one may start now.
-     */
-open func nextUpload(nowMs: UInt64) -> ChatUploadRequest?  {
-    return try!  FfiConverterOptionTypeChatUploadRequest.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_next_upload(
-            self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(nowMs),$0
-    )
-})
-}
-    
-    /**
      * Milliseconds after `now_ms` until something is due (a hold or a retry), or none.
      */
 open func nextWakeMs(nowMs: UInt64) -> UInt64?  {
@@ -1724,16 +1709,16 @@ open func pending() -> UInt32  {
 }
     
     /**
-     * A tap on Send with its attachments' ids (each to upload). Never waits. False when this
-     * `promptId` is already here.
+     * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
+     * when this `promptId` is already here.
      */
-open func push(promptId: String, text: String, attachmentIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64) -> Bool  {
+open func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_push(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterString.lower(text),
-        FfiConverterSequenceString.lower(attachmentIds),
+        FfiConverterSequenceString.lower(uploadIds),
         FfiConverterBool.lower(resend),
         FfiConverterUInt64.lower(tappedMs),
         FfiConverterUInt64.lower(nowMs),$0
@@ -1788,7 +1773,7 @@ open func setHoldMs(holdMs: UInt64)  {try! rustCall() {
 }
     
     /**
-     * The link's state at `now_ms`; coming back, queued prompts and uploads go at once, in order.
+     * The link's state at `now_ms`; coming back, queued prompts go at once, in order.
      */
 open func setLink(up: Bool, nowMs: UInt64)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_set_link(
@@ -1811,36 +1796,26 @@ open func unwritten() -> [String]  {
 }
     
     /**
-     * An upload failed; the prompt when it gave up (`UploadFailed`).
+     * The uploader gave up on `upload_id`: the prompt holding it, given up (`UploadFailed`),
+     * with its other uploads to cancel.
      */
-open func uploadFailed(promptId: String, attachmentId: String, reason: String, nowMs: UInt64) -> ChatPromptDone?  {
+open func uploadFailed(uploadId: String, reason: String) -> ChatPromptDone?  {
     return try!  FfiConverterOptionTypeChatPromptDone.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_failed(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
-        FfiConverterString.lower(reason),
-        FfiConverterUInt64.lower(nowMs),$0
+        FfiConverterString.lower(uploadId),
+        FfiConverterString.lower(reason),$0
     )
 })
 }
     
-open func uploadProgress(promptId: String, attachmentId: String, sent: UInt64, total: UInt64)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_progress(
-            self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
-        FfiConverterUInt64.lower(sent),
-        FfiConverterUInt64.lower(total),$0
-    )
-}
-}
-    
-open func uploaded(promptId: String, attachmentId: String, macPath: String, nowMs: UInt64)  {try! rustCall() {
+    /**
+     * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
+     */
+open func uploaded(uploadId: String, macPath: String, nowMs: UInt64)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_uploaded(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(promptId),
-        FfiConverterString.lower(attachmentId),
+        FfiConverterString.lower(uploadId),
         FfiConverterString.lower(macPath),
         FfiConverterUInt64.lower(nowMs),$0
     )
@@ -4998,13 +4973,13 @@ public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuf
 
 
 public struct ChatAttachment: Equatable, Hashable {
-    public var attachmentId: String
+    public var uploadId: String
     public var state: ChatUploadState
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(attachmentId: String, state: ChatUploadState) {
-        self.attachmentId = attachmentId
+    public init(uploadId: String, state: ChatUploadState) {
+        self.uploadId = uploadId
         self.state = state
     }
 
@@ -5024,13 +4999,13 @@ public struct FfiConverterTypeChatAttachment: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatAttachment {
         return
             try ChatAttachment(
-                attachmentId: FfiConverterString.read(from: &buf), 
+                uploadId: FfiConverterString.read(from: &buf), 
                 state: FfiConverterTypeChatUploadState.read(from: &buf)
         )
     }
 
     public static func write(_ value: ChatAttachment, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.attachmentId, into: &buf)
+        FfiConverterString.write(value.uploadId, into: &buf)
         FfiConverterTypeChatUploadState.write(value.state, into: &buf)
     }
 }
@@ -5059,14 +5034,22 @@ public struct ChatPromptDone: Equatable, Hashable {
     public var outcome: ChatPromptOutcome
     public var text: String
     public var attachments: [ChatAttachment]
+    /**
+     * Its uploads not on the Mac yet: the source cancels them (empty for one that went).
+     */
+    public var cancelUploadIds: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(promptId: String, outcome: ChatPromptOutcome, text: String, attachments: [ChatAttachment]) {
+    public init(promptId: String, outcome: ChatPromptOutcome, text: String, attachments: [ChatAttachment], 
+        /**
+         * Its uploads not on the Mac yet: the source cancels them (empty for one that went).
+         */cancelUploadIds: [String]) {
         self.promptId = promptId
         self.outcome = outcome
         self.text = text
         self.attachments = attachments
+        self.cancelUploadIds = cancelUploadIds
     }
 
     
@@ -5088,7 +5071,8 @@ public struct FfiConverterTypeChatPromptDone: FfiConverterRustBuffer {
                 promptId: FfiConverterString.read(from: &buf), 
                 outcome: FfiConverterTypeChatPromptOutcome.read(from: &buf), 
                 text: FfiConverterString.read(from: &buf), 
-                attachments: FfiConverterSequenceTypeChatAttachment.read(from: &buf)
+                attachments: FfiConverterSequenceTypeChatAttachment.read(from: &buf), 
+                cancelUploadIds: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -5097,6 +5081,7 @@ public struct FfiConverterTypeChatPromptDone: FfiConverterRustBuffer {
         FfiConverterTypeChatPromptOutcome.write(value.outcome, into: &buf)
         FfiConverterString.write(value.text, into: &buf)
         FfiConverterSequenceTypeChatAttachment.write(value.attachments, into: &buf)
+        FfiConverterSequenceString.write(value.cancelUploadIds, into: &buf)
     }
 }
 
@@ -5240,73 +5225,16 @@ public func FfiConverterTypeChatPromptTaken_lower(_ value: ChatPromptTaken) -> R
 
 
 /**
- * One upload to start.
- */
-public struct ChatUploadRequest: Equatable, Hashable {
-    public var promptId: String
-    public var attachmentId: String
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(promptId: String, attachmentId: String) {
-        self.promptId = promptId
-        self.attachmentId = attachmentId
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ChatUploadRequest: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeChatUploadRequest: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatUploadRequest {
-        return
-            try ChatUploadRequest(
-                promptId: FfiConverterString.read(from: &buf), 
-                attachmentId: FfiConverterString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ChatUploadRequest, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.promptId, into: &buf)
-        FfiConverterString.write(value.attachmentId, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatUploadRequest_lift(_ buf: RustBuffer) throws -> ChatUploadRequest {
-    return try FfiConverterTypeChatUploadRequest.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatUploadRequest_lower(_ value: ChatUploadRequest) -> RustBuffer {
-    return FfiConverterTypeChatUploadRequest.lower(value)
-}
-
-
-/**
  * An uploaded attachment a prompt goes with.
  */
 public struct ChatUploadedAttachment: Equatable, Hashable {
-    public var attachmentId: String
+    public var uploadId: String
     public var macPath: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(attachmentId: String, macPath: String) {
-        self.attachmentId = attachmentId
+    public init(uploadId: String, macPath: String) {
+        self.uploadId = uploadId
         self.macPath = macPath
     }
 
@@ -5326,13 +5254,13 @@ public struct FfiConverterTypeChatUploadedAttachment: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatUploadedAttachment {
         return
             try ChatUploadedAttachment(
-                attachmentId: FfiConverterString.read(from: &buf), 
+                uploadId: FfiConverterString.read(from: &buf), 
                 macPath: FfiConverterString.read(from: &buf)
         )
     }
 
     public static func write(_ value: ChatUploadedAttachment, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.attachmentId, into: &buf)
+        FfiConverterString.write(value.uploadId, into: &buf)
         FfiConverterString.write(value.macPath, into: &buf)
     }
 }
@@ -7053,7 +6981,7 @@ public func FfiConverterTypeChannelMessage_lower(_ value: ChannelMessage) -> Rus
 public enum ChatCancelStep: Equatable, Hashable {
     
     /**
-     * It never left: back at once.
+     * It never left: back at once (cancel `done.cancel_upload_ids`).
      */
     case returned(done: ChatPromptDone
     )
@@ -7135,14 +7063,15 @@ public func FfiConverterTypeChatCancelStep_lower(_ value: ChatCancelStep) -> Rus
 public enum ChatEditStep: Equatable, Hashable {
     
     /**
-     * Edited in place: same id, same place.
+     * Edited in place: same id, same place. Cancel the uploads the edit dropped.
      */
-    case edited
+    case edited(cancelUploadIds: [String]
+    )
     /**
      * It may be on the Mac: the edit goes as the new id in its place; remove the old one with
-     * `_acpmux/queue_remove`, then `remove_answered`.
+     * `_acpmux/queue_remove`, then `remove_answered`. Cancel the uploads the edit dropped.
      */
-    case replaced(removePromptId: String
+    case replaced(removePromptId: String, cancelUploadIds: [String]
     )
 
 
@@ -7165,9 +7094,10 @@ public struct FfiConverterTypeChatEditStep: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .edited
+        case 1: return .edited(cancelUploadIds: try FfiConverterSequenceString.read(from: &buf)
+        )
         
-        case 2: return .replaced(removePromptId: try FfiConverterString.read(from: &buf)
+        case 2: return .replaced(removePromptId: try FfiConverterString.read(from: &buf), cancelUploadIds: try FfiConverterSequenceString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -7178,13 +7108,15 @@ public struct FfiConverterTypeChatEditStep: FfiConverterRustBuffer {
         switch value {
         
         
-        case .edited:
+        case let .edited(cancelUploadIds):
             writeInt(&buf, Int32(1))
+            FfiConverterSequenceString.write(cancelUploadIds, into: &buf)
+            
         
-        
-        case let .replaced(removePromptId):
+        case let .replaced(removePromptId,cancelUploadIds):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(removePromptId, into: &buf)
+            FfiConverterSequenceString.write(cancelUploadIds, into: &buf)
             
         }
     }
@@ -7219,7 +7151,7 @@ public enum ChatPromptLook: Equatable, Hashable {
      */
     case sent
     /**
-     * Unwritten past the quiet threshold, or an upload retrying: still trying.
+     * Unwritten past the quiet threshold after its uploads: still trying.
      */
     case retrying
     /**
@@ -7318,7 +7250,7 @@ public enum ChatPromptOutcome: Equatable, Hashable {
      */
     case maybeSent
     /**
-     * An attachment failed to upload too many times: nothing was written.
+     * An attachment's upload failed (the uploader gave up): nothing was written.
      */
     case uploadFailed(reason: String
     )
@@ -7415,14 +7347,12 @@ public func FfiConverterTypeChatPromptOutcome_lower(_ value: ChatPromptOutcome) 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Where one attachment's upload is.
+ * Where one attachment's upload is, as reported (its progress is `AttachmentUploads`').
  */
 
 public enum ChatUploadState: Equatable, Hashable {
     
     case pending
-    case uploading(sent: UInt64, total: UInt64
-    )
     case uploaded(macPath: String
     )
     case failed(reason: String
@@ -7450,13 +7380,10 @@ public struct FfiConverterTypeChatUploadState: FfiConverterRustBuffer {
         
         case 1: return .pending
         
-        case 2: return .uploading(sent: try FfiConverterUInt64.read(from: &buf), total: try FfiConverterUInt64.read(from: &buf)
+        case 2: return .uploaded(macPath: try FfiConverterString.read(from: &buf)
         )
         
-        case 3: return .uploaded(macPath: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 4: return .failed(reason: try FfiConverterString.read(from: &buf)
+        case 3: return .failed(reason: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -7471,19 +7398,13 @@ public struct FfiConverterTypeChatUploadState: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case let .uploading(sent,total):
-            writeInt(&buf, Int32(2))
-            FfiConverterUInt64.write(sent, into: &buf)
-            FfiConverterUInt64.write(total, into: &buf)
-            
-        
         case let .uploaded(macPath):
-            writeInt(&buf, Int32(3))
+            writeInt(&buf, Int32(2))
             FfiConverterString.write(macPath, into: &buf)
             
         
         case let .failed(reason):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(3))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -8847,30 +8768,6 @@ fileprivate struct FfiConverterOptionTypeChatPromptRequest: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeChatUploadRequest: FfiConverterRustBuffer {
-    typealias SwiftType = ChatUploadRequest?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeChatUploadRequest.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeChatUploadRequest.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionTypeComposerSendDone: FfiConverterRustBuffer {
     typealias SwiftType = ComposerSendDone?
 
@@ -9978,7 +9875,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_answered() != 15608) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_attachments() != 39039) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_attachments() != 10995) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_cancel() != 31638) {
@@ -9990,7 +9887,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_drain_unwritten() != 55174) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_edit() != 10571) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_edit() != 17600) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_expire() != 17320) {
@@ -10014,16 +9911,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_request() != 47804) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_upload() != 13640) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_next_wake_ms() != 11240) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 46849) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 17318) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refused() != 29414) {
@@ -10038,19 +9932,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_hold_ms() != 33638) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_link() != 224) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_set_link() != 5462) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_unwritten() != 3873) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 8438) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 33281) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_progress() != 4432) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 23452) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 45828) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_write_failed() != 45736) {
