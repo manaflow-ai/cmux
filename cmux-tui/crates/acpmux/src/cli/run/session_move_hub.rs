@@ -88,7 +88,17 @@ fn folder_value(folder: &Folder, home: &Path, named: bool) -> Result<Value> {
         Folder::Worktree { repo, url, branch, subdir, .. } => {
             json!({"repo": repo, "url": url, "branch": branch, "subdir": subdir})
         }
+        Folder::Bundle { top, .. } => bail!("{}", no_origin_over_the_hub(top)),
     })
+}
+
+/// Why a checkout with no `origin` does not move over the hub: the target makes the folder
+/// itself from a remote, and the git bundle that carries such a checkout goes over ssh only.
+fn no_origin_over_the_hub(top: &str) -> String {
+    format!(
+        "{top} has no origin, and a checkout with no remote does not move through the team hub \
+         yet: add a remote and push, or pass --cwd to a folder the target already has"
+    )
 }
 
 async fn steps(
@@ -133,12 +143,17 @@ async fn steps(
         args.cwd.as_deref(),
     )
     .map_err(|e| anyhow!(e))?;
+    // Refused before anything is frozen, and in a dry run too.
+    if let Folder::Bundle { top, .. } = &planned {
+        bail!("{}", no_origin_over_the_hub(top));
+    }
     if args.dry_run {
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, .. } => {
                 format!("a worktree of {repo} {branch}{}", sub_text(subdir))
             }
+            Folder::Bundle { top, .. } => top.clone(),
         });
         return Ok(());
     }
@@ -214,13 +229,11 @@ impl Moving<'_> {
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
-        let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
-            // The target's copy diverged from what was staged: send the whole chat.
-            Err(e) if staged.is_some() && t::refused_diverged(&e) => {
-                t::begin_move(src, &id, Some(to), running, None, None).await?
-            }
-            begun => begun?,
-        };
+        // The hub carries the move: this end is the source's daemon here, asked on one
+        // connection. A staged prefix the source no longer holds as staged is sent whole
+        // (`begin_staged`).
+        let src_end = &mut MoveEnd::new("source", src, None);
+        let begun = t::begin_staged(src_end, &id, Some(to), running, staged, None).await?;
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -257,7 +270,7 @@ impl Moving<'_> {
         let sent = match made {
             Ok(sent) => sent,
             Err(e) => {
-                super::super::transfer::abort_move(src, &id, &begun).await;
+                super::super::transfer::abort_move(src_end, &id, &begun).await;
                 return Err(e);
             }
         };
@@ -267,7 +280,7 @@ impl Moving<'_> {
                 let data =
                     e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
                 if data.as_ref().is_some_and(|d| d["refused"] == true) {
-                    super::super::transfer::abort_move(src, &id, &begun).await;
+                    super::super::transfer::abort_move(src_end, &id, &begun).await;
                     return Err(e);
                 }
                 bail!(

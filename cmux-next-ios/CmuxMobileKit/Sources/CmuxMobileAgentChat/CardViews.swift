@@ -632,11 +632,8 @@ struct NextStepTryView: View {
                 }
             }
             if let target {
-                Text(target)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                SelectableText(target, textStyle: .caption1, monospaced: true, color: .secondaryLabel)
                     .lineLimit(2)
-                    .textSelection(.enabled)
                     .accessibilityIdentifier("agentChat.nextStep.tryTarget")
             }
             if !tryIt.verify.isEmpty {
