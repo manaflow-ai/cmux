@@ -67,7 +67,7 @@ LABELS = Unknown()
 # A job scripts/ci/affected-jobs.json pull_request_skip lists (affected_jobs.PR_SKIP_IF): a pull request skips it,
 # and the feat-cmux-next push that lands the pull request runs it, its red naming the pull requests in its range.
 # That push is the job's lane (the fix-forward the replay measured), so the guard reads as true here.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 
 
 # --- GitHub Actions expressions, three-valued -------------------------------------------
@@ -244,6 +244,9 @@ class Expression:
         # A pull request carries no label by default: a job only a label starts is opt-in, not a lane.
         if lowered == "contains" and len(args) == 2 and args[0] is LABELS:
             return False
+        # The feat-cmux-next tier skip: a base of feat-cmux-next or a branch stacked on it (feat-cmux-next-*).
+        if lowered == "startswith" and len(args) == 2 and all(isinstance(a, str) for a in args):
+            return args[0].lower().startswith(args[1].lower())  # GitHub compares case-insensitively
         if lowered == "fromjson" and args and isinstance(args[0], str):
             try:
                 return json.loads(args[0])

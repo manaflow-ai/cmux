@@ -15,8 +15,8 @@
 #               the same build the HQ request gives, tagged pr-N), waits for it and opens it
 #   ios-only    the Mac app does not change
 #
-#   try-pr.sh PR [--here] [--from APP] [--front] [--no-build] [--dry-run] [--port N] [--fork]
-#                [--live-code LOG]
+#   try-pr.sh PR [--here] [--from APP] [--front|--shown] [--no-build] [--dry-run] [--port N] [--fork]
+#                [--live-code LOG] [--dev-backend]
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
 # By default the PR opens in a side instance, "cmux PR #N" (side-instance.sh pr-N): a copy of APP
@@ -27,10 +27,16 @@
 # and Chat Uploads. A rebuild opens the PR's own build
 # there instead of the copy. --here patches the running app instead (the web overlay of your
 # cmux-next.json), and for a rebuild only prints where the build is. --no-build stops at the
-# verdict when the PR needs a build. --front opens the side instance in front. --dry-run prints the
+# verdict when the PR needs a build. The side instance opens parked (side-instance.sh launch: on a display no person
+# looks at, never activating, so an agent's try on a person's Mac draws nothing on their screens); --shown opens it
+# on the person's screens behind their windows, --front in front. --dry-run prints the
 # verdict and the commands it would run. --port and --fork go to web-overlay.sh follow; a side
 # instance's dev server takes the first free port from 20000 + N % 10000 (and keeps it) unless --port
 # names one.
+#
+# The dev build you open is built for you, so it targets production (cmux.com, production sign-in), where
+# your own account signs in (cmux-ci build cmux --production). --dev-backend builds it with the offline dev
+# backend instead, as agents' builds and a build taken only for its daemon always are.
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
 # A swift-live PR whose changes are edits to existing Swift files of the CmuxNext modules is then applied with
@@ -45,7 +51,9 @@
 # its daemon hands off to the PR's build the way `cmux live start --rust` does, with every terminal
 # kept. It is refused for the dev build when APP has Rust the PR's branch lacks (APP was built after
 # the PR branched and cmux-tui changed since), when the PR changes Rust the app links (FFI), or when
-# CMUXCommit does not resolve. `scripts/cmux-next/hot-apply.py rollback` (state in the copy's
+# CMUXCommit does not resolve. An APP built before the PR's base takes the daemon too: the Swift, resources
+# and web merged into the base since are named as left out (they wait for the next nightly), and the PR's own
+# web, which may lean on that Swift, takes the dev build instead. `scripts/cmux-next/hot-apply.py rollback` (state in the copy's
 # hot-apply/ folder, with --here the default one) puts APP's own daemon back.
 set -euo pipefail
 
@@ -53,13 +61,15 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
 
 pr="${1:-}"; [[ "$pr" =~ ^[0-9]+$ ]] || usage 1; shift
-dry="" here="" front="" nobuild="" stop="" port="" from="/Applications/cmux NEXT.app" follow=() live_log=""
+dry="" here="" front="" nobuild="" stop="" port="" from="/Applications/cmux NEXT.app" follow=() live_log="" dev_backend=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) dry=1; shift ;;
     --here) here=1; shift ;;
-    --front) front=1; shift ;;
+    --front) front=--front; shift ;;
+    --shown) front=--shown; shift ;;
     --no-build) nobuild=1; shift ;;
+    --dev-backend) dev_backend=1; shift ;;
     --build) shift ;;  # the default now; kept so older commands still run
     --stop) stop=1; shift ;;
     --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
@@ -181,7 +191,7 @@ make_side() {
 # Makes it as make_side does, then opens it.
 open_side() {
   make_side "$@"
-  run "$side" launch "$name" ${front:+--front}
+  run "$side" launch "$name" ${front:+"$front"}
 }
 
 # Waits up to SECONDS for LOG to gain a line matching PATTERN after byte OFFSET; prints the line.
@@ -318,26 +328,43 @@ live_rust() {
   local binary="${1:-}" hot="${CMUX_TRY_PR_HOT_APPLY:-$ROOT/scripts/cmux-next/hot-apply.py}" planned code=0 target
   planned="$(python3 "$hot" plan "$head" --branch --app "$from" --repo "$ROOT")" || code=$?
   if [[ $code -ne 0 && $code -ne 3 ]] || [[ -z "$planned" ]]; then echo "daemon swap: no plan for $from (hot-apply exit $code)"; return 1; fi
-  # Refused unless the Rust part applies and nothing else the PR needs is missing from APP. Its own
-  # web is served from the branch below; bundled helpers keep APP's build, as with a merged commit.
-  local why
-  why="$(python3 -c '
-import json, sys
+  # Refused unless the Rust part applies and the daemon fits APP. The PR is daemon-only against its own
+  # base, so Swift, resources and string catalogs in the plan's `left` came into the base after APP was
+  # built: the daemon runs beside APP's own (the ABI checks, Rust the app links and the FFI pin, stay
+  # refusals) and they are named as left out, not taken for a dev build. The PR's own web is served from
+  # the branch, unless Swift is left out (that web may lean on it: the dev build then); base web the PR
+  # does not change is left out with the Swift. Bundled helpers keep APP's build, as with a merged commit.
+  local why sorted
+  sorted="$(PR_RESULT="$result" python3 -c '
+import json, os, sys
 plan = json.load(sys.stdin)
+pr_web = bool(json.loads(os.environ["PR_RESULT"]).get("files", {}).get("web-live"))
 ok = ("web (not published for a branch)", "bundled helpers (cmux-mobile-host, ...)")
-left = {k: v for k, v in plan["left"].items() if k not in ok}
+app_side = ("swift-live", "rebuild", "strings")
+left = {k: v for k, v in plan["left"].items() if k not in ok and k not in app_side}
+out = {k: v for k, v in plan["left"].items() if k in app_side}
+web = bool(plan["left"].get("web (not published for a branch)"))
 if "rust" not in plan["parts"]:
     left.setdefault("no daemon change from the app", [plan["base"]])
-for kind, paths in sorted(left.items()):
-    print(kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
+if out and web:
+    if pr_web:
+        left["web UI on Swift this app lacks"] = plan["left"]["web (not published for a branch)"]
+    else:
+        out["web"] = plan["left"]["web (not published for a branch)"]
+    web = False
+lines = lambda d: [k + ": " + ", ".join(v[:5]) + (" …" if len(v) > 5 else "") for k, v in sorted(d.items())]
+print(json.dumps({"why": lines(left), "left_out": lines(out), "web": web}))
 ' <<<"$planned")"
+  why="$(python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["why"]))' <<<"$sorted")"
   if [[ -n "$why" ]]; then echo "daemon swap refused for $from:"; sed 's/^/  /' <<<"$why"; return 1; fi
+  local left_out
+  left_out="$(python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["left_out"]))' <<<"$sorted")"
   if [[ -z "$binary" && "$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("published", False))' <<<"$planned")" != True ]]; then
     echo "the PR head's daemon is not published yet (CI publishes a same-repo PR's cmux-tui tree after its push)"
     return 2
   fi
   local web=""
-  if [[ -n "$(python3 -c 'import json,sys; print("y" if json.load(sys.stdin)["left"].get("web (not published for a branch)") else "")' <<<"$planned")" ]]; then
+  if [[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["web"])' <<<"$sorted")" == True ]]; then
     web=1
   fi
   # A copy of a DEV build cannot load a web overlay (see web_live): refused before anything changes.
@@ -356,8 +383,13 @@ for kind, paths in sorted(left.items()):
     echo "daemon swap: hot-apply did not apply or check it (its receipt above says why; nothing was left changed)"; return 1
   }
   echo "daemon swapped: $target_name runs #$pr's daemon, terminals kept${here:+ (scripts/cmux-next/hot-apply.py rollback puts yours back)}"
+  if [[ -n "$left_out" ]]; then
+    # The app is behind the PR's base: it runs the PR's daemon, not the whole PR.
+    echo "daemon only; Swift left out (merged into the base after ${from##*/} was built, it waits for the next nightly):"
+    sed 's/^/  /' <<<"$left_out"
+  fi
   # live_rust runs as a condition, so set -e is off in it: each step's failure is checked.
-  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+--front}; then
+  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+"$front"}; then
     echo "daemon swap: cmux PR #$pr did not open (side-instance.sh launch failed; try-pr.sh $pr --stop removes it)"; return 3
   fi
   # A daemon PR that also changes web UI: that part is patched in too, or the daemon goes back, so
@@ -412,7 +444,18 @@ case "$verdict" in
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
-    build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    build=(build cmux --ref "$head" --tag "pr-$pr" --workspace "try-pr:$pr:$(id -un)")
+    # A build a person opens targets production, where their own account signs in (Leo: "why is the stuff so
+    # weird to log in to dev builds?"). An agent's build, a build taken only for its daemon, and --dev-backend
+    # keep the offline dev backend (and the Linux pool: production builds run on the Mac fleet).
+    agent=""; if [[ -n "${CLAUDECODE:-}" || -n "$(compgen -e | grep '^CODEX_' || true)" ]]; then agent=1; fi
+    if [[ -z "$dev_backend" && -z "$agent" && "$rust_code" != 2 ]]; then
+      build+=(--production)
+      echo "backend: production (cmux.com, your own account signs in); --dev-backend for the dev backend"
+    else
+      build+=(--backend-mode local)
+      echo "backend: local dev backend (offline: no Cloud or sign-in)"
+    fi
     # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
     # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
     # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.

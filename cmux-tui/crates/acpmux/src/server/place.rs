@@ -13,25 +13,45 @@ use crate::placement::{Candidate, Work};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
-/// `{"work": "agent"|"build", "offInteractive": bool}` → `placement::place`'s verdict. With
-/// `offInteractive` (a command-line `new` on a machine a person works at, `cli/place.rs`), the
-/// machines the registry marks interactive (`placement::interactive`), this one included, are
-/// not candidates.
+/// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool}` →
+/// `placement::place`'s verdict. With `offInteractive` (a command-line `new` on a machine a
+/// person works at, `cli/place.rs`), the machines the registry marks interactive
+/// (`placement::interactive`), this one included, are not candidates. With `outdatedOk` (a
+/// `session move`, which reaches the peer's own daemon over ssh), a peer whose only fault is a
+/// stale build (`placement::only_outdated`) stays a candidate, its host row marked
+/// `outdated: true` with the `refresh` command that updates it.
 pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     let work = match params.get("work").and_then(Value::as_str) {
         Some("build") => Work::Build,
         _ => Work::Agent,
     };
     let off_interactive = params.get("offInteractive").and_then(Value::as_bool) == Some(true);
-    let (mut candidates, mut down) = candidates(hub).await;
+    let outdated_ok = params.get("outdatedOk").and_then(Value::as_bool) == Some(true);
+    let (mut candidates, mut down, outdated) = candidates_with(hub, outdated_ok).await;
     let registry = crate::placement::load_registry();
     if off_interactive {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
         down.retain(|(name, _)| !crate::placement::interactive(registry.as_ref(), name));
     }
     let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
-    let verdict = crate::placement::with_down(verdict, &down);
+    let verdict = with_outdated(crate::placement::with_down(verdict, &down), &outdated);
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
+}
+
+/// `verdict` with each host `outdated` names marked `outdated: true` and its `refresh` command.
+fn with_outdated(mut verdict: Value, outdated: &[String]) -> Value {
+    for h in verdict.get_mut("hosts").and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(name) = h.get("name").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        if outdated.contains(&name)
+            && let Some(o) = h.as_object_mut()
+        {
+            o.insert("outdated".into(), json!(true));
+            o.insert("refresh".into(), json!(crate::placement::refresh_command(&name)));
+        }
+    }
+    verdict
 }
 
 /// `candidates` without the machines the registry marks interactive.
@@ -111,18 +131,47 @@ fn dispatch_hosts(
 /// This machine and every connected peer, with their last readings, and every other peer with
 /// why it is none (`split_peers`).
 async fn candidates(hub: &Hub) -> (Vec<Candidate>, Vec<(String, String)>) {
-    let (peers, down) = split_peers(hub.peers());
+    let (candidates, down, _) = candidates_with(hub, false).await;
+    (candidates, down)
+}
+
+/// [`candidates`], and with `outdated_ok` the peers whose only fault is a stale build kept as
+/// candidates (`split_peers_with`), named in the third list.
+async fn candidates_with(
+    hub: &Hub,
+    outdated_ok: bool,
+) -> (Vec<Candidate>, Vec<(String, String)>, Vec<String>) {
+    let (peers, down, outdated) = split_peers_with(hub.peers(), outdated_ok);
     let mut candidates = vec![this_machine(hub).await];
     candidates.extend(peers);
-    (candidates, down)
+    (candidates, down, outdated)
 }
 
 /// Peer rows split into candidates and the names of the others with why
 /// (`placement::peer_down`): a peer is one only while its link is up.
+#[cfg(test)]
 fn split_peers(rows: Vec<Value>) -> (Vec<Candidate>, Vec<(String, String)>) {
+    let (peers, down, _) = split_peers_with(rows, false);
+    (peers, down)
+}
+
+/// [`split_peers`]; with `outdated_ok`, a peer whose only fault is its build
+/// (`placement::only_outdated`) is a candidate too, and named in the third list.
+fn split_peers_with(
+    rows: Vec<Value>,
+    outdated_ok: bool,
+) -> (Vec<Candidate>, Vec<(String, String)>, Vec<String>) {
     let mut down = Vec::new();
     let mut peers = Vec::new();
+    let mut outdated = Vec::new();
     for row in rows {
+        if outdated_ok && crate::placement::only_outdated(&row) {
+            if let Some(c) = Candidate::peer(&row) {
+                outdated.push(c.name.clone());
+                peers.push(c);
+            }
+            continue;
+        }
         match crate::placement::peer_down(&row) {
             None => peers.extend(Candidate::peer(&row)),
             Some(why) => {
@@ -132,7 +181,7 @@ fn split_peers(rows: Vec<Value>) -> (Vec<Candidate>, Vec<(String, String)>) {
             }
         }
     }
-    (peers, down)
+    (peers, down, outdated)
 }
 
 /// A sub-session's `host` (`start_session`, `server/subsessions.rs`). A
@@ -297,6 +346,7 @@ mod tests {
             json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
             json!({"name": "stale", "connected": true, "state": "reconnecting"}),
             json!({"name": "gone", "connected": false, "state": "offline"}),
+            json!({"name": "old-disk", "connected": true, "state": "connected", "outdated": true}),
         ];
         let (peers, down) = split_peers(rows);
         assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
@@ -305,8 +355,41 @@ mod tests {
             [
                 ("stale".to_owned(), "not connected (reconnecting)".to_owned()),
                 ("gone".to_owned(), "not connected (offline)".to_owned()),
+                ("old-disk".to_owned(), "outdated peer build (stale disk copy)".to_owned()),
             ]
         );
+    }
+
+    /// Item A: a move (`outdatedOk`) keeps a peer whose only fault is a stale build as a
+    /// candidate, marked with the one command that refreshes it; a peer whose link is down, or
+    /// that is outdated and down, still is none.
+    #[test]
+    fn a_move_ranks_a_peer_whose_only_fault_is_its_build_with_its_refresh_command() {
+        let rows = vec![
+            json!({"name": "up", "connected": true, "state": "connected", "health": health(40, 0)}),
+            json!({"name": "old-disk", "connected": true, "state": "connected", "outdated": true,
+                   "health": health(40, 0)}),
+            json!({"name": "old-gone", "connected": false, "state": "offline", "outdated": true}),
+        ];
+        let (peers, down, outdated) = split_peers_with(rows.clone(), true);
+        assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up", "old-disk"]);
+        assert_eq!(outdated, ["old-disk"]);
+        assert_eq!(
+            down,
+            [("old-gone".to_owned(), "outdated peer build (stale disk copy)".to_owned())]
+        );
+        // Every other caller is unchanged: an outdated peer takes no placed work.
+        let (peers, _, outdated) = split_peers_with(rows, false);
+        assert_eq!(peers.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["up"]);
+        assert!(outdated.is_empty());
+
+        let verdict = with_outdated(
+            json!({"hosts": [{"name": "up"}, {"name": "old-disk"}]}),
+            &["old-disk".to_owned()],
+        );
+        assert_eq!(verdict["hosts"][0].get("outdated"), None);
+        assert_eq!(verdict["hosts"][1]["outdated"], json!(true));
+        assert_eq!(verdict["hosts"][1]["refresh"], json!("acpmux machine update old-disk"));
     }
 
     /// gcp-codex-swarm-07, 2026-11-20: a lane VM at its lane cap whose only other machine is one
