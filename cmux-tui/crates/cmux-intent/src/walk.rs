@@ -124,7 +124,7 @@ pub fn walk<'a>(root: &'a Command, argv: &[String]) -> Walk<'a> {
                 None if bad_sub.is_some() => {} // whose flag it is cannot be read yet
                 None => unknown.push((i, levels.len() - 1)),
                 Some(takes) => {
-                    if !eq && takes && !(name.chars().count() > 2 && !name.starts_with("--")) {
+                    if !eq && takes && (name.chars().count() <= 2 || name.starts_with("--")) {
                         i += 1;
                     }
                 }

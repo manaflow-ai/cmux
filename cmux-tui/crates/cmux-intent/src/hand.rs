@@ -164,13 +164,13 @@ pub fn words_to(
     let mut known = flags("");
     known.extend(flags(&sub));
     if !known.is_empty() {
-        for i in 0..out.len() {
-            if out[i] == "--" {
+        for word in out.iter_mut() {
+            if word == "--" {
                 break;
             }
-            let name = out[i].split('=').next().unwrap_or_default().to_owned();
-            if out[i].starts_with("--") && out[i].len() > 2 && !known.contains(&name) {
-                out[i] = word_to(&out[i], &known, prog, true, &[], tbl, err);
+            let name = word.split('=').next().unwrap_or_default().to_owned();
+            if word.starts_with("--") && word.len() > 2 && !known.contains(&name) {
+                *word = word_to(word, &known, prog, true, &[], tbl, err);
             }
         }
     }
