@@ -63,6 +63,8 @@ pub(super) enum Offer {
 
 impl Inbox {
     pub(super) fn new(link: u64, counters: Arc<DialCounters>) -> (Self, Lines) {
+        // Bounded in bytes by `offer`, not by the channel (RFD 0124 R4): past
+        // [`MIRROR_INBOX_BYTES`] the mirror ends and `inbox_overflows` counts it.
         let (frames, lines) = mpsc::unbounded_channel();
         let held = Arc::new(AtomicU64::new(0));
         (Self { link, frames, held: held.clone(), counters }, Lines { lines, held })
