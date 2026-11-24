@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 
 /// Geometry of the photo zoom between a bubble and the full-screen viewer
@@ -63,6 +67,7 @@ public enum ConversationPhotoFlight {
         )
     }
 
+    #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
     /// The flying photo's outline in `rect` (its full frame, tail area
     /// included): a Messages bubble with corner `radius`. When `tailed`, the
     /// tail drops below the body by `iOSTailDrop(radius:)`, so the corners
@@ -74,6 +79,7 @@ public enum ConversationPhotoFlight {
         if tailed { body.size.height = max(0, rect.height - ConversationBubbleGeometry.iOSTailDrop(radius: radius)) }
         return ConversationBubbleGeometry.iOSPath(in: body, side: side, tail: tailed, radius: radius)
     }
+    #endif
 }
 
 /// The photo viewer's chrome on each OS.
