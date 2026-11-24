@@ -7,7 +7,7 @@ import Testing
 /// Lawrence 2026-11-11 (8:04 PM screenshot: Home, six pinned rows, then the "Workspaces" heading): "spacing here is not
 /// consistent anymore either". Home, every pinned row and the workspace rows under them keep one rhythm at every app
 /// density (Default draws the Codex rows, #39984) and every sidebar density: one row height, one pitch from row to row
-/// (Home to the first pin as between two pins), the list's one row gap under the last pin, one left edge (Home's glyph
+/// (Home to the first pin as between two pins, plus the top section's gap), the list's one row gap under the last pin, one left edge (Home's glyph
 /// and a text-only title), one glyph center line (the pins center under Home's glyph,
 /// https://github.com/manaflow-ai/cmux/issues/42431) and one title column. No label sits between the pins and the list: the first workspace
 /// row is the next row under the last pin (https://github.com/manaflow-ai/cmux/issues/42373).
@@ -107,8 +107,10 @@ import Testing
             }
             for index in 1..<fills.count {
                 let step = abs(fills[index].midY - fills[index - 1].midY)
-                #expect(abs(step - pitch) <= Self.tolerance,
-                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, workspace rows \(pitch) pt")
+                // Home to the first pin adds the top section's gap (the Chief's row stands apart from the workspaces).
+                let expected = index == 1 ? pitch + SidebarListBlocks.topSectionGap : pitch
+                #expect(abs(step - expected) <= Self.tolerance,
+                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, expected \(expected) pt")
             }
             // No heading between the pins and the list (https://github.com/manaflow-ai/cmux/issues/42373): the first
             // workspace row is one row gap under the last pin.
