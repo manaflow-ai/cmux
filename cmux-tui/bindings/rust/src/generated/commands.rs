@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c6d0f3dea2025c443f5317cfa375e1281441bd59736ab8850502510b7728b2d9.
+// cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2270,6 +2270,8 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
@@ -4137,6 +4139,34 @@ pub struct TerminalEventsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalFindRequest {
+    /// Marker the page ends above (exclusive): the previous page's next_before.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub case_sensitive: Option<bool>,
+    /// The previous page's epoch; a different one restarts at the bottom.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub epoch: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_matches: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page_rows: Optional<u64>,
+    /// Empty matches nothing.
+    pub query: String,
+    /// query is a Rust regex pattern, not a literal.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub regex: Option<bool>,
+    pub surface: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub whole_word: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type TerminalFindResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalHistoryRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before: Optional<u64>,
@@ -5278,6 +5308,10 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.after.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-page-v1")?;
+        }
         if !request.known.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
@@ -6225,6 +6259,10 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn terminal_find(&mut self, request: TerminalFindRequest) -> Result<TerminalFindResult> {
+        self.execute(&TERMINAL_FIND_METADATA, &request)
     }
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
