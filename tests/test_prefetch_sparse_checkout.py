@@ -2,7 +2,7 @@
 """scripts/ci/prefetch-sparse-checkout.sh widens a blob:none sparse checkout to exactly the tree git gives.
 
 path_route checks out two files, then the script prefetches the router's blobs in parallel and applies its
-patterns (docs/ci/cmux-next-workflow-notes.md#note-556). The working tree must equal a plain checkout of the
+patterns (docs/ci/cmux-next-workflow-notes.md#note-558). The working tree must equal a plain checkout of the
 same patterns: the same files with the same bytes, nothing excluded on disk, and the blobs fetched up front.
 """
 
