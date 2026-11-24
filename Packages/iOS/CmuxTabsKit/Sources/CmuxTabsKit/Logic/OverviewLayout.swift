@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
 /// iPhone 17 Pro Max): two columns (more on a wider page, `columns`) with 16 pt insets and gutter, card
