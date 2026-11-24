@@ -121,6 +121,8 @@ impl Tickets for MachineTickets {
             expires_at: 0,
             peer_key: None,
             peers: self.peers.keys().cloned().collect(),
+            peer_name: None,
+            peer_host: None,
         })
     }
 
@@ -133,6 +135,8 @@ impl Tickets for MachineTickets {
             expires_at: 0,
             peer_key: Some(peer.to_owned()),
             peers: Vec::new(),
+            peer_name: None,
+            peer_host: None,
         })
     }
 }
