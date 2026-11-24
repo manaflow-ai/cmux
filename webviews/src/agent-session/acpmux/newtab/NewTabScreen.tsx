@@ -1905,13 +1905,8 @@ export function NewTabScreen(props: Props) {
   // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
   // the listbox owns its keys).
   const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
-  const stepRows = (step: 1 | -1) => {
-    const leaving = rows[current];
-    if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
-    const strip = rows.filter(inStrip);
-    const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
-    pick(arrowStep(rows, current, step, Math.max(0, column)));
-  };
+  // The same step as the arrows (stepSelection).
+  const stepRows = (step: 1 | -1) => pick(stepSelection(current, step, rows.length));
   const fieldKeys = useListKeys({
     onCommand: (command) => {
       if (command !== "list.leave" || !rows.length || !list.current) return false;
