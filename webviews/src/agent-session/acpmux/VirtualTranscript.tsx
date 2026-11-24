@@ -180,10 +180,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadNews,
   noteUnreadCount,
+  noteUnreadNews,
 } from "./conversation/unreadState";
-import { sinceNews, sinceCount } from "./conversation/sinceNews";
+import { sinceCount, sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -203,7 +203,14 @@ import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
 import { floorEnd, type HeldRoom, roomUnder } from "./conversation/roomUnder";
-import { type ChatOpen, type ChatRows, drawnKey, happenedAfterOpen, openChat } from "./conversation/openBreakpoint";
+import {
+  type ChatOpen,
+  type ChatRows,
+  drawnKey,
+  happenedAfterOpen,
+  keepKnownRows,
+  openChat,
+} from "./conversation/openBreakpoint";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -2114,6 +2121,9 @@ function TranscriptView({
     while (from < rows.length && from < last.length && rows[from] === last[from]) from += 1;
     for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
+    // The seen-row keys let go of rows gone from the transcript once they pass their bound
+    // (openBreakpoint.ts `keepKnownRows`), on commit: render only adds to them, and trims no ref.
+    if (knownRows.current !== null) keepKnownRows(knownRows.current, rows, rowFrameKey);
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);

@@ -25,6 +25,21 @@ export function transcriptRepositories(
   });
 }
 
+/** Rows past the transcript's own count the cache may hold before it lets go of rows gone from it. */
+export const REPOSITORY_CACHE_SLACK = 64;
+
+/** Lets go of the cached mentions of rows no longer in `rows` (rows the store let go of, a chat's
+ *  history past its window), once the cache holds more than twice the rows: each cached entry keeps
+ *  its row's whole text alive, so a long chat's cache grew with every row it ever showed (the
+ *  transcript-replay bench's god chat: an entry per row from the first). O(rows) when it trims, at
+ *  most once per `rows.length + REPOSITORY_CACHE_SLACK` rows added, so O(1) per row. */
+export function keepRepositoryCache(cache: RepositoryCache, rows: readonly Pick<AcpmuxRow, "id">[]): void {
+  if (cache.size <= 2 * rows.length + REPOSITORY_CACHE_SLACK) return;
+  const ids = new Set<string>();
+  for (const row of rows) ids.add(row.id);
+  for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
+}
+
 /** One reading of a transcript (`transcriptRepositoriesFrom`): the rows read, the fallback, and
  *  where the repository mentioned last changes (`marks`, by row index, in order). `at(index)` is the
  *  repository row `index` means. A mention changes seldom, so a reading holds a few marks, never a
@@ -66,6 +81,7 @@ export function transcriptRepositoriesFrom(
       }
     }
   }
+  keepRepositoryCache(cache, rows);
   const at = (index: number) => {
     // The last mark at or before `index`.
     let low = 0;

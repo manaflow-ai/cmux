@@ -45,6 +45,20 @@ export class ChatRows {
   }
 }
 
+/// The keys of the rows a mounted transcript has seen (VirtualTranscript `knownRows`: a row seen once
+/// takes no entrance again), let go of past max(DRAWN_ROWS_KEPT, twice the rows) for the rows shown
+/// now. It kept a key for every row a long chat ever showed, past the store's window (the
+/// transcript-replay bench's god chat: a key per row from the first). A key let go of is a row gone
+/// from the transcript; if it comes back it is drawn already (`ChatRows`) or older than the open
+/// (`happenedAfterOpen`), as for `ChatRows` past its bound. O(rows) when it trims, at most once per
+/// `rows.length` keys added: O(1) per row. In place: the set is the one the transcript holds.
+export function keepKnownRows<Row>(known: Set<string>, rows: readonly Row[], keyOf: (row: Row) => string): void {
+  if (known.size <= Math.max(DRAWN_ROWS_KEPT, 2 * rows.length)) return;
+  const shown = new Set<string>();
+  for (const row of rows) shown.add(keyOf(row));
+  for (const key of known) if (!shown.has(key)) known.delete(key);
+}
+
 /// The rows each chat drew on this page, most recently opened last.
 export class ChatDrawn {
   readonly #chats = new Map<string, ChatRows>();
