@@ -9,6 +9,7 @@ mod claim_check;
 #[cfg(unix)]
 mod closed_tmp;
 mod control_asks;
+mod verify;
 
 mod account_usage;
 mod activity;
@@ -20,6 +21,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create with no room here starts on the peer placement picks.
+pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
 mod adopted_fences;
@@ -67,6 +70,7 @@ pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
+pub(crate) mod session_budget_watch;
 pub(crate) mod settled_view;
 mod subagent_expiry;
 pub(crate) mod subagent_resume;
@@ -86,6 +90,8 @@ mod cursor_ext;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
+/// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
+pub use file_uploads::window as file_put_window;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
@@ -135,6 +141,7 @@ mod time_breakdown_restore_tests;
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 pub mod created_by;
+pub(crate) mod evict;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
@@ -172,6 +179,7 @@ pub(crate) mod list_tee;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
+pub(crate) mod hub_health;
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -186,6 +194,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+mod native_history_chain;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_list;
@@ -220,6 +229,7 @@ pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
 mod retention;
+mod store_pressure;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
@@ -254,6 +264,7 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
+pub(crate) mod image_size;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -373,6 +384,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
 mod capacity_retry;
+mod outage;
 mod title_log;
 mod titles;
 mod tool_installs;
@@ -511,6 +523,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
+mod turn_cost;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -1011,6 +1024,8 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// The chats that left memory, each a compact row (`evict.rs`).
+    pub(crate) evicted: evict::Tier,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1096,6 +1111,8 @@ pub struct Hub {
     pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
+    pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Hub-routed session reads shared by callers while the same network read is in flight.
@@ -1225,6 +1242,11 @@ pub struct Hub {
     /// (`cold_segments.rs`).
     pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Chats whose log grew past another 4 MiB since the pack worker last looked, its wake, and
+    /// the log stamp each chat's pack was last checked against (`pack_as_it_grows.rs`).
+    pub(super) pack_grown: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) pack_grown_wake: Arc<Notify>,
+    pub(super) pack_checked: StdMutex<HashMap<String, u64>>,
     /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
     #[cfg(test)]
     pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
@@ -1265,6 +1287,9 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// How long a start that waits on its harness lets it do no work (`start_watch.rs`
+    /// `START_HUNG`; tests shorten it).
+    pub(super) start_hung: StdMutex<std::time::Duration>,
     /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
@@ -1633,6 +1658,7 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            evicted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
@@ -1670,6 +1696,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
             child_tags: Default::default(),
@@ -1727,6 +1754,9 @@ impl Hub {
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
             cold_sealed_wake: Arc::new(Notify::new()),
+            pack_grown: Default::default(),
+            pack_grown_wake: Arc::new(Notify::new()),
+            pack_checked: Default::default(),
             #[cfg(test)]
             cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
@@ -1746,6 +1776,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            start_hung: StdMutex::new(start_watch::START_HUNG),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
@@ -1932,6 +1963,12 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
+    /// How long a start that waits on its harness (the person's, or one with `waitStart`) lets
+    /// the harness do no work before it ends the start (`start_watch.rs`; tests shorten it).
+    pub fn set_start_hung(&self, hung: std::time::Duration) {
+        *self.start_hung.lock().unwrap_or_else(|e| e.into_inner()) = hung;
+    }
+
     /// How long an unused session harness lives; None keeps it forever.
     pub fn set_idle_child(&self, idle: Option<std::time::Duration>) {
         *self.idle_child.lock().unwrap() = idle;
@@ -2061,11 +2098,34 @@ impl Hub {
         hosted: bool,
         saved: bool,
     ) {
+        if let Some(session) = self.install_stored(meta, deferred, hosted, saved) {
+            // A session read from the store may be another row's parent: every closed row is
+            // built again, and no cursor from before it is followed (`Events::changed`), which
+            // costs one barrier, not a walk of every session per session read at start.
+            self.events.changed(Some(&session));
+        }
+    }
+
+    /// An evicted chat back in memory (`evict.rs`): as a start reads it, but its own row alone
+    /// changes. It was in the list all along, so no other row reads it anew.
+    pub(super) fn install_stored_session_quiet(&self, meta: SessionMeta) {
+        if let Some(session) = self.install_stored(meta, false, false, true) {
+            self.events.row_changed(&session);
+        }
+    }
+
+    fn install_stored(
+        &self,
+        meta: SessionMeta,
+        deferred: bool,
+        hosted: bool,
+        saved: bool,
+    ) -> Option<Arc<Session>> {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
-            return;
+            return None;
         }
         let saved_meta = saved.then(|| meta.clone());
         let mut meta = meta;
@@ -2108,10 +2168,7 @@ impl Hub {
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
         self.update_live_session_index(&session);
-        // A session read from the store may be another row's parent: every closed row is built
-        // again, and no cursor from before it is followed (`Events::changed`), which costs one
-        // barrier, not a walk of every session per session read at start.
-        self.events.changed(Some(&session));
+        Some(session)
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -2509,7 +2566,8 @@ impl Hub {
     pub(super) fn session_counts(&self) -> (usize, usize) {
         let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
         let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
-        (all, live)
+        // An evicted chat counts as it did in memory: live unless closed (`evict.rs`).
+        (all + self.evicted.len(), live + self.evicted.live_len())
     }
 
     // ------------------------------------------------------------ lookup
@@ -2535,8 +2593,9 @@ impl Hub {
         self.events.tee_lists_hub_rows()
     }
 
+    /// Every chat this daemon has, in memory or evicted (`evict.rs`).
     pub(crate) fn session_count(&self) -> usize {
-        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len() + self.evicted.len()
     }
 
     /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
@@ -2550,6 +2609,8 @@ impl Hub {
     /// (`Hub::unknown_session` adds the close names where a caller is told). A key with a `/`
     /// never matches by short name here: `HOST/NAME` stays a host's (`own_host.rs`).
     pub(super) fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+        // The chats `key` may name that left memory come back first (`evict.rs`).
+        self.rehydrate_named(key);
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
@@ -2663,6 +2724,7 @@ impl Hub {
     /// and live; by short name and closed]. A peer's short name gives way to the first two, and
     /// to the third only when it is closed too (`Hub::resolve_remote`).
     pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
+        self.rehydrate_named(key);
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut counts = [0_usize; 3];
@@ -2691,6 +2753,7 @@ impl Hub {
         if key.contains('/') {
             return None;
         }
+        self.rehydrate_named(key);
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (live, closed): (Vec<_>, Vec<_>) = sessions
             .values()
@@ -2727,6 +2790,9 @@ impl Hub {
                 name.to_ascii_lowercase().contains(&lower).then_some(name)
             })
             .collect();
+        names.extend(
+            self.evicted.names().into_iter().filter(|n| n.to_ascii_lowercase().contains(&lower)),
+        );
         names.extend(self.remote_names_containing(&lower));
         let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
         crate::session_name::not_found(key, &close)
@@ -3397,7 +3463,9 @@ impl Hub {
     /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        let mut metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        // An evicted chat keeps its folder as it did in memory (`evict.rs`).
+        metas.extend(self.evicted.rows().iter().map(|row| row.meta.clone()));
         let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
@@ -3550,7 +3618,8 @@ impl Hub {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        // An evicted chat comes back first (`evict.rs`): its log may be cold-archived.
+        let live = self.session_get(id);
         let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
@@ -3572,7 +3641,7 @@ impl Hub {
     /// `after` sends those `n` and the few appended since. Costs `n` line heads read back from
     /// the end however long the log is.
     pub fn newest_window(&self, id: &str, n: u64) -> Result<crate::store::NewestWindow> {
-        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let live = self.session_get(id);
         let Some(session) = live else { return self.store.newest_window(id, u64::MAX, n) };
         self.warm_chat(&session);
         self.catch_up_tail(&session);

@@ -471,6 +471,17 @@ is forwarded, and the service never answers it.
   after its ping was counted lost does not take it back). `switches`: path
   changes since the link came up. `net`: `cellular` or `other` (the app's last
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- `echo`, `ack`, `spikeCount`, `spikes` (added 2026-11-24; absent when no key
+  was typed): the keystroke round trips since the last stat, from the key's tap
+  (`cmux-mobile-link/src/key_echo.rs`). `echo` (n, p50, p95, p99, max): tap to
+  the first terminal output after it. `ack`: tap to the Mac's reply to its
+  `send` on the input lane. With `rtt` (a datagram, outside both streams) they
+  name the slow hop: `rtt` slow too is the network; `ack` slow with `rtt` fast
+  is the input stream or the Mac daemon; `echo` slow with `ack` fast is the
+  Mac's echo or the attach stream queued behind other output. `spikeCount`:
+  keys whose echo took over 150 ms; `spikes`: the six slowest, each
+  `[upS at the key, ack ms or -1 when the reply had not come, echo ms]`, so a
+  periodic stall shows its period.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 
@@ -480,7 +491,8 @@ error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
 one within 5 s of the socket's last (an `end` stat excepted). It writes one
 Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
 against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
-`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+`rttMax`; `echo` and `ack` the same with `P99`; `spikes` at most six clamped
+triples), plus `kind`, `ingressColo`, `country` and `continent` (where the
 socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
 hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
 reads them back.
@@ -605,6 +617,71 @@ retries on its own; it never shows "connecting" without a bound for it
 (`scripts/cmux-next/check-connection-notices.py`). What IT must allow:
 [network requirements](../web/data/next-docs/pages.ts) (cmux.com
 `/docs/nightly/next/network-requirements`).
+
+## Three-way hub (RFD 0142 R6, added 2026-11-24, backward compatible)
+
+One room per agent session where both sources of the session's events, the
+Mac and the AutoCloud VM, upload, and every viewer (the phone, another Mac)
+downloads each event once: whichever source is ahead carries the stream, and
+the other is a warm standby. When the Mac sleeps mid-turn, the VM's copies
+are already the newest and keep flowing with no reconnect.
+
+- **Join:** `GET /v1/hub/:sessionId?deviceId=<id>&role=mac|vm|viewer`, a
+  plain HTTP/1.1 `Upgrade: websocket` with the Stack token, as for the
+  relay. The Worker admits only a device registered to the caller (its own
+  hub, then the database; anyone else gets `403 not_owner`) and a source
+  role only from a Mac-kind device (the VM's daemon registers as one; a
+  phone gets `403 not_a_source`). `400` for a session id or device id that
+  is not a UUID or an unknown role, `503 hub_off` when the Worker's
+  `HUB_RELAY_MODE` is `off`. An older Worker answers `404`.
+- **Capability:** a hub client offers the `cmux-hub.v1` subprotocol and the
+  hub echoes it. A client falls back to its other paths (one link per Mac,
+  the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
+  refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
+  which is what the two-party `LinkRelay`, and so every pre-hub relay,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
+  `relay_error_means_no_hub`). Old clients never ask for the hub, and the
+  relay they use is unchanged.
+- **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
+  session, named by the owner key, build space and session id
+  (`hubRoomName`), never a client value. Hibernating sockets, no storage
+  write per frame. One socket per source role and per viewer device (a
+  newer join closes the older with 4000 `replaced`). On join the socket
+  gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
+  socket hears `{"type":"source","role","online"}` when a source comes or
+  goes (not when a newer socket of the same role replaced it).
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
+  `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
+  checked by the Rust crate and the backend tests. The payload is a 35-byte
+  clear header and a sealed body:
+  `[u8 1][16-byte session][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm]`.
+  The header is all the relay reads; a bad one is `bad_frame:bad_hub`.
+- **Seal (end to end, source to viewer):** XChaCha20-Poly1305 under
+  `BLAKE3 derive_key("cmux relay hub v1 session key", secret || session)`,
+  nonce `[source][to][epoch BE][seq BE][6 zero bytes]`, associated data the
+  clear header, plaintext `[session][epoch BE][seq BE][source][event]`. The
+  relay holds no key that decrypts or authenticates session content; an
+  edit to any header byte, or a header moved onto another body, fails to
+  open (`cmux_transport::hub::{seal, open}`).
+- **Relay rule** (`cmux_transport::hub::HubRelayRule`, the same in
+  `src/hub-relay.ts`): a frame `to` viewers whose `(epoch, seq)` is newer
+  than the highest the room forwarded goes to every viewer once, with
+  `peer` set to the sender's device; an older or equal one is dropped and
+  counted. A frame `to` a source (Mac-to-VM sync when the two have no direct
+  path) goes to that source as is, or the sender hears
+  `{"type":"source","role","online":false}`. A viewer may not send
+  (`bad_hub:viewer`); a source speaks only as its own role
+  (`bad_hub:role`) and for the room's session (`bad_hub:session`); other
+  kinds are `bad_frame:kind`. The high-water mark lives in memory: a wake
+  forgets it, which lets at most one more copy through. `{"type":"stats"}`
+  answers `{"type":"stats","forwarded","dropped"}`.
+- **Viewer** (`cmux_transport::hub_truth::TruthTracker`, sans-io): checks
+  that the clear header equals the sealed triple, delivers events in log
+  order with no duplicates, reports a hole inside an epoch as a `Gap` to
+  fill from the source with the higher head, and flags a `StalePick` when
+  the relay's copy trails the other source's known head by more than the
+  tolerance (4).
 
 ## Link (inside either transport)
 
@@ -1216,6 +1293,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `c~<machine_id>~<team_id>`: the desktop of a Cloud machine the account owns
   (exactly one owner link from the app, else `forbidden`; not running: `asleep`),
   view only: hostd sends the source no input from the phone.
+  With `mac-display-v1` (2026-11-23), `tab` may be `d~<display>`: this Mac's own
+  display (a CGDirectDisplayID in decimal, no leading zero; `d~0` the main display),
+  the Mac screen as rd/1 on this link with its video on the media lane, view only like
+  a Cloud desktop. hostd lists `mac-display-v1` only when the app's source captures
+  displays (`CMUX_MOBILE_MAC_DISPLAY=1`, else `no_surface_host`); the app starts a
+  capture only while Share This Mac is on (else the open fails `unavailable`) and
+  stops it when sharing turns off or the viewer goes.
   `tab` is the phone tab's key `s<surface>`;
   hostd opens it only when the daemon's `list-workspaces` lists that surface
   as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
@@ -1283,6 +1367,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
 | `cloud-desktop-v1` | hostd `version` | (2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`. |
+| `mac-display-v1` | hostd `version` | (2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on. |
 | `cloud-mobile-chat-v1` | cmux-tui daemon | On a `cloud-acpmux` carrier hostd requires the Cloud daemon's `identify` to list it before declaring it (phone prompt restrictions). |
 | `conversation-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: conversation tabs read as `conversation` with their record, not `browser`. |
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
@@ -1349,6 +1434,27 @@ With both, the challenge frame adds `macKey` (the X9.63 point, hex) and
 pins `macKey` per Mac device id when pairing first passes, and from then on
 refuses (`mac_identity_changed`, before it signs) a Mac that proves another key
 or none. Removing the Mac forgets the pin.
+
+#### Tunnel keys in the proofs (`proofVersion` 2)
+
+On a WireGuard link, both identity proofs also cover the tunnel's two static
+public keys, as each side's own tunnel handshook with them: `dialer` (the
+phone's, or a dialing Mac's) and `answerer` (the Mac's), base64 as in `wg-init`
+and `wg-resp`.
+
+- The phone's `auth` args add `proofVersion: "2"` on a WireGuard link.
+- A Mac that supports it answers on a WireGuard link with `proofVersion: "2"` in
+  the challenge, `macSignature` over
+  `cmux-mobile-mac-identity-v2 \0 mac \0 phone \0 macNonce \0 challenge \0 dialer \0 answerer`,
+  and checks the phone's signature over
+  `cmux-mobile-link-auth-v2 \0 mac \0 phone \0 nonce \0 identityKey \0 approvalKey \0 action \0 dialer \0 answerer`
+  (refused `unpaired` otherwise).
+- The phone checks the proof over its own tunnel's keys (refused
+  `mac_identity_changed`, before it signs). Once a Mac proved v2, the phone
+  remembers it beside the pin and refuses a v1 challenge from it on a WireGuard
+  link; a v2 challenge on a link with no tunnel keys is refused too.
+- A peer that sends no `proofVersion` (an older phone, or a WebRTC link) gets
+  the v1 proofs above; an older Mac ignores it and answers v1.
 
 ### Chief question answers
 
