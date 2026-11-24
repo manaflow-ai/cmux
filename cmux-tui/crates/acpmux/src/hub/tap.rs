@@ -131,6 +131,11 @@ impl Hub {
         // host's last lines yet when its exit entry comes through.
         let last_stderr = std::sync::Mutex::new(super::exit_reason::ExitLine::default());
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The replay of a session this chat's `session/fork` made is the fork's, never this
+            // chat's (`fork_replay.rs`): kept nowhere, it counts as logged, so a host drops it.
+            if matches!(dir, Direction::In) && super::fork_replay::of_the_fork(&tap_session, msg) {
+                return true;
+            }
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
@@ -309,8 +314,12 @@ impl Hub {
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                                 .leave_out_repeats(&kind, &mut line)
                         });
-                        let retry = (!muted && method == "claude.system.api_retry")
-                            .then(|| super::turn_retry::claude_retry(&line));
+                        let retry = (!muted
+                            && matches!(
+                                method.as_str(),
+                                "claude.system.api_retry" | "claude.system.api_error"
+                            ))
+                        .then(|| super::turn_retry::claude_retry(&line));
                         let logged =
                             tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // Only a logged line's sections count as logged: a retried write is
