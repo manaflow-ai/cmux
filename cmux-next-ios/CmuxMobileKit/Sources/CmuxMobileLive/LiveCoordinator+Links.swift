@@ -1205,7 +1205,11 @@ extension LiveCoordinator {
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
-            if attempt == 1, !everConnected {
+            if attempt > Self.reconnectingAttempts {
+                // Retry was offered (the redial failed past "Reconnecting"): it stays offered
+                // while the next dial runs, never back to a spinner the person cannot act on.
+                bannerHold.show(.connectionFailed.identified(session.macID))
+            } else if attempt == 1, !everConnected {
                 bannerHold.hold(.connecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             } else {
                 bannerHold.hold(.reconnecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
@@ -1224,8 +1228,10 @@ extension LiveCoordinator {
     }
 
     /// Redial attempts after a lost link that still read "Reconnecting"
-    /// (about the first half minute of the backoff); later ones say why.
-    nonisolated static let reconnectingAttempts = 6
+    /// (about the first half minute of the backoff); later ones offer Retry. Rust's policy
+    /// (`LinkRedialPolicy`); a lost link that was up less than its stable bound counts as one,
+    /// so a link that dies at once every time gets here too.
+    nonisolated static var reconnectingAttempts: Int { LinkRedialPolicy.reconnectingAttempts }
 
     /// The banner while a redial waits out its backoff. An offline Mac is not
     /// a connection failure. A Mac a link was connected to is being

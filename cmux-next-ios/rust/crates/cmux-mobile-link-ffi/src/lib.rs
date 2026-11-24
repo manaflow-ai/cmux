@@ -18,6 +18,7 @@ mod browser;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod link_redial;
 mod link_side;
 mod mac_screen;
 mod share_approval;
@@ -33,6 +34,10 @@ pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
+pub use link_redial::{
+    LinkRedial, LinkRedialLimits, link_redial_after_drop, link_redial_after_failure, link_redial_limits,
+    link_redial_news_attempt, link_redial_next_attempt,
+};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};

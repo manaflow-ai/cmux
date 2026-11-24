@@ -239,13 +239,13 @@ fn network_change_restarts_a_dial_in_flight_and_ends_the_backoff() {
     assert_eq!(m.handle(&dropped(1, "network lost")), [Effect::Close, dial(2, "m1", WG)]);
     // The redial is on the dead path; the network comes back.
     assert_eq!(m.handle(&Event::NetworkChanged), [dial(3, "m1", WG)]);
-    assert_eq!(m.phase(), &connecting(WG, 1));
+    // The restart counts as an attempt (policy::restart_attempt), so news cannot hold it in place.
+    assert_eq!(m.phase(), &connecting(WG, 2));
     // The old dial's late failure is ignored.
     assert_eq!(m.handle(&failed(2, "timeout")), []);
     m.handle(&failed(3, "x"));
-    m.handle(&failed(4, "x"));
     let Phase::Waiting { attempt, .. } = *m.phase() else { panic!("expected waiting, got {:?}", m.phase()) };
-    assert_eq!(m.handle(&Event::NetworkChanged), [dial(6, "m1", WG)]);
+    assert_eq!(m.handle(&Event::NetworkChanged), [dial(5, "m1", WG)]);
     assert_eq!(m.phase(), &connecting(WG, attempt + 1));
 }
 
@@ -477,4 +477,38 @@ fn cell_network_udp_blocked() {
     assert_eq!(m.handle(&Event::BlockUdp(true)), [Effect::Close, dial(2, "m1", WG)]);
     m.handle(&succeeded(2, LinkPath::TurnTls));
     assert_eq!(m.phase(), &connected(WG, LinkPath::TurnTls, None));
+}
+
+/// Stopping after the last attempt never strands the person: the foreground, a new network path
+/// or the Mac's presence starts every attempt over with no tap; Retry dials once.
+#[test]
+fn a_stopped_redial_starts_over_on_news_and_retry_dials_once() {
+    for news in [Event::Foreground, Event::NetworkChanged, Event::MacSignaled] {
+        let mut m = machine(WG);
+        m.handle(&target(mac()));
+        // Every dial fails until the redial stops.
+        for _ in 0..100 {
+            match m.phase().clone() {
+                Phase::Connecting { .. } => {
+                    m.handle(&failed(m.generation().0, "timeout"));
+                }
+                Phase::Waiting { retry_in, .. } if retry_in > Duration::ZERO => {
+                    m.handle(&Event::RetryDue { generation: m.generation() });
+                }
+                _ => break,
+            }
+        }
+        let Phase::Waiting { attempt, retry_in, .. } = m.phase().clone() else { panic!("{:?}", m.phase()) };
+        assert_eq!((attempt, retry_in), (policy::MAX_ATTEMPTS, Duration::ZERO), "stopped");
+        // Retry dials once, at the cap, and stops again.
+        let next = m.generation().0 + 1;
+        assert_eq!(m.handle(&Event::Open), [dial(next, "m1", WG)]);
+        assert_eq!(m.phase(), &connecting(WG, policy::MAX_ATTEMPTS));
+        m.handle(&failed(next, "timeout"));
+        assert!(matches!(m.phase(), Phase::Waiting { retry_in: Duration::ZERO, .. }));
+        // News starts the full set over.
+        let next = m.generation().0 + 1;
+        assert_eq!(m.handle(&news), [dial(next, "m1", WG)], "{news:?}");
+        assert_eq!(m.phase(), &connecting(WG, 1), "{news:?}");
+    }
 }

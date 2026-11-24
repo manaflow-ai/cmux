@@ -283,9 +283,11 @@ fn a_seeded_random_walk_keeps_dials_and_backoff_in_order() {
                         assert_eq!(after, retry_in);
                         let index = (*attempt as usize).saturating_sub(2).min(BACKOFF.len() - 1);
                         assert_eq!(*after, BACKOFF[index], "seed {seed}: attempt {attempt}");
-                        match last_delay {
-                            None => assert_eq!(*after, BACKOFF[0], "seed {seed}: a chain started past 1 s"),
-                            Some(last) => assert!(*after >= last, "seed {seed}: backoff shrank"),
+                        // A chain's first wait follows its attempt (above), not always 1 s: news
+                        // and the person's restarts count as attempts (`policy::restart_attempt`),
+                        // so a chain may reach its first failure past attempt 2.
+                        if let Some(last) = last_delay {
+                            assert!(*after >= last, "seed {seed}: backoff shrank");
                         }
                         last_delay = Some(*after);
                         retries += 1;

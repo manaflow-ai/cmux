@@ -161,6 +161,8 @@ public final class LinkController {
         self.beat = beat
         self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
+        // How long a lost link was up, on the controller's clock (the redial's stable reset).
+        machine.uptime = LinkMachine.uptime(on: clock)
     }
 
     public var target: LinkMachine.Target? { machine.target }

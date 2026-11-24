@@ -170,6 +170,15 @@ public struct LinkMachine: Sendable {
     /// Whether an unanswered probe keeps the link beside the redial
     /// (``Effect/keepStandby``). Off only in tests that measure the old way.
     public var keepsStandby = true
+    /// The controller's monotonic clock, read when a link connects and when it is lost, so a
+    /// lost link knows how long it was up (``LinkRedialPolicy/afterDrop(backoff:connectedAttempt:upFor:)``).
+    /// Nil (machine tests that do not time links): every lost link counts as stable and
+    /// redials at attempt 1, the rule before the stable reset.
+    public var uptime: (@Sendable () -> Duration)?
+    /// When the current link connected, on ``uptime``'s clock.
+    private var connectedAt: Duration?
+    /// The attempt of the dial that made the current link.
+    private var connectedAttempt = 1
 
     public init(transport: TransportKind, relayOnly: Bool = false, blockUDP: Bool = false) {
         self.transport = transport
@@ -299,7 +308,8 @@ public struct LinkMachine: Sendable {
             guard transport == .wireGuard, let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):
-            guard gen == generation, case .connecting = phase else { return [] }
+            guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            linkUp(attempt: attempt)
             phase = .connected(transport, path, rttMillis: nil)
             // The new link is up: the old one beside it has nothing left to do.
             return dropStandby()
@@ -307,7 +317,8 @@ public struct LinkMachine: Sendable {
             guard gen == standby else { return [] }
             standby = nil
             switch phase {
-            case .connecting, .waiting:
+            case .connecting(_, let attempt), .waiting(_, let attempt, _, _):
+                linkUp(attempt: attempt)
                 generation += 1
                 phase = .connected(transport, path, rttMillis: rtt)
                 return [.promoteStandby(generation: generation)]
@@ -330,8 +341,8 @@ public struct LinkMachine: Sendable {
             // The first failure retries at once and says nothing: most are a
             // signaling socket the service just reset (a deploy resets them
             // all) or a stale warm socket, and the next dial opens a new one.
-            if attempt <= Self.silentRetries { return dial(attempt: attempt + 1, closing: false) }
-            return wait(attempt: attempt, reason: reason)
+            // Then the backoff, then a stop that waits for the person (Rust's policy).
+            return redial(LinkRedialPolicy.afterFailure(backoff: backoff, attempt: attempt), reason: reason)
         case .linkUpdated(let gen, let path, let rtt):
             guard gen == generation, case .connected(let kind, _, let oldRTT) = phase else { return [] }
             phase = .connected(kind, path, rttMillis: rtt ?? oldRTT)
@@ -340,10 +351,15 @@ public struct LinkMachine: Sendable {
             guard gen == generation, phase.isConnected else { return [] }
             media = state
             return []
-        case .linkDropped(let gen, _), .probeFailed(let gen, _):
+        case .linkDropped(let gen, let reason), .probeFailed(let gen, let reason):
             guard gen == generation, case .connected = phase else { return [] }
             // The Mac is offline: nothing to dial until presence brings it back.
             if target?.isOnline == false { return reset(to: .macOffline) }
+            // A link that stayed up `LinkRedialPolicy.stableAfter` starts over at attempt 1; a
+            // shorter one counts as a failure of the dial that made it, so a link that dies at
+            // once every time backs off and reaches Retry (Leo's endless reattach, 2026-11-24).
+            let upFor = uptime.flatMap { now in connectedAt.map { now() - $0 } }
+            let next = LinkRedialPolicy.afterDrop(backoff: backoff, connectedAttempt: connectedAttempt, upFor: upFor)
             // A probe went unanswered on a link that has not closed: the path
             // may only be dark for a while (an elevator, a cell handover, a
             // NAT mapping that died). Keep it beside the redial and keep
@@ -351,46 +367,48 @@ public struct LinkMachine: Sendable {
             // background iOS may suspend the process under it, so it closes.
             if case .probeFailed = event, keepsStandby, !isBackgrounded {
                 let kept = generation
-                let effects = dropStandby() + [.keepStandby] + dial(attempt: 1, closing: false)
+                let effects = dropStandby() + [.keepStandby] + redial(next, reason: reason)
                 standby = kept
                 return effects
             }
-            // Redial at once; a failure then takes the usual retry path.
-            return [.close] + dial(attempt: 1, closing: false)
+            return [.close] + redial(next, reason: reason)
         case .macSignaled:
             switch phase {
             case .connected: return isParked ? [] : [.quickProbe(generation: generation)]
             // The Mac just came back: dial now, not at the end of the backoff.
-            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // A dial in flight sent its offer to a host that was down or
             // restarting (a cmux-mobile-host kill: back on signaling in 1.6 s, the
             // offer unanswered until the 25 s dial timeout). Presence frames
             // come only when a Mac's socket connects, closes or is renamed, so
             // this restarts a dial only when the host is newly reachable.
-            case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            // The restart counts as an attempt, so a stream of frames cannot hold it in place.
+            case .connecting(_, let attempt): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
             default: return []
             }
         case .networkChanged:
             switch phase {
-            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // Without this a retry dial on the dead path waited out its whole
             // dial timeout (25 s) and then a backoff step after the network
             // was back (iOS reliability matrix, network_back_during_inflight_dial).
-            case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
+            // The restart counts as an attempt (never past the cap).
+            case .connecting(_, let attempt): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
             default: return []
             }
         case .retryDue(let gen):
             guard gen == generation, case .waiting(_, let attempt, _, _) = phase else { return [] }
-            return dial(attempt: attempt + 1, closing: false)
+            return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
         case .open:
             switch phase {
             case .macOffline: return dial(attempt: 1, closing: false)
-            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            // Also the person's Retry and a surface opening after the redial stopped.
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.nextAttempt(after: attempt), closing: false)
             default: return []
             }
         case .foreground:
             switch phase {
-            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: LinkRedialPolicy.newsAttempt(after: attempt), closing: false)
             // A parked link is probed only by its resume: a ping ends the Mac's park.
             case .connected: return isParked ? [] : [.probe(generation: generation)]
             default: return []
@@ -433,12 +451,29 @@ public struct LinkMachine: Sendable {
         return closing && wasActive ? [.close] + effects : effects
     }
 
-    private mutating func wait(attempt: Int, reason: String) -> [Effect] {
+    /// The current link just connected, made by dial `attempt`.
+    private mutating func linkUp(attempt: Int) {
+        connectedAt = uptime?()
+        connectedAttempt = attempt
+    }
+
+    /// Runs the policy's answer: a dial now, a wait, or a stop.
+    private mutating func redial(_ next: LinkRedialPolicy.Redial, reason: String) -> [Effect] {
+        switch next {
+        case .now(let attempt): dial(attempt: attempt, closing: false)
+        case .wait(let attempt, let after): wait(attempt: attempt, reason: reason, after: after)
+        case .stop(let attempt): wait(attempt: attempt, reason: reason, after: nil)
+        }
+    }
+
+    /// Waiting at `attempt`: a retry after `after`, or none (stopped: the person's Retry, a
+    /// surface opening, the foreground, or news of a new path dials next).
+    private mutating func wait(attempt: Int, reason: String, after: Duration?) -> [Effect] {
         generation += 1
         media = .off
-        let seconds = backoff[min(max(attempt - 1 - Self.silentRetries, 0), backoff.count - 1)]
-        phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: .seconds(seconds))
-        return [.scheduleRetry(generation: generation, after: .seconds(seconds))]
+        phase = .waiting(transport, attempt: attempt, reason: reason, retryIn: after ?? .zero)
+        guard let after else { return [] }
+        return [.scheduleRetry(generation: generation, after: after)]
     }
 }
 
@@ -475,7 +510,8 @@ extension LinkMachine.Phase {
         case .connecting: "Reconnecting…"
         case .connected: "Connected"
         case .waiting(_, _, let reason, _):
-            reason == LinkController.reason(LinkError(code: "offline", message: ""))
+            // Stopped: nothing is retrying, so it does not say it is.
+            reason == LinkController.reason(LinkError(code: "offline", message: "")) || redialStopped
                 ? "Offline"
                 : "Reconnecting…"
         }
@@ -492,14 +528,32 @@ extension LinkMachine.Phase {
         case .connected(let transport, let path, let rtt):
             ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
                 .compactMap { $0 }.joined(separator: " · ")
-        case .waiting(let transport, _, let reason, let retryIn):
-            "\(transport.displayName) failed: \(reason) · retrying in \(retryIn.components.seconds) s"
+        case .waiting(let transport, let attempt, let reason, let retryIn):
+            redialStopped
+                ? "\(transport.displayName) failed: \(reason) · stopped after \(attempt) attempts; Retry to try again"
+                : "\(transport.displayName) failed: \(reason) · retrying in \(retryIn.components.seconds) s"
         }
     }
 
     public var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    /// The machine stopped dialing on its own (``LinkRedialPolicy/maxAttempts``): nothing is
+    /// scheduled, and the next dial is the person's (Retry, a surface opening, the foreground)
+    /// or news of a new path.
+    public var redialStopped: Bool {
+        if case .waiting(_, let attempt, _, _) = self { return attempt >= LinkRedialPolicy.maxAttempts }
+        return false
+    }
+}
+
+extension LinkMachine {
+    /// Time since now on `clock`, for ``uptime``.
+    public static func uptime<C: Clock>(on clock: C) -> @Sendable () -> Duration where C.Duration == Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 }
 

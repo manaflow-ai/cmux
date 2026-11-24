@@ -5191,6 +5191,85 @@ public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) ->
 
 
 /**
+ * The policy's bounds, for Swift's copy of them (status text, tests).
+ */
+public struct LinkRedialLimits: Equatable, Hashable {
+    /**
+     * A link up this long before it dropped starts the backoff over.
+     */
+    public var stableAfterMs: UInt64
+    /**
+     * Attempts after a lost link that read "Reconnecting"; later ones offer Retry.
+     */
+    public var reconnectingAttempts: UInt32
+    /**
+     * The last attempt dialed without the person.
+     */
+    public var maxAttempts: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A link up this long before it dropped starts the backoff over.
+         */stableAfterMs: UInt64, 
+        /**
+         * Attempts after a lost link that read "Reconnecting"; later ones offer Retry.
+         */reconnectingAttempts: UInt32, 
+        /**
+         * The last attempt dialed without the person.
+         */maxAttempts: UInt32) {
+        self.stableAfterMs = stableAfterMs
+        self.reconnectingAttempts = reconnectingAttempts
+        self.maxAttempts = maxAttempts
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LinkRedialLimits: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkRedialLimits: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkRedialLimits {
+        return
+            try LinkRedialLimits(
+                stableAfterMs: FfiConverterUInt64.read(from: &buf), 
+                reconnectingAttempts: FfiConverterUInt32.read(from: &buf), 
+                maxAttempts: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LinkRedialLimits, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.stableAfterMs, into: &buf)
+        FfiConverterUInt32.write(value.reconnectingAttempts, into: &buf)
+        FfiConverterUInt32.write(value.maxAttempts, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkRedialLimits_lift(_ buf: RustBuffer) throws -> LinkRedialLimits {
+    return try FfiConverterTypeLinkRedialLimits.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkRedialLimits_lower(_ value: LinkRedialLimits) -> RustBuffer {
+    return FfiConverterTypeLinkRedialLimits.lower(value)
+}
+
+
+/**
  * What the host's answer says about its screen.
  */
 public struct MacScreenAnswer: Equatable, Hashable {
@@ -7285,6 +7364,102 @@ public func FfiConverterTypeLinkPath_lower(_ value: LinkPath) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What the link does after a failed dial or a lost link.
+ */
+
+public enum LinkRedial: Equatable, Hashable {
+    
+    /**
+     * Dial again now, as `attempt`.
+     */
+    case now(attempt: UInt32
+    )
+    /**
+     * Wait `after_ms`, then dial `attempt + 1`; the phase is waiting at `attempt`.
+     */
+    case wait(attempt: UInt32, afterMs: UInt64
+    )
+    /**
+     * Stop dialing on its own: waiting at `attempt`, nothing scheduled, Retry offered.
+     */
+    case stop(attempt: UInt32
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LinkRedial: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkRedial: FfiConverterRustBuffer {
+    typealias SwiftType = LinkRedial
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkRedial {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .now(attempt: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .wait(attempt: try FfiConverterUInt32.read(from: &buf), afterMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 3: return .stop(attempt: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LinkRedial, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .now(attempt):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(attempt, into: &buf)
+            
+        
+        case let .wait(attempt,afterMs):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(attempt, into: &buf)
+            FfiConverterUInt64.write(afterMs, into: &buf)
+            
+        
+        case let .stop(attempt):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt32.write(attempt, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkRedial_lift(_ buf: RustBuffer) throws -> LinkRedial {
+    return try FfiConverterTypeLinkRedial.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkRedial_lower(_ value: LinkRedial) -> RustBuffer {
+    return FfiConverterTypeLinkRedial.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * The WebRTC media session beside a WireGuard link (browser video).
  */
 
@@ -8105,6 +8280,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -8699,6 +8899,62 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * After the link dial `connected_attempt` made was lost `up_for_ms` after it connected (none: no
+ * clock, counted as stable).
+ */
+public func linkRedialAfterDrop(backoffMs: [UInt64], connectedAttempt: UInt32, upForMs: UInt64?) -> LinkRedial  {
+    return try!  FfiConverterTypeLinkRedial_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_redial_after_drop(
+        FfiConverterSequenceUInt64.lower(backoffMs),
+        FfiConverterUInt32.lower(connectedAttempt),
+        FfiConverterOptionUInt64.lower(upForMs),$0
+    )
+})
+}
+/**
+ * After dial `attempt` failed, with the machine's backoff table (milliseconds).
+ */
+public func linkRedialAfterFailure(backoffMs: [UInt64], attempt: UInt32) -> LinkRedial  {
+    return try!  FfiConverterTypeLinkRedial_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_redial_after_failure(
+        FfiConverterSequenceUInt64.lower(backoffMs),
+        FfiConverterUInt32.lower(attempt),$0
+    )
+})
+}
+/**
+ * The policy's bounds.
+ */
+public func linkRedialLimits() -> LinkRedialLimits  {
+    return try!  FfiConverterTypeLinkRedialLimits_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_redial_limits($0
+    )
+})
+}
+/**
+ * The attempt of a dial news starts from a wait at `attempt` (the foreground, a new network
+ * path, the Mac's presence): a stopped redial starts over at 1, so stopping never strands the
+ * person; otherwise one more.
+ */
+public func linkRedialNewsAttempt(attempt: UInt32) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_redial_news_attempt(
+        FfiConverterUInt32.lower(attempt),$0
+    )
+})
+}
+/**
+ * The attempt of a dial restarted from `attempt` (news of a new path, the person's Retry, a
+ * surface opening, the foreground): one more, never past the cap.
+ */
+public func linkRedialNextAttempt(attempt: UInt32) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_link_redial_next_attempt(
+        FfiConverterUInt32.lower(attempt),$0
+    )
+})
+}
+/**
  * Which device opens `url`, a link the person opened on the phone.
  */
 public func linkOpenSide(url: String) -> LinkOpenSide  {
@@ -8891,6 +9147,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_redial_after_drop() != 48985) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_redial_after_failure() != 57763) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_redial_limits() != 6416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_redial_news_attempt() != 45930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_link_redial_next_attempt() != 13835) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {

@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use crate::dial::{LinkPath, TransportKind};
 
+pub mod policy;
 mod step;
 mod table;
 pub mod timings;
@@ -386,6 +387,14 @@ pub struct Machine {
     /// Whether an unanswered probe keeps the link beside the redial. Off only in tests that
     /// measure the old way.
     pub keeps_standby: bool,
+    /// The caller's monotonic clock at this step (Swift `LinkMachine.uptime`), so a lost link
+    /// knows how long it was up ([`policy::after_drop`]). None: no clock, every lost link counts
+    /// as stable (the rule before the stable reset).
+    pub now: Option<Duration>,
+    /// When the current link connected, on [`Machine::now`]'s clock.
+    connected_at: Option<Duration>,
+    /// The attempt of the dial that made the current link.
+    connected_attempt: u32,
 }
 
 /// The next machine and the effects to run, or why nothing changed.
@@ -412,6 +421,9 @@ impl Machine {
             media: VideoMedia::Off,
             backoff: BACKOFF.to_vec(),
             keeps_standby: true,
+            now: None,
+            connected_at: None,
+            connected_attempt: 1,
         }
     }
 

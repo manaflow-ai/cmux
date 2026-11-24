@@ -2,7 +2,8 @@
 
 use std::time::Duration;
 
-use super::{Effect, Event, Generation, Machine, Phase, Refusal, SILENT_RETRIES, Target, VideoMedia};
+use super::policy::{self, Redial};
+use super::{Effect, Event, Generation, Machine, Phase, Refusal, Target, VideoMedia};
 use crate::dial::TransportKind;
 
 impl Machine {
@@ -80,9 +81,10 @@ impl Machine {
             }
             Event::DialSucceeded { generation, path } => {
                 self.current(*generation)?;
-                if !matches!(self.phase, Phase::Connecting { .. }) {
+                let Phase::Connecting { attempt, .. } = self.phase else {
                     return Err(Refusal::NotConnecting);
-                }
+                };
+                self.connected(attempt);
                 self.phase = Phase::Connected { transport: self.transport, path: *path, rtt_millis: None };
                 // The new link is up: the old one beside it has nothing left to do.
                 Ok(self.drop_standby())
@@ -91,7 +93,8 @@ impl Machine {
                 self.current_standby(*generation)?;
                 self.standby = None;
                 match self.phase {
-                    Phase::Connecting { .. } | Phase::Waiting { .. } => {
+                    Phase::Connecting { attempt, .. } | Phase::Waiting { attempt, .. } => {
+                        self.connected(attempt);
                         self.generation = self.generation.next();
                         self.phase = Phase::Connected {
                             transport: self.transport,
@@ -122,11 +125,10 @@ impl Machine {
                     self.phase = Phase::MacOffline;
                     return Ok(Vec::new());
                 }
-                // The first failure retries at once and says nothing.
-                if attempt <= SILENT_RETRIES {
-                    return Ok(self.dial(attempt.saturating_add(1), false));
-                }
-                Ok(self.wait(attempt, reason))
+                // The first failure retries at once and says nothing; then the backoff, then
+                // a stop that waits for the person (`policy::after_failure`).
+                let next = policy::after_failure(&self.backoff, attempt);
+                Ok(self.redial(next, reason))
             }
             Event::LinkUpdated { generation, path, rtt_millis } => {
                 self.current(*generation)?;
@@ -144,7 +146,7 @@ impl Machine {
                 self.media = media.clone();
                 Ok(Vec::new())
             }
-            Event::LinkDropped { generation, .. } | Event::ProbeFailed { generation, .. } => {
+            Event::LinkDropped { generation, reason } | Event::ProbeFailed { generation, reason } => {
                 self.current(*generation)?;
                 if !self.phase.is_connected() {
                     return Err(Refusal::NotConnected);
@@ -153,33 +155,37 @@ impl Machine {
                 if self.target.as_ref().is_some_and(|t| !t.is_online) {
                     return Ok(self.reset(Phase::MacOffline));
                 }
+                // A link that stayed up `policy::STABLE_AFTER` starts over at attempt 1, at once;
+                // a shorter one counts as a failure of the dial that made it.
+                let up_for = self.now.zip(self.connected_at).map(|(now, at)| now.saturating_sub(at));
+                let next = policy::after_drop(&self.backoff, self.connected_attempt, up_for);
                 // An unanswered probe on a link that has not closed: keep it beside the redial.
                 // In the background iOS may suspend the process under it, so it closes.
                 if matches!(event, Event::ProbeFailed { .. }) && self.keeps_standby && !self.is_backgrounded {
                     let kept = self.generation;
                     let mut effects = self.drop_standby();
                     effects.push(Effect::KeepStandby);
-                    effects.extend(self.dial(1, false));
+                    effects.extend(self.redial(next, reason));
                     self.standby = Some(kept);
                     return Ok(effects);
                 }
-                // Redial at once; a failure then takes the usual retry path.
                 let mut effects = vec![Effect::Close];
-                effects.extend(self.dial(1, false));
+                effects.extend(self.redial(next, reason));
                 Ok(effects)
             }
             Event::MacSignaled => match self.phase {
                 Phase::Connected { .. } => Ok(vec![Effect::QuickProbe { generation: self.generation }]),
                 // The Mac just came back: dial now, not at the end of the backoff.
-                Phase::Waiting { attempt, .. } => Ok(self.dial(attempt.saturating_add(1), false)),
-                // A dial in flight sent its offer to a host that was down or restarting.
-                Phase::Connecting { attempt, .. } => Ok(self.dial(attempt, false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
+                // A dial in flight sent its offer to a host that was down or restarting. The
+                // restart counts, so a stream of presence frames cannot hold the attempt.
+                Phase::Connecting { attempt, .. } => Ok(self.dial(policy::restart_attempt(attempt), false)),
                 Phase::Idle | Phase::MacOffline | Phase::SignedOut => Err(Refusal::NothingToDo),
             },
             Event::NetworkChanged => match self.phase {
-                Phase::Waiting { attempt, .. } => Ok(self.dial(attempt.saturating_add(1), false)),
-                // A dial on the dead path would wait out its whole timeout.
-                Phase::Connecting { attempt, .. } => Ok(self.dial(attempt, false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
+                // A dial on the dead path would wait out its whole timeout. The restart counts.
+                Phase::Connecting { attempt, .. } => Ok(self.dial(policy::restart_attempt(attempt), false)),
                 // A live link roams in place.
                 Phase::Idle | Phase::MacOffline | Phase::Connected { .. } | Phase::SignedOut => {
                     Err(Refusal::NothingToDo)
@@ -190,17 +196,17 @@ impl Machine {
                 let Phase::Waiting { attempt, .. } = self.phase else {
                     return Err(Refusal::NotWaiting);
                 };
-                Ok(self.dial(attempt.saturating_add(1), false))
+                Ok(self.dial(policy::resume_attempt(attempt), false))
             }
             Event::Open => match self.phase {
                 Phase::MacOffline => Ok(self.dial(1, false)),
-                Phase::Waiting { attempt, .. } => Ok(self.dial(attempt.saturating_add(1), false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::resume_attempt(attempt), false)),
                 Phase::Idle | Phase::Connecting { .. } | Phase::Connected { .. } | Phase::SignedOut => {
                     Err(Refusal::NothingToDo)
                 }
             },
             Event::Foreground => match self.phase {
-                Phase::Waiting { attempt, .. } => Ok(self.dial(attempt.saturating_add(1), false)),
+                Phase::Waiting { attempt, .. } => Ok(self.dial(policy::news_attempt(attempt), false)),
                 Phase::Connected { .. } => Ok(vec![Effect::Probe { generation: self.generation }]),
                 Phase::Idle | Phase::MacOffline | Phase::Connecting { .. } | Phase::SignedOut => {
                     Err(Refusal::NothingToDo)
@@ -283,19 +289,41 @@ impl Machine {
         }
     }
 
-    fn wait(&mut self, attempt: u32, reason: &str) -> Vec<Effect> {
+    /// The current link just connected, made by dial `attempt`.
+    fn connected(&mut self, attempt: u32) {
+        self.connected_at = self.now;
+        self.connected_attempt = attempt;
+    }
+
+    /// Run the policy's answer: a dial now, a wait, or a stop.
+    fn redial(&mut self, next: Redial, reason: &str) -> Vec<Effect> {
+        match next {
+            Redial::Now { attempt } => self.dial(attempt, false),
+            Redial::Wait { attempt, after } => self.wait(attempt, reason, Some(after)),
+            Redial::Stop { attempt } => self.wait(attempt, reason, None),
+        }
+    }
+
+    /// Waiting at `attempt`: a retry after `after`, or none (stopped; the person's Retry, a
+    /// surface opening, the foreground or news of a new path dials next).
+    fn wait(&mut self, attempt: u32, reason: &str, after: Option<Duration>) -> Vec<Effect> {
         self.generation = self.generation.next();
         self.media = VideoMedia::Off;
-        let after = self.retry_delay(attempt);
-        self.phase =
-            Phase::Waiting { transport: self.transport, attempt, reason: reason.to_owned(), retry_in: after };
-        vec![Effect::ScheduleRetry { generation: self.generation, after }]
+        self.phase = Phase::Waiting {
+            transport: self.transport,
+            attempt,
+            reason: reason.to_owned(),
+            retry_in: after.unwrap_or(Duration::ZERO),
+        };
+        match after {
+            Some(after) => vec![Effect::ScheduleRetry { generation: self.generation, after }],
+            None => Vec::new(),
+        }
     }
 
     /// `backoff[min(max(attempt - 1 - silentRetries, 0), count - 1)]`. Swift traps on an empty
     /// table; this waits zero.
     pub fn retry_delay(&self, attempt: u32) -> Duration {
-        let index = attempt.saturating_sub(1).saturating_sub(SILENT_RETRIES) as usize;
-        self.backoff.get(index).or(self.backoff.last()).copied().unwrap_or(Duration::ZERO)
+        policy::retry_delay(&self.backoff, attempt)
     }
 }
