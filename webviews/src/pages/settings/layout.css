@@ -1342,7 +1342,7 @@
 
 .checklist-standup-lines {
   margin: 0;
-  padding: 6px 10px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
@@ -1351,8 +1351,8 @@
 .checklist-standup-lines li {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  padding: 3px 0;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
 }
 
 .checklist-standup-lines .checklist-mark-icon {
