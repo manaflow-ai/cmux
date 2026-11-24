@@ -26,6 +26,7 @@ mod terminal_chat;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
+mod zstd_stream;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
@@ -43,6 +44,7 @@ pub use terminal_chat::{
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use zstd_stream::ZstdStreamDecoder;
 
 uniffi::setup_scaffolding!();
 
