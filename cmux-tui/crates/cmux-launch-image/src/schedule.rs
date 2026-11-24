@@ -46,6 +46,10 @@ impl Event {
 
 /// Debounce for a window's changes: 750 ms, past a typical drag, a tab-switch burst or a theme fade.
 pub const DEFAULT_DEBOUNCE_MS: u64 = 750;
+/// The longest wait before a capture after failed ones: each failure in a row doubles the debounce
+/// up to this, so a window whose capture keeps failing (no window server image, a full disk) is not
+/// captured every debounce.
+pub const MAX_RETRY_MS: u64 = 60_000;
 
 /// One window's capture schedule. A new window is hidden, unchanged and has no capture.
 #[derive(Debug, Clone)]
@@ -65,6 +69,8 @@ pub struct Schedule {
     /// Bumped when the window changes, its visibility flips or a transition begins or ends: a capture
     /// started at one epoch is stale once it moved ([`Self::is_current`]).
     epoch: u64,
+    /// Captures failed in a row ([`Event::CaptureFailed`]) since the last one that was done.
+    failures: u32,
 }
 
 impl Schedule {
@@ -78,6 +84,7 @@ impl Schedule {
             captured: false,
             in_flight: false,
             epoch: 0,
+            failures: 0,
         }
     }
 
@@ -100,9 +107,13 @@ impl Schedule {
             Event::Changed => self.dirty_since = Some(now_ms),
             Event::CaptureFailed => {
                 self.in_flight = false;
+                self.failures = self.failures.saturating_add(1);
                 self.dirty_since = Some(now_ms);
             }
-            Event::CaptureDone => self.in_flight = false,
+            Event::CaptureDone => {
+                self.in_flight = false;
+                self.failures = 0;
+            }
             Event::Hidden => self.hidden = true,
             Event::Shown => self.hidden = false,
             Event::TransitionBegan => self.transitions = self.transitions.saturating_add(1),
@@ -123,10 +134,22 @@ impl Schedule {
     }
 
     /// When a capture is due, or `None` while nothing changed, the window is hidden or a transition
-    /// runs.
+    /// runs. After failed captures in a row the wait doubles per failure, up to [`MAX_RETRY_MS`].
     pub fn due_at(&self) -> Option<u64> {
         let since = self.dirty_since?;
-        self.capturable().then(|| since.max(self.settled_at).saturating_add(self.debounce_ms))
+        self.capturable().then(|| since.max(self.settled_at).saturating_add(self.wait_ms()))
+    }
+
+    /// The debounce, doubled for each failure in a row after the first, at most [`MAX_RETRY_MS`] (never
+    /// below the debounce).
+    fn wait_ms(&self) -> u64 {
+        let doublings = self.failures.saturating_sub(1).min(16);
+        let backed_off = self.debounce_ms.saturating_mul(1_u64 << doublings);
+        if doublings == 0 {
+            self.debounce_ms
+        } else {
+            backed_off.min(MAX_RETRY_MS.max(self.debounce_ms))
+        }
     }
 
     /// The window's change epoch: read it when a capture starts, and publish the capture only while
