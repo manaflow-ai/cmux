@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeMarkdown, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -182,4 +182,24 @@ test("a model gateway 503 is infra, not a resume failure (run 45193446599)", () 
   expect(infraCause("turn: API Error: 503 Every Claude upstream account of this team is cooling down or disabled. Retry shortly (coderouter.cmux.internal).")).toBe(true);
   expect(infraCause("cloud.machine.start: HTTP 503 busy")).toBe(false);
   expect(infraCause("no reply within 180 s")).toBe(false);
+});
+
+describe("syncRunning", () => {
+  const run = async (status: string, startError?: string) => {
+    const calls: string[] = [];
+    await syncRunning(async () => status, async () => { calls.push("start"); if (startError) throw new Error(startError); }, async () => { calls.push("wait"); });
+    return calls;
+  };
+  test("a machine the send already woke is not started again (run 45308756971)", async () => {
+    expect(await run("running")).toEqual(["wait"]);
+  });
+  test("a paused machine is started, then waited for", async () => {
+    expect(await run("paused")).toEqual(["start", "wait"]);
+  });
+  test("a wake that lands between the read and the start is not a failure", async () => {
+    expect(await run("paused", 'cloud.machine.start: HTTP 200 {"code":"cloud.machine.not_paused"}')).toEqual(["start", "wait"]);
+  });
+  test("any other refused start still fails", async () => {
+    await expect(run("paused", "cloud.machine.start: HTTP 503")).rejects.toThrow("HTTP 503");
+  });
 });

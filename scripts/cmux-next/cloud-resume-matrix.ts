@@ -302,6 +302,21 @@ export function cellDeadline(nowMs: number, deadlineAt: number | undefined, cell
   return nowMs + Math.max(0, deadlineAt - nowMs) / Math.max(1, cellsLeft);
 }
 
+/**
+ * The direct and send arms' sync after their wake: start the machine only while the platform still reads it paused.
+ * A send on the dial held through the pause wakes the VM by itself (the VM API wakes a paused VM on inbound traffic),
+ * so the record may read running already, and a start then answers cloud.machine.not_paused (run 45308756971, every
+ * send sample). Either way it waits for running, so the next pause starts from a running machine.
+ */
+export async function syncRunning(status: () => Promise<string>, start: () => Promise<unknown>, waitRunning: () => Promise<unknown>): Promise<void> {
+  if ((await status()) === "paused") {
+    try { await start(); } catch (e) {
+      if (!/cloud\.machine\.not_paused/.test(String((e as Error)?.message ?? e))) throw e;
+    }
+  }
+  await waitRunning();
+}
+
 /** The whole matrix on one machine: every pause length, n samples of every arm, interleaved. */
 export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: number, arms: ResumeArm[] = RESUME_ARMS): Promise<ResumeSample[]> {
   const { ctx } = deps;

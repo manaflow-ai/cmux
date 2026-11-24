@@ -128,7 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runResumeMatrix } from "./cloud-resume-matrix.ts";
+import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -5518,10 +5518,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           },
           platformResume: platformStart,
           resumeRoute,
-          platformSync: async () => {
-            await platformStart();
-            await waitMachine(api, created.id, (x) => x.status === "running", 180_000);
-          },
+          platformSync: () => syncRunning(
+            async () => String((await row())?.status ?? "unread"),
+            platformStart,
+            () => waitMachine(api, created.id, (x) => x.status === "running", 180_000),
+          ),
           clientSession: async (ttl) => {
             const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: ttl });
             const v = r.body?.value ?? r.body;
