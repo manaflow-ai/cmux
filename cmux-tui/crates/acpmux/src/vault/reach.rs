@@ -40,7 +40,7 @@ const NAME_WORDS: [&str; 5] = ["TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL
 const VALUE_PREFIXES: [&str; 3] = ["cmm_", "sk-", "ghp_"];
 const MAX_STATE: u64 = 4 << 20;
 
-pub const GATEWAY_TOKEN: &str = cmux_host::cloud::gateway_token::TOKEN_FILE;
+pub const GATEWAY_TOKEN: &str = cmux_host::cloud::gateway_token_paths::TOKEN_FILE;
 pub const INSTALL_KEYS: [&str; 1] = ["/var/lib/cmux/install/platform-scope-key.json"];
 pub const INSTALL_RECEIPTS: [&str; 2] =
     ["/var/lib/cmux/install/platform-scope-identity.json", "/var/lib/cmux/install/identity.json"];
@@ -241,7 +241,7 @@ fn scan_files(roots: &Roots, items: &mut BTreeSet<Item>) -> io::Result<()> {
     }
     let gateway = roots.at(GATEWAY_TOKEN);
     if readable(&gateway)? {
-        let opted_in = exists(&cmux_host::cloud::gateway_token::marker(&roots.home))?;
+        let opted_in = exists(&cmux_host::cloud::gateway_token_paths::marker(&roots.home))?;
         let (class, why) = if opted_in {
             (Class::Machine, "gateway token, opted in")
         } else {
