@@ -345,6 +345,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextKeys",
+        "CmuxNextLaunchImages",
         "CmuxNextLayout",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
@@ -953,7 +954,9 @@
         "CMUXAuthCore"
       ],
       "reads": [
-        "cmux-tui/spec/"
+        "cmux-tui/crates/cmux-cloud-machine/src/power.rs",
+        "cmux-tui/spec/",
+        "schemas/cloud-machine-power/table.json"
       ]
     },
     "CmuxNextCloudUI": {
@@ -1675,6 +1678,18 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextLaunchImages": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextLayout": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
@@ -1721,6 +1736,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextDevices",
         "CmuxNextPalette",
+        "CmuxNextPhone",
         "CmuxNextRemoteView",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -2242,6 +2258,7 @@
         "CmuxNextPalette",
         "CmuxNextResources",
         "CmuxNextSettings",
+        "CmuxNextSignposts",
         "CmuxNextWakeups"
       ],
       "packages": [
