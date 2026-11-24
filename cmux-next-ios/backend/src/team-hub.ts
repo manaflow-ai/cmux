@@ -31,6 +31,11 @@ export interface Ingress {
   colo: string | null
   country: string | null
   continent: string | null
+  /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
+  lat?: number | null
+  lon?: number | null
+  /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
+  rtt?: Partial<Record<string, number>>
 }
 
 /** The most a `link_stat` frame may be (PROTOCOL.md "Link stats"; the phone's are under 768 bytes). */
@@ -530,21 +535,23 @@ export class TeamHub extends DurableObject<Env> {
     return { closed }
   }
 
-  /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   /**
    * The other party of link session `sessionId` when `deviceId` is one of its two (PROTOCOL.md "WebSocket relay"):
    * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
    * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
    */
-  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<string | null> {
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<{ peer: string; ingress: Ingress | null } | null> {
     this.bind(owner)
     const s = this.session(sessionId)
     if (!s) return null
-    if (s.initiator === deviceId) return s.responder
-    if (s.responder === deviceId) return s.initiator
-    return null
+    const peer = s.initiator === deviceId ? s.responder : s.responder === deviceId ? s.initiator : null
+    if (!peer) return null
+    // Where the peer's signal socket entered Cloudflare (and its netcheck): the relay's other end, for placement.
+    const sock = this.ctx.getWebSockets(peer).find((ws) => !this.attach(ws)?.replaced)
+    return { peer, ingress: (sock && this.attach(sock)?.ingress) ?? null }
   }
 
+  /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
     this.bind(owner)
     return { colo: await this.hubColo() }
