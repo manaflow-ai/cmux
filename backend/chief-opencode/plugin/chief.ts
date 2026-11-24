@@ -95,6 +95,14 @@ In a channel you act on your own: answer when the message is for you or fits you
 channel message is not for you and needs nothing from you, answer exactly ${NO_REPLY} and nothing is
 posted. Never answer ${NO_REPLY} in a direct message.`
 
+/**
+ * What a Chief checks at the start and end of each turn, the last block of every wake's prompt (never in the cached system
+ * prompt). A copy of Native/OptChat/chief-kernel/src/turn_checks.md (the plugin image ships this folder alone);
+ * backend/apps/api/test-node/turn-checks.test.ts fails when the two differ.
+ */
+export const TURN_CHECKS = `Before your first move: name the whole space this request is one case of and start all of it, in parallel. Ask why it happened and remove the cause; never route around it. Take the direct way (the real app, a machine or tool you already have, or deleting the need) over a probe, a proxy or a question.
+Before any report, interim ones too: line one says whether it is fixed at the cause or patched. Then write the person's likely next message ("why not all of them", "why not now", "why did it happen at all") and start that work before you send. Any wait you leave has a waker and a deadline.`
+
 /** Base, then "## This Chief" and "## Added instructions" (lower priority than the base). Stable text: it caches. */
 export const systemPrompt = (c: Initialized["chief"]): string => {
   const me = [`Name: ${c.name}`, c.role?.trim() ? `Role: ${c.role.trim()}` : "", c.personality?.trim() ? `Personality: ${c.personality.trim()}` : ""].filter(Boolean)
