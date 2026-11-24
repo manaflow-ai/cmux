@@ -248,7 +248,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         hour while Blacksmith macOS served; these light jobs had nowhere else to go.
         Unset, they keep their Blacksmith Linux default. A first attempt goes to
         the one-job JIT nightly VM ahead of both (2026-11-20, nightly priority on
-        Linux); re-runs keep CI_CONTROL_RUNNER and then Blacksmith. The tick's request
+        Linux); re-runs take the label CI_CONTROL_RUNNER held (cmux-gcp-pr-control-jit-x64), written out as a
+        literal on 2026-11-24 so no variable picks it. The tick's request
         job left it on 2026-11-22: it holds the cmux-bot App key for its promotion
         dispatch, so it takes the unstick job's named runners (below).
         """
@@ -259,7 +260,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                           "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
-                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+                                          "'cmux-gcp-pr-control-jit-x64' }}")
 
     def test_the_tick_jobs_holding_the_app_key_name_their_runners(self) -> None:
         """The request and unstick jobs mint the cmux-bot token, so no variable picks a machine
