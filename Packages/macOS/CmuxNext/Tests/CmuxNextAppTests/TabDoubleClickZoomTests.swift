@@ -185,15 +185,16 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(toolbar.view.intrinsicContentSize.width == TitlebarBandButton.side + PaneToolbarView.trailingGap, "Exit Zoom's slot only")
     }
 
-    /// A chat selected in a zoomed pane keeps the same room: selecting it moves no tab.
-    @Test func aZoomedPaneKeepsItsRoomWhicheverTabIsSelected() {
+    /// A chat selected in a zoomed pane keeps the same room, with or without pins: selecting it moves no tab.
+    @Test(arguments: [[], ["splitRight"], ["splitRight", "toggleSplitZoom"]] as [[String]])
+    func aZoomedPaneKeepsItsRoomWhicheverTabIsSelected(pinned: [String]) {
         let harness = Toolbar()
         let toolbar = harness.toolbar
-        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, pinned: pinned, paneKinds: [.terminal])
         let width = toolbar.view.intrinsicContentSize.width
-        toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
+        toolbar.update(target: "chat", kind: nil, zoomed: true, pinned: pinned, paneKinds: [.terminal])
         #expect(toolbar.view.items.isEmpty)
-        #expect(toolbar.view.intrinsicContentSize.width == width, "the strip's width does not follow the selection")
+        #expect(toolbar.view.intrinsicContentSize.width == width, "\(pinned): the strip's width does not follow the selection")
     }
 
     /// A pinned zoom gives way to the bar's one Exit Zoom button while the pane is zoomed, so the pane shows one zoom

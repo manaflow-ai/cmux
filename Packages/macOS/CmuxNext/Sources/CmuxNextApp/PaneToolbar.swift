@@ -159,13 +159,17 @@ final class PaneToolbar: PaneControlsRefreshing {
         self.zoomed = zoomed
         self.pinned = pinned
         // The room the bar keeps: the most pins any tab of the pane shows, so selecting a tab with fewer pins (a chat,
-        // a window's own page) moves no tab. With no pins the bar keeps no room: the strip runs to the trailing gap.
+        // a window's own page) moves no tab, plus Exit Zoom's slot while the pane is zoomed (a pinned zoom gives way to
+        // it, so it is not counted twice). With no pins the bar keeps no room: the strip runs to the trailing gap.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
-        let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
+        let reservedPins = kinds.map { kind in
+            pinned.count(where: { (!zoomed || $0 != Self.zoom.rawValue) && Self.actions(kind).contains(ActionID(rawValue: $0)) })
+        }.max() ?? 0
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + offers them (Lawrence 2026-10-27: too many buttons).
         let nativeTools = nativeEnabled ? nativeItems : []
-        view.show(buttons.compactMap(item), zoomed: zoomed, reserving: max(reservedPins, buttons.count), nativeItems: nativeTools)
+        view.show(buttons.compactMap(item), zoomed: zoomed, reserving: max(reservedPins, buttons.count) + (zoomed ? 1 : 0),
+                  nativeItems: nativeTools)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons.

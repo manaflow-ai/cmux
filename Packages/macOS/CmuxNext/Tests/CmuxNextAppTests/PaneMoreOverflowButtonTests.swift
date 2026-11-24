@@ -275,8 +275,7 @@ import Testing
         #expect(invoked.map { [$0.0, $0.1 ?? ""] } == [["review", "open"]])
 
         owner = "second"
-        view.show(,
-                  nativeItems: [tool])
+        view.show(nativeItems: [tool])
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(opened.count == 1)
         #expect(invoked.count == 1)
