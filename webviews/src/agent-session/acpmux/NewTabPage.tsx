@@ -646,6 +646,26 @@ export function NewTabPage({
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            originalFailures={originalFailures}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -726,23 +746,6 @@ export function NewTabPage({
             </fieldset>
           </div>
           {command.input}
-          <AttachmentStrip
-            attachments={attachments}
-            pending={pending}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
-            codex={false}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
-          />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
