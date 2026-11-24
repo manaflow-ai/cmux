@@ -140,6 +140,20 @@ async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
   throw new Error(`no exec on the copy in ${budgetMs} ms: ${last}`);
 }
 
+/** A cmux access token for a fresh install (P-256 key, challenge, signed nonce): what the app sends the platform. */
+async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string }> {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey jr-${tag.slice(3)}`, device_name: "cloud fork placement", platform: "linux" }, `${tag}-install`);
+  const user = String(inst?.user ?? userId);
+  const ch = await http("POST", `${apiBase}/v1/auth/challenge`, { user, install: inst.id, ...(team ? { team } : {}) }, {});
+  if (ch.status !== 200) throw new Error(`challenge: HTTP ${ch.status}`);
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`)));
+  const tok = await http("POST", `${apiBase}/v1/auth/token`, { user, install: inst.id, nonce: ch.body.nonce, signature: Buffer.from(sig).toString("base64url") }, {}, 25_000);
+  if (tok.status !== 200 || typeof tok.body?.access_token !== "string") throw new Error(`token: HTTP ${tok.status}`);
+  return { id: String(inst.id), token: tok.body.access_token };
+}
+
 async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
@@ -158,8 +172,14 @@ async function main(): Promise<number> {
   }
   const say = (v: unknown) => console.log(scrub(typeof v === "string" ? v : JSON.stringify(v), secrets));
   const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
-  const platformHeaders = () => ({ authorization: `Bearer ${api.bearer}`, ...(team ? { "x-cmux-team": team } : {}) });
   const tag = `fp-${Date.now().toString(36)}`;
+  // cmux-platform's machine routes take a cmux access token with a team claim, not the Stack session (all
+  // five fork calls answered 401 machine.unauthorized with it, run 45412063929): an install of this run's own,
+  // as the app mints it (cloud-journey.ts "install token"), revoked at the end.
+  const user = await api.op("user.ensure", {}, `${tag}-ensure`);
+  const install = await mintInstallToken(api, backend.api, String(user?.id ?? user?.user?.id ?? ""), tag, team);
+  secrets.push(install.token);
+  const platformHeaders = () => ({ authorization: `Bearer ${install.token}`, ...(team ? { "x-cmux-team": team } : {}) });
   const journey = { secrets };
   const rows: RunRow[] = [];
   for (let run = 1; run <= runs; run++) {
@@ -210,6 +230,7 @@ async function main(): Promise<number> {
     say({ row });
     rows.push(row);
   }
+  await api.op("install.revoke", { install: install.id }, `${tag}-install-revoke`).catch((e) => say(`install ${install.id} not revoked: ${String((e as Error).message).slice(0, 200)}`));
   const v = verdict(rows, { backend: backend.name, platform, at: new Date().toISOString() });
   const line = scrub(JSON.stringify(v), secrets);
   const out = arg("--out");
