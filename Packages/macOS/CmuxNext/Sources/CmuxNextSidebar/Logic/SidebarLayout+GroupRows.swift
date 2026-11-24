@@ -15,7 +15,8 @@ nonisolated extension SidebarLayout {
     /// Appends `group`'s rows at `y`: node `index` of `section`, with `children` its workspaces the list shows.
     /// `hasSubgroups`: a group of the section sits in it. `gapHeight`: the drop gap's height, as `make` resolved it.
     static func appendGroup(_ group: SidebarGroup, children: [SidebarWorkspace], index: Int, section: SectionID, hasSubgroups: Bool,
-                            filtering: Bool, machine machineLabel: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
+                            filtering: Bool, machine machineLabel: String?, header: MachineID? = nil,
+                            options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                             gapHeight: CGFloat, to rows: inout [SidebarRow], y: inout CGFloat, gapY: inout CGFloat?) {
         func openGapIfNeeded(_ index: Int) {
             openGap(section: section, group: group.id, index: index, options: o, height: gapHeight, metrics: m, y: &y, gapY: &gapY)
@@ -36,7 +37,7 @@ nonisolated extension SidebarLayout {
            let depth = liveDepth(of: sole, members, in: group, collapsed: groupCollapsed,
                                  fold: SidebarDoneFoldID(section: section, group: group.id), options: o) {
             y = appendSoleMember(sole, of: group, treeDepth: depth, section: section,
-                                 parent: index, machine: machineLabel, options: o, metrics: m, to: &rows, y: y)
+                                 parent: index, machine: machineLabel, header: header, options: o, metrics: m, to: &rows, y: y)
             // A drop gap in the group opens under the row, as it opened under the header: the row keeps the header's
             // slot under the pointer, and the header never returns mid-drag.
             openGapIfNeeded(0)
@@ -62,7 +63,7 @@ nonisolated extension SidebarLayout {
                 return children.first(where: { $0.id == member.id }).map { (i, $0) }
             }
             for (n, (childIndex, ws)) in kept.enumerated() {
-                let content = o.rowContent(ws, machine: machineLabel)
+                let content = o.rowContent(ws, machine: machineLabel, header: header)
                 let h = m.height(for: content)
                 rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section, group: group.id,
                                        siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
@@ -107,7 +108,7 @@ nonisolated extension SidebarLayout {
                 y += h + m.rowSpacing
                 continue
             }
-            var content = o.rowContent(ws, machine: machineLabel)
+            var content = o.rowContent(ws, machine: machineLabel, header: header)
             content.treeDepth = depth
             (content.treeFold, content.rollUp) = (memberTreeRow[childIndex]?.fold, memberTreeRow[childIndex]?.rollUp)
             let h = m.height(for: content)

@@ -40,9 +40,9 @@ nonisolated extension SidebarLayout {
 
     /// Appends `ws`'s row at `y` as `group`'s one row and returns the y after it.
     static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, treeDepth: Int, section: SectionID,
-                                 parent: Int, machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
-                                 to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
-        var content = o.rowContent(ws, machine: machine)
+                                 parent: Int, machine: String?, header: MachineID? = nil, options o: SidebarLayoutOptions,
+                                 metrics m: SidebarLayoutMetrics, to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
+        var content = o.rowContent(ws, machine: machine, header: header)
         content.treeDepth = treeDepth
         let h = m.height(for: content)
         var row = SidebarRow(

@@ -173,7 +173,8 @@ nonisolated struct SidebarDragLook {
         var gapY: CGFloat?
         SidebarLayout.appendGroup(group, children: group.workspaces.filter(options.visible), index: node, section: sections[s].id,
                                   hasSubgroups: subgroupParents.contains(id), filtering: false,
-                                  machine: SidebarLayout.machineLabel(sections[s], options: options), options: options, metrics: m,
+                                  machine: SidebarLayout.machineLabel(sections[s], options: options),
+                                  header: SidebarLayout.cloudHeader(sections[s], options: options), options: options, metrics: m,
                                   gapHeight: 0, to: &rows, y: &y, gapY: &gapY)
         var layout = base
         layout.replaceRows(start..<end, with: rows, shiftingFollowingBy: y - (base.rows[end - 1].maxY + m.rowSpacing))
@@ -211,10 +212,11 @@ nonisolated struct SidebarDragLook {
         let at = low
         let top = at < range.upperBound ? base.rows[at].y : base.rows[at - 1].maxY + m.rowSpacing
         let label = SidebarLayout.machineLabel(section, options: options)
+        let header = SidebarLayout.cloudHeader(section, options: options)
         var rows: [SidebarRow] = []
         var y = top
         for (j, entry) in moving.enumerated() {
-            var content = options.rowContent(entry.ws, machine: label)
+            var content = options.rowContent(entry.ws, machine: label, header: header)
             (content.treeDepth, content.treeFold, content.rollUp) = (0, nil, nil)
             let h = m.height(for: content)
             rows.append(SidebarRow(

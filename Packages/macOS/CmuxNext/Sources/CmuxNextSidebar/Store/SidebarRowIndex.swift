@@ -177,7 +177,8 @@ extension SidebarListView {
             }
             let o = options ?? self.options(includeGap: true)
             options = o
-            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o),
+                                       header: SidebarLayout.cloudHeader(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
             let m = metrics.resolved(for: o)
@@ -245,6 +246,15 @@ nonisolated extension SidebarLayout {
         // A Cloud row never names its machine: its cloud mark says where it runs, and only a status the person must act on is said.
         if machine.kind == .cloud { return o.machineStatusLabels[machine.id] }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
+    }
+
+    /// The Cloud machine whose own header `section`'s rows sit under: with `sidebar.groupByComputer` on and the
+    /// header drawn (several computers, or the list's sole one), nil otherwise. Such a row draws no cloud mark,
+    /// which would say again what its header says. The one rule for `make` and a row update.
+    static func cloudHeader(_ section: SidebarSection, options o: SidebarLayoutOptions) -> MachineID? {
+        guard !o.flattensMachines, o.listsSeveralMachines || o.showsSoleMachineHeader,
+              let machine = section.machine, machine.kind == .cloud else { return nil }
+        return machine.id
     }
 }
 

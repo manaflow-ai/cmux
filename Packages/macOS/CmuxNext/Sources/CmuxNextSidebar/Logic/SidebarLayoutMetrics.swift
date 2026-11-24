@@ -126,6 +126,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// than this Mac names it (and a failed connection) in its machine mark,
     /// hover card and accessibility label, and an expanded row's meta line.
     public var flattensMachines = false
+    /// More than one computer is listed (the model sets it): with `sidebar.groupByComputer`, each has its header.
+    public var listsSeveralMachines = false
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
@@ -215,11 +217,14 @@ nonisolated extension SidebarLayoutOptions {
     /// line with the status glyph and the unread mark (Claude desktop's chat list).
     static let tabRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .pullRequest]))
 
-    /// What `ws`'s row draws under these options.
-    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+    /// What `ws`'s row draws under these options. `header`: the Cloud machine whose header the row sits under
+    /// (`SidebarLayout.cloudHeader`), nil in one list, in Pinned, a custom section, Recents and a status list.
+    func rowContent(_ ws: SidebarWorkspace, machine: String?, header: MachineID? = nil) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
+        // The cloud mark says where a row runs. Under its own Cloud machine's header the header says it, so the mark
+        // would repeat it on every row (Leo 2026-11-24: "does be ceom vacuous/?"); everywhere else it is the only sign.
+        content.runsInCloud = (cloudMachines.contains(ws.machineID) && header != ws.machineID) || ws.startsInCloud
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).

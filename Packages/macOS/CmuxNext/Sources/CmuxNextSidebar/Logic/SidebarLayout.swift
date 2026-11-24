@@ -309,6 +309,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
             let machineLabel = Self.machineLabel(section, options: o)
+            let cloudHeader = Self.cloudHeader(section, options: o)
             // Without a header there is nothing to expand it from: a list the
             // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
@@ -349,7 +350,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 if opensGap { openGapIfNeeded(section: section.id, group: nil, index: index) }
                 switch entry.node {
                 case let .workspace(ws):
-                    var content = o.rowContent(ws, machine: machineLabel)
+                    var content = o.rowContent(ws, machine: machineLabel, header: cloudHeader)
                     // A parent of subagents only keeps the chevron `rowContent` gave it.
                     (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold ?? content.treeFold, tree.rollUp)
                     let h = m.height(for: content)
@@ -371,7 +372,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 case let .group(group):
                     Self.appendGroup(group, children: entry.children, index: index, section: section.id,
                                      hasSubgroups: subgroupParents.contains(group.id), filtering: filtering, machine: machineLabel,
-                                     options: o, metrics: m, gapHeight: gapHeight, to: &rows, y: &y, gapY: &gapY)
+                                     header: cloudHeader, options: o, metrics: m, gapHeight: gapHeight, to: &rows, y: &y, gapY: &gapY)
                 }
             }
             // Group by Folder lists groups, document items and every folder's rows as they are: no Done fold, no row limit.

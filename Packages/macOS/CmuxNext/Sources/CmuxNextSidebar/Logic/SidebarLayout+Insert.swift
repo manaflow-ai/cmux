@@ -38,7 +38,7 @@ nonisolated extension SidebarLayout {
         guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
-        let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))
+        let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o), header: Self.cloudHeader(section, options: o))
         let h = m.height(for: content)
         let row = SidebarRow(
             key: .workspace(ws.id), y: y, height: h, section: section.id,

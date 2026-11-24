@@ -57,6 +57,32 @@ import Testing
         #expect(label.contains(Strings.hoverCloud) && !label.contains("build-vm"))
     }
 
+    /// Leo 2026-11-24, of the cloud mark on a row: "why... would we want a cloud icon in the idebar on the right? ...
+    /// is it relevant in that case then? kinda right? but does be ceom vacuous/?" With one section per computer
+    /// (`sidebar.groupByComputer`) a Cloud machine's rows sit under its own header, which already says where they
+    /// run: those rows draw no mark. A Cloud row pinned out of that section keeps it, as does every row in one list.
+    @Test func aCloudRowUnderItsOwnHeaderDrawsNoMark() throws {
+        let pinned = SidebarRowSection(kind: .custom(SidebarCustomSection(id: "pinned", title: "Pinned", showsTitle: true)),
+                                       nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id,
+                                                                           title: "deploy", directory: "~"))])
+        let model = SidebarModel(sections: [pinned] + [mac, cloud].map(section))
+        func marks() -> [WorkspaceID: Bool] {
+            let layout = SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions())
+            var marks: [WorkspaceID: Bool] = [:]
+            for row in layout.rows { if case let .workspace(id) = row.key { marks[id] = row.content?.runsInCloud } }
+            return marks
+        }
+        model.groupsByComputer = true
+        let grouped = marks()
+        #expect(grouped[WorkspaceID("build-vm-ws")] == false, "its header says Cloud")
+        #expect(grouped[WorkspaceID("pinned-vm-ws")] == true, "no Cloud header over a pinned row")
+        #expect(grouped[WorkspaceID("This Mac-ws")] == false)
+        model.groupsByComputer = false
+        let oneList = marks()
+        #expect(oneList[WorkspaceID("build-vm-ws")] == true, "one list: the mark is the only sign")
+        #expect(oneList[WorkspaceID("pinned-vm-ws")] == true)
+    }
+
     @Test func anSSHRowKeepsItsMark() throws {
         let row = try #require(rows([mac, ssh])[WorkspaceID("mini-ws")])
         #expect(row.content?.machine?.name == "mini")
