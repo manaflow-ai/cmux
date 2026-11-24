@@ -39,22 +39,26 @@ public enum Interactivity {
         #endif
     }
 
-    @MainActor private static var monitor: Any?
-
-    /// Notes keys, scroll and drags (a divider or sidebar drag, a selection) of this app's windows, once. A window
-    /// edge live resize reaches the Rust policy through the daemon: the layout sizes the app sends while it runs
-    /// are drag commands (`set-layout-sizes`). The monitor reads the event type and returns the event untouched.
+    /// The app's one event monitor: notes keys, scroll and drags (a divider or sidebar drag, a selection) of this
+    /// app's windows, and returns each event untouched. A window edge live resize reaches the Rust policy through
+    /// the daemon: the layout sizes the app sends while it runs are drag commands (`set-layout-sizes`).
+    /// The scheduler owns it; it removes the monitor when it goes.
     @MainActor
-    public static func installEventMonitor() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel, .leftMouseDragged]) { event in
-            switch event.type {
-            case .keyDown: Interactivity.note(.typing)
-            case .scrollWheel: Interactivity.note(.scroll)
-            default: Interactivity.note(.drag)
+    public final class EventMonitor {
+        private var token: Any?
+
+        public init() {
+            token = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel, .leftMouseDragged]) { event in
+                switch event.type {
+                case .keyDown: Interactivity.note(.typing)
+                case .scrollWheel: Interactivity.note(.scroll)
+                default: Interactivity.note(.drag)
+                }
+                return event
             }
-            return event
         }
+
+        isolated deinit { token.map(NSEvent.removeMonitor) }
     }
 }
 
