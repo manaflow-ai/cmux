@@ -898,6 +898,32 @@ pub fn rehome(client: &SignalingClient) -> usize {
     moved
 }
 
+/// The phone changed network and `client` (a Worker socket) opened on the new one: move the
+/// sessions on `client`'s device that run through a Mac's local hub onto it too (`rehome` keeps
+/// the two routes apart). The hub's TCP socket is bound to the old network, and the phone left
+/// the LAN the hub is on, so the session's announcements would go into a dead socket; a Mac
+/// still on the new network is re-found by the browser and the next dial. Returns how many moved.
+pub fn rehome_local_after_roam(client: &SignalingClient) -> usize {
+    if client.is_local() {
+        return 0;
+    }
+    let mut moved = 0;
+    for session in live() {
+        let current = session.signaling();
+        if current.device_id() == client.device_id() && current.is_local() {
+            session.rehome_onto(client);
+            moved += 1;
+        }
+    }
+    moved
+}
+
+/// Test support: whether one side of `session_id` signals through a Mac's local hub.
+#[doc(hidden)]
+pub fn session_signals_locally(session_id: &str, dialer: bool) -> Option<bool> {
+    find(session_id, dialer).map(|session| session.signaling().is_local())
+}
+
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
     live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())

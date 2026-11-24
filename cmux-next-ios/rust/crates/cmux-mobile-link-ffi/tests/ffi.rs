@@ -601,3 +601,117 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
     local_link_remove(instance);
     pool.reset().await;
 }
+
+/// A network change drops the ads: they were seen on the old network, and a dial now would spend
+/// the hub bound on a dead one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_network_change_forgets_the_local_ads() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    let instance = format!("roam-{mac_id}");
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() }
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port: 9 }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()));
+    let pool = WarmPool::new();
+    pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    assert!(!local_link_nearby(mac_id), "the old network's ad outlived the roam");
+    local_link_remove(instance);
+    pool.reset().await;
+}
+
+/// A session that came up through the Mac's local hub signals through the Worker once the phone
+/// roams off the LAN (the hub's socket is dead then, silently: no close, no reset).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_roam_moves_a_local_hub_session_onto_the_worker() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    let phone_device = device.clone();
+    let hub = cmux_mobile_link::local_hub::LocalHub::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        &mac_id,
+        Arc::new(move |d: &str| d == phone_device),
+    )
+    .await
+    .unwrap();
+    spawn_echo_mac(SignalingClient::connect_local(&hub.loopback_url(), hub.secret(), &mac_id).await.unwrap());
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+
+    // The phone reaches the hub through a pipe that can go silent, as a LAN does when the phone
+    // leaves it.
+    let dead = Arc::new(AtomicBool::new(false));
+    let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_addr = proxy.local_addr().unwrap();
+    let hub_addr: std::net::SocketAddr = format!("127.0.0.1:{}", hub.port()).parse().unwrap();
+    let flag = Arc::clone(&dead);
+    tokio::spawn(async move {
+        while let Ok((phone, _)) = proxy.accept().await {
+            let Ok(upstream) = tokio::net::TcpStream::connect(hub_addr).await else { continue };
+            let (mut phone_r, mut phone_w) = phone.into_split();
+            let (mut up_r, mut up_w) = upstream.into_split();
+            let up_flag = Arc::clone(&flag);
+            let down_flag = Arc::clone(&flag);
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = phone_r.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    if !up_flag.load(Ordering::Relaxed) && up_w.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = up_r.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    if !down_flag.load(Ordering::Relaxed) && phone_w.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+
+    let request = ConnectRequest {
+        base_url: String::new(),
+        token: String::new(),
+        team_id: "local".into(),
+        transport: Transport::WireGuard,
+        ..request(&server, &device, &mac_id)
+    };
+    let link = cmux_mobile_link_ffi::local_link::connect_local_inner(request, vec![proxy_addr], None)
+        .await
+        .expect("local hub link");
+    assert_eq!(link.signals_locally(), Some(true), "the dial must have gone through the hub");
+
+    // The phone leaves the LAN: the hub's socket goes silent, the Worker is reachable.
+    dead.store(true, Ordering::Relaxed);
+    let pool = WarmPool::shared();
+    let started = std::time::Instant::now();
+    let marks =
+        pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    let recovered = started.elapsed();
+    eprintln!("local session moved to the Worker: {:?} in {recovered:?}", link.signals_locally());
+    assert_eq!(link.signals_locally(), Some(false), "still on the dead hub socket: {marks:?}");
+    assert!(names(&marks).contains(&"signaling:local_rehomed"), "{marks:?}");
+    link.close();
+    pool.reset().await;
+}

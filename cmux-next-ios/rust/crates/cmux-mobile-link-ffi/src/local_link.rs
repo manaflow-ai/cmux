@@ -120,6 +120,17 @@ pub fn local_link_remove(instance: String) {
     });
 }
 
+/// The phone changed network: every ad it holds was seen on the old one, so forget them all (the
+/// browser re-reports the ones still live). A dial then skips the dead hub instead of spending
+/// [`LOCAL_DIAL_BOUND`] on it.
+#[uniffi::export]
+pub fn local_link_forget_all() {
+    with_state(|state| {
+        state.peers.clear();
+        state.instances.clear();
+    });
+}
+
 /// The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
 /// (nil: forget the key). Its ad is then trusted only with the key tag of that key.
 #[uniffi::export]
@@ -310,5 +321,19 @@ mod tests {
         local_link_remove("Mac A".into());
         assert!(!local_link_nearby("mac-A".into()));
         local_link_pair("mac-A".into(), None);
+    }
+
+    #[test]
+    fn a_network_change_forgets_every_ad() {
+        let ad = txt(&[("id", "mac-roam"), ("v", "1")]);
+        let here = vec![LocalEndpoint { host: "10.0.0.9".into(), port: 4000 }];
+        assert!(local_link_observe("Mac Roam".into(), ad.clone(), here.clone()));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_forget_all();
+        assert!(!local_link_nearby("mac-roam".into()), "a dial must not wait on the old LAN's hub");
+        // The browser re-reports a live one.
+        assert!(local_link_observe("Mac Roam".into(), ad, here));
+        assert!(local_link_nearby("mac-roam".into()));
+        local_link_remove("Mac Roam".into());
     }
 }
