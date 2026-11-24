@@ -338,7 +338,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
-    case painted(fromKeptTail: Bool, settled: Bool)
+    /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
+    /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
+    case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false)
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).

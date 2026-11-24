@@ -636,8 +636,11 @@ public final class AgentPaneModel {
             // A New Tab page's composer is not the launch's front chat.
             if newTab == nil { AgentPaneLaunchTimings.shared.inputEchoed(at: echoedAt) }
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled):
+        case .painted(let fromKeptTail, let settled, let copy):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            // The page's own app drew the chat (not the inert saved copy): what the relaunch bench times as
+            // the chat drawn live (scripts/ci/relaunch_restore_check.py `page_painted_ms`, goal restart-to-chat).
+            if !copy, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.page_painted") }
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.

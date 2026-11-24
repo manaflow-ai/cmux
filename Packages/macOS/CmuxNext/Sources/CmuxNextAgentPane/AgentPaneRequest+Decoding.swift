@@ -263,7 +263,8 @@ extension AgentPaneRequest {
             }
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
-                            settled: params?["settled"] as? Bool ?? false)
+                            settled: params?["settled"] as? Bool ?? false,
+                            copy: params?["copy"] as? Bool ?? false)
         case "pane.inputEchoed":
             if let epochMs = params?["echoedEpochMs"] as? Double, epochMs.isFinite {
                 self = .inputEchoed(at: Date(timeIntervalSince1970: epochMs / 1_000))

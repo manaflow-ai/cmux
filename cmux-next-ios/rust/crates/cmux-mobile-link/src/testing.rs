@@ -550,6 +550,15 @@ struct UdpBlock {
     on: std::sync::atomic::AtomicBool,
     dropped_from_clients: std::sync::atomic::AtomicU64,
     dropped_to_clients: std::sync::atomic::AtomicU64,
+    /// Allocate success responses still to drop (a lossy link that loses
+    /// the server's answer, so the client's retransmit meets an allocation
+    /// that already exists).
+    drop_allocate_successes: std::sync::atomic::AtomicU32,
+}
+
+/// Whether `datagram` is a STUN Allocate success response (type 0x0103).
+fn is_allocate_success(datagram: &[u8]) -> bool {
+    datagram.len() >= 20 && datagram[..2] == [0x01, 0x03]
 }
 
 /// The TURN server's UDP socket, which drops everything while `block` is on.
@@ -585,6 +594,19 @@ impl webrtc::util::Conn for BlockableUdp {
     async fn send_to(&self, buf: &[u8], target: std::net::SocketAddr) -> webrtc::util::Result<usize> {
         if self.block.on.load(std::sync::atomic::Ordering::Relaxed) {
             self.block.dropped_to_clients.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Ok(buf.len());
+        }
+        if is_allocate_success(buf)
+            && self
+                .block
+                .drop_allocate_successes
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |n| n.checked_sub(1),
+                )
+                .is_ok()
+        {
             return Ok(buf.len());
         }
         Ok(self.socket.send_to(buf, target).await?)
@@ -729,6 +751,12 @@ impl TestTurn {
     /// Block (or unblock) UDP to the server, as a network that drops UDP.
     pub fn set_udp_blocked(&self, blocked: bool) {
         self.udp_block.on.store(blocked, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Drop the next `count` Allocate success responses on the UDP port, as
+    /// a lossy link that loses the server's answer to an allocation.
+    pub fn drop_allocate_successes(&self, count: u32) {
+        self.udp_block.drop_allocate_successes.store(count, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Datagrams the blocked UDP port dropped so far: (from its clients, to
