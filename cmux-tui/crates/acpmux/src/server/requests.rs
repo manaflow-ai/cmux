@@ -2824,6 +2824,17 @@ async fn dispatch_request_with_identity(
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
+            // A Cloud machine's first home chat folder, warm before the chat exists
+            // (`hub/pool/reserved.rs`): this machine's own socket only.
+            if params.get("reserveHome").and_then(Value::as_bool) == Some(true) {
+                if conn.origin != Origin::Local {
+                    return Err(RpcError::invalid_params(
+                        "reserveHome is asked on this machine's own socket only",
+                    ));
+                }
+                let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
+                return heap(|| hub.reserve_home_warm(wait)).await;
+            }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
             // own socket only, as `session/new` takes one; never from an agent's connection.
@@ -2886,6 +2897,7 @@ async fn dispatch_request_with_identity(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
