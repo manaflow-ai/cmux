@@ -7,10 +7,10 @@ name: Pause-policy A/B (staging)
 # the guest advertised `activity-turn-end`. Every machine it made is deleted, pass or fail.
 #
 # Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev (the pair cloud-journey-pr.yml reads).
-# Manual only: `gh workflow run pause-ab.yml --repo manaflow-ai/cmux --ref <branch>` (workflow_dispatch needs this
+# Manual: `gh workflow run pause-ab.yml --repo manaflow-ai/cmux --ref <branch>` (workflow_dispatch needs this
 # file on the default branch first).
 
-run-name: Pause-policy A/B (staging) ${{ github.ref_name }} ${{ inputs.arms }}
+run-name: Pause-policy A/B (staging) ${{ github.head_ref || github.ref_name }} ${{ inputs.arms || 'turn_end,aggressive' }}
 
 on:
   workflow_dispatch:
@@ -40,6 +40,14 @@ on:
         required: false
         type: string
         default: "20,45,90,180"
+  # A PR that changes the harness runs it once with the defaults (1 machine per arm), so the first run needs no
+  # default-branch copy of this file.
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/pause-ab.yml
+      - scripts/cmux-next/pause-ab.ts
+      - scripts/cmux-next/pause-ab.test.ts
 
 permissions:
   contents: read
@@ -50,7 +58,7 @@ concurrency:
 
 jobs:
   ab:
-    if: github.repository == 'manaflow-ai/cmux'
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -75,11 +83,11 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          ARMS: ${{ inputs.arms }}
-          PER_ARM: ${{ inputs.per_arm }}
-          TURNS: ${{ inputs.turns }}
-          SEED: ${{ inputs.seed }}
-          GAPS: ${{ inputs.gaps }}
+          ARMS: ${{ inputs.arms || 'turn_end,aggressive' }}
+          PER_ARM: ${{ inputs.per_arm || '1' }}
+          TURNS: ${{ inputs.turns || '8' }}
+          SEED: ${{ inputs.seed || '7' }}
+          GAPS: ${{ inputs.gaps || '20,45,90,180' }}
         run: >-
           bun scripts/cmux-next/pause-ab.ts --backend staging --out "$RUNNER_TEMP/pause-ab"
           --arms "$ARMS" --per-arm "$PER_ARM" --turns "$TURNS" --seed "$SEED" --gaps "$GAPS"
