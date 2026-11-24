@@ -224,7 +224,8 @@ fn record(overran: &WaitOverran) {
         "wait overran its bound; recovery edge fired"
     );
     let mut counts = OVERRUNS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    *counts.entry(overran.machine).or_default() += 1;
+    let count = counts.entry(overran.machine).or_default();
+    *count = count.saturating_add(1);
 }
 
 /// How many waits of `machine` overran their bound in this process (a chaos harness or test

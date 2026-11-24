@@ -107,7 +107,6 @@ pub trait BoundedMachine {
     /// to the first `(`, `{` or space (the variant's name).
     fn label(state: &Self::State) -> String {
         let text = format!("{state:?}");
-        let end = text.find(['(', '{', ' ']).unwrap_or(text.len());
-        text[..end].to_owned()
+        text.split(['(', '{', ' ']).next().unwrap_or_default().to_owned()
     }
 }
