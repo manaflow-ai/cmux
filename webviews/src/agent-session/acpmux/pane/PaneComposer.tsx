@@ -93,6 +93,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -232,6 +233,10 @@ export type PaneComposerDeps = {
   hatPlan: readonly AcpmuxPlanEntry[] | undefined;
   hatKept: boolean;
   trayHandle: TrayHandleSide;
+  /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
+  /// line (hatSide, hatPillPlace.experiment.ts).
+  hatHandle: TrayHandleSide;
+  hatPillArm: HatPillPlace;
   statusCardOpen: boolean;
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
@@ -451,6 +456,8 @@ export function drawPaneComposer({
   hatPlan,
   hatKept,
   trayHandle,
+  hatHandle,
+  hatPillArm,
   statusCardOpen,
   setStatusCardOpen,
   openImage,
@@ -838,7 +845,8 @@ export function drawPaneComposer({
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
-              side={trayHandle}
+              side={hatHandle}
+              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
             />
           ) : (
             trayNode
