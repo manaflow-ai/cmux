@@ -255,6 +255,9 @@ fn parse_server(
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
         },
+        ["hold-terminals"] => super::lifecycle::ServerAction::HoldTerminals {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+        },
         ["premigrate-registry"] => super::lifecycle::ServerAction::PremigrateRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
             max_duration: premigrate_max_duration(flags)?,
@@ -282,6 +285,7 @@ fn parse_server(
                         "reload-config",
                         "compact-registry",
                         "premigrate-registry",
+                        "hold-terminals",
                     ],
                 ),
             )));

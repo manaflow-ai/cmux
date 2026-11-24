@@ -79,6 +79,16 @@ pub(super) enum ServerAction {
         state_dir: Option<std::path::PathBuf>,
         max_duration: Option<Duration>,
     },
+    /// Private update contract: before an update quits the app, mark every
+    /// terminal with no tab and no `keep` mark as `keep` on the running
+    /// owner (of any build with `set-terminal-keep`) and name it in the
+    /// session's update hold, so the quit's end of the app's attach streams
+    /// leaves none to the reaper. The next owner lifts the marks
+    /// (`cmux-tui-core` `mux/update_hold.rs`). `--state-dir` as for
+    /// compact-registry.
+    HoldTerminals {
+        state_dir: Option<std::path::PathBuf>,
+    },
 }
 
 pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
@@ -391,6 +401,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     3,
                 ),
             }
+        }
+        ServerAction::HoldTerminals { state_dir } => {
+            hold_terminals(&mut connection, actual_session, state_dir, deadline, global.output)
         }
         ServerAction::ReloadConfig => {
             let result =
@@ -1360,6 +1373,83 @@ fn run_compact_registry(
             1,
         ),
     }
+}
+
+/// `server hold-terminals [--state-dir <path>]`: the update hold. The
+/// registry is read beside the owner (read-only); the hold file is written
+/// before the first mark, so a hold that stops halfway leaves no mark the
+/// file does not name. A terminal the owner refuses (ended meanwhile) is
+/// reported in `refused` and stays in the file, where it expires.
+fn hold_terminals(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    session: &str,
+    state_dir: Option<std::path::PathBuf>,
+    deadline: Instant,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return print_success(json!({"status": "nothing_to_do", "session": session}), output);
+    };
+    let failed = |reason: String| {
+        local_error_with_details(
+            "server.hold_failed",
+            messages.communication_failed,
+            json!({"reason": reason}),
+            output,
+            1,
+        )
+    };
+    let terminals = match cmux_tui_core::update_hold_candidates(&root, session) {
+        Ok(terminals) => terminals,
+        Err(error) => return failed(format!("{error:#}")),
+    };
+    if terminals.is_empty() {
+        return print_success(
+            json!({"status": "nothing_to_do", "session": session, "held": 0}),
+            output,
+        );
+    }
+    let path = cmux_tui_core::UpdateHold::path(&root, session);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    if let Err(error) = cmux_tui_core::UpdateHold::extend(&path, &terminals, now_ms) {
+        return failed(format!("{error:#}"));
+    }
+    let mut held = Vec::new();
+    let mut refused = Vec::new();
+    for (index, terminal_id) in terminals.iter().enumerate() {
+        let request = json!({
+            "id": 2 + index,
+            "cmd": "set-terminal-keep",
+            "terminal_id": terminal_id,
+            "keep": true,
+        });
+        match exchange(connection, request, deadline) {
+            Ok(_) => held.push(terminal_id.clone()),
+            Err(ExchangeError::Rejected(_)) => refused.push(terminal_id.clone()),
+            Err(_) => {
+                return failed(format!(
+                    "the owner stopped answering after {} of {} terminals",
+                    held.len(),
+                    terminals.len()
+                ));
+            }
+        }
+    }
+    print_success(
+        json!({
+            "status": "held",
+            "session": session,
+            "held": held.len(),
+            "terminals": held,
+            "refused": refused,
+            "path": path.to_string_lossy(),
+        }),
+        output,
+    )
 }
 
 /// `server premigrate-registry --session <name> [--state-dir <path>]

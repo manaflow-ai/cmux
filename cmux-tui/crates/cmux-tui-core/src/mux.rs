@@ -234,6 +234,7 @@ mod project_chats;
 mod pty_reclaim;
 mod shell_state_save;
 mod tree_revision;
+mod update_hold;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -431,6 +432,7 @@ pub use terminal_reap::{
     DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub use update_hold::{UPDATE_HOLD_MAX, UpdateHoldPass, start_update_hold_release};
 pub(crate) use workspace_close_guard::workspace_not_empty_code;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};

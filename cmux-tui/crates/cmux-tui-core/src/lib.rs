@@ -220,6 +220,7 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
+pub use mux::{UPDATE_HOLD_MAX, UpdateHoldPass, start_update_hold_release};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
@@ -259,6 +260,9 @@ pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_M
 pub use ghostty_vt::{CursorShape, Rgb};
 pub use workspace_registry::premigrate::{
     PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry,
+};
+pub use workspace_registry::update_hold_store::{
+    UPDATE_HOLD_FILE, UpdateHold, update_hold_candidates,
 };
 
 pub type SurfaceId = u64;

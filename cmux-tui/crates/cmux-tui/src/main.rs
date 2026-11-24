@@ -2977,6 +2977,12 @@ fn run_server(
     // (local_owner.rs, W5-O). An owner reached through `--remote-mux-socket`
     // (`remote-link --mux-socket`) reaps only if its own supervisor passed the
     // option; a direct `--headless` with no option does not reap.
+    // An update held this session's terminals with no tab (`server
+    // hold-terminals`): lift each mark once a client streams the terminal
+    // again or a tab shows it. No hold file, no thread.
+    if let Err(error) = cmux_tui_core::start_update_hold_release(&mux) {
+        crate::client_log::stderr_log!("startup", "{BIN}: update hold not lifted: {error}");
+    }
     let terminal_reaper = if mux.terminal_reaper_advertised() {
         match cmux_tui_core::start_terminal_reaper(&mux) {
             Ok(reaper) => Some(reaper),

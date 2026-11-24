@@ -147,6 +147,7 @@ pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
 mod terminal_unplaced_store;
 mod topology_close_store;
+pub(crate) mod update_hold_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
 pub use crate::state::tab_state_store::TabAttentionRecord;
