@@ -239,13 +239,13 @@ fn network_change_restarts_a_dial_in_flight_and_ends_the_backoff() {
     assert_eq!(m.handle(&dropped(1, "network lost")), [Effect::Close, dial(2, "m1", WG)]);
     // The redial is on the dead path; the network comes back.
     assert_eq!(m.handle(&Event::NetworkChanged), [dial(3, "m1", WG)]);
-    assert_eq!(m.phase(), &connecting(WG, 1));
+    // The restart counts as an attempt (policy::restart_attempt), so news cannot hold it in place.
+    assert_eq!(m.phase(), &connecting(WG, 2));
     // The old dial's late failure is ignored.
     assert_eq!(m.handle(&failed(2, "timeout")), []);
     m.handle(&failed(3, "x"));
-    m.handle(&failed(4, "x"));
     let Phase::Waiting { attempt, .. } = *m.phase() else { panic!("expected waiting, got {:?}", m.phase()) };
-    assert_eq!(m.handle(&Event::NetworkChanged), [dial(6, "m1", WG)]);
+    assert_eq!(m.handle(&Event::NetworkChanged), [dial(5, "m1", WG)]);
     assert_eq!(m.phase(), &connecting(WG, attempt + 1));
 }
 
