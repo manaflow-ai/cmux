@@ -24,7 +24,8 @@ public struct AgentHarnessDisableFolderAction {
         let (disable, focusedFolder, failure) = (disable, focusedFolder, failure)
         registry.bindEffect(Self.id, effect: { invocation in
             func named(_ key: String) -> String? {
-                invocation.arguments[key]?.stringValue?.trimmingCharacters(in: .whitespaces).nilIfEmpty
+                guard let text = invocation.arguments[key]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+                return text
             }
             guard let id = named("id") else {
                 return .refused(Self.text("agentHarness.disableFolder.needsAgent", "Name the agent with --arg id=<agent>."))
@@ -47,8 +48,4 @@ public struct AgentHarnessDisableFolderAction {
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: english, bundle: .localizedModule)
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
