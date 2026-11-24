@@ -83,7 +83,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,resize_hitch,live_resize,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "window_resize,fullscreen,resize_hitch,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
                     "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
@@ -97,7 +97,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "resize_hitch", "live_resize", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -176,6 +176,27 @@ document.addEventListener('click', e => {
     inside: e.clientX >= r.x && e.clientX <= r.x + r.width && e.clientY >= r.y && e.clientY <= r.y + r.height,
     efp_same: document.elementFromPoint(e.clientX, e.clientY) === e.target});
 }, true);
+if (location.search.indexOf('heavy') >= 0) {
+  // The user's heavy page (defects.md 8): a canvas over the whole viewport, hundreds of moving shapes each frame, so the
+  // renderer's frame at a new size costs what a busy page's does. Behind the edge strips, which stay on top.
+  const c = document.createElement('canvas'); c.id = 'heavy';
+  c.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:1;pointer-events:none';
+  document.body.appendChild(c);
+  const ctx = c.getContext('2d'); const dots = [];
+  for (let i = 0; i < 1500; i++) dots.push([Math.random(), Math.random(), Math.random() * 6.28, 2 + Math.random() * 10]);
+  (function draw(t) {
+    if (c.width !== innerWidth * devicePixelRatio || c.height !== innerHeight * devicePixelRatio) {
+      c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
+    }
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const d of dots) {
+      const x = (d[0] + Math.sin(t / 900 + d[2]) * 0.05) * c.width, y = (d[1] + Math.cos(t / 700 + d[2]) * 0.05) * c.height;
+      ctx.fillStyle = 'hsla(' + ((d[2] * 57 + t / 20) % 360) + ',70%,55%,0.35)';
+      ctx.beginPath(); ctx.arc(x, y, d[3] * devicePixelRatio, 0, 6.28); ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  })(0);
+}
 window.layoutReady = true;
 </script></body></html>"""
 
@@ -1616,6 +1637,52 @@ def check_resize_hitch(tab, pane):
          "pass_if": "no app frame over 50 ms during the corner drags; the sample names what the main thread does"})
 
 
+def check_divider_load(tab, pane):
+    """The divider fence's quality and frame-rate cost on a light page and a heavy one (the user's animating canvas):
+    the same three out-and-back divider drags as live_resize.divider, recorded by the app's recorder, each frame
+    classified, with debug.frames and the fence counters, once on the layout page and once with its heavy canvas.
+    No pass rule: a measurement row (INFO) for the fence wait's tradeoff; run it with and without
+    CMUX_CEF_RESIZE_FENCE_MS (--app-env) to compare the half-frame cap with a long wait."""
+    results = {}
+    for load, query in (("light", "?divload"), ("heavy", "?divload-heavy")):
+        if not open_layout(tab, query):
+            results[load] = {"error": "layout page did not load"}
+            continue
+        time.sleep(1.5)  # test harness: the page draws (the heavy canvas starts)
+        layers = main_layers()
+        frame = page_view(pane, layers)
+        divider = vertical_divider_near(frame[0], layers) if frame else None
+        if not frame or not divider:
+            results[load] = {"error": "no page view or divider", "frame": frame}
+            continue
+        rec = pixel_record(f"divider-{load}", 20)
+        if rec.get("error"):
+            results[load] = {"error": rec["error"]}
+            continue
+        time.sleep(0.3)  # test harness: frames at rest
+        rpc("debug.frames", {"action": "start"})
+        work0 = work_counters()
+        spans = []
+        for _ in range(3):
+            a = time.monotonic()
+            drag_divider(divider, -160)
+            drag_divider((divider[0] - 160, divider[1]), 160)
+            spans.append((a, time.monotonic()))
+        app_frames = rpc("debug.frames", {"action": "stop"})
+        work = work_delta(work0, work_counters())
+        time.sleep(0.8)  # test harness: the settle is in the recording
+        pixel_stop(rec)
+        v = pixel_verdict(rec, spans, frame[0] - 170, 0.7)
+        results[load] = {k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
+                                                "stalls_over_50ms", "gap_p50_ms", "gap_max_ms", "settle_ms_after_input", "error")}
+        results[load]["app_frames"] = frame_detail(app_frames)
+        results[load]["fences"] = {k: work.get(f"tracker.{k}") for k in ("fences", "fence_joined", "fence_presented", "fence_missed", "fences_expired")}
+    RAW["divider_load"] = results
+    row("INFO", "divider_load", {"app_env": opts.app_env, **results,
+                                 "note": "measurement: divider fence quality (wrong frames, presented) against frame rate "
+                                         "(moving_fps, app p95/max), light and heavy page"})
+
+
 def check_pane_zoom(tab, pane):
     """Bug 14: Cmd-Shift-Enter (toggleSplitZoom) on the page's pane: zoomed, the page's view is at least 1.3x its
     area, exactly one page view shows, no page child window or overlay panel, and the page fits its view within 1 pt
@@ -1957,7 +2024,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "window_move", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -2169,7 +2236,7 @@ try:
             time.sleep(0.5)  # test harness: the layout page draws
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
-                              ("resize_hitch", check_resize_hitch), ("live_resize", check_live_resize),
+                              ("resize_hitch", check_resize_hitch), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
