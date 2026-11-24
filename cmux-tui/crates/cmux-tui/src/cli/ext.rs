@@ -21,11 +21,11 @@ mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
 mod remix;
 #[cfg(test)]
 mod remix_tests;
-#[cfg(test)]
-mod recipes_tests;
 mod scaffold;
 mod scene;
 mod scene_type;
