@@ -617,6 +617,10 @@ impl super::Hub {
         blocks: &mut Vec<Value>,
     ) {
         *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // Most prompts name no file: no settings read, no thread.
+        if extract(text).is_empty() {
+            return;
+        }
         let (cwd, first) = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             (m.cwd.clone(), m.turn_count <= 1)
