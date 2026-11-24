@@ -218,7 +218,7 @@ mod linux {
                 .kill_on_drop(true)
                 .output()
         };
-        let budget = crate::session_budget::daemon_budget().0.bus_properties();
+        let budget = crate::session_budget::task_budget().0.bus_properties();
         let output = tokio::time::timeout(PLACEMENT_WAIT, call(budget))
             .await
             .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?

@@ -14,7 +14,8 @@
 //! - A scope over its budget is warned once in its chat. One over its budget while the home
 //!   filesystem's free space is under the host's floor (registry `lanes.free_gb_floor`, else
 //!   10 GB) has its top writer's process group stopped (SIGSTOP: throttled, not killed), unless
-//!   that group is the scope's oldest (the harness itself, or a task's runner): then it is only
+//!   that group is one of the scope's own (`Known::protected`: the groups it held when the
+//!   watcher first saw it, the harness or a task's runner): then it is only
 //!   warned. A stopped group gets SIGCONT once free space is back over twice the floor.
 //! - Off: `ACPMUX_SESSION_DISK_WATCH=0`, or a disk budget of 0 (`ACPMUX_SESSION_DISK_MB=0`,
 //!   `session.diskMb` 0).
@@ -26,6 +27,15 @@ use std::time::Duration;
 
 /// How often the watcher measures.
 pub(crate) const TICK: Duration = Duration::from_secs(15);
+/// How often while the host's free disk is under twice its floor: a `dd` writes 2 GB in 6 s
+/// here (gcp-agent-lane-8, 2026-11-24), so at [`TICK`] a 20 GB writer would run 5 GB past its
+/// budget before the watcher saw it.
+pub(crate) const LOW_TICK: Duration = Duration::from_secs(2);
+
+/// The wait before the next reading, with `free` bytes free on a host whose floor is `floor`.
+pub(crate) fn next_tick(free: u64, floor: u64) -> Duration {
+    if free < floor.saturating_mul(2) { LOW_TICK } else { TICK }
+}
 /// The most scopes, processes and temporary-directory entries one tick reads.
 pub(crate) const MAX_SCOPES: usize = 1024;
 pub(crate) const MAX_PIDS: usize = 32_768;
@@ -44,13 +54,16 @@ pub(crate) fn kept_bytes(io: &str) -> u64 {
     field("write_bytes").saturating_sub(field("cancelled_write_bytes"))
 }
 
-/// `(pgid, starttime)` from `/proc/<pid>/stat` text.
-pub(crate) fn pgid_and_start(stat: &str) -> Option<(i32, u64)> {
-    // The command may hold spaces and parens; the fields after the last `)` are fixed.
-    let rest = stat.get(stat.rfind(')')? + 1..)?;
-    let fields: Vec<&str> = rest.split_whitespace().collect();
-    // After `)`: state(0) ppid(1) pgrp(2) ... starttime(19).
-    Some((fields.get(2)?.parse().ok()?, fields.get(19)?.parse().ok()?))
+/// What the watcher reads once per scope, the first tick it sees it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Known {
+    /// `ACPMUX_SESSION_ID` and `ACPMUX_SESSION_TMPDIR` from one of its processes.
+    pub session: Option<String>,
+    pub tmp: Option<String>,
+    /// The process groups never stopped: the ones it held when first seen (a scope starts with
+    /// its harness or task runner alone; one that was already running when the daemon started
+    /// keeps every group it had, so it is only warned).
+    pub protected: Vec<i32>,
 }
 
 /// One scope's reading.
@@ -61,9 +74,9 @@ pub(crate) struct Sample {
     pub written: u64,
     pub tmp: u64,
     pub tmp_partial: bool,
-    /// The process group of the top writer, and the scope's oldest process's group.
+    /// The process group of the top writer, and the groups never stopped (`Known::protected`).
     pub top_pgid: Option<i32>,
-    pub oldest_pgid: Option<i32>,
+    pub protected: Vec<i32>,
     pub memory: u64,
     pub tasks: u64,
 }
@@ -108,7 +121,10 @@ pub(crate) fn decide(
     if let State::Stopped(g) = prev {
         // Resumed once the disk recovered, or the budget was turned off.
         if budget == 0 || free >= floor.saturating_mul(2) {
-            return (if budget > 0 && used > budget { State::Over } else { State::Ok }, Some(Action::Resume(g)));
+            return (
+                if budget > 0 && used > budget { State::Over } else { State::Ok },
+                Some(Action::Resume(g)),
+            );
         }
         return (prev, None);
     }
@@ -116,7 +132,7 @@ pub(crate) fn decide(
         return (State::Ok, None);
     }
     if free < floor {
-        return match sample.top_pgid.filter(|g| Some(*g) != sample.oldest_pgid && *g > 1) {
+        return match sample.top_pgid.filter(|g| !sample.protected.contains(g) && *g > 1) {
             Some(g) => (State::Stopped(g), Some(Action::Stop(g))),
             None if prev == State::Ok => (State::Over, Some(Action::WarnUnstoppable)),
             None => (prev, None),
@@ -133,7 +149,7 @@ pub(crate) fn decide(
 pub(crate) struct Watch {
     pub states: BTreeMap<String, State>,
     /// Each scope's session, read once from one of its processes' environment.
-    pub sessions: BTreeMap<String, (Option<String>, Option<String>)>,
+    pub sessions: BTreeMap<String, Known>,
     pub last: Vec<Sample>,
     pub free: u64,
     pub floor: u64,
@@ -175,7 +191,9 @@ impl Watch {
         let listed: Vec<Value> = rows
             .iter()
             .enumerate()
-            .filter(|(i, s)| *i < LISTED || self.states.get(&s.scope).is_some_and(|st| *st != State::Ok))
+            .filter(|(i, s)| {
+                *i < LISTED || self.states.get(&s.scope).is_some_and(|st| *st != State::Ok)
+            })
             .map(|(_, s)| {
                 json!({
                     "scope": s.scope, "sessionId": s.session, "diskBytes": s.used(),
@@ -188,7 +206,7 @@ impl Watch {
             .collect();
         json!({
             "enabled": enabled,
-            "tickSeconds": TICK.as_secs(),
+            "tickSeconds": next_tick(self.free, self.floor).as_secs(),
             "ticks": self.ticks,
             "freeBytes": self.free,
             "floorBytes": self.floor,
@@ -207,7 +225,8 @@ pub(crate) fn shared() -> &'static std::sync::Mutex<Watch> {
 
 /// Whether the watcher runs (`ACPMUX_SESSION_DISK_WATCH=0` turns it off).
 pub(crate) fn enabled() -> bool {
-    cfg!(target_os = "linux") && !std::env::var("ACPMUX_SESSION_DISK_WATCH").is_ok_and(|v| v.trim() == "0")
+    cfg!(target_os = "linux")
+        && !std::env::var("ACPMUX_SESSION_DISK_WATCH").is_ok_and(|v| v.trim() == "0")
 }
 
 /// The user manager's cgroup directory this daemon runs under, from `/proc/self/cgroup` text.
@@ -258,10 +277,7 @@ pub(crate) fn dir_size(dir: &std::path::Path, max: usize) -> (u64, bool) {
 /// Reads every acpmux scope under `manager` (`manager_dir`): the samples, and whether a bound cut
 /// the read short. `known` is each scope's session and temporary directory already read.
 #[cfg(target_os = "linux")]
-pub(crate) fn scan(
-    manager: &str,
-    known: &mut BTreeMap<String, (Option<String>, Option<String>)>,
-) -> (Vec<Sample>, bool) {
+pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<Sample>, bool) {
     let read = |p: &str| std::fs::read_to_string(p).ok();
     let (mut samples, mut pids_read, mut truncated) = (Vec::new(), 0usize, false);
     for slice in [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE] {
@@ -282,7 +298,8 @@ pub(crate) fn scan(
                 .filter_map(|l| l.trim().parse().ok())
                 .collect();
             let mut s = Sample { scope: name.clone(), ..Sample::default() };
-            let (mut top, mut oldest): (Option<(u64, i32)>, Option<(u64, i32)>) = (None, None);
+            let mut top: Option<(u64, i32)> = None;
+            let mut groups: Vec<i32> = Vec::new();
             for pid in procs.iter().copied() {
                 if pids_read >= MAX_PIDS {
                     truncated = true;
@@ -291,43 +308,42 @@ pub(crate) fn scan(
                 pids_read += 1;
                 let kept = read(&format!("/proc/{pid}/io")).map_or(0, |io| kept_bytes(&io));
                 s.written = s.written.saturating_add(kept);
-                if let Some((pgid, start)) =
-                    read(&format!("/proc/{pid}/stat")).as_deref().and_then(pgid_and_start)
-                {
-                    if top.is_none_or(|(k, _)| kept > k) {
-                        top = Some((kept, pgid));
-                    }
-                    if oldest.is_none_or(|(st, _)| start < st) {
-                        oldest = Some((start, pgid));
-                    }
+                // SAFETY: getpgid takes any pid; a gone one is -1.
+                let pgid = unsafe { libc::getpgid(pid as i32) };
+                if pgid <= 0 {
+                    continue;
+                }
+                if !groups.contains(&pgid) {
+                    groups.push(pgid);
+                }
+                if top.is_none_or(|(k, _)| kept > k) {
+                    top = Some((kept, pgid));
                 }
             }
             s.top_pgid = top.filter(|(k, _)| *k > 0).map(|(_, g)| g);
-            s.oldest_pgid = oldest.map(|(_, g)| g);
-            let (session, tmp) = known
-                .entry(name.clone())
-                .or_insert_with(|| {
-                    procs
-                        .iter()
-                        .find_map(|pid| {
-                            let env = crate::agent_host::tree::environ(*pid)?;
-                            let get = |k: &str| {
-                                env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone())
-                            };
-                            Some((get("ACPMUX_SESSION_ID"), get("ACPMUX_SESSION_TMPDIR")))
-                        })
-                        .unwrap_or((None, None))
-                })
-                .clone();
-            s.session = session;
-            if let Some(tmp) = tmp {
-                (s.tmp, s.tmp_partial) = dir_size(std::path::Path::new(&tmp), MAX_TMP_ENTRIES);
+            let known = known.entry(name.clone()).or_insert_with(|| {
+                let (session, tmp) = procs
+                    .iter()
+                    .find_map(|pid| {
+                        let env = crate::agent_host::tree::environ(*pid)?;
+                        let get =
+                            |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+                        Some((get("ACPMUX_SESSION_ID"), get("ACPMUX_SESSION_TMPDIR")))
+                    })
+                    .unwrap_or((None, None));
+                Known { session, tmp, protected: groups.clone() }
+            });
+            s.protected = known.protected.clone();
+            s.session = known.session.clone();
+            if let Some(tmp) = &known.tmp {
+                (s.tmp, s.tmp_partial) = dir_size(std::path::Path::new(tmp), MAX_TMP_ENTRIES);
             }
             s.memory = read(&format!("{dir}/memory.current"))
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(0);
-            s.tasks =
-                read(&format!("{dir}/pids.current")).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+            s.tasks = read(&format!("{dir}/pids.current"))
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
             samples.push(s);
         }
     }

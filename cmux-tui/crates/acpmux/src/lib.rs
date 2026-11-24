@@ -293,6 +293,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
@@ -300,8 +302,6 @@ pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
 pub mod session_order;
-mod session_budget;
-mod session_disk;
 mod session_scope;
 pub mod session_search;
 /// A workspace here for the person's other machines, over the hub carrier (`session_service.rs`).

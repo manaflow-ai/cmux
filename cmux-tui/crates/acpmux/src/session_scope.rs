@@ -303,7 +303,10 @@ fn properties_with_swap(
 }
 
 /// `-p` pairs for the scope's [`crate::session_budget::Budget`] on `host`.
-fn properties_on(get: &dyn Fn(&str) -> Option<String>, host: &crate::session_budget::Host) -> Vec<String> {
+fn properties_on(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &crate::session_budget::Host,
+) -> Vec<String> {
     crate::session_budget::Budget::read(get, host)
         .properties()
         .into_iter()
@@ -793,7 +796,10 @@ mod tests {
         );
         // No task cap, other limits on: an explicit `infinity`, not systemd's default.
         let get = from(&[("ACPMUX_SESSION_TASKS_MAX", "0"), ("ACPMUX_SESSION_MEMORY_MB", "0")]);
-        assert_eq!(joined(&properties(&get, 0)), "-p TasksMax=infinity -p CPUWeight=50 -p IOWeight=50");
+        assert_eq!(
+            joined(&properties(&get, 0)),
+            "-p TasksMax=infinity -p CPUWeight=50 -p IOWeight=50"
+        );
         // Every limit off: no scope at all.
         let off = from(&[
             ("ACPMUX_SESSION_MEMORY_MB", "0"),

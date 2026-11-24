@@ -25,8 +25,9 @@ impl Hub {
             else {
                 return;
             };
-            let hub = self.clone();
-            tokio::spawn(async move {
+            // Weak: the watcher never keeps a stopped hub alive; the hub's scope ends it.
+            let weak = Arc::downgrade(self);
+            self.scope.spawn_until_cancelled("session-budget-watch", async move {
                 let floor = tokio::task::spawn_blocking(|| {
                     crate::placement::disk_floor(
                         crate::placement::load_registry().as_ref(),
@@ -35,29 +36,35 @@ impl Hub {
                 })
                 .await
                 .unwrap_or(10_000_000_000);
-                let mut every = tokio::time::interval(session_disk::TICK);
-                every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let mut next = session_disk::TICK;
                 loop {
-                    every.tick().await;
+                    tokio::time::sleep(next).await;
+                    let Some(hub) = weak.upgrade() else { return };
                     if hub.stopping.load(Ordering::SeqCst) {
                         return;
                     }
                     let manager = manager.clone();
-                    let actions = tokio::task::spawn_blocking(move || {
+                    let (actions, tick) = tokio::task::spawn_blocking(move || {
                         let (budget, _) = crate::session_budget::daemon_budget();
                         let free = crate::session_budget::home_disk().map_or(u64::MAX, |(_, f)| f);
                         let mut known = std::mem::take(
-                            &mut session_disk::shared().lock().unwrap_or_else(|e| e.into_inner()).sessions,
+                            &mut session_disk::shared()
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .sessions,
                         );
                         let (samples, truncated) = session_disk::scan(&manager, &mut known);
-                        let mut watch = session_disk::shared().lock().unwrap_or_else(|e| e.into_inner());
+                        let mut watch =
+                            session_disk::shared().lock().unwrap_or_else(|e| e.into_inner());
                         watch.sessions = known;
                         (watch.budget, watch.free, watch.floor, watch.truncated) =
                             (budget.disk, free, floor, truncated);
-                        watch.apply(samples)
+                        let actions = watch.apply(samples);
+                        (actions, session_disk::next_tick(free, floor))
                     })
                     .await
-                    .unwrap_or_default();
+                    .unwrap_or_else(|_| (Vec::new(), session_disk::TICK));
+                    next = tick;
                     for (sample, action) in actions {
                         hub.session_budget_act(&sample, action).await;
                     }
@@ -150,10 +157,14 @@ impl Hub {
 
 /// `daemon status`'s `sessionBudgets` (`session_budget::status`).
 pub(crate) fn status() -> Value {
-    let (budget, host) = crate::session_budget::daemon_budget();
+    let host = crate::session_budget::this_host();
+    let empty = Default::default();
+    let get = crate::session_scope::knob_reader(&empty, crate::session_scope::daemon_limits());
+    let budget = crate::session_budget::Budget::read(&get, &host);
+    let task = crate::session_budget::task_budget_from(&get, &host);
     let watch = session_disk::shared()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(session_disk::enabled() && budget.disk > 0);
-    crate::session_budget::status(&budget, &host, watch)
+    crate::session_budget::status(&budget, &task, &host, watch)
 }
