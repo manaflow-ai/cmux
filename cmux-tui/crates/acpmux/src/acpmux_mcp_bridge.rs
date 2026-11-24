@@ -127,6 +127,16 @@ async fn send(me: App, args: &Value) -> Value {
     }
 }
 
+/// What the bridge says when `acpmux send` has not returned by [`SEND_TIMEOUT`]: the step that
+/// ran out is the wait for the CLI's answer, and the message may already be in the outbox, so
+/// it is not told as a failed send (RFD 0050 rule 5).
+fn send_timeout_message(to: &str) -> String {
+    format!(
+        "acpmux send to {to} had not answered in {}s, so this tool stopped waiting; the message may already be queued in the outbox and its delivery goes on. Check `acpmux ls` or `acpmux last {to}` before sending it again",
+        SEND_TIMEOUT.as_secs()
+    )
+}
+
 /// `acpmux send --no-wait --from APP -- TO TEXT`: the CLI names the sender, so the session reads
 /// the message as the app's, not as the person's own prompt (`cli/sender.rs`).
 async fn send_to_session(me: App, to: &str, text: &str) -> Result<String> {
@@ -139,7 +149,7 @@ async fn send_to_session(me: App, to: &str, text: &str) -> Result<String> {
         .output();
     let out = tokio::time::timeout(SEND_TIMEOUT, run)
         .await
-        .map_err(|_| anyhow::anyhow!("acpmux send took over {}s", SEND_TIMEOUT.as_secs()))??;
+        .map_err(|_| anyhow::anyhow!(send_timeout_message(to)))??;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         anyhow::bail!("acpmux send failed: {}", err.trim());
@@ -174,5 +184,19 @@ mod tests {
             }
             assert!(!tools[0]["description"].as_str().unwrap().contains(me.address));
         }
+    }
+}
+
+#[cfg(test)]
+mod send_timeout_tests {
+    use super::*;
+
+    /// The timeout names the step and says the message may be queued, not a plain "took over".
+    #[test]
+    fn a_timed_out_send_says_it_may_be_queued() {
+        let m = send_timeout_message("lane-b");
+        assert!(m.contains("lane-b") && m.contains("20s"), "{m}");
+        assert!(m.contains("may already be queued"), "{m}");
+        assert!(!m.contains("took over"), "{m}");
     }
 }
