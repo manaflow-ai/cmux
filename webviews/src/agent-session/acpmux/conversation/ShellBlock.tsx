@@ -33,6 +33,8 @@ export function ShellBlock({
   footer,
   live = false,
   took,
+  status,
+  note,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -50,6 +52,13 @@ export function ShellBlock({
   live?: boolean;
   /** How long the finished command took ("4.2s", "1h 4m 3s"), beside the label; its row draws no time. */
   took?: string;
+  /**
+   * A background command's status line, always drawn where a failed call's exit code is ("Exit code
+   * 0", "Running"): in the error tone when `failed`, else muted (CommandEndCard.tsx).
+   */
+  status?: { text: string; failed: boolean };
+  /** Said where the output would be when there is none ("No output", "Output no longer available"). */
+  note?: string;
 }) {
   const t = useT();
   const raw = useOutput(output, reveal);
@@ -97,18 +106,26 @@ export function ShellBlock({
         <span className="cv-shell__actions">
           {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
               so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
-          <WrapButton kind="output" shaped={shaped} className={`${cornerAction()} cv-shell__wrap`} />
+          {/* Nothing printed, nothing to wrap: a card with no output offers no Wrap lines. */}
+          {raw.text && <WrapButton kind="output" shaped={shaped} className={`${cornerAction()} cv-shell__wrap`} />}
           {raw.text && <CopyButton text={raw.text} label={t("turn.copy")} />}
         </span>
       </div>
       {rest && <ShellCommand command={rest} />}
-      {exitCode !== undefined && exitCode !== 0 && (
-        // Between the command and its output, in the error tone, as Claude Code desktop opens a
-        // failed call ("$ ls fixtures", "Exit code 1", then what it printed). The block's own words,
-        // not the output: Find in Chat does not count them (chatFind.ts).
-        <div className="cv-shell__exit" data-find-skip>
-          {t("shell.exit", { code: exitCode })}
+      {status ? (
+        <div className="cv-shell__exit" data-tone={status.failed ? undefined : "quiet"} data-find-skip>
+          {status.text}
         </div>
+      ) : (
+        exitCode !== undefined &&
+        exitCode !== 0 && (
+          // Between the command and its output, in the error tone, as Claude Code desktop opens a
+          // failed call ("$ ls fixtures", "Exit code 1", then what it printed). The block's own words,
+          // not the output: Find in Chat does not count them (chatFind.ts).
+          <div className="cv-shell__exit" data-find-skip>
+            {t("shell.exit", { code: exitCode })}
+          </div>
+        )
       )}
       {/* Empty (a command with no output yet), it draws nothing (conversation.css). */}
       <pre
@@ -130,6 +147,11 @@ export function ShellBlock({
           </span>
         ) : null}
       </pre>
+      {!raw.shown && note && (
+        <div className="cv-shell__note" data-find-skip>
+          {note}
+        </div>
+      )}
       <OutputMore output={raw} />
       {footer}
     </div>

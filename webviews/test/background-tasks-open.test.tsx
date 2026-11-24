@@ -104,9 +104,9 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header keeps its names (#33104, #33364): the longest-running one, then +N more
-      // (subagents/trayHeadOrder.ts).
-      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("Review the tray");
+      // The folded header is the tally by default (#51795): a mark and a count per kind, here the
+      // two subagents.
+      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("2");
       await act(async () => button!.click());
       expect(opened).toBe(1);
       expect(bar.head().getAttribute("aria-expanded")).toBe("false");

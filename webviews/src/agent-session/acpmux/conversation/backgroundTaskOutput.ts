@@ -8,6 +8,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { visibleInterval } from "../../../ui/pageClock";
 import { stripAnsi } from "./toolOutputModel";
+import type { AcpmuxCommandEnd } from "../model";
+import { commandEndOf } from "./commandEnd";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
@@ -23,6 +25,9 @@ export type BackgroundTaskOutput = {
   unavailable?: boolean;
   /// The read failed (the daemon did not answer): nothing is known yet, so an open reads again.
   unread?: boolean;
+  /// The command as acpmux words it for every surface (hub/command_end.rs, CommandEndCard.tsx): its
+  /// line, how it stands and whether its output is there, with `output` and `cut` above.
+  end?: AcpmuxCommandEnd;
 };
 
 /// The bounded view shown in an expanded tray row. Keeping this at the render edge means a
@@ -108,8 +113,16 @@ export async function readBackgroundTaskOutput(
   };
   // acpmux keeps no output for a Codex process yet; it refuses the read.
   if (process.codex) return { ...exit, unavailable: true };
-  const tail = tailText(await reader.source.tailProcess(process.id, BACKGROUND_TAIL_BYTES));
-  return tail && tail.output ? { ...exit, output: tail.output, cut: tail.cut } : exit;
+  const reply = await reader.source.tailProcess(process.id, BACKGROUND_TAIL_BYTES);
+  const tail = tailText(reply);
+  const said = commandEndOf(reply);
+  const printed = tail && tail.output ? { output: tail.output, cut: tail.cut } : undefined;
+  const end = said && {
+    ...said,
+    ...(said.exitCode === undefined && exit.exitCode !== undefined && { exitCode: exit.exitCode }),
+    ...printed,
+  };
+  return { ...exit, ...printed, ...(end && { end }) };
 }
 
 /// Reads of finished tasks, per registry source and chat: a note's output is final once its task

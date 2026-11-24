@@ -13,6 +13,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useFold } from "../conversation/fold";
 import { tailLines, useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
+import { commandEndNote, commandEndStatus } from "../conversation/CommandEndCard";
 import { TerminalSquare } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -46,8 +47,13 @@ export function BackgroundTaskBody({
   const t = useT();
   const read = useLiveBackgroundTaskOutput(toolCallId, processId, open && readOutput);
   const output = tailLines(read.output, CARD_TAIL_LINES);
+  // Once it ended, how (its exit code) and, with nothing printed, why: acpmux's account of it, the
+  // same every surface draws (conversation/CommandEndCard.tsx, hub/command_end.rs).
+  const ended = read.end && read.end.state !== "running" ? read.end : undefined;
+  const status = ended && commandEndStatus(t, ended);
+  const note = ended && !output ? commandEndNote(t, ended) : undefined;
   // "No output yet" only where output can come: a process acpmux keeps none for says nothing.
-  const empty = readOutput && !output && !read.unavailable;
+  const empty = readOutput && !output && !read.unavailable && !ended;
   const outputRef = useRef<HTMLPreElement>(null);
   // New output keeps the newest line in view.
   useLayoutEffect(() => {
@@ -61,11 +67,17 @@ export function BackgroundTaskBody({
         </span>
         {command}
       </code>
+      {status && (
+        <p className="acpmux-bg-card__empty" data-failed={status.failed || undefined}>
+          {status.text}
+        </p>
+      )}
       {readOutput && output && (
         <pre ref={outputRef} className="acpmux-bg-card__output">
           {output}
         </pre>
       )}
+      {note && <p className="acpmux-bg-card__empty">{note}</p>}
       {foot ? foot(empty) : empty && <p className="acpmux-bg-card__empty">{t("backgroundTasks.noOutputYet")}</p>}
       {children}
     </div>

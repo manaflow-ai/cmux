@@ -15,6 +15,8 @@ import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
+import { CommandEndCard } from "./CommandEndCard";
+import { useBackgroundTaskOutput } from "./backgroundTaskOutput";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunningTime } from "./RunningTime";
@@ -70,6 +72,11 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   // How long it took, said in its opened Shell card once it ended (RunningTime.tsx says it while it runs).
   const took = running ? undefined : toolDuration(t, tool);
+  // A command that ended in the background: its call's output is only the launch's note, so it opens
+  // to the card every surface draws for a background command (CommandEndCard.tsx), from acpmux's
+  // registry, read ahead of the click so it opens in one step.
+  const backgroundEnded = tool.background !== undefined && tool.background.state !== "running";
+  const { output: ended } = useBackgroundTaskOutput(backgroundEnded ? tool.id : "", backgroundEnded);
   // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
   // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
   // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
@@ -203,15 +210,34 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />
       {fold.present && (
         <div {...fold.bodyProps}>
-          <ShellBlock
-            id={detailsId}
-            command={tool.command}
-            output={output}
-            exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
-            reveal={reveal}
-            live={running}
-            took={took}
-          />
+          {backgroundEnded ? (
+            <CommandEndCard
+              id={detailsId}
+              end={{
+                command: tool.command || ended.end?.command || "",
+                state: tool.background!.state,
+                ...((tool.background!.exitCode ?? ended.exitCode) !== undefined && {
+                  exitCode: tool.background!.exitCode ?? ended.exitCode,
+                }),
+                // The registry's output, else (it keeps none for this call) what the call printed.
+                ...(ended.output ? { output: ended.output, cut: ended.cut } : !ended.end && output ? { output } : {}),
+                ...((ended.end?.outputState ?? (ended.output ? "printed" : undefined)) && {
+                  outputState: ended.end?.outputState ?? ("printed" as const),
+                }),
+              }}
+              took={took}
+            />
+          ) : (
+            <ShellBlock
+              id={detailsId}
+              command={tool.command}
+              output={output}
+              exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
+              reveal={reveal}
+              live={running}
+              took={took}
+            />
+          )}
         </div>
       )}
     </>

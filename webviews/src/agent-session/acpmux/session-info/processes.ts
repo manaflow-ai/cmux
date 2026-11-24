@@ -40,6 +40,8 @@ export type SessionInfoProcess = {
   endedAt?: number;
   /// `running`, `exited`, `failed`, `killed` or `lost`.
   state: string;
+  /// Its exit code once it ended, as acpmux kept it (hub/processes.rs; Claude Code's from its summary).
+  exitCode?: number;
   /// The page it serves, as acpmux found it: a loopback address its own output printed that
   /// accepted a connect (hub/processes.rs). Only while it runs.
   preview?: ProcessPreview;
@@ -82,6 +84,7 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,
+    ...(Number.isInteger(raw.exitCode) ? { exitCode: raw.exitCode as number } : {}),
     ...(preview ? { preview } : {}),
   };
 }
@@ -481,6 +484,9 @@ export type BackgroundCommand = {
   /// Epoch ms, for its elapsed time.
   startedAt?: number;
   endedAt?: number;
+  /// Its exit code once it ended, from the registry: a finished row says it as the chat's card does
+  /// (conversation/CommandEndCard.tsx).
+  exitCode?: number;
   /// The page it serves, from the registry (`SessionInfoProcess.preview`).
   preview?: ProcessPreview;
 };
@@ -524,6 +530,7 @@ export function backgroundCommands(
     startedAt: process.startedAt,
     ...(process.toolCallId ? { toolCallId: process.toolCallId } : {}),
     ...(process.endedAt !== undefined ? { endedAt: process.endedAt } : {}),
+    ...(process.exitCode !== undefined ? { exitCode: process.exitCode } : {}),
     ...(process.preview ? { preview: process.preview } : {}),
   }));
   const known = new Set(processes.flatMap((process) => (process.toolCallId ? [process.toolCallId] : [])));

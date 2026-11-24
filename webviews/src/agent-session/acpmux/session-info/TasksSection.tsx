@@ -30,7 +30,7 @@ import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEnt
 import { SessionInfoFold } from "./SessionInfoSection";
 import { TASK_ICONS } from "./taskIcons";
 import { useFoldMotion } from "./foldMotion";
-import { COMMAND_STATE } from "./tasksSectionModel";
+import { COMMAND_STATE, commandEndWord } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
 import { Clock } from "../../../ui/Typography";
 import { WithFacts } from "../chips/FactsHoverCard";
@@ -204,7 +204,7 @@ export function TasksSection({
                           entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
                             ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
                             : undefined,
-                          t(COMMAND_STATE[entry.command.state]),
+                          commandEndWord(t, entry.command),
                         )
                       : scheduledRow(entry.entry)
                   }

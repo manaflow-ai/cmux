@@ -93,6 +93,9 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
+.acpmux-bg-card__empty[data-failed] {
+  color: var(--agent-status-failure);
+}
 .acpmux-bg-card__actions {
   display: flex;
   flex-wrap: wrap;

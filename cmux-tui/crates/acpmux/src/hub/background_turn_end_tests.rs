@@ -94,3 +94,56 @@ async fn an_exit_with_no_background_turn_logs_none() {
     send(&session, Inbound::Exited { pid: child.pid, code: None, host_seq: None }).await;
     assert!(marks(&hub, &session, seq).is_empty());
 }
+
+/// A background command's end starts a turn whose `started` record carries the command as every
+/// surface draws it (`command_end.rs`): its line, its exit code and the end of its output, read
+/// from the file Claude Code named, so the chat row opens to them with no read (Leo, 2026-11-24,
+/// on a card that showed only "Finished": "but i couldnt... do anything?").
+#[tokio::test]
+async fn a_background_commands_turn_carries_its_command_exit_and_output() {
+    let (hub, session) = chat().await;
+    let dir = std::env::temp_dir().join(format!("acpmux-cmd-end-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("t1.output");
+    std::fs::write(&file, "compiling\n12 passed\n").unwrap();
+    let gone = dir.join("t2.output");
+    let seq = last_seq(&hub, &session);
+    let note = |id: &str, tool: &str, out: &Path, code: i64| {
+        hub.background_turn_line(
+            &session,
+            "claude.system.task_started",
+            &json!({"subtype": "task_started", "task_id": id, "tool_use_id": tool,
+                    "description": format!("cargo test {id}"), "task_type": "local_bash"}),
+        );
+        hub.background_turn_line(
+            &session,
+            "claude.system.task_notification",
+            &json!({"subtype": "task_notification", "task_id": id, "tool_use_id": tool,
+                    "status": if code == 0 { "completed" } else { "failed" },
+                    "output_file": out.to_str().unwrap(),
+                    "summary": format!("Background command \"cargo test {id}\" completed (exit code {code})")}),
+        );
+        hub.background_turn_line(&session, "claude.system.init", &json!({}));
+        start_background(&hub, &session);
+        hub.background_turn_line(&session, "claude.result", &json!({}));
+    };
+    note("t1", "toolu_1", &file, 0);
+    note("t2", "toolu_2", &gone, 3);
+    let started: Vec<Value> =
+        marks(&hub, &session, seq).into_iter().filter(|m| m["state"] == "started").collect();
+    assert_eq!(started.len(), 2, "{started:?}");
+    let end = &started[0]["cause"]["command"];
+    assert_eq!(end["command"], "cargo test t1");
+    assert_eq!(end["state"], "completed");
+    assert_eq!(end["exitCode"], 0);
+    assert_eq!(end["outputState"], "printed");
+    assert_eq!(end["output"], "compiling\n12 passed");
+    // Its file is gone: the command and exit still come, with nothing passed off as output.
+    let end = &started[1]["cause"]["command"];
+    assert_eq!(end["command"], "cargo test t2");
+    assert_eq!(end["state"], "failed");
+    assert_eq!(end["exitCode"], 3);
+    assert_eq!(end["outputState"], "gone");
+    assert!(end.get("output").is_none());
+    std::fs::remove_file(file).ok();
+}

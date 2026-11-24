@@ -22,7 +22,7 @@ import {
   type BackgroundCommand,
   type SessionInfoProcess,
 } from "../processes";
-import { COMMAND_STATE } from "../tasksSectionModel";
+import { COMMAND_STATE, commandEndWord } from "../tasksSectionModel";
 import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
 import { TASK_ICONS } from "../taskIcons";
 import { compactTokens } from "../../conversation/compactionNoteModel";
@@ -204,7 +204,7 @@ export function tasksSection(
       item.endedAt !== undefined && item.startedAt !== undefined
         ? spanDuration(t, item.endedAt - item.startedAt)
         : undefined;
-    return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
+    return command(item, [time, commandEndWord(t, item)].filter(Boolean).join(" · "));
   };
   // The ended commands and scheduled items as one list, latest first.
   const finishedRows = [

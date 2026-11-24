@@ -316,10 +316,58 @@ impl Hub {
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
         let record = state.on_update(update, acpmux_turn, seq);
+        let shell = state.causes.take_shell();
         drop(state);
-        if let Some(msg) = record {
+        if let Some(mut msg) = record {
+            self.attach_command_end(session, &mut msg, shell);
             self.append(session, "mux", RECORD_KIND, msg);
         }
+    }
+
+    /// A started record whose cause is a background command's end carries that end as
+    /// `cause.command` (`command_end.rs`): its line, how it ended and the end of its output, read
+    /// now, while its file is there. From the process registry's record of it, else from Claude
+    /// Code's own task lines (`ShellHint`); a cause that names no command gets none.
+    fn attach_command_end(
+        &self,
+        session: &Session,
+        msg: &mut Value,
+        shell: Option<super::background_cause::ShellHint>,
+    ) {
+        let Some(cause) = msg.get_mut("cause").and_then(Value::as_object_mut) else { return };
+        if cause.get("kind").and_then(Value::as_str) == Some("subagent") {
+            return;
+        }
+        let Some(origin) = cause.get("origin").and_then(Value::as_str).map(str::to_owned) else {
+            return;
+        };
+        let status = cause.get("status").and_then(Value::as_str).unwrap_or("completed");
+        let end = match self.command_end_of(session, &origin) {
+            Some(mut end) => {
+                // The registry may not have folded the end yet: the notification says it.
+                if end.state == "running" {
+                    end.state = ended_word(status);
+                }
+                if end.exit_code.is_none() {
+                    end.exit_code = shell.as_ref().and_then(|s| s.exit_code);
+                }
+                end
+            }
+            None => {
+                let Some(shell) = shell.filter(|s| s.origin == origin && !s.command.is_empty())
+                else {
+                    return;
+                };
+                super::command_end::CommandEnd::read(
+                    &shell.command,
+                    None,
+                    ended_word(status),
+                    shell.exit_code,
+                    shell.output_file.as_deref(),
+                )
+            }
+        };
+        cause.insert("command".into(), end.to_value());
     }
 
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
@@ -383,6 +431,15 @@ impl Hub {
         }
         let Some(id) = update.get("messageId").and_then(Value::as_str) else { return false };
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).owns_message(id)
+    }
+}
+
+/// A notification's status as a command's end names it (`command_end.rs`).
+fn ended_word(status: &str) -> &'static str {
+    match status {
+        "failed" => "failed",
+        "stopped" | "killed" => "stopped",
+        _ => "completed",
     }
 }
 

@@ -77,6 +77,20 @@ const TASKS_KEPT: usize = 512;
 struct Task {
     id: String,
     kind: &'static str,
+    /// What its `task_started` called it: a shell's command, or its Bash `description`.
+    description: Option<String>,
+    /// The file Claude Code writes its output to, when its start named one.
+    output_file: Option<String>,
+}
+
+/// What Claude Code's own lines say of a shell whose end names a turn's cause, for a shell the
+/// process registry never heard of (`command_end.rs`): its words, its output file, its exit code.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct ShellHint {
+    pub(super) origin: String,
+    pub(super) command: String,
+    pub(super) output_file: Option<String>,
+    pub(super) exit_code: Option<i64>,
 }
 
 /// The tasks a session started, and the causes heard since its last background turn started.
@@ -86,6 +100,10 @@ pub(super) struct Causes {
     /// The notifications heard since the last `started` record: the heaviest one names the cause.
     pending: Option<Value>,
     pending_weight: Option<Weight>,
+    /// The pending cause's shell, when it names one.
+    pending_shell: Option<ShellHint>,
+    /// The shell of the cause [`Causes::take`] returned last, until [`Causes::take_shell`].
+    taken_shell: Option<ShellHint>,
 }
 
 impl Causes {
@@ -107,15 +125,20 @@ impl Causes {
                     "shell"
                 };
                 self.tasks.retain(|t| t.id != id);
-                self.tasks.push_back(Task { id: id.to_owned(), kind });
+                self.tasks.push_back(Task {
+                    id: id.to_owned(),
+                    kind,
+                    description: text("description").map(str::to_owned),
+                    output_file: text("output_file").map(str::to_owned),
+                });
                 while self.tasks.len() > TASKS_KEPT {
                     self.tasks.pop_front();
                 }
             }
             "claude.system.task_notification" => {
-                let kind = text("task_id")
-                    .and_then(|id| self.tasks.iter().rev().find(|t| t.id == id))
-                    .map_or("unknown", |t| t.kind);
+                let task =
+                    text("task_id").and_then(|id| self.tasks.iter().rev().find(|t| t.id == id));
+                let kind = task.map_or("unknown", |t| t.kind);
                 let summary = text("summary").unwrap_or("");
                 // A failure is a failure, whatever else it says: it always shows.
                 let interim = text("status") != Some("failed")
@@ -140,8 +163,22 @@ impl Causes {
                         json!(summary.chars().take(240).collect::<String>()),
                     );
                 }
+                // A shell's (or a task never heard starting, which may be one): what its own
+                // lines say of it, for when the registry has no record of it.
+                let shell = matches!(kind, "shell" | "monitor" | "subagent_step" | "unknown")
+                    .then(|| text("tool_use_id"))
+                    .flatten()
+                    .map(|origin| ShellHint {
+                        origin: origin.to_owned(),
+                        command: task.and_then(|t| t.description.clone()).unwrap_or_default(),
+                        output_file: text("output_file")
+                            .map(str::to_owned)
+                            .or_else(|| task.and_then(|t| t.output_file.clone())),
+                        exit_code: crate::claude_stdio::summary_exit_code(summary),
+                    });
                 self.pending = Some(Value::Object(cause));
                 self.pending_weight = Some(w);
+                self.pending_shell = shell;
             }
             _ => {}
         }
@@ -150,13 +187,20 @@ impl Causes {
     /// The cause of a background turn that starts now; the next one starts from nothing.
     pub(super) fn take(&mut self) -> Option<Value> {
         self.pending_weight = None;
+        self.taken_shell = self.pending_shell.take();
         self.pending.take()
+    }
+
+    /// The shell of the cause [`Causes::take`] returned last, once.
+    pub(super) fn take_shell(&mut self) -> Option<ShellHint> {
+        self.taken_shell.take()
     }
 
     /// A turn acpmux runs consumed what was heard: it is no background turn's cause.
     pub(super) fn clear(&mut self) {
         self.pending = None;
         self.pending_weight = None;
+        self.pending_shell = None;
     }
 }
 
@@ -220,6 +264,46 @@ mod tests {
         assert_eq!(cause_of(shell(), "stopped", "")["weight"], "silent");
         assert_eq!(cause_of(shell(), "killed", "")["weight"], "silent");
         assert_eq!(cause_of(shell(), "failed", "exit code 1")["weight"], "failure");
+    }
+
+    #[test]
+    fn a_shells_end_keeps_its_words_output_file_and_exit_code_for_the_turns_row() {
+        let mut c = Causes::default();
+        c.on_line(
+            "claude.system.task_started",
+            &json!({"subtype": "task_started", "task_id": "t1", "tool_use_id": "toolu_1",
+                    "description": "cargo test -p x", "task_type": "local_bash"}),
+        );
+        c.on_line(
+            "claude.system.task_notification",
+            &json!({"task_id": "t1", "tool_use_id": "toolu_1", "status": "failed",
+                    "output_file": "/tmp/t1.output",
+                    "summary": "Background command \"cargo test -p x\" failed (exit code 101)"}),
+        );
+        assert!(c.take().is_some());
+        let shell = c.take_shell().unwrap();
+        assert_eq!(
+            shell,
+            ShellHint {
+                origin: "toolu_1".into(),
+                command: "cargo test -p x".into(),
+                output_file: Some("/tmp/t1.output".into()),
+                exit_code: Some(101),
+            }
+        );
+        // Taken once.
+        assert_eq!(c.take_shell(), None);
+        // A subagent's report names no shell.
+        c.on_line(
+            "claude.system.task_started",
+            &started("t2", json!({"subagent_type": "general-purpose"})),
+        );
+        c.on_line(
+            "claude.system.task_notification",
+            &json!({"task_id": "t2", "tool_use_id": "toolu_2", "status": "completed"}),
+        );
+        c.take();
+        assert_eq!(c.take_shell(), None);
     }
 
     #[test]
