@@ -10,7 +10,7 @@
 //
 // A PR that means to change a default regenerates it: CMUX_UPDATE_DEFAULT_RENDER=1 bun test test/default-render.test.ts
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { EXPERIMENTS } from "../src/experiments/registry";
 import looks from "../src/gallery/golden/looks.json";
@@ -45,9 +45,12 @@ function render(): string {
 test("the default look and every experiment's shipped arm match the baseline", () => {
   const drawn = render();
   if (process.env.CMUX_UPDATE_DEFAULT_RENDER === "1") {
+    mkdirSync(path.dirname(BASELINE), { recursive: true });
     writeFileSync(BASELINE, drawn);
     return;
   }
+  const kept = existsSync(BASELINE) ? readFileSync(BASELINE, "utf8") : "";
+  if (kept !== drawn) console.log(`default-render-begin\n${drawn}default-render-end`);
   expect(looks.looks[0]?.id).toBe("cmux");
-  expect(drawn).toBe(readFileSync(BASELINE, "utf8"));
+  expect(drawn).toBe(kept);
 });
