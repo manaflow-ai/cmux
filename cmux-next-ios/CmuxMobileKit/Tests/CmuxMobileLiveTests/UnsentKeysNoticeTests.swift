@@ -56,9 +56,11 @@ final class UnsentKeysClock {
             #expect(!session.isAttached)
         }
 
-        /// The outage outlasts the hold limit, then the link is back.
+        /// The Mac stays offline past the hold limit (the reconnect gave up), then the link is back.
         func reattachAfterTheHold() async throws {
+            session.setMacOffline(true)
             clock.now += DaemonTerminalSession.inputHoldLimit + 1
+            session.setMacOffline(false)
             session.reconnect()
             try await UnsentKeysNoticeTests.waitUntil { session.isAttached }
             #expect(session.isAttached)
