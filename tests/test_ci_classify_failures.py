@@ -259,8 +259,10 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(failure_annotations(run.stderr), [])
 
     def test_a_gui_test_command_behind_env_or_bash_is_still_the_gui_command(self) -> None:
-        # ci-macos.yml passes CMUX_TAG through env; a step may also start the runner through bash.
-        for command in (("env", "CMUX_TAG=x", "{launcher}"), ("bash", "{launcher}")):
+        # ci-macos.yml passes CMUX_TAG through env; a step may also start the runner through bash,
+        # with options before the script.
+        for command in (("env", "CMUX_TAG=x", "{launcher}"), ("bash", "{launcher}"),
+                        ("bash", "--", "{launcher}"), ("bash", "-x", "{launcher}")):
             with self.subTest(command=command):
                 run = run_console_wrapper_without_console_user(*command)
                 self.assertEqual(run.returncode, 65, run.stderr)
