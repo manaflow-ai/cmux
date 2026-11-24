@@ -193,7 +193,9 @@ class PrePushGateTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
-                        HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
+                        HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS),
+                        # An idle host for the hook: on a loaded one it leaves the CI layers to CI (--defer-ci-layers).
+                        CMUX_PREPUSH_LOAD_FOR_TEST="0")
         git_fixture_env.without_auto_maintenance(self.env)
 
         git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
@@ -3246,6 +3248,57 @@ class SideWorkersTests(unittest.TestCase):
         self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
         for malformed in ("", "0", "-3", "five"):
             self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+
+class DeferredCiLayersTests(unittest.TestCase):
+    # 2026-11-22: cosmic-gray at load 163-234 on 15 cores while Leo typed, a gate starting every 7 s. On a loaded host
+    # the hook leaves the layers the PR's fast-gates job runs with the same refusal to it, for a PR branch only.
+    Z = "0" * 40
+    A = "a" * 40
+
+    def test_a_pr_branch_push_leaves_the_ci_layers_to_ci(self):
+        gate = load_gate_tools()
+        found = gate.deferred_ci_layers([f"refs/heads/x {self.A} refs/heads/lane/x {self.Z}"])
+        self.assertEqual(found, gate.CI_LAYER_CHECKS)
+        self.assertIn(gate.AST_GREP_JOB, found)
+        self.assertIn(gate.SWIFTLINT_JOB, found)
+        self.assertIn(gate.DEPS_CHECK, found)
+        # Hook-only layers never leave the hook: CI's run of the gate has no such layer to catch them.
+        for local in (gate.SWIFTFORMAT_JOB, gate.RUSTFMT_JOB, gate.CRASH_RATCHET_CHECK, gate.RESERVED_CHECK,
+                      gate.SIDEBAR_CHECK, gate.CONFLICT_CHECK, gate.WORKFLOW_CHECK, gate.HIGHLIGHTS_CHECK):
+            self.assertNotIn(local, found)
+
+    def test_an_integration_push_keeps_every_layer(self):
+        gate = load_gate_tools()
+        for ref in ("refs/heads/feat-cmux-next", "refs/heads/main", "refs/heads/perf/chrome-parity", "refs/tags/v1"):
+            lines = [f"refs/heads/x {self.A} refs/heads/lane/x {self.Z}", f"x {self.A} {ref} {self.Z}"]
+            self.assertEqual(gate.deferred_ci_layers(lines), frozenset(), ref)
+        self.assertEqual(gate.deferred_ci_layers(["not a ref line"]), frozenset())
+        self.assertEqual(gate.deferred_ci_layers([f"(delete) {self.Z} refs/heads/lane/x {self.A}"]), frozenset())
+
+    def test_a_deferred_check_is_not_run(self):
+        gate = load_gate_tools()
+        self.addCleanup(setattr, gate, "DEFERRED_CHECKS", frozenset())
+        gate.DEFERRED_CHECKS = gate.CI_LAYER_CHECKS
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+            run = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=f", "-c", "user.email=f@x", *a],
+                                            check=True, env=env, capture_output=True, text=True).stdout.strip()
+            (repo / "a.txt").write_text("a\n")
+            run("add", "a.txt")
+            run("commit", "-qm", "base")
+            base = run("rev-parse", "HEAD")
+            (repo / PKG / "Sources/X").mkdir(parents=True)
+            (repo / PKG / "Sources/X/A.swift").write_text("let x = try! f()\n")
+            run("add", ".")
+            run("commit", "-qm", "head")
+            head = run("rev-parse", "HEAD")
+            with unittest.mock.patch.object(gate, "build_trees", side_effect=AssertionError("built trees")) as built:
+                found = gate.gate(repo, base, head, {"scanners", "ast-grep", "swiftlint"}, False)
+            self.assertEqual(found, [])
+            built.assert_not_called()  # a run whose every tree check is deferred builds no tree
 
 
 class StaleInstallTests(unittest.TestCase):
