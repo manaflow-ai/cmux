@@ -507,6 +507,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-carrier"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -595,6 +599,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-build-space",
  "cmux-fault",
  "cmux-mobile-link",
