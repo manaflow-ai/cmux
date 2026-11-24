@@ -225,8 +225,8 @@ pub(super) fn list_notifications(
             })
             .collect::<Vec<_>>(),
     });
-    if stats {
-        listed["agent_notice_stats"] = mux.agent_notice_stats()?;
+    if stats && let Some(fields) = listed.as_object_mut() {
+        fields.insert("agent_notice_stats".to_owned(), mux.agent_notice_stats()?);
     }
     Ok(listed)
 }
