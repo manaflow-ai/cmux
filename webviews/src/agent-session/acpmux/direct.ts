@@ -10976,8 +10976,16 @@ export class AcpmuxDirectClient {
   /// calls and message on a sort of "renewed-load" of chats. but they get folded/hidden anyways".
   private noteReadWork(working: boolean, fromStore: boolean): void {
     const session = this.selectedSessionId;
-    const read = this.readWork;
-    if (read && (!working || fromStore || read.session !== session || read.generation !== this.selectionGeneration)) {
+    let read = this.readWork;
+    // The same chat picked again, or its row listed again, mid-turn keeps what it read until its new
+    // attach says whether the turn still runs: its rows stay the same objects (no rebuilt frame), and
+    // that attach reads what came in since.
+    if (read && !fromStore && read.session === session && read.generation !== this.selectionGeneration) {
+      read = { ...read, generation: this.selectionGeneration, attached: false };
+      this.readWork = read;
+    }
+    const settled = !read || read.attached || this.attachedGeneration === this.selectionGeneration;
+    if (read && (fromStore || read.session !== session || (!working && settled))) {
       this.readWork = undefined;
       this.rows.readAtOpen = undefined;
       this.rows.restampRead(read.items.keys());
