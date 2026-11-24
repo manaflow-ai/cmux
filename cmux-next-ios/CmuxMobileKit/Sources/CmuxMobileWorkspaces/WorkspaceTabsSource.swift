@@ -45,6 +45,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Tabs this screen itself removed (closed, moved, archived, closed by the Mac's group close):
     /// never held.
     @ObservationIgnored var removedHere: Set<String> = []
+    /// Each listed tab's pane as a grid stack, for the layout it was read from (`stack(of:)`).
+    @ObservationIgnored var paneStacks: (layout: WorkspaceLayout, stacks: [String: TabsKitStack])?
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory

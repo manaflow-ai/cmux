@@ -132,6 +132,15 @@ struct TabCard<Content: View>: View {
 /// (+, "N Tabs", Done).
 struct TabOverview<Source: TabsDataSource>: View {
     var source: Source
+    /// The grid's cards in order: the source's tabs less those folded stacks
+    /// hide (`TabStackPlan`).
+    var tabs: [TabsKitTab]
+    var stacks = TabStackPlan()
+    /// Stacks opening or folding (their folded tabs are drawn under the front card meanwhile).
+    var morphingStacks: Set<String> = []
+    /// The grid's reflow: the theme's, or a stack's morph while one runs.
+    var gridMotion: Animation?
+    var onToggleStack: (String) -> Void = { _ in }
     var layout: OverviewLayout
     /// 0 while the page is full screen, 1 with the grid at rest.
     var shown: Double
@@ -182,13 +191,14 @@ struct TabOverview<Source: TabsDataSource>: View {
     var isSettled = true
 
     var body: some View {
-        let tabs = source.tabs
         ZStack(alignment: .topLeading) {
             LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewBottom], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
+                    // Stacks' glass encasements, behind every card.
+                    ForEach(stacks.stacks, id: \.id) { stack in encasement(stack) }
                     // The listed cards, then any swiped card still flying off
                     // after its tab left the list (the same view keeps going).
                     ForEach(gridCards(), id: \.tab.id) { card in gridCardView(card) }
@@ -207,12 +217,14 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
                 // The grid reflows when a tab leaves (the data source removes
                 // it once its close succeeded).
-                .animation(reflowAnimation, value: tabs.map(\.id))
+                .animation(morphingStacks.isEmpty ? reflowAnimation : (gridMotion ?? reflowAnimation), value: tabs.map(\.id))
                 // Long press, then drag from the lifted preview: the card moves
                 // to the slot under the finger (Safari).
                 .onDrop(of: [.text], delegate: CardReorderDrop(layout: layout, ids: tabs.map(\.id), pinned: layout.pinned,
                                                             canMove: source.supportsReordering, dragging: $dragging,
-                                                            move: { source.moveTab($0, to: $1) }))
+                                                            move: { [stacks] id, slot in
+                                                                source.moveTab(id, to: stacks.sourceIndex(forSlot: slot, ids: source.tabs.map(\.id)))
+                                                            }))
                 .onChange(of: tabs.map(\.id)) { _, ids in
                     // A fling's count is the list's now.
                     if swipes.reflowCue == 0, swipes.countHold == max(1, ids.count) { swipes.countHold = nil }
@@ -275,7 +287,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 }
                     .opacity(shown)
                     .allowsHitTesting(gridInteractive)
-                bottomBar(count: tabs.count)
+                bottomBar(count: source.tabs.count)
                     .opacity(shown)
                     .allowsHitTesting(controlsInteractive)
             }
@@ -311,14 +323,27 @@ struct TabOverview<Source: TabsDataSource>: View {
         let tab: TabsKitTab
         let index: Int
         let departed: DepartingCard?
+        /// A folded stack's hidden tab, drawn under its front card while the stack morphs.
+        var folded = false
     }
 
     /// The listed cards (each in the tree only while `CardResidency` has
     /// it built), then cards still flying off after a swipe.
     private func gridCards() -> [GridCard] {
-        let tabs = source.tabs
         var cards = tabs.enumerated().map { GridCard(tab: $0.element, index: $0.offset, departed: nil) }
         let listed = Set(tabs.map(\.id))
+        // A morphing stack's folded tabs: in its first slot, under its front
+        // card, so opening slides them out of it and folding back into it.
+        if !morphingStacks.isEmpty {
+            let all = source.tabs
+            for stack in stacks.stacks where morphingStacks.contains(stack.id) {
+                for id in stacks.folded(stack) where !listed.contains(id) {
+                    if let tab = all.first(where: { $0.id == id }) {
+                        cards.append(GridCard(tab: tab, index: stack.anchor, departed: nil, folded: true))
+                    }
+                }
+            }
+        }
         for d in swipes.departing where !listed.contains(d.id) {
             cards.append(GridCard(tab: d.tab, index: tabs.count, departed: d))
         }
@@ -348,11 +373,11 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .zIndex(Double(card.index))
                 .transition(.opacity)
         } else {
-            ResidentCard(slot: residency.slot(id), held: card.departed != nil || holds(id),
+            ResidentCard(slot: residency.slot(id), held: card.departed != nil || card.folded || holds(id),
                          standIn: standIn(card.tab, rect: card.departed?.rect ?? layout.card(card.index), pinned: false)) { tabCardView(card) }
                 // Explicit stacking in grid order: cards crossing in a reflow
                 // keep their order.
-                .zIndex(swipes.isDeparting(id) ? 20_000 : swipes.isRaised(id) ? 10_000 : Double(card.index))
+                .zIndex(swipes.isDeparting(id) ? 20_000 : swipes.isRaised(id) ? 10_000 : stackedZ(card))
                 .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
         }
     }
@@ -361,8 +386,10 @@ struct TabOverview<Source: TabsDataSource>: View {
         let tab = card.tab, index = card.index
         let r = card.departed?.rect ?? layout.card(index)
         let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
+        // A stack's first card has its chevron where the close button is.
+        let anchorsStack = card.departed == nil && !card.folded && stacks.stack(anchoredAt: index) != nil
         TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
+                radius: layout.cardRadius, showsClose: !selecting && !anchorsStack, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
                 contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
@@ -421,11 +448,40 @@ struct TabOverview<Source: TabsDataSource>: View {
                 onDragEnd: { dragging = nil })
             .frame(width: r.width, height: r.height + theme.metrics.titleRow)
         }
-        .opacity(swipes.opacity(tab.id))
-        // Lifted about the card's centre while swiped (× 1.093).
-        .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
+        .opacity(swipes.opacity(tab.id) * (card.folded ? 0 : 1))
+        // Lifted about the card's centre while swiped (× 1.093); a folded
+        // card sits a little smaller under its stack's front card.
+        .scaleEffect(swipes.scale(tab.id) * (card.folded ? Self.foldedScale : 1), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
         .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
+        .allowsHitTesting(!card.folded)
+        .accessibilityHidden(card.folded)
     }
+
+    /// How small a folded card is under its stack's front card.
+    static var foldedScale: CGFloat { 0.92 }
+
+    /// Grid order, except that while a stack morphs its other cards pass
+    /// under its front card (and every later card), never over it.
+    private func stackedZ(_ card: GridCard) -> Double {
+        guard !morphingStacks.isEmpty, let stack = stacks.stack(of: card.tab.id), morphingStacks.contains(stack.id),
+              card.tab.id != stack.front, let m = stack.members.firstIndex(of: card.tab.id) else { return Double(card.index) }
+        return Double(stack.anchor) - 0.5 + Double(m) * 0.001
+    }
+
+    /// A stack's liquid glass encasement around its cards (folded: its one
+    /// card; open: every card of it, across rows).
+    private func encasement(_ stack: TabStackPlan.Stack) -> some View {
+        let rects = StackOutlineRects.make(layout: layout, first: stack.anchor, count: stack.slots, pad: Self.encasementPad)
+        return StackEncasement(rects: rects, radius: layout.cardRadius + Self.encasementPad,
+                               maxGap: OverviewLayout.rowGap + 2, onTap: { onToggleStack(stack.id) })
+            .zIndex(-1)
+            .opacity(selecting ? 0.4 : 1)
+            .allowsHitTesting(gridInteractive && !selecting)
+            .transition(.opacity)
+    }
+
+    /// How far the encasement reaches past its cards (the gutter is 16).
+    static var encasementPad: CGFloat { 6 }
 
     @ViewBuilder private func pinnedCardView(_ tab: TabsKitTab, index: Int) -> some View {
         let r = layout.card(index)

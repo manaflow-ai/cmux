@@ -130,6 +130,11 @@ public protocol TabsDataSource: AnyObject, Observable {
     var supportsReordering: Bool { get }
     /// A dragged card moved to `index` in `tabs`: reorder `tabs`.
     func moveTab(_ id: TabsKitTab.ID, to index: Int)
+    /// The stack `id` belongs to (a Mac pane's tabs), or nil. Stacks of two
+    /// or more tabs show folded in the grid as one card in a glass
+    /// encasement with a chevron that opens them in place (`TabsKitStack`).
+    /// Default: none.
+    func stack(of id: TabsKitTab.ID) -> TabsKitStack?
     /// A short message the kit shows as a glass toast at the top (a tab that
     /// could not be created, a step that failed). Set it when `createTab`
     /// returns nil so the user learns why; the grid stays as it was.
@@ -180,6 +185,7 @@ extension TabsDataSource {
     public func setPinned(_ ids: [TabsKitTab.ID], _ pinned: Bool) {}
     public func links(for ids: [TabsKitTab.ID]) -> [URL] { [] }
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
+    public func stack(of id: TabsKitTab.ID) -> TabsKitStack? { nil }
     public var notice: String? { nil }
     public func clearNotice() {}
 }

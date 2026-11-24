@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "pane-stacks", "pane-stacks-page", "pane-stacks-lone", "pane-stacks-many", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -162,6 +162,7 @@ struct DemoDriver {
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
             shell.homePath.append(ChiefRoute())
+        case "pane-stacks", "pane-stacks-page", "pane-stacks-lone", "pane-stacks-many": await paneStacks(name)
         case "ws-terminal": await workspaceTerminal()
         case "ws-terminal-idle":
             // The zsh tab of a workspace, as the app shows it (TabsKit chrome), and nothing scripted after.
@@ -843,6 +844,61 @@ struct DemoDriver {
 
     private func step(_ name: String) {
         demoLog.info("demo step: \(name, privacy: .public)")
+    }
+
+    /// The tab grid's pane stacks (Aziz's drawing, 2026-11-23): a workspace laid out as the
+    /// drawing's four cards, a pane of three (docs, zsh, build: a globe and two terminals, docs
+    /// in front), a lone terminal, a lone page, and a pane of two terminals. The grid shows four
+    /// cards, the two panes in glass encasements with a chevron each; opening the first shows
+    /// six. `pane-stacks` opens its grid and leaves it to touches (`PaneStacksUITests`);
+    /// `pane-stacks-page` stays on the docs page; `pane-stacks-lone` is one pane of three
+    /// (the lone card); `pane-stacks-many` adds a pane of eight and four lone tabs (scrolling).
+    private func paneStacks(_ variant: String) async {
+        let store = shell.store
+        guard var ws = store.workspace(id: "ws-cmux") else { return }
+        func terminal(_ id: String, _ title: String) -> WorkspaceTab {
+            WorkspaceTab(id: id, kind: .terminal, title: title, subtitle: "~/Development/cmux")
+        }
+        func page(_ id: String, _ title: String, _ host: String) -> WorkspaceTab {
+            WorkspaceTab(id: id, kind: .browser, title: title, subtitle: host, url: URL(string: "https://\(host)/"))
+        }
+        typealias Pane = WorkspaceLayout.Pane
+        var tabs: [WorkspaceTab]
+        var panes: [Pane]
+        switch variant {
+        case "pane-stacks-lone":
+            tabs = [page("t-ps-docs", "Swift docs", "developer.apple.com"), terminal("t-ps-zsh", "zsh"), terminal("t-ps-build", "build")]
+            panes = [Pane(id: 1, tabIDs: ["t-ps-docs", "t-ps-zsh", "t-ps-build"], activeTabID: "t-ps-docs", isFocused: true)]
+        default:
+            tabs = [page("t-ps-docs", "Swift docs", "developer.apple.com"), terminal("t-ps-zsh", "zsh"), terminal("t-ps-build", "build"),
+                    terminal("t-ps-server", "server"), page("t-ps-site", "cmux.com", "cmux.com"),
+                    terminal("t-ps-tests", "tests"), terminal("t-ps-logs", "logs")]
+            panes = [Pane(id: 1, tabIDs: ["t-ps-docs", "t-ps-zsh", "t-ps-build"], activeTabID: "t-ps-docs", isFocused: true),
+                     Pane(id: 2, tabIDs: ["t-ps-server"], activeTabID: "t-ps-server"),
+                     Pane(id: 3, tabIDs: ["t-ps-site"], activeTabID: "t-ps-site"),
+                     Pane(id: 4, tabIDs: ["t-ps-tests", "t-ps-logs"], activeTabID: "t-ps-tests")]
+            if variant == "pane-stacks-many" {
+                let many = (0..<8).map { terminal("t-ps-m\($0)", "agent \($0 + 1)") }
+                let lone = (0..<4).map { page("t-ps-l\($0)", "Page \($0 + 1)", "example.com") }
+                tabs += many + lone
+                panes.append(Pane(id: 5, name: "Agents", tabIDs: many.map(\.id), activeTabID: many[0].id))
+                for (i, tab) in lone.enumerated() { panes.append(Pane(id: 6 + i, tabIDs: [tab.id], activeTabID: tab.id)) }
+            }
+        }
+        ws.tabs = tabs
+        ws.activeTabID = "t-ps-docs"
+        ws.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: panes,
+                                                                     root: .pane(panes[0].id))])
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        store.requestOpen(tabID: "t-ps-docs", in: ws.id)
+        shell.tab = .workspaces
+        await pause(1.0)
+        step("open")
+        shell.workspacesPath = [ws]
+        guard variant != "pane-stacks-page" else { return }
+        await pause(2.5)
+        step("grid")
+        WorkspaceDemoDirector.shared.post(.showGrid(true))
     }
 
     /// A workspace first opens on its layout's top-left pane's active tab (user 2026-11-11), and
