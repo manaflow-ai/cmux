@@ -77,6 +77,8 @@ final class ListStressRig: NSObject {
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
             if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_SCROLL_PROBE"] == "1" { rig.startScrollProbe() }
+            // The capture suites shoot the held screen on this mark, not after a fixed pause.
+            LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
