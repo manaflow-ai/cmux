@@ -1,10 +1,11 @@
 import Foundation
+import CmuxMobileModel
 import Observation
 
 /// One of the account's Cloud machines as the phone's Cloud Machines page shows it (the Mac's
 /// Machines section, Cloud rows): a `cloud.machine.list` item (backend/packages/protocol
 /// `CloudMachine`).
-public struct CloudMachine: Identifiable, Hashable, Sendable {
+public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
     public enum Status: String, Hashable, Sendable {
         case provisioning, starting, running, pausing, paused, deleting, failed
 
@@ -12,7 +13,7 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
         public var isTransition: Bool { [.provisioning, .starting, .pausing, .deleting].contains(self) }
     }
 
-    public struct Size: Hashable, Sendable {
+    public struct Size: Codable, Hashable, Sendable {
         public var cpu: Int?
         public var memoryMB: Int?
         public var diskMB: Int?
@@ -149,7 +150,7 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
 }
 
 /// A snapshot of a Cloud machine (`cloud.snapshot.list`), or an archive of a deleted one.
-public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
+public struct CloudMachineSnapshot: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var machine: String
     public var name: String?
@@ -180,7 +181,7 @@ public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
 }
 
 /// The team's Cloud plan (`cloud.plan.get`): its limits, the sizes it allows and this period's use.
-public struct CloudMachinePlan: Hashable, Sendable {
+public struct CloudMachinePlan: Codable, Hashable, Sendable {
     public var planID: String
     public var maxActive: Int
     public var maxSaved: Int
@@ -280,16 +281,38 @@ public final class CloudMachinesModel {
     }
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
+    @ObservationIgnored private let accountID: @MainActor () -> String?
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
 
-    public init(account: @escaping @MainActor () -> AccountCloud?) {
+    public init(account: @escaping @MainActor () -> AccountCloud?, accountID: @escaping @MainActor () -> String? = { nil }) {
         self.account = account
+        self.accountID = accountID
+        restoreCache()
     }
 
     public static func live(_ sources: ChiefSources = .shared) -> CloudMachinesModel {
-        CloudMachinesModel { [weak sources] in sources?.account }
+        CloudMachinesModel(account: { [weak sources] in sources?.account }, accountID: { [weak sources] in sources?.activeUserID })
+    }
+
+    private struct Cached: Codable, Sendable {
+        var machines: [CloudMachine]
+        var snapshots: [CloudMachineSnapshot]
+        var plan: CloudMachinePlan?
+    }
+
+    private func cache() -> LastKnownListStore.Handle? {
+        guard let accountID = accountID(), !accountID.isEmpty else { return nil }
+        return LastKnownListStore.standard.list(accountID: accountID, screen: "cloud-machines")
+    }
+
+    private func restoreCache() {
+        guard let cache, let saved = cache.read(Cached.self) else { return }
+        machines = saved.machines
+        snapshots = saved.snapshots
+        plan = saved.plan
+        phase = .loaded
     }
 
     public var canAct: Bool { busyID == nil && account() != nil }
@@ -307,6 +330,7 @@ public final class CloudMachinesModel {
 
     public func load() async {
         if skipsLoad { return }
+        let cachedList = cache()
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
             return
@@ -331,6 +355,7 @@ public final class CloudMachinesModel {
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
             settleHeldActions()
             phase = .loaded
+            cachedList?.save(Cached(machines: machines, snapshots: snapshots, plan: plan))
         } catch is CancellationError {
             phase = before
         } catch {

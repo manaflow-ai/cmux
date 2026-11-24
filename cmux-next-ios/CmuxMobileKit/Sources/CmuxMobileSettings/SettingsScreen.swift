@@ -41,7 +41,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
-    @State private var deviceList = SettingsDeviceList()
+    @State private var deviceList: SettingsDeviceList
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -58,6 +58,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     }
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+        _deviceList = State(initialValue: SettingsDeviceList(cache: auth.lastKnownList(screen: "devices")))
         self.scrollRequest = scrollRequest
         self.callChief = callChief
         self.screenSharing = screenSharing
@@ -270,8 +271,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 
     /// The Devices page's Mac rows, counted; no value until they load.
     private var devicesValue: String? {
-        SettingsDeviceRows.rootValue(service: deviceList.devices, hasService: directory != nil,
-                                     liveMacs: store.teams.flatMap(\.macs))
+        deviceList.macs(store: store, hasService: directory != nil).map { String($0.count) }
     }
 
     private var transportValue: String {
@@ -306,12 +306,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .account: AccountPage(auth: auth, directory: directory)
         case .team:
             if let team = store.activeTeam {
-                TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                TeamPage(team: team, auth: auth, cache: auth.lastKnownList(screen: "members", teamID: team.id),
+                         edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                    .id(team.id)
             }
         case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
-        case .terminalSizing: TerminalSizingMacsPage(store: store)
+        case .terminalSizing: TerminalSizingMacsPage(store: store, directory: directory, list: deviceList)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings, voice: callPreferences)
         case .accentColor: AccentColorPage(accents: accentTheme)

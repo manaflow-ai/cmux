@@ -3,8 +3,8 @@ import Foundation
 /// One of the account's devices as Settings → Devices lists it. A phone
 /// registers two service devices (link and presence); `ids` holds both, so
 /// removing the phone removes them together.
-public struct SettingsDevice: Identifiable, Hashable, Sendable {
-    public enum Kind: Sendable, Hashable { case mac, phone }
+public struct SettingsDevice: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: String, Sendable, Hashable, Codable { case mac, phone }
 
     public var id: String { ids.first ?? name }
     public var ids: [String]
@@ -87,6 +87,18 @@ public enum SettingsDeviceRows {
     /// Each team's picked Mac by team id (``Team/pickedMacID``), for ``otherBuilds(_:picked:)``.
     public static func picks(_ teams: [Team]) -> [String: String] {
         teams.reduce(into: [:]) { out, team in if let pick = team.pickedMacID { out[team.id] = pick } }
+    }
+
+    /// Terminal sizing keeps team Macs, including another member's, and fills in this
+    /// account's own Macs from the same directory as Devices while discovery catches up.
+    public static func sizingMacs(teams: [Team], activeTeamID: String, service: [SettingsDevice]?) -> [MacDevice] {
+        let live = teams.flatMap(\.macs)
+        let ids = Set(live.map(\.id))
+        let restored = (service ?? []).filter { $0.kind == .mac && ids.isDisjoint(with: $0.ids) }.map {
+            MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt,
+                      machineID: $0.machineID)
+        }
+        return MacRoster(live + restored, preferring: teams.first { $0.id == activeTeamID }?.pickedMacID).visible
     }
 
     /// The phone rows (only a device service lists phones).

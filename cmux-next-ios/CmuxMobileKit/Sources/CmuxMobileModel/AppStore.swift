@@ -230,7 +230,7 @@ public final class AppStore {
     }
 
     /// A Stack Auth team as the account reports it.
-    public struct AccountTeam: Hashable, Sendable {
+    public struct AccountTeam: Hashable, Sendable, Codable {
         public let id: String
         public let name: String
 

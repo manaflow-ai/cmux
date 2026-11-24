@@ -102,15 +102,18 @@ struct HostSizePolicyEditor: View {
 struct TerminalSizingMacsPage: View {
     let store: AppStore
 
+    let directory: (any SettingsDeviceDirectory)?
+    let list: SettingsDeviceList
+
     private var macs: [MacDevice] {
-        MacRoster.acrossTeams(store.teams, activeTeamID: store.activeTeamID)
+        SettingsDeviceRows.sizingMacs(teams: store.teams, activeTeamID: store.activeTeamID, service: list.devices)
     }
 
     var body: some View {
         List {
             Section {
-                if macs.isEmpty, store.awaitsAccountData {
-                    // The account's Macs are still on their way: not "No Macs.".
+                if macs.isEmpty, list.devices == nil, store.awaitsAccountData {
+                    // placeholder-ok: This account has no kept roster and discovery has never answered.
                     CmuxSpinner(label: Text("Loading Macs…"))
                 } else if macs.isEmpty {
                     Text("No Macs.").foregroundStyle(theme.colors.label2)
@@ -125,6 +128,7 @@ struct TerminalSizingMacsPage: View {
             }
         }
         .settingsPage("Terminal Size When Shared")
+        .task { await list.load(directory) }
     }
 }
 

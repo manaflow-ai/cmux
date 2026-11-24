@@ -1,15 +1,16 @@
 import Foundation
+import CmuxMobileModel
 import Observation
 
 /// One of the account's Cloud automations as the phone's Automations page shows it (the Mac's
 /// `AutomationRow`, Cloud source): `automation.list` for the definitions and one
 /// `automation.runs.list` for the newest runs, which give each its last result.
-public struct CloudAutomation: Identifiable, Hashable, Sendable {
-    public enum LastResult: String, Hashable, Sendable {
+public struct CloudAutomation: Codable, Identifiable, Hashable, Sendable {
+    public enum LastResult: String, Codable, Hashable, Sendable {
         case none, succeeded, failed, running, skipped
     }
 
-    public struct Run: Identifiable, Hashable, Sendable {
+    public struct Run: Codable, Identifiable, Hashable, Sendable {
         public var id: String
         public var at: Date
         public var result: LastResult
@@ -128,17 +129,32 @@ public final class CloudAutomationsModel {
     public private(set) var startedID: String?
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
+    @ObservationIgnored private let accountID: @MainActor () -> String?
 
-    public init(account: @escaping @MainActor () -> AccountCloud?) {
+    public init(account: @escaping @MainActor () -> AccountCloud?, accountID: @escaping @MainActor () -> String? = { nil }) {
         self.account = account
+        self.accountID = accountID
+        restoreCache()
     }
 
     /// The page from ``ChiefSources``' signed-in account.
     public static func live(_ sources: ChiefSources = .shared) -> CloudAutomationsModel {
-        CloudAutomationsModel { [weak sources] in sources?.account }
+        CloudAutomationsModel(account: { [weak sources] in sources?.account }, accountID: { [weak sources] in sources?.activeUserID })
+    }
+
+    private func cache() -> LastKnownListStore.Handle? {
+        guard let accountID = accountID(), !accountID.isEmpty else { return nil }
+        return LastKnownListStore.standard.list(accountID: accountID, screen: "cloud-automations")
+    }
+
+    private func restoreCache() {
+        guard let cache, let saved = cache.read([CloudAutomation].self) else { return }
+        automations = saved
+        phase = .loaded
     }
 
     public func load() async {
+        let cachedList = cache()
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud automations."))
             return
@@ -157,6 +173,7 @@ public final class CloudAutomationsModel {
             for index in rows.indices { rows[index].runs = runs[rows[index].id] ?? [] }
             automations = rows
             phase = .loaded
+            cachedList?.save(rows)
         } catch is CancellationError {
             // A cancelled reload puts back what the page showed (never a spinner left behind).
             phase = before

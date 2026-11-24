@@ -596,15 +596,20 @@ public final class LiveCoordinator {
     /// active one. The personal space stays listed next to Stack teams while
     /// one of the account's Macs is in it. Starts Mac discovery.
     public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
+        showAccountTeams(teams, selectedID: selectedID)
+        activeTeamChanged()
+        for team in store.teams { loadPrefs(team.id) }
+        discovery.start { [weak self] in await self?.lookForMacs() }
+    }
+
+    /// Populate the sidebar without treating cached memberships as a new service answer.
+    public func showAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
         var list = teams.isEmpty ? [personal] : teams
         let keepsPersonal = store.activeTeamID == personal.id || store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty })
         if !teams.isEmpty, keepsPersonal { list.append(personal) }
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
-        activeTeamChanged()
-        for team in list { loadPrefs(team.id) }
-        discovery.start { [weak self] in await self?.lookForMacs() }
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it

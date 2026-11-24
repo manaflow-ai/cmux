@@ -364,15 +364,17 @@ public struct RootView: View {
     }
 
     private func syncTeams() {
-        let teams = auth.teams
+        // The review demo keeps its own space. An unvisited account waits for its first answer.
+        guard !auth.isReviewDemo, let teams = auth.teamsForDisplay() else { return }
         log.info("Stack teams: \(teams.count, privacy: .public)")
-        // The review demo account keeps its demo space (accountChanged).
-        guard !auth.isReviewDemo else { return }
         if let live {
             // Live: Macs come from the cmux-next-ios service, never the samples. An
             // account with no team uses its personal space, once that is known.
-            guard auth.teamList.isLoaded else { return }
-            live.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+            if auth.teamList.isLoaded {
+                live.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+            } else {
+                live.showAccountTeams(teams, selectedID: auth.selectedTeamID)
+            }
             return
         }
         guard !teams.isEmpty else { return }
@@ -1037,6 +1039,7 @@ struct ShellTabs: View {
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
+                .id(shell.auth.user?.id)
                 .modifier(TabBarVisibility(shell: shell, tab: .settings))
                 .modifier(TabRetapScroll(shell: shell, tab: .settings))
                 .modifier(TabBarProbeHost())

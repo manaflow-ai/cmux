@@ -26,28 +26,48 @@ public protocol SettingsDeviceDirectory: AnyObject {
 @MainActor
 @Observable
 final class SettingsDeviceList {
-    /// The service's list; nil until it loads (or with no service).
-    private(set) var devices: [SettingsDevice]?
+    private let cache: LastKnownList?
+    // SettingsScreen's value may be rebuilt many times. Read the kept rows only on the
+    // model SwiftUI actually retains, the first time a page asks for them.
+    @ObservationIgnored private lazy var keptDevices = cache?.read([SettingsDevice].self)
+    private var receivedDevices: [SettingsDevice]?
+    var devices: [SettingsDevice]? { receivedDevices ?? keptDevices }
     private(set) var loadError: String?
+    @ObservationIgnored private var revision = 0
+
+    init(cache: LastKnownList?) {
+        self.cache = cache
+    }
 
     func load(_ directory: (any SettingsDeviceDirectory)?) async {
         guard let directory else { return }
+        revision &+= 1
+        let request = revision
         do {
-            devices = try await directory.devices()
+            let rows = try await directory.devices()
+            guard !Task.isCancelled, revision == request else { return }
+            receivedDevices = rows
+            cache?.save(rows)
             loadError = nil
         } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled, revision == request else { return }
             loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices. Pull to retry.", bundle: .module)
         }
     }
 
     func removed(_ device: SettingsDevice) {
-        devices?.removeAll { $0.id == device.id }
+        // A response already on its way can still list the device that was just removed.
+        revision &+= 1
+        guard let devices else { return }
+        let remaining = devices.filter { $0.id != device.id }
+        receivedDevices = remaining
+        cache?.save(remaining)
     }
 
     /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
     func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
-        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs),
+        SettingsDeviceRows.macs(service: devices, hasService: hasService || devices != nil, liveMacs: store.teams.flatMap(\.macs),
                                 teamOf: store.teams.reduce(into: [:]) { out, team in for mac in team.macs where out[mac.id] == nil { out[mac.id] = team.id } })
     }
 
@@ -92,6 +112,7 @@ struct DevicesPage: View {
             }
             Section {
                 if macs.isEmpty {
+                    // placeholder-ok: No device directory has ever been returned for this account.
                     Text(loadedMacs == nil ? "Loading…" : String(localized: "mobile.devices.empty", defaultValue: "Sign in to cmux on your Mac to connect it.", bundle: .module))
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                         .cmuxMobileTextColumn()

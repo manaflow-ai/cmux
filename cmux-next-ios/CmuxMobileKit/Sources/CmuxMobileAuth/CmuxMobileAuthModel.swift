@@ -345,10 +345,18 @@ public final class CmuxMobileAuthModel {
         isMock ? [] : teamList.teams
     }
 
+    /// A display cache scoped to the signed-in account, Stack project and backend data space.
+    public func lastKnownList(screen: String, teamID: String? = nil) -> LastKnownList? {
+        guard let user, !isMock, !isReviewDemo, buildSpace.refusal == nil else { return nil }
+        return LastKnownListStore.standard.list(accountID: user.id, teamID: teamID, screen: screen,
+                                                context: [stackProjectID ?? "", apiBaseURL?.absoluteString ?? "",
+                                                          buildSpace.childEnvironmentValue ?? ""])
+    }
+
     /// The account's team list as it loads: setup shows a loading state, not
     /// Create Team, until it is `.loaded` (SPEC 7.1).
     public var teamList: TeamListState {
-        var state = fetchedTeams
+        var state = teamsUserID == user?.id ? fetchedTeams : TeamListState()
         state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
         return state
     }
@@ -357,23 +365,35 @@ public final class CmuxMobileAuthModel {
     /// tolerates a failed fetch silently, so it cannot tell "no teams" from
     /// "not loaded".
     private var fetchedTeams = TeamListState()
-    @ObservationIgnored private var teamsUserID: String?
+    private var teamsUserID: String?
+    private var keptTeams: [AppStore.AccountTeam]?
+
+    /// The sidebar can draw an old list while setup and live discovery still wait for Stack.
+    public var hasKnownTeams: Bool { teamList.isLoaded || (teamsUserID == user?.id && keptTeams != nil) }
+
+    public func teamsForDisplay() -> [AppStore.AccountTeam]? {
+        restoreTeams()
+        let list = teamList
+        if !isMock, list.isLoaded, list.teams != keptTeams {
+            keptTeams = list.teams
+            lastKnownList(screen: "teams")?.save(list.teams)
+        }
+        return list.isLoaded ? teams : keptTeams
+    }
+
+    private func restoreTeams() {
+        guard teamsUserID != user?.id else { return }
+        teamsUserID = user?.id
+        fetchedTeams.reset()
+        keptTeams = lastKnownList(screen: "teams")?.read([AppStore.AccountTeam].self)
+    }
 
     /// Loads the signed-in account's teams (once per account; again after a
     /// failure). DEBUG mock mode takes `CMUX_MOBILE_MOCK_TEAMS_DELAY` seconds, to
     /// record the loading state.
     public func loadTeams() async {
-        guard let user else {
-            teamsUserID = nil
-            fetchedTeams.reset()
-            return
-        }
-        if teamsUserID != user.id {
-            teamsUserID = user.id
-            fetchedTeams.reset()
-        } else if fetchedTeams.isLoaded {
-            return
-        }
+        restoreTeams()
+        guard let user, !fetchedTeams.isLoaded else { return }
         fetchedTeams.retry()
         if isMock {
             #if DEBUG
@@ -395,7 +415,7 @@ public final class CmuxMobileAuthModel {
             for team in try await account.listTeams() {
                 list.append(AppStore.AccountTeam(id: team.id, name: await team.displayName))
             }
-            guard teamsUserID == user.id else { return }
+            guard !Task.isCancelled, self.user?.id == user.id, teamsUserID == user.id else { return }
             fetchedTeams.fetched(list)
         } catch {
             guard teamsUserID == user.id else { return }
@@ -758,6 +778,7 @@ public final class CmuxMobileAuthModel {
             await BoundedWait(.seconds(3)).run { await willSignOut() }
         }
         teamsUserID = nil
+        keptTeams = nil
         fetchedTeams.reset()
         if isMock {
             mockSignedIn = false
