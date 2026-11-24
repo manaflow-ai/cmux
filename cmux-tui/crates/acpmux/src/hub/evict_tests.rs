@@ -139,3 +139,18 @@ async fn a_replay_or_newest_window_brings_an_evicted_chat_back() {
     hub.newest_window("s1", 400).unwrap();
     assert!(in_map(&hub, "s1"), "so does the open's newest window");
 }
+
+#[tokio::test]
+async fn an_evicted_chat_counts_live_or_closed_as_it_did_in_memory() {
+    let hub = hub_with(3);
+    let open = hub.session_get("s1").unwrap();
+    hub.set_status(&open, NotWaiting::Idle);
+    open.hibernated_at.store(1, Ordering::SeqCst);
+    drop(open);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let before = hub.session_counts();
+    assert_eq!(before, (3, 1), "one idle chat, two closed");
+    assert_eq!(hub.evict_idle_chats(), 3, "{:?}", hub.kept_for_test("s1"));
+    assert_eq!(hub.session_counts(), before, "the hidden closed count does not move");
+    assert_eq!(hub.eviction_counts(), (3, 3, 0));
+}

@@ -2522,7 +2522,8 @@ impl Hub {
     pub(super) fn session_counts(&self) -> (usize, usize) {
         let live = self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).len();
         let all = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
-        (all + self.evicted.len(), live)
+        // An evicted chat counts as it did in memory: live unless closed (`evict.rs`).
+        (all + self.evicted.len(), live + self.evicted.live_len())
     }
 
     // ------------------------------------------------------------ lookup

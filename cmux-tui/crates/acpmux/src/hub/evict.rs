@@ -90,6 +90,11 @@ impl Tier {
         self.lock().len()
     }
 
+    /// How many evicted chats are not closed: they count as live, as they did in memory.
+    pub(super) fn live_len(&self) -> usize {
+        self.lock().values().filter(|row| row.meta.status != SessionStatus::Closed).count()
+    }
+
     pub(super) fn contains(&self, id: &str) -> bool {
         self.lock().contains_key(id)
     }
