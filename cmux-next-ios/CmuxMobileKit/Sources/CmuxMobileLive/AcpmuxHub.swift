@@ -1708,7 +1708,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                     actionTitle: String(localized: "Try again"), action: .reattach))
             return
         }
-        let delay = Self.retryDelay(afterFailures: failures)
+        let delay = attachBackoff(failures)
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
@@ -1720,6 +1720,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Attaches that may fail in a row before the chat stops trying (about 30 s of backoff, plus
     /// each page's own ``pageTimeout``).
     static let maxAttachFailures = 8
+    /// The wait before the next attach (tests shorten it).
+    var attachBackoff: (Int) -> Duration = { AcpmuxSessionSource.retryDelay(afterFailures: $0) }
 
     /// Try again after the attach gave up (``maxAttachFailures``): a fresh run of tries.
     func reattach() {
