@@ -718,6 +718,7 @@ function TranscriptView({
   anchorNow,
   placeNow,
   inViewNow,
+  onSeenRows,
   heldWorkedClosing,
   onLoadOlder,
   sends = 0,
@@ -770,6 +771,8 @@ function TranscriptView({
   /// Filled with the ids of the rows in the reader's view now, or null while it follows the latest
   /// message (a turn's end keeps those rows open, conversation/turnEndHold.ts).
   inViewNow?: React.MutableRefObject<(() => readonly string[] | null) | undefined>;
+  /// The rows truly on screen, with no overscan, whenever the visible layout range changes.
+  onSeenRows?: (rows: readonly AcpmuxRow[]) => void;
   /// Set by the pane when the rows it hands over next close a turn's Worked for that was held open
   /// while the reader was scrolled up (App.tsx `heldWorked`), the reader now back at the latest row.
   /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
@@ -3429,7 +3432,9 @@ function TranscriptView({
   // for as long as the page took (Leo, 2026-11-06: "it, like, thinks that I can, and then it doesn't
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
-  const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
+  const [roomGone, setRoomGone] = useState<
+    { sessionId?: string; firstId: string; room: number; end: number } | undefined
+  >();
   // The view's height and saved place for a cold open's estimate (`roughAbove`), read without making
   // either an input of it.
   const coldView = useRef({ height, openAt });
@@ -3664,8 +3669,13 @@ function TranscriptView({
       canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
         ? roomGone
         : undefined;
+    // What is left once the room went: rows that draw shorter than they were then (`giveRoomNearTop`) get the
+    // difference back above them, so the short tail's end stays at the view's foot. A fixed room let a tail
+    // 13 px under the view's height fall back to the top, and the view then followed the latest row down those
+    // 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream). Rows that grow
+    // keep the room as it was: taken from it, each streamed token moved every row above it (workspace_switch).
     const reserved = gone
-      ? { reserve: gone.room, state: undefined }
+      ? { reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
@@ -4016,6 +4026,12 @@ function TranscriptView({
   );
   // The run of mounted rows the reader sees.
   const view = visibleLayoutRange(layout, shownTop, height);
+  // Overscan rows are mounted for smooth scrolling but have not been seen by the reader.
+  const onScreen = visibleLayoutRange(layout, shownTop, height, 0);
+  useLayoutEffect(() => {
+    if (!onSeenRows || sessionId === undefined || onScreen.last <= onScreen.first) return;
+    onSeenRows(rows.slice(onScreen.first, onScreen.last));
+  }, [onSeenRows, rows, sessionId, onScreen.first, onScreen.last]);
   const range = ahead.find((each) => each.first <= view.first && view.first < each.last) ?? view;
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
@@ -5624,7 +5640,7 @@ function TranscriptView({
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
-    setRoomGone({ sessionId, firstId: first.id, room: next });
+    setRoomGone({ sessionId, firstId: first.id, room: next, end: next + measured.layout.totalHeight - room });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
   // again before the frame paints.
@@ -6954,9 +6970,16 @@ function TranscriptView({
   }, [canLoadNewer, height, onLoadNewer, newerLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(newerRecheck.current), []);
   // The view went to the latest message (the reader scrolled to the end, a send) while the rows end in history: the
-  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`).
+  // pane reads the chat's newest page in place of the window (direct.ts `returnToLatest`). Only the view starting to
+  // follow is that move. A rail jump far back makes the window (`jumpWindow`) while the view still follows the
+  // chat's end, a frame before the jump scrolls to its prompt: read as a return, it swapped the window for the
+  // newest page, and the jump drew its prompt, went to the chat's end and came back (bench/thread-rail-jump.bench.ts,
+  // unloaded case: 872 px moved).
+  const followedForReturn = useRef(following);
   useEffect(() => {
-    if (following && canLoadNewer) void onReturnToLatest?.();
+    const started = following && !followedForReturn.current;
+    followedForReturn.current = following;
+    if (started && canLoadNewer) void onReturnToLatest?.();
   }, [following, canLoadNewer, onReturnToLatest]);
   // A Jump to latest pressed while the rows end in history waits for the newest page, then goes there.
   useEffect(() => {

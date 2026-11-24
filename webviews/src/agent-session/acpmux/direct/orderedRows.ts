@@ -1,5 +1,5 @@
 import type { AcpmuxBackgroundTurn, AcpmuxRow } from "../model";
-import { rowFrameKey } from "../model";
+import { rowFrameKey, SINCE_DIVIDER } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/backgroundTurns";
 import { isVisiblyEmptyMessage } from "../conversation/visibleMessage";
 import {
@@ -433,6 +433,28 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (first !== undefined && first <= seq && last > seq) place = Math.min(place, first - 0.25);
     }
     return place;
+  }
+
+  /// The newest event that made or wrote row `id`. Rows made locally by the pane and the divider
+  /// have no event to count as seen.
+  seqOf(id: string): number | undefined {
+    const first = this.order.get(id);
+    if (first === undefined || this.local.has(id) || id === SINCE_DIVIDER) return undefined;
+    return Math.max(Math.floor(first), this.lastWrite.get(id) ?? -1);
+  }
+
+  /// Counts agent turns written after a persisted seen cursor. A still-streaming reply counts as
+  /// one turn so the return marker also covers a turn that has not ended yet.
+  turnsAfter(seq: number): number {
+    let turns = 0;
+    let writing = false;
+    for (const [id, row] of this) {
+      const through = this.seqOf(id);
+      if (through === undefined || through <= seq) continue;
+      if (row.kind === "turnSummary") turns += 1;
+      else if (row.kind === "assistant" || row.kind === "activity") writing = true;
+    }
+    return turns || (writing ? 1 : 0);
   }
 
   /// Sets `row` to sort at `place` (`placeAfter`): "New since you looked" (`SINCE_DIVIDER`), which no
