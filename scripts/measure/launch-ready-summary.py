@@ -34,6 +34,15 @@ import statistics
 import sys
 from collections import Counter
 
+# launch_shift.py (the PERCEIVED numbers of record=1's recordings): launch-ready.sh copies it beside this file; from the
+# checkout it is scripts/cmux-next/launch_shift.py. Run with -I, so neither folder is on the path by itself.
+_here = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_here, os.path.join(_here, "..", "cmux-next")]
+try:
+    import launch_shift  # noqa: E402
+except ImportError:  # an older copy of the step's folder: no PERCEIVED line
+    launch_shift = None
+
 # The expectation per case, in one place: "home" (the launch shows Home), "last" (the launch before's front, Home
 # included) or "own" (as last, and no window drawn from a foreign launch snapshot). daemon=cold is "last": a dead
 # daemon never sends the launch to Home; only a missing workspace does, and that is snapshot=unknown.
@@ -307,6 +316,7 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
                                 "median_changes": statistics.median(changes) if changes else None,
                                 "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
             print("LR-FRAMES", side, json.dumps(frames), flush=True)
+        perceived_line(side, runs)
         result[side] = {"failed": failed, "surface": first, "layout": layout, "judged": not not_judged}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}
@@ -321,6 +331,41 @@ def summarize(rows, case="kept", seeded="", params="", keys=False):
     else:
         print("LR-SAME-FRONT ok: " + ", ".join(result), flush=True)
     return result
+
+
+def perceived(runs):
+    """record=1: the median PERCEIVED numbers of the side's recorded launches (launch_shift.py), the row's own launch
+    marks filling in a recording's tti; None when no launch has a recording."""
+    if launch_shift is None:
+        return None
+    totals = []
+    for r in runs:
+        folder = r.get("record_dir")
+        if folder and launch_shift.recorded(folder):
+            totals.append(launch_shift.summarize(folder, marks=r.get("marks") or {})["total"])
+    if not any(r.get("record_dir") for r in runs):
+        return None
+    med = {"recorded": f"{len(totals)}/{len(runs)}"}
+    for key in ("settled_match_ms", "shift_score", "tti_ms", "alpha_changes"):
+        values = [t[key] for t in totals if isinstance(t.get(key), (int, float)) and not isinstance(t.get(key), bool)]
+        med[key] = round(statistics.median(values), 4) if values else None
+    flags = [t["first_frame_is_final"] for t in totals if isinstance(t.get("first_frame_is_final"), bool)]
+    med["first_frame_is_final"] = (sum(flags) * 2 > len(flags)) if flags else None
+    med["first_frame_final_runs"] = f"{sum(flags)}/{len(flags)}"
+    marks = [t["tti_mark"] for t in totals if t.get("tti_mark")]
+    med["tti_mark"] = max(set(marks), key=marks.count) if marks else None
+    med["shift_score_approx"] = any(t.get("shift_score_approx") for t in totals)
+    return med
+
+
+def perceived_line(side, runs):
+    """LR-PERCEIVED SIDE, the side's headline: launch_shift.py's PERCEIVED fields over its recorded launches."""
+    med = perceived(runs)
+    if med is None:
+        return None
+    print("LR-PERCEIVED", side, launch_shift.headline(med)[len("PERCEIVED "):],
+          f"recorded={med['recorded']} first_frame_final_runs={med['first_frame_final_runs']}", flush=True)
+    return med
 
 
 def main(argv=None):
