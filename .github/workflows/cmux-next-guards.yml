@@ -702,6 +702,8 @@ jobs:
     # defaults snapshot 2+1+2, page strings 2+3), so with the checkout's 5 the steps' caps sum to the job's
     # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
     timeout-minutes: 25
+    outputs:
+      would_skip: ${{ steps.static-verdict.outputs.would_skip }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -736,6 +738,27 @@ jobs:
           # HEAD^1: the base tip of a pull request's merge commit, or the
           # previous commit of a push (the defaults snapshot reads it).
           fetch-depth: 2
+
+      # Traced input key, in shadow (cmuxterm-hq RFD 0148 row 9; scripts/ci/traced_inputs.py): the rows of
+      # scripts/ci/receipt-inputs/static-checks.txt are what one strace'd run of every step below read (files,
+      # directory listings, absent probes), not a hand-written glob, so a change to anything else keeps the key. A
+      # green run records an unsigned receipt under the key; a later run with the same key reports would_skip=true and
+      # still runs in full, and its own verdict is compared with the receipt's. Nothing is skipped.
+      - name: Traced input key (shadow receipt)
+        id: static-key
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_input_key.py key static-checks --units all --output "$GITHUB_OUTPUT"
+
+      - name: Look up a receipt (shadow)
+        id: static-receipt
+        if: ${{ !cancelled() && steps.static-key.outputs.input_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-static-checks-${{ steps.static-key.outputs.input_key }}
+          lookup-only: true
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         if: ${{ !cancelled() }}
@@ -801,6 +824,78 @@ jobs:
         env:
           CMUX_STRINGS_BEST_EFFORT: ""
         run: node webviews/scripts/pages/gen-strings.mjs
+
+      # The shadow comparison: a would-skip run whose own steps failed is a reuse the traced key got wrong.
+      - name: Traced reuse vs this run (shadow)
+        id: static-verdict
+        if: ${{ always() && steps.static-key.outputs.input_key != '' }}
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.static-key.outputs.input_key }}
+          HIT: ${{ steps.static-receipt.outputs.cache-hit == 'true' }}
+          STATUS: ${{ job.status }}
+        run: |
+          wrong=false
+          if [ "$HIT" = true ] && [ "$STATUS" != success ]; then wrong=true; fi
+          line="static-checks would_skip=$HIT run=$STATUS wrong_reuse=$wrong input_key=$INPUT_KEY"
+          echo "::notice title=ci-receipt shadow (traced inputs)::$line"
+          echo "ci-receipt shadow: $line" >> "$GITHUB_STEP_SUMMARY"
+          echo "would_skip=$HIT" >> "$GITHUB_OUTPUT"
+
+      - name: Record the receipt (shadow)
+        if: ${{ success() && steps.static-key.outputs.input_key != '' && steps.static-receipt.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.static-key.outputs.input_key }}
+        run: python3 scripts/ci/receipt_input_key.py record static-checks --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
+
+      # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request.
+      - name: Save the receipt (shadow)
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.static-key.outputs.input_key != '' && steps.static-receipt.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-static-checks-${{ steps.static-key.outputs.input_key }}
+
+  # The other half of the shadow (RFD 0148 row 9): on a feat-cmux-next push where static-checks would have been
+  # reused, run every one of its steps again under strace and name any read scripts/ci/receipt-inputs/static-checks.txt
+  # does not cover. A miss means the list is stale (regenerate it with the command in its header) and that reuse
+  # would have been unsound. It never fails the run.
+  static-checks-traced-audit:
+    needs: static-checks
+    name: cmux-next static checks traced-input audit (shadow)
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.static-checks.outputs.would_skip == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        timeout-minutes: 5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Setup Node
+        timeout-minutes: 2
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: strace
+        timeout-minutes: 3
+        run: command -v strace || sudo -n apt-get install -y -qq strace || echo "::notice::no strace on this runner; the audit reports nothing"
+
+      - name: Trace every static-checks step and audit the committed list
+        timeout-minutes: 35
+        run: |
+          python3 scripts/ci/traced_inputs.py trace-job --workflow .github/workflows/cmux-next-guards.yml \
+            --job static-checks --out "$RUNNER_TEMP/static-checks.trace.json" \
+            --inputs scripts/ci/receipt-inputs/static-checks.txt | tee "$RUNNER_TEMP/audit.txt"
+          line=$(grep '^audit=' "$RUNNER_TEMP/audit.txt" || echo 'audit=none')
+          echo "::notice title=traced-input audit::static-checks $line"
+          echo "traced-input audit: static-checks $line" >> "$GITHUB_STEP_SUMMARY"
   # The nightly-next build generates the Rust third-party notices from the
   # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
   # A new path crate it cannot map failed the nightly publish (run 38359624385,
@@ -1192,8 +1287,10 @@ jobs:
         run: |
           set -uo pipefail
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
+          git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
