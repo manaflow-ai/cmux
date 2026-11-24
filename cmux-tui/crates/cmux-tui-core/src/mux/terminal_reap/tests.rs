@@ -506,6 +506,39 @@ fn terminal_reap_attached_terminals_do_not_count_toward_the_grace_cap() {
     );
 }
 
+/// Restart to Update left more than 16 terminals unplaced for a moment while the new window
+/// restored its tabs, and the grace cap ended the extras at once: agents running in them exited
+/// 143 (Leo, 2026-11-24: "mochi is still deadge"). The cap stands down while the app is gone and
+/// for one grace after it is back; a daemon that never served an app keeps it.
+#[test]
+fn terminal_reap_grace_cap_stands_down_across_an_app_relaunch() {
+    let grace = Duration::from_secs(30);
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    assert!(
+        !schedule.relaunch_hold(start, grace, false, false),
+        "a daemon that never had an app frontend keeps the cap (STATUS 7998)"
+    );
+    assert!(schedule.relaunch_hold(start, grace, true, false), "the app it served is gone");
+    let back = start + Duration::from_secs(5);
+    assert!(schedule.relaunch_hold(back, grace, true, true), "the app just came back");
+    assert!(
+        schedule.relaunch_hold(back + grace - Duration::from_millis(1), grace, true, true),
+        "inside one grace of its return the window may still be placing its tabs"
+    );
+    assert!(
+        !schedule.relaunch_hold(back + grace, grace, true, true),
+        "one grace after the app is back the cap applies again"
+    );
+    assert!(schedule.relaunch_hold(back + grace * 2, grace, true, false), "gone again");
+    let again = back + grace * 3;
+    assert!(schedule.relaunch_hold(again, grace, true, true), "a second return starts its own grace");
+    assert!(
+        !schedule.relaunch_hold(again + grace, grace, true, true),
+        "and ends one grace later"
+    );
+}
+
 /// The reaper checked attach streams before its close, outside the close's locks (the screen
 /// archive capture sits in between): a client that attached in that gap lost the terminal it had
 /// just attached to. The reap close checks attach streams under the same locks as the close.

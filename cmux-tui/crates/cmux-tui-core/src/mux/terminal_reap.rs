@@ -17,6 +17,13 @@
 //! longest-closed detached terminal ends at once; a terminal a client is attached to is not
 //! counted, and the reap close re-checks attach streams under its locks.
 //!
+//! The cap stands down across an app relaunch ([`ReapSchedule::relaunch_hold`]): while the app's
+//! frontend (a role-main connection) this owner served is gone, and for one grace after a frontend
+//! connects again. A relaunch (Restart to Update) leaves many terminals unplaced for a moment
+//! while the new window restores its tabs; past the cap they ended at once, agents mid-turn with
+//! them (exit 143), instead of waiting the grace the restore uses to place them again. Each still
+//! waits only its own grace, so the hold never keeps a closed terminal's PTY past its grace.
+//!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
 //! (`workspace_registry/terminal_unplaced_store.rs`), and a restarted owner
@@ -74,6 +81,9 @@ pub(crate) struct ReapSchedule {
     /// The registry holds no unplaced time (the last pass removed or found
     /// none): a pass that sees no unplaced terminal skips the registry.
     unplaced_rows_empty: bool,
+    /// When the app's frontend was first seen connected in its current
+    /// connection run; `None` while none is connected (relaunch hold).
+    frontend_since: Option<Instant>,
 }
 
 impl ReapSchedule {
@@ -115,6 +125,27 @@ impl ReapSchedule {
                 floor.map_or(deadline, |floor| deadline.max(floor))
             });
         }
+    }
+
+    /// Whether the grace cap stands down this pass because the app is
+    /// relaunching. `seen`: this owner has had a role-main connection;
+    /// `connected`: one is connected now. Held while a frontend this owner
+    /// served is gone, and for one `grace` after a frontend connects again,
+    /// the time its window takes to restore and place its tabs. An owner
+    /// that never served an app (headless, CLI only) keeps the cap.
+    pub(crate) fn relaunch_hold(
+        &mut self,
+        now: Instant,
+        grace: Duration,
+        seen: bool,
+        connected: bool,
+    ) -> bool {
+        if !connected {
+            self.frontend_since = None;
+            return seen;
+        }
+        let since = *self.frontend_since.get_or_insert(now);
+        now.saturating_duration_since(since) < grace
     }
 
     /// [`ReapSchedule::observe_unplaced`] for terminals unplaced just now.
@@ -398,7 +429,17 @@ impl Mux {
         {
             Ok(reapable) => {
                 schedule.observe_unplaced(now, grace, &reapable);
-                over_grace_cap(&reapable, &self.attached_reap_candidates(&reapable))
+                let relaunching = schedule.relaunch_hold(
+                    now,
+                    grace,
+                    self.control_clients.frontend_seen(),
+                    self.control_clients.main_frontend_connected(),
+                );
+                if relaunching {
+                    Vec::new()
+                } else {
+                    over_grace_cap(&reapable, &self.attached_reap_candidates(&reapable))
+                }
             }
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
