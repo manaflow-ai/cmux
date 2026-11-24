@@ -267,10 +267,11 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
+    names::LOCALHOST_HOSTS,
     names::CLOUD_DIRECTORY,
     names::CLOUD_ACPMUX,
     names::NEEDS_YOU,
@@ -2361,6 +2362,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
@@ -2380,6 +2382,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",

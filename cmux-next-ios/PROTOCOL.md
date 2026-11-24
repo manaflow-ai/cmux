@@ -1177,8 +1177,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
   origin. Nothing listening: `unavailable` "Nothing is listening on port N on
   this Mac."; a missing or bad port: `bad_request`; an older Mac:
-  `unknown_service`, and the phone keeps that tab mirrored. The phone never
-  names a host.
+  `unknown_service`, and the phone keeps that tab mirrored. Without `localhost-hosts-v1` the phone never
+  names a host. With it (2026-11-24, RFD 0089) `{"host"}` may name a DNS name
+  or address (`devbox`, `a.tailnet.ts.net`, `10.0.0.5`, `[fd00::1]`; empty or
+  `localhost` is loopback): hostd resolves it itself, requires every resolved
+  address to be loopback, private (RFC 1918, `fc00::/7`) or `100.64.0.0/10`
+  (tailnet), and connects to those addresses; any other (public, link-local
+  such as `169.254.169.254`) is `forbidden`, a name that doesn't resolve is
+  `unavailable`. Bytes pass untouched, so `https` TLS runs end to end; an
+  older Mac ignores `host` and would connect to its loopback, so the phone
+  sends `host` only to a Mac that lists `localhost-hosts-v1`.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). With `cloud-desktop-v1`, `tab` may instead be
