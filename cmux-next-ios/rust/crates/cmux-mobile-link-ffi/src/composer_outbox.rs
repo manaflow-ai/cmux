@@ -247,6 +247,10 @@ mod tests {
         assert_eq!(params["key"], "phone-1-1");
         outbox.link_lost();
         assert_eq!(outbox.next_request().unwrap(), first);
+        // An attempt in flight waits for its answer; past the hold, once it is lost too, the
+        // keys may have been typed.
+        assert_eq!(outbox.expire(11_000), vec![]);
+        outbox.link_lost();
         assert_eq!(
             outbox.expire(11_000),
             vec![ComposerSendDone {
