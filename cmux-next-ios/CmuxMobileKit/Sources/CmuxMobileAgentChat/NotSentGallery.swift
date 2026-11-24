@@ -25,7 +25,7 @@ public struct NotSentGallery: View {
                 label("A · picked · footnote line")
                 chat {
                     bubble(unsent)
-                    Text("Not sent · Tap to send again")
+                    Text(String(localized: "mobile.agentChat.notSent", defaultValue: "Not sent · Tap to send again", bundle: .module))
                         .font(.footnote).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .accessibilityIdentifier("notSentGallery.a")

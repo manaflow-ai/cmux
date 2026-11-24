@@ -265,13 +265,13 @@ struct NotSentLine: View {
         Button {
             store.sendAgain(turnID: turnID)
         } label: {
-            Text("Not sent · Tap to send again")
+            Text(String(localized: "mobile.agentChat.notSent", defaultValue: "Not sent · Tap to send again", bundle: .module))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(minHeight: 18)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityIdentifier("agentChat.notSent")
     }

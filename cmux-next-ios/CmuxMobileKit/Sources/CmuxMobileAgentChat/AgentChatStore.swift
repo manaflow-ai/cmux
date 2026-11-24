@@ -400,7 +400,7 @@ public final class AgentChatStore {
     /// ``sendDeadline`` says so, here, until the next send or the link is back. A message that
     /// could not go says so on its own bubble instead (``AgentTurn/LocalSend/notSent``).
     public var connectionLine: String? {
-        unreachable ? "Couldn't reach \(summary.macName). Try again in a moment." : nil
+        unreachable ? String(localized: "mobile.agentChat.couldntReach", defaultValue: "Couldn't reach \(summary.macName). Try again in a moment.", bundle: .module) : nil
     }
 
     // MARK: Sends before the Mac has them
@@ -418,6 +418,8 @@ public final class AgentChatStore {
     @ObservationIgnored private var sendDeadlines: [String: Task<Void, Never>] = [:]
     /// The clock a send's deadline runs on (tests use a short one).
     @ObservationIgnored var sendDeadlineOverride: Duration?
+    /// The clock the deadlines wait on (a test drives its own).
+    @ObservationIgnored var sendClock: any Clock<Duration> = ContinuousClock()
 
     /// Draws a message the moment it is sent: as a steer in the running turn, else as a new turn
     /// of its own. One that will queue behind a running turn shows in the queue once the Mac has it.
@@ -447,8 +449,10 @@ public final class AgentChatStore {
     private func armSendDeadline(_ promptID: String) {
         sendDeadlines[promptID]?.cancel()
         let wait = sendDeadlineOverride ?? Self.sendDeadline
+        let clock = sendClock
+        // A bounded wait on the injected clock, ended by the Mac having the message (`landed`).
         sendDeadlines[promptID] = Task { [weak self] in
-            try? await Task.sleep(for: wait)
+            do { try await clock.sleep(for: wait) } catch { return }
             guard !Task.isCancelled else { return }
             self?.markNotSent(promptID)
         }
@@ -512,7 +516,7 @@ public final class AgentChatStore {
         var waiting: [AgentTurn] = []
         for turn in turns.reversed() {
             guard let local = turn.localSend else { break }
-            if local == .sending { waiting.insert(turn, at: 0) }
+            waiting.insert(turn, at: 0)
         }
         return waiting
     }
@@ -522,6 +526,17 @@ public final class AgentChatStore {
     public func adoptWaiting(_ waiting: [AgentTurn]) {
         for turn in waiting {
             guard let promptID = turn.promptID, !seenPromptIDs.contains(promptID) else { continue }
+            if turn.localSend == .notSent {
+                // A message that already failed keeps its bubble and its retry; nothing sends it
+                // until the person taps (a late echo from the Mac still replaces it).
+                var failed = AgentTurn(id: Self.localTurnID(promptID), prompt: turn.prompt, promptID: promptID,
+                                       attachments: turn.attachments, promptAt: turn.promptAt)
+                failed.localSend = .notSent
+                turns.append(failed)
+                revision &+= 1
+                refreshDerived()
+                continue
+            }
             source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
             showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: false)
         }
@@ -1104,7 +1119,7 @@ public final class AgentChatStore {
         if gapFiller != nil { noteNewer(event) }
         switch event {
         case .turnRetried(let previousTurnID, let turnID):
-            guard let index = turns.indices.last, turns[index].id == previousTurnID,
+            guard let index = lastRecordedIndex, turns[index].id == previousTurnID,
                   turns[index].status == .failed else { break }
             // Keep the original input and partial work: the daemon may continue a cut turn.
             // Its new user_message is an attempt, not another user-authored turn.
@@ -1195,7 +1210,7 @@ public final class AgentChatStore {
             }
             summary.status = .running
         case .retrying(let attempt, let maxAttempts, let status):
-            guard let index = turns.indices.last, turns[index].status == .running else { return }
+            guard let index = lastRecordedIndex, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
@@ -1250,7 +1265,7 @@ public final class AgentChatStore {
             // The model answered: the retry is over.
             switch update {
             case .agentMessageChunk, .agentThoughtChunk, .toolCall:
-                if let index = turns.indices.last, turns[index].retry != nil { turns[index].retry = nil }
+                if let index = lastRecordedIndex, turns[index].retry != nil { turns[index].retry = nil }
             default:
                 break
             }
@@ -1291,7 +1306,7 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            summary.status = lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
@@ -1300,7 +1315,7 @@ public final class AgentChatStore {
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            summary.status = turns.last?.status == .running ? .running : .idle
+            summary.status = lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1308,7 +1323,7 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            summary.status = lastRecordedIndex.map { turns[$0].status } == .running ? .running : .idle
         case .modelsAvailable(let models, let current):
             self.models = models
             currentModelID = current
@@ -1701,7 +1716,8 @@ public final class AgentChatStore {
         if gapFiller != nil { closeGap() }
         let filler = AgentChatStore(source: EarlierHistorySource(summary: summary))
         filler.nextFrame = nil
-        if let last = turns.last {
+        if let lastIndex = lastRecordedIndex {
+            let last = turns[lastIndex]
             // The gap's first records may continue this turn (its answer, its result).
             filler.turns = [last]
             filler.currentMessageID = currentMessageID
@@ -1891,7 +1907,7 @@ public final class AgentChatStore {
             return
         }
         var agent = AgentSubagent(id: change.id, parent: change.parent, name: change.name ?? change.task ?? change.id,
-                                  task: change.task, state: change.state ?? .running, startedAt: change.at, turnID: turns.last?.id)
+                                  task: change.task, state: change.state ?? .running, startedAt: change.at, turnID: lastRecordedIndex.map { turns[$0].id })
         if agent.state != .running { agent.endedAt = change.at }
         subagents.append(agent)
         if let parent = change.parent, let index = subagents.firstIndex(where: { $0.id == parent }) {
@@ -1902,8 +1918,8 @@ public final class AgentChatStore {
             }
             return
         }
-        guard !turns.isEmpty else { return }
-        let last = turns.count - 1
+        // The Mac's newest turn, never one of this phone's waiting bubbles after it.
+        guard let last = lastRecordedIndex else { return }
         if let call = change.toolCallID { turns[last].hiddenToolCalls.insert(call) }
         // Subagents spawned with no prose between them share one group; their
         // spawn tool calls are drawn by the group, so they don't split it.
@@ -1922,7 +1938,7 @@ public final class AgentChatStore {
     private func applyUpdate(_ update: ACPSessionUpdate) {
         switch update {
         case .agentMessageChunk(let text, let messageId):
-            guard let last = turns.indices.last else { return }
+            guard let last = lastRecordedIndex else { return }
             // Appended in place: the item's string is taken out first, so it has one
             // owner and grows without copying the whole message per chunk.
             if !startsNewAttempt, case .message(let id, var markdown)? = turns[last].items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
@@ -1936,7 +1952,7 @@ public final class AgentChatStore {
             currentMessageID = messageId
             startsNewAttempt = false
         case .agentThoughtChunk(let text):
-            guard let last = turns.indices.last else { return }
+            guard let last = lastRecordedIndex else { return }
             if !startsNewAttempt, case .thought(let id, var existing)? = turns[last].items.last {
                 let item = turns[last].items.count - 1
                 turns[last].items[item] = .thought(id: id, text: "")
@@ -1960,7 +1976,8 @@ public final class AgentChatStore {
                 return call
             }
         case .plan(let entries):
-            guard var turn = turns.last else { return }
+            guard let planIndex = lastRecordedIndex else { return }
+            var turn = turns[planIndex]
             if let index = turn.items.firstIndex(where: { if case .plan = $0 { return true }; return false }) {
                 if entries.isEmpty {
                     turn.items.remove(at: index)
@@ -1970,7 +1987,7 @@ public final class AgentChatStore {
             } else if !entries.isEmpty {
                 turn.items.append(.plan(id: UUID().uuidString, entries: entries))
             }
-            turns[turns.count - 1] = turn
+            turns[planIndex] = turn
         case .availableCommands(let commands):
             availableCommands = commands
         case .currentMode(let mode):
@@ -2006,8 +2023,8 @@ public final class AgentChatStore {
     }
 
     private func appendItem(_ item: TurnItem) {
-        guard !turns.isEmpty else { return }
-        turns[turns.count - 1].items.append(item)
+        guard let last = lastRecordedIndex else { return }
+        turns[last].items.append(item)
     }
 
     private func mutateTurn(_ id: String, _ body: (inout AgentTurn) -> Void) {

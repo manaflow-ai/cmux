@@ -857,14 +857,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // more; only one that still can't reach the Mac past ``heldPromptWindow`` says so, as
             // the chat's one quiet line (never the link's own words in a toast).
             var waitedForLink = false
+            let stoppedTurn = self.runningTurnID
             while true {
                 do {
                     try await self.perform(intent, hub: hub)
                     return
                 } catch {
                     if Self.isTransient(error) {
+                        if case .cancel = intent,
+                           !Self.stopStillApplies(pressedFor: stoppedTurn, running: self.runningTurnID) { return }
                         if !waitedForLink, await hub.waitUntilReady(timeout: self.heldPromptWindow, clock: ContinuousClock()) {
                             waitedForLink = true
+                            if case .cancel = intent,
+                               !Self.stopStillApplies(pressedFor: stoppedTurn, running: self.runningTurnID) { return }
                             continue
                         }
                         self.emitLocal(.clientError(AgentChatStore.unreachableNotice))
@@ -2500,7 +2505,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     fileprivate func receiveLocal(_ event: AgentSessionEvent) { emit(event) }
 
+    /// The turn the Mac is running, as the events say: a Stop pressed for it is tied to it.
+    private(set) var runningTurnID: String?
+
+    private func trackRunningTurn(_ event: AgentSessionEvent) {
+        switch event {
+        case .turnStarted(let turnID, _): runningTurnID = turnID
+        case .turnResult(let turnID, _, _, _): if runningTurnID == turnID { runningTurnID = nil }
+        case .batch(let events): for inner in events { trackRunningTurn(inner) }
+        default: break
+        }
+    }
+
+    /// Whether a Stop pressed while `pressedFor` ran still applies to what runs now: not when that
+    /// turn ended and another started while the call waited for the link. Unknown (nil) goes.
+    nonisolated static func stopStillApplies(pressedFor: String?, running: String?) -> Bool {
+        guard let pressedFor else { return true }
+        return running == pressedFor
+    }
+
     private func emit(_ event: AgentSessionEvent) {
+        trackRunningTurn(event)
         switch event {
         case .clientError, .promptNotSent, .historyLoading:
             // Not history: a later reader learns the load state from `events()` itself.
