@@ -373,7 +373,10 @@ impl Hub {
         // The person's prompt joins none, but the one a held chat held: the person's prompts
         // queued behind it join it (`person_hold.rs`).
         let person = head.agent.is_none() && super::person_hold::folds(session, turn_id);
-        if (head.agent.is_none() && !person)
+        // An inbox notice is acpmux's, not the person's: the agent messages queued behind it (a
+        // background task's end, a lane report, `cold_wake.rs`) go in with it.
+        let notice = super::inbox::is_notice(head.provenance.as_ref()) && !person;
+        if (head.agent.is_none() && !person && !notice)
             || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)

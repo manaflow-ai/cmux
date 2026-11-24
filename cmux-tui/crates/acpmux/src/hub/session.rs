@@ -379,6 +379,8 @@ pub struct Session {
     /// The agent message that holds its turn's start in an idle chat for the gather window, by
     /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
     pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The cold batch open in this idle chat (`cold_wake.rs`): when what it holds goes in.
+    pub(super) cold_batch: StdMutex<Option<super::cold_wake::Batch>>,
     /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
     /// (`person_hold.rs`).
     pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
