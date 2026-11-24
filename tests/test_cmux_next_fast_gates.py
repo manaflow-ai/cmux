@@ -1227,9 +1227,11 @@ class ScriptBehavior(unittest.TestCase):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
+            # Each gate prints a line: the log must hold the gate's own output, not only the `time -p` footer a
+            # runner without /usr/bin/time never writes (tooling-tests on manaflow-ai/cmux#53399, job 138275089904).
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print('ratchet')"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print('checks')"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
