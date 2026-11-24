@@ -82,6 +82,9 @@ pub mod session;
 pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
+pub mod wake_echo;
+#[cfg(test)]
+mod wake_echo_tests;
 pub mod wire;
 pub mod workload;
 
