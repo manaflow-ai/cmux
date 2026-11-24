@@ -15,8 +15,9 @@ use std::time::Duration;
 
 use cmux_config::watch::Watcher;
 
-/// A hint comes at most `MAX_DELAY` (1 s) after a burst starts, after `QUIET`
-/// (100 ms) without another event: 2 s leaves room for a loaded CI host.
+/// A burst's leading hint comes within a frame of its first event, its
+/// trailing hint at most `MAX_DELAY` (1 s) later: 2 s leaves room for a
+/// loaded CI host.
 const HINT_WITHIN: Duration = Duration::from_secs(2);
 /// How long a change that must not hint is given to hint anyway.
 const NO_HINT_FOR: Duration = Duration::from_millis(800);
@@ -258,4 +259,109 @@ fn a_busy_watch_does_not_delay_another_watch() {
     busy.recv_timeout(HINT_WITHIN).expect("the project watch's hint started");
     fs::write(&settings, "{\"a\": 1}").unwrap();
     expect_hint(&hints, "a settings change while another watch's hint is busy");
+}
+
+/// Time from each save of `file` (in place, or by an editor's replace by
+/// rename) to its hint, sorted.
+fn save_to_hint(file: &Path, hints: &Receiver<()>, saves: usize, by_rename: bool) -> Vec<Duration> {
+    let mut took = Vec::with_capacity(saves);
+    for round in 0..saves {
+        let body = format!("{{\"round\": {round}}}");
+        let started = std::time::Instant::now();
+        if by_rename {
+            let staged = file.with_extension("json.tmp");
+            fs::write(&staged, &body).unwrap();
+            fs::rename(&staged, file).unwrap();
+        } else {
+            fs::write(file, &body).unwrap();
+        }
+        hints.recv_timeout(HINT_WITHIN).expect("a save hints");
+        took.push(started.elapsed());
+        // Past the trailing window, so each save starts a burst of its own.
+        while hints.recv_timeout(Duration::from_millis(250)).is_ok() {}
+    }
+    took.sort();
+    took
+}
+
+/// A save applies on the leading edge of its burst, within a frame, not
+/// after a quiet period (custom-apply-latency-file, optimum 16 ms). The
+/// fastest of a few saves is asserted, so one slow wake on a loaded host
+/// does not fail it; a trailing debounce never gets under its quiet period.
+#[test]
+fn a_save_hints_on_the_leading_edge() {
+    let scratch = Scratch::new("lead");
+    let file = scratch.0.join("cmux-next.json");
+    fs::write(&file, "{}").unwrap();
+    let (_watcher, hints) = armed(&[&file]);
+    for by_rename in [false, true] {
+        let took = save_to_hint(&file, &hints, 5, by_rename);
+        assert!(
+            took[0] < Duration::from_millis(50),
+            "the fastest save hinted after {:?} (by rename: {by_rename})",
+            took[0]
+        );
+    }
+}
+
+/// Save-to-hint under duress, printed: 200 other watches, a storm of writes
+/// to unwatched entries of the watched folder, and a busy thread per core.
+/// `cargo test -p cmux-config --test watch -- --ignored --nocapture
+/// save_to_hint_under_duress`.
+#[test]
+#[ignore = "a benchmark: prints save-to-hint percentiles"]
+fn save_to_hint_under_duress() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let scratch = Scratch::new("duress");
+    let file = scratch.0.join("cmux-next.json");
+    fs::write(&file, "{}").unwrap();
+    let mut others = Vec::new();
+    for index in 0..200 {
+        let folder = scratch.0.join(format!("w{index}"));
+        fs::create_dir_all(&folder).unwrap();
+        let other = folder.join("cmux-next.json");
+        fs::write(&other, "{}").unwrap();
+        others.push(Watcher::start(vec![other], || {}).expect("another watch starts"));
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut load = Vec::new();
+    let cores = std::thread::available_parallelism().map_or(4, usize::from);
+    for _ in 0..cores {
+        let stop = stop.clone();
+        load.push(std::thread::spawn(move || {
+            let mut spin = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                spin = spin.wrapping_mul(6364136223846793005).wrapping_add(1);
+            }
+            spin
+        }));
+    }
+    let storm_dir = scratch.0.clone();
+    let storm_stop = stop.clone();
+    let storm = std::thread::spawn(move || {
+        let mut index = 0u64;
+        while !storm_stop.load(Ordering::Relaxed) {
+            let _ = fs::write(storm_dir.join(format!("noise-{}", index % 16)), index.to_string());
+            index += 1;
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    });
+    let (_watcher, hints) = armed(&[&file]);
+    for by_rename in [false, true] {
+        let took = save_to_hint(&file, &hints, 40, by_rename);
+        let at = |q: f64| took[((took.len() - 1) as f64 * q).round() as usize];
+        println!(
+            "save-to-hint ({}; 200 watches, {cores} busy threads, write storm): p50 {:?} p95 {:?} max {:?}",
+            if by_rename { "replace by rename" } else { "write in place" },
+            at(0.5),
+            at(0.95),
+            took[took.len() - 1]
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    let _ = storm.join();
+    for thread in load {
+        let _ = thread.join();
+    }
 }

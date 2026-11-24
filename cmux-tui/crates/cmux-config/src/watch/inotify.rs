@@ -59,9 +59,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::{MAX_DELAY, Plan, QUIET};
+use super::{Next, Plan, burst};
 
 // <sys/inotify.h> and <poll.h>; the values are the same on every Linux
 // architecture Rust targets except the O_CLOEXEC-based IN_CLOEXEC, which
@@ -201,28 +201,28 @@ fn run(watches: &mut Watches, stop: &UnixStream, files: &[PathBuf], on_hint: &mu
             Ok(false) => continue,
             Ok(true) => {}
         }
-        // One hint per burst: wait until the events stop for QUIET.
-        let started = Instant::now();
-        loop {
-            let left = MAX_DELAY.saturating_sub(started.elapsed()).min(QUIET);
-            if left.is_zero() {
-                break;
-            }
-            match wait(watches.file.as_raw_fd(), stop.as_raw_fd(), Some(left)) {
-                Wake::Stop => return,
-                Wake::Timeout => break,
-                Wake::Events => {
-                    if watches.read(&mut buffer).is_err() {
-                        return;
-                    }
-                }
-            }
+        let (events, stopper) = (watches.file.as_raw_fd(), stop.as_raw_fd());
+        let running = burst(
+            &mut (&mut *watches, &mut buffer),
+            |(watches, buffer), left| match wait(events, stopper, Some(left)) {
+                Wake::Stop => Next::Stop,
+                Wake::Timeout => Next::Quiet,
+                Wake::Events => match watches.read(buffer) {
+                    Err(_) => Next::Stop,
+                    Ok(matters) => Next::Event(matters),
+                },
+            },
+            // A directory that appeared or vanished moves the watch, and a
+            // watched name that got another file gets its watch. Before the
+            // hint: the consumer then reads a file that is already watched.
+            |(watches, _)| {
+                let _ = watches.rearm(files);
+                on_hint();
+            },
+        );
+        if !running {
+            return;
         }
-        // A directory that appeared or vanished moves the watch, and a
-        // watched name that got another file gets its watch. Before the
-        // hint: the consumer then reads a file that is already watched.
-        let _ = watches.rearm(files);
-        on_hint();
     }
 }
 
