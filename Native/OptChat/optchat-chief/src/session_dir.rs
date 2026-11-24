@@ -287,7 +287,7 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// workspace versus groups, you don't need to make a workspace for that"):
 /// the Chief lists, renames, moves and groups the person's workspaces in its
 /// own turn instead of spawning a helper.
-pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 39] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -311,6 +311,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
+    "acpmux_watch_add",
+    "acpmux_watch_ls",
+    "acpmux_watch_rm",
     "cloud_machines",
     "cloud_chat_start",
     "cloud_chat_send",
