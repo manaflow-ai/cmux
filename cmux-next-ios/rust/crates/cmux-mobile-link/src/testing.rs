@@ -985,17 +985,7 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self {
-            ice,
-            roots,
-            relay_ports,
-            servers,
-            tasks,
-            streams,
-            udp_block,
-            allocated,
-            stream_delay,
-        }
+        Self { ice, roots, relay_ports, servers, tasks, streams, udp_block, allocated, stream_delay }
     }
 
     async fn server(
