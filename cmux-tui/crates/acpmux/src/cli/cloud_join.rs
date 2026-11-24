@@ -147,7 +147,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 
 fn origin(value: Option<String>) -> Result<String> {
     let value = value
-        .or_else(|| std::env::var("CMUX_PLATFORM_ORIGIN").ok())
+        .or_else(cmux_cloud_client::backend::platform_origin_env)
         .unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
@@ -311,6 +311,20 @@ fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
         return None;
     }
     Some(record)
+}
+
+/// This box's node key as its hub knows it (`wgPublicKey`, the hub's `daemonId`), for a join
+/// [`joined_device_at`] counts as live: the route another machine of the account dials this one
+/// by (`--via-machine KEY`). A cmux Remote invitation carries it (`via_machine`), so redeeming one
+/// elsewhere needs no key passed by hand. None for a box that is not joined.
+pub fn joined_node_key_at(home: &std::path::Path) -> Option<String> {
+    joined_device_at(home)?;
+    let key = load_at(home).ok().flatten()?.wg_public_key;
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(&key)
+        .is_ok_and(|bytes| bytes.len() == 32)
+        .then_some(key)
 }
 
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
@@ -480,6 +494,18 @@ pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
 /// A stored hub origin, checked as `host join` checks it.
 pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
+}
+
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
 }
 
 /// The relay client reads the joined bearer in-process from the owner-only store.
@@ -783,7 +809,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))

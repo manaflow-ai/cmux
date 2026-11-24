@@ -34,7 +34,7 @@ const personal = (stack: StackServer, before?: (sql: SqlStorage) => void) =>
 describe("inferencePlan chief_addon (cmuxChiefAddon)", () => {
   it("answers XL from the owner's user record, in the same single read as plan and next_plan", async () => {
     const f = fakeHttp({ cmuxPlan: "pro", cmuxNextPlan: "next_plus", cmuxChiefAddon: "XL" })
-    expect(await personal(stackServer(env, f.http)!)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_plus", chief_addon: "XL" })
+    expect(await personal(stackServer(env, f.http)!)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_plus", chief_addon: "XL", next_plan_started_at: null, next_plan_ends_at: null })
     expect(f.sent).toEqual([{ method: "GET", path: "/users/stack-user" }])
   })
 
@@ -48,8 +48,8 @@ describe("inferencePlan chief_addon (cmuxChiefAddon)", () => {
   it("keeps paid, the limit, plan and next_plan unchanged when only cmuxChiefAddon is set", async () => {
     const withAddon = await personal(stackServer(env, fakeHttp({ cmuxChiefAddon: "L" }).http)!)
     const without = await personal(stackServer(env, fakeHttp({}).http)!)
-    expect(withAddon).toEqual({ ok: true, paid: false, user_limit_usd: (without as any).user_limit_usd, plan: null, next_plan: null, chief_addon: "L" })
-    expect(without).toEqual({ ok: true, paid: false, user_limit_usd: (withAddon as any).user_limit_usd, plan: null, next_plan: null, chief_addon: null })
+    expect(withAddon).toEqual({ ok: true, paid: false, user_limit_usd: (without as any).user_limit_usd, plan: null, next_plan: null, chief_addon: "L", next_plan_started_at: null, next_plan_ends_at: null })
+    expect(without).toEqual({ ok: true, paid: false, user_limit_usd: (withAddon as any).user_limit_usd, plan: null, next_plan: null, chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null })
   })
 
   it("reads chief_addon from the Stack team record for a shared team", async () => {
@@ -64,9 +64,9 @@ describe("inferencePlan chief_addon (cmuxChiefAddon)", () => {
 
   it("answers a server without chief_addon on getUserPlans, or without getUserPlans, with chief_addon null", async () => {
     const older = { getUserPlans: async () => ({ plan: "pro", next_plan: "next_pro" }) } as unknown as StackServer
-    expect(await personal(older)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null })
+    expect(await personal(older)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null })
     const oldest = { getUserPlan: async () => "pro" } as unknown as StackServer
-    expect(await personal(oldest)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null, chief_addon: null })
+    expect(await personal(oldest)).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null, chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null })
   })
 
   it("answers a fresh copy stored before chief_addon existed with chief_addon null, without a read", async () => {
@@ -77,7 +77,7 @@ describe("inferencePlan chief_addon (cmuxChiefAddon)", () => {
       sql.exec(`CREATE TABLE inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER, next_plan TEXT)`)
       sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at, next_plan) VALUES (1, 'pro', ?, NULL, 'next_pro')`, Date.now())
     })
-    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null })
+    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: "next_pro", chief_addon: null, next_plan_started_at: null, next_plan_ends_at: null })
     expect(reads).toBe(0)
   })
 
@@ -109,7 +109,7 @@ describe("inferencePlan chief_addon (cmuxChiefAddon)", () => {
       grantTestPlan(sql, "pro", "cs_test_1", "sub_1", Date.now())
       return inferencePlanOf(sql, null, "entity", stack, "stack-user", "user", Date.now(), true)
     })
-    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null, chief_addon: "M" })
+    expect(answer).toEqual({ ok: true, paid: true, user_limit_usd: expect.any(Number), plan: "pro", next_plan: null, chief_addon: "M", next_plan_started_at: null, next_plan_ends_at: null })
   })
 
   it("leaves the unavailable answer unchanged", async () => {
