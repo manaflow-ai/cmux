@@ -41,6 +41,7 @@ export function ReviewBox({
       </label>
       <textarea
         id={label}
+        aria-label={t("github.review.title")}
         className="gh-review-box-text"
         rows={3}
         value={body}
