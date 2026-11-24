@@ -327,6 +327,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.automations()
         case .longPressMenus:
             LongPressMenusPage()
+        case .agentAlarms:
+            AgentAlarmsPage()
         }
     }
 
@@ -359,6 +361,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case automations
     /// Long-Press Menus: the menu items the person hid.
     case longPressMenus
+    /// Notifications → Agent Alarms: AlarmKit alarms when an agent is stuck on the person.
+    case agentAlarms
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -369,7 +373,7 @@ public enum SettingsRoute: Hashable, Sendable {
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
                                     .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
-                                    .longPressMenus]
+                                    .longPressMenus, .agentAlarms]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }

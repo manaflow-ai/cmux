@@ -52,6 +52,16 @@ public struct ServicePush: Sendable {
         return out
     }
 
+    /// Agent Alarms: the payload of a delivered notification that may ring, or nil. Only a push
+    /// that opened (or an unsealed one from a Mac that doesn't seal) carries its real category;
+    /// a withheld, inert, stale or unopened one is `sealed` and never rings, nor does a muted chat.
+    public func alarmPayload(_ content: UNNotificationContent, muted: Bool) -> PushPayload? {
+        guard !muted, content.categoryIdentifier != PushCategory.sealed.rawValue,
+              let payload = PushPayload(userInfo: content.userInfo),
+              AgentAlarmTrigger(payload: payload) != nil else { return nil }
+        return payload
+    }
+
     /// The opened notification, or nil to keep `content` as it came.
     public func opened(_ content: UNNotificationContent, keys: PushKeys?) -> UNNotificationContent? {
         guard let sealed = SealedPush(userInfo: content.userInfo), let keys,

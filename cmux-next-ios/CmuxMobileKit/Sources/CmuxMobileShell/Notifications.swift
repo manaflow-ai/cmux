@@ -216,6 +216,9 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
             await MainActor.run { ChatMuteList.shared.load(stored) }
             for await keys in changes { mutes.save(keys) }
         }
+        #if DEBUG
+        AgentAlarmDebug.runIfAsked()
+        #endif
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
@@ -262,6 +265,13 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
                                                    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
         let payload = PushPayload(userInfo: notification.request.content.userInfo)
+        // Agent Alarms: the same gate as the service extension, which already rang for a push it
+        // opened (the key makes this a duplicate); this rings for one it didn't (a local post).
+        let mutes = PushChatMutes.live()
+        let content = notification.request.content
+        if let alarm = ServicePush().alarmPayload(content, muted: mutes.mutes(content.userInfo)) {
+            Task { await AgentAlarms.handle(alarm, source: .foregroundPush) }
+        }
         let chatMac = payload?.kind == .chief || payload?.kind == .terminal ? nil : payload?.mac
         let chatSession = payload?.sessionId
         Task { @MainActor in

@@ -372,6 +372,8 @@ targets:
         # The Action Button Chief call keeps recording while the phone is locked.
         UIBackgroundModes: [audio]
         NSFaceIDUsageDescription: Unlock cmux with Face ID when Require Face ID is on.
+        # Agent Alarms (Settings → Notifications): an AlarmKit alarm when an agent is stuck on you.
+        NSAlarmKitUsageDescription: Ring an alarm when a coding agent is waiting on you, for a permission request, a question or an agent that stopped.
         CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -511,6 +513,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CmuxMobileKeychainGroup: $(CMUX_MOBILE_KEYCHAIN_GROUP)
+        # Agent Alarms: the extension rings for a push that arrives while cmux is not running.
+        NSAlarmKitUsageDescription: Ring an alarm when a coding agent is waiting on you, for a permission request, a question or an agent that stopped.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

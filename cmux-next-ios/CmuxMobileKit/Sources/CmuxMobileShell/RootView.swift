@@ -984,6 +984,7 @@ private struct LiveCallHost: ViewModifier {
 /// content, outside its stack.
 struct ShellTabs: View {
     let shell: ShellModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var shell = shell
@@ -1051,7 +1052,20 @@ struct ShellTabs: View {
         // A closed ask's notification leaves Notification Center; only when an ask opens or
         // closes, or the Feed finishes reading its Macs.
         .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
+        // Agent Alarms: a new ask or error in the Feed rings (once, 30 s apart); a closed ask stops its alarm.
+        .task(id: AgentAlarmFeedWatch.key(FeedStore.shared)) { await AgentAlarmFeedWatch.sync(FeedStore.shared) }
+        // Agent Alarms → Mac went offline: a connected Mac unreachable for a minute while cmux is open.
+        .onChange(of: AgentAlarmMacKey(connections: shell.store.macConnection, active: scenePhase == .active), initial: true) { _, key in
+            let names = Dictionary(shell.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            AgentAlarmMacWatch.shared.update(key.connections, names: names, active: key.active)
+        }
     }
+}
+
+/// What the Mac watch follows: each Mac's link and whether cmux is in front.
+private struct AgentAlarmMacKey: Equatable {
+    var connections: [String: MacConnection]
+    var active: Bool
 }
 
 /// The UI tests' tab bar probe (``TabBarProbe``) in a tab's content, outside

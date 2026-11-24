@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileOnboarding
 import CmuxMobileRealtime
 import CmuxSpinner
@@ -470,6 +471,15 @@ struct NotificationsPage: View {
                 if !push {
                     Text("Chief alerts require cmux to stay running.")
                 }
+            }
+            Section {
+                NavigationLink(value: SettingsRoute.agentAlarms) {
+                    SettingsLabel("Agent Alarms", symbol: "alarm",
+                                  value: AgentAlarmStore.live().preferences().enabled ? String(localized: "On") : String(localized: "Off"))
+                }
+                .accessibilityIdentifier("settings.notifications.agentAlarms")
+            } footer: {
+                Text("Ring an alarm, even in Silent mode, when an agent needs permission, asks a question or stops.")
             }
             if push {
                 kindsSection(settings: $settings)
