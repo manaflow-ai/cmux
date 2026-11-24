@@ -51,6 +51,7 @@ final class TabContentCache {
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
     /// on demand for its hover card.
     var lastFrames = TerminalLastFrames()
+    var pageFrames: BrowserPageFrames? // browser pages' last pictures, shown on a restored tab's first show
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch(); let attachAhead = TerminalAttachAhead<DaemonTerminalIO> { $0.close() } // and visible terminals attached ahead of their surfaces (startup-tti)
     /// Browser pages' hover card thumbnails (R131), at most `PreviewImageCache.pagePixelSize`
@@ -295,22 +296,31 @@ final class TabContentCache {
             if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
             onRestoredPageStart?(key)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return coverRestored(tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab), tab) }
         if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
+        let standIn = restoringStandIn(tab, url: url) // a restored tab's last picture and address while its page is made
         Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
                 page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url)), cache: self)))
             } catch {
+                if let standIn, browsers[key]?.tab === standIn { browsers.removeValue(forKey: key)?.close() }
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = chromiumUnavailable(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
                 onBrowserReady?(key)
                 return
             }
             guard goneTabs.tracks(key) else { return page.close() } // closed while it started (release forgot it)
+            (page as? CEFTab)?.refusesDownloadsUntilGesture = !browserTabs.wasOpenedHere(tab) // a restored page's own load downloads nothing
+            if let standIn, browsers[key]?.tab === standIn {
+                swapPage(key, with: page, asleep: standIn.state) // tracks the page by id and tells the pane
+                standIn.handOver(to: page, cap: Self.relaunchStandInCap)
+                if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { browsers[key]?.state.showNotice(notice) }
+                return
+            }
             let entry = install(page, for: key)
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
@@ -318,7 +328,7 @@ final class TabContentCache {
             if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.state.showNotice(notice) }
             onBrowserReady?(key)
         }
-        return nil
+        return standIn == nil ? nil : browsers[key]
     }
 
     /// The URL a browser record may open here. A record from a remote
@@ -512,6 +522,7 @@ final class TabContentCache {
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); standInTerminals.forget(key)
+        if displacing { pageFrames?.remove(key) } // a closed tab's last picture goes with it
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
