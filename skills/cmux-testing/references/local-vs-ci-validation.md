@@ -23,7 +23,7 @@ tests. An app build is needed when native build or runtime behavior changes, not
 for every instruction edit. Web changes need their package's checks and live preview.
 
 Native work uses a [tagged build](../../cmux-dev-workflow/references/tagged-builds.md)
-or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-hq.
+or the existing CI lane. A web or daemon change runs in a copy of the NIGHTLY (`cmux app try .`), no build. Team members: shared build fleet rules are in cmuxterm-hq.
 
 ## Native app versus test compilation
 

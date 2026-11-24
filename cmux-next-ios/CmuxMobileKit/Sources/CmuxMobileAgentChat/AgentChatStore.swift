@@ -277,6 +277,26 @@ public final class AgentChatStore {
     }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
+    /// Every file, folder, link and image the session referenced (`SessionArtifacts.collect`),
+    /// built once per change of what it reads. The collection scans every turn's text, tool
+    /// input and output; the artifacts sheet's body and the composer's `@` picker read it on
+    /// every pass (each streamed chunk, each key typed after `@`), which made each pass
+    /// linear in the chat's length. Reading it observes `turns`, `subagents` and `summary`, so
+    /// a view still updates when they change; an unchanged chat costs three array identity
+    /// checks (Array `==` returns at once for the same storage).
+    public var artifacts: SessionArtifacts {
+        let input = ArtifactsInput(turns: turns, subagents: subagents, cwd: summary.cwd)
+        if let artifactsCache, artifactsCache.input == input { return artifactsCache.value }
+        let value = SessionArtifacts.collect(turns: input.turns, subagents: input.subagents, cwd: input.cwd)
+        artifactsCache = (input, value)
+        return value
+    }
+    private struct ArtifactsInput: Equatable {
+        let turns: [AgentTurn]
+        let subagents: [AgentSubagent]
+        let cwd: String
+    }
+    @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
@@ -337,6 +357,13 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    /// Set by the composer when its draft gained or lost a line: the bottom stack's next
+    /// height change moves on `ComposerLineMotion` (then cleared).
+    @ObservationIgnored var lineMotionPending = false
+    #if os(iOS)
+    /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
+    @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -1845,9 +1872,10 @@ private final class EarlierHistorySource: AgentSessionSource {
 
 extension AgentChatStore {
     /// What the chat's loading state says. Connecting first: a chat whose start is over but
-    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
+    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
     public var loadingText: String {
-        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
             return "Connecting to \(summary.macName)…"
         }
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"

@@ -13,7 +13,7 @@ import CmuxNextDesign
 @MainActor
 public final class ChiefTeleportChip: NSView {
     /// How it draws (``ChiefTeleportChipStyle/plain`` ships).
-    public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { show() } } }
+    public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { applyShape(); show() } } }
     private let model: ChiefTeleportModel
     private let glyph = ThemedImageView()
     private let label = ThemedLabel(labelWithString: "")
@@ -38,13 +38,11 @@ public final class ChiefTeleportChip: NSView {
         self.style = style
         super.init(frame: NSRect(x: 0, y: 0, width: 80, height: Self.height))
         wantsLayer = true
-        layer?.cornerRadius = Self.height / 2
-        label.font = Typography.caption
+        applyShape()
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         dot.wantsLayer = true
         dot.layer?.cornerRadius = Self.dotSize / 2
-        chevron.image = Self.symbol("chevron.down", scale: .small)
         for view in [glyph, label, chevron, dot] { addSubview(view) }
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
@@ -110,13 +108,13 @@ public final class ChiefTeleportChip: NSView {
         label.stringValue = text
         label.ink = switch tone {
         case .failed: .danger
-        case .here: .secondary
+        case .here: style == .field ? .primary : .secondary
         case .away: style == .plain ? .secondary : .primary
         case .running: .primary
         }
         glyph.image = Self.symbol(symbol, scale: .medium)
         glyph.ink = label.ink
-        chevron.ink = .tertiary
+        chevron.ink = style == .field ? .primary : .tertiary  // a field's arrows read like the pop-ups beside it
         glyph.isHidden = !style.showsGlyph
         label.isHidden = !style.showsText
         chevron.isHidden = !style.showsChevron
@@ -133,8 +131,8 @@ public final class ChiefTeleportChip: NSView {
 
     override public func updateLayer() {
         performWithTheme {
-            let filled = style == .capsule || (style == .awayBadge && tone != .here)
-            layer?.backgroundColor = filled ? (style == .awayBadge ? Palette.selectionFill : Palette.hoverFill).cgColor : nil
+            let filled = style == .capsule || style == .field || (style == .awayBadge && tone != .here)
+            layer?.backgroundColor = filled ? (style == .awayBadge || style == .field ? Palette.selectionFill : Palette.hoverFill).cgColor : nil
             layer?.borderWidth = style == .outline ? 1 : 0
             layer?.borderColor = Palette.separator.cgColor
             let dotColor: NSColor = switch tone {
@@ -152,6 +150,14 @@ public final class ChiefTeleportChip: NSView {
     }
 
     private var padding: CGFloat { style == .plain || style == .iconOnly || style == .dot ? 2 : 8 }
+    private var chipHeight: CGFloat { style == .field ? Metrics.controlHeight : Self.height }
+
+    /// Height, corners, text and chevron for the style: a field is as tall as the pickers beside it.
+    private func applyShape() {
+        layer?.cornerRadius = style == .field ? Metrics.controlCornerRadius : Self.height / 2
+        label.font = style == .field ? Typography.body : Typography.caption
+        chevron.image = style == .field ? Self.symbol("chevron.up.chevron.down", scale: .medium) : Self.symbol("chevron.down", scale: .small)
+    }
 
     override public var intrinsicContentSize: NSSize {
         var width = padding * 2
@@ -161,7 +167,7 @@ public final class ChiefTeleportChip: NSView {
         if style.showsText { parts.append(ceil(label.naturalSize.width)) }
         if style.showsChevron { parts.append(chevron.image?.size.width ?? 0) }
         width += parts.reduce(0, +) + Self.gap * CGFloat(max(parts.count - 1, 0))
-        return NSSize(width: ceil(width), height: Self.height)
+        return NSSize(width: ceil(width), height: chipHeight)
     }
 
     override public func layout() {
@@ -179,7 +185,10 @@ public final class ChiefTeleportChip: NSView {
             let chevronWidth = style.showsChevron ? (chevron.image?.size.width ?? 0) + Self.gap : 0
             place(label, width: max(0, min(ceil(size.width), bounds.width - x - padding - chevronWidth)), height: ceil(size.height))
         }
-        if style.showsChevron, let size = chevron.image?.size { place(chevron, width: size.width, height: size.height) }
+        if style.showsChevron, let size = chevron.image?.size {
+            if style == .field { x = bounds.width - padding - size.width }
+            place(chevron, width: size.width, height: size.height)
+        }
     }
 
     // MARK: Menu

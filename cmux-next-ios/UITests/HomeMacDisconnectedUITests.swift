@@ -1,7 +1,7 @@
 import XCTest
 
 /// CMUX-489, reworked 2026-11-13: Home says its Mac's list is not live the way the Workspaces
-/// tab does: kept rows show exactly as normal under Workspaces' connection toast ("Offline" or
+/// tab does: kept rows show exactly as normal under Workspaces' connection chip ("Can't reach" or
 /// "Couldn't refresh", with Retry), which takes its own room and covers no row; with nothing kept, Workspaces' empty state for that Mac shows
 /// ("Can't connect to …" with Retry, or "… is offline"). A kept row opens the conversation
 /// under its own "Not connected" bar, never a full-screen error.
@@ -49,16 +49,18 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         // Back on Home: the Mac button says it, with Retry; the rows stay after it.
         app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "back on Home\n\(app.debugDescription)")
-        try expectToast(app, saying: "Offline", above: row)
+        try expectToast(app, saying: "Can't reach", above: row)
         attach(app, "1b-home-offline-toast")
-        app.buttons["Retry"].firstMatch.tap()
+        retryControl(app).tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the rows stay after Retry")
     }
 
     @MainActor
     func testAFailedReadMarksTheKeptRowsInTheMacMenu() throws {
+        let launched = Date()
         let app = launch("retry-home-failed")
         XCTAssertTrue(app.buttons["home.row.stress-5"].waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
+        try expectNoToastYet(app, saying: "Couldn't refresh", since: launched)
         XCTAssertFalse(app.descendants(matching: .any)["home.note.problem"].exists, "no card over the kept rows")
         attach(app, "3-home-failed-kept-rows")
         try expectToast(app, saying: "Couldn't refresh", above: app.buttons["home.row.stress-5"])
@@ -87,10 +89,35 @@ final class HomeMacDisconnectedUITests: XCTestCase {
     @MainActor
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
-        let retry = app.buttons["Retry"].firstMatch
-        XCTAssertTrue(retry.exists, "Retry on the toast\n\(app.debugDescription)")
-        XCTAssertLessThanOrEqual(toast.frame.maxY, row.frame.minY, "the toast covers no row")
+        // A link chip waits the 10 s quiet bound before it shows.
+        XCTAssertTrue(toast.waitForExistence(timeout: 25), "the connection toast\n\(app.debugDescription)")
+        XCTAssertTrue(retryControl(app).exists, "Retry on the toast\n\(app.debugDescription)")
+        // A link state is a chip a few words wide floating over the rows, not a full-width
+        // row that pushes them down (Leo, 2026-11-21: "stop layout shifting").
+        XCTAssertLessThan(toast.frame.width, app.frame.width / 2, "the toast is a chip, not a sentence")
+    }
+
+    /// Before the quiet bound has passed, the drawn chip says nothing and takes no tap: the
+    /// view itself (opacity 0, hidden from VoiceOver, no hit testing), not only its gate.
+    @MainActor
+    private func expectNoToastYet(_ app: XCUIApplication, saying text: String, since launched: Date) throws {
+        let elapsed = Date().timeIntervalSince(launched)
+        // The drop is at launch; under 8 s in, the 10 s bound has surely not passed.
+        guard elapsed < 8 else {
+            print("HomeMacDisconnected: rows took \(elapsed) s, past the window to check the quiet chip")
+            return
+        }
+        let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+        XCTAssertFalse(toast.exists, "the chip shows before its 10 s bound (\(elapsed) s in)\n\(app.debugDescription)")
+        let retry = retryControl(app)
+        XCTAssertFalse(retry.exists && retry.isHittable, "Retry takes a tap before the chip shows (\(elapsed) s in)")
+        print("HomeMacDisconnected: no chip and no Retry at \(elapsed) s")
+    }
+
+    /// The toast's Retry: the banner's "Retry" button, or the link chip that is its own Retry.
+    @MainActor
+    private func retryControl(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Retry", "connection.chip.retry")).firstMatch
     }
 
     @MainActor

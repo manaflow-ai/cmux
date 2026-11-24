@@ -145,37 +145,62 @@ def tree_key(revision: str, version: str = "v2") -> str:
             continue
         entries[parts] = (expected_mode, {"tree": "tree", "gitlink": "commit", "blob": "blob"}[kind], object_id)
 
-    def make_tree(prefix: tuple[str, ...]) -> str:
-        children: dict[str, tuple[str, str, str] | None] = {}
-        for path, value in entries.items():
-            if path[: len(prefix)] != prefix or len(path) <= len(prefix):
-                continue
-            name = path[len(prefix)]
-            remainder = path[len(prefix) + 1 :]
-            if remainder:
-                children[name] = None
-            else:
-                children[name] = value
-        lines: list[str] = []
-        for name in sorted(children):
-            value = children[name]
-            if value is None:
-                object_id = make_tree(prefix + (name,))
-                mode = "040000"
-                object_type = "tree"
-            else:
-                mode, object_type, object_id = value
-            lines.append(f"{mode} {object_type} {object_id}\t{name}")
-        if not lines:
-            raise RuntimeError(f"empty cmux-tui tree input directory {prefix!r}")
-        return subprocess.check_output(
-            ["git", "-C", str(ROOT), "mktree", "--missing"],
-            input=("\n".join(lines) + "\n").encode(),
-            env=GIT_ENV,
-            timeout=GIT_TIMEOUT_SECONDS,
-        ).decode().strip()
+    # One `git mktree --batch` writes every directory of the key, children first: a
+    # `git mktree` process per directory was about 90 spawns and 1 s per key, and the
+    # nightly's fallback search keys each of up to 300 commits three ways (run
+    # 45243747211 spent 296 s there, on the path to the signer).
+    mktree = subprocess.Popen(
+        ["git", "-C", str(ROOT), "mktree", "--batch", "--missing"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=GIT_ENV,
+    )
+    try:
+        return _make_tree((), entries, mktree)
+    finally:
+        if mktree.stdin is not None:
+            mktree.stdin.close()
+        try:
+            mktree.wait(timeout=GIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            mktree.kill()
+            mktree.wait()
 
-    return make_tree(())
+
+def _write_tree(mktree: subprocess.Popen[bytes], lines: list[str]) -> str:
+    assert mktree.stdin is not None and mktree.stdout is not None
+    mktree.stdin.write(("\n".join(lines) + "\n\n").encode())
+    mktree.stdin.flush()
+    object_id = mktree.stdout.readline().decode().strip()
+    if len(object_id) != 40 or mktree.poll() is not None:
+        raise RuntimeError(f"git mktree --batch wrote no tree (exit {mktree.poll()})")
+    return object_id
+
+
+def _make_tree(
+    prefix: tuple[str, ...], entries: dict[tuple[str, ...], tuple[str, str, str]], mktree: subprocess.Popen[bytes]
+) -> str:
+    children: dict[str, tuple[str, str, str] | None] = {}
+    for path, value in entries.items():
+        if path[: len(prefix)] != prefix or len(path) <= len(prefix):
+            continue
+        name = path[len(prefix)]
+        remainder = path[len(prefix) + 1 :]
+        if remainder:
+            children[name] = None
+        else:
+            children[name] = value
+    lines: list[str] = []
+    for name in sorted(children):
+        value = children[name]
+        if value is None:
+            object_id = _make_tree(prefix + (name,), entries, mktree)
+            mode = "040000"
+            object_type = "tree"
+        else:
+            mode, object_type, object_id = value
+        lines.append(f"{mode} {object_type} {object_id}\t{name}")
+    if not lines:
+        raise RuntimeError(f"empty cmux-tui tree input directory {prefix!r}")
+    return _write_tree(mktree, lines)
 
 
 def main() -> int:

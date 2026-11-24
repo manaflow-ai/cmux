@@ -23,8 +23,20 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
+// environment, so the bench's knobs are kept by name or every run takes the defaults.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_RELAY",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+    "NETCOND_BW_PROFILE",
+    "NETCOND_BW_TURNS",
+    "NETCOND_BW_SECS",
+    "NETCOND_BW_APPS",
+]);
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
@@ -127,6 +139,8 @@ struct Link {
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
+    /// Every frame either way, by message type (the bytes-per-minute bench reads it).
+    tap: Arc<Tap>,
 }
 
 enum Next {
@@ -148,9 +162,12 @@ impl Link {
             .map_err(|e| format!("websocket handshake: {e}"))?;
         let (sink, mut stream) = ws.split();
         let (tx, rx) = mpsc::unbounded_channel();
+        let tap = Arc::new(Tap::default());
+        let tapped = tap.clone();
         tokio::spawn(async move {
             while let Some(Ok(frame)) = stream.next().await {
                 let now = Instant::now();
+                tapped.down(&frame);
                 let item = match frame {
                     Message::Text(t) => serde_json::from_str::<Value>(&t).ok(),
                     Message::Close(_) => break,
@@ -168,20 +185,21 @@ impl Link {
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
+            tap,
         })
     }
 
     async fn post(&mut self, m: &str, params: Value) -> Result<i64, String> {
         self.next += 1;
         let req = json!({"jsonrpc": "2.0", "id": self.next, "method": m, "params": params});
-        self.sink
-            .send(Message::Text(req.to_string().into()))
-            .await
-            .map_err(|e| format!("send {m}: {e}"))?;
+        let text = req.to_string();
+        self.tap.up(self.next, m, text.len());
+        self.sink.send(Message::Text(text.into())).await.map_err(|e| format!("send {m}: {e}"))?;
         Ok(self.next)
     }
 
     async fn ping(&mut self) {
+        self.tap.up_ping();
         let _ = self.sink.send(Message::Ping(Vec::new().into())).await;
     }
 
@@ -250,6 +268,24 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
+        Self::open_with(addr, token, deadline, App::Ios, false).await
+    }
+
+    /// The phone's initialize can request compact text chunks and row changes independently.
+    async fn open_with(
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+        app: App,
+        delta: bool,
+    ) -> Result<Self, String> {
+        let mut meta = json!({"localAppToken": token});
+        if app == App::IosCompact {
+            meta["chunkDeltas"] = json!(true);
+        }
+        if delta {
+            meta["sessionChangedDelta"] = json!(true);
+        }
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
@@ -257,7 +293,7 @@ impl Link {
             .post(
                 "initialize",
                 json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
-                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+                       "clientCapabilities": {}, "_meta": {"acpmux": meta}}),
             )
             .await?;
         let watch =
@@ -376,7 +412,11 @@ impl Control {
     /// Turns of ~1 KB answers (the fake agent echoes the prompt) until the chat holds `turns`.
     async fn seed(&mut self, session: &str, from: u64, turns: u64) {
         let pad = "lorem ipsum dolor sit amet ".repeat(37);
+        let started = Instant::now();
         for n in from..turns {
+            if n > from && n % 500 == 0 {
+                eprintln!("netcond: seeding turn {n}/{turns}, {:?} so far", started.elapsed());
+            }
             let id = self.prompt(session, &format!("turn {n}: {pad}")).await;
             let v = self.answer(id, BOUND).await.unwrap_or_else(|| panic!("seed turn {n} hung"));
             assert!(v.get("error").is_none(), "seed turn {n}: {v}");
@@ -394,6 +434,18 @@ fn env_list(name: &str, default: &[&str]) -> Vec<String> {
         }
         _ => default.iter().map(|s| (*s).to_owned()).collect(),
     }
+}
+
+/// The Cloud machine peer's second hop: `NETCOND_RELAY=<profile>` puts that shaped link between
+/// the phone's link and the hub, which then stands for the one a Cloud machine runs (the phone
+/// reaches it through the signed-in Mac's relay link). Rows name both hops: `lte@1+relay-80@1`.
+fn relay_hop(file: &ProfileFile) -> Option<LinkProfile> {
+    let name = std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+    Some(
+        file.get(name.trim())
+            .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+            .clone(),
+    )
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -450,19 +502,14 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -611,15 +658,10 @@ async fn reconnect(
                 continue;
             }
         }
-        loop {
-            match l.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    if event_seq(&v).is_some_and(|s| s > last) {
-                        first = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = l.notification(deadline).await {
+            if event_seq(&v).is_some_and(|s| s > last) {
+                first = Some(at);
+                break;
             }
         }
     }
@@ -648,6 +690,7 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
         Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
         _ => ProfileFile::builtin(),
     };
+    let relay = relay_hop(&file);
     let all: Vec<&str> = file.profiles.iter().map(|p| p.name.as_str()).collect();
     let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &all)
         .iter()
@@ -678,10 +721,12 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
         turns = turns.max(BASE_TURNS * x);
         eprintln!("netcond: {scale} = {turns} turns, seeded in {:?}", seeded.elapsed());
         for profile in &profiles {
-            let name = format!("{}@{}", profile.name, profile.version);
+            let name = profile.label(relay.as_ref());
             for run in 0..runs {
                 let seed = run + seed_base;
-                let shaper = match Shaper::start(upstream, profile.clone(), seed, &trace).await {
+                let started =
+                    Shaper::start_through(upstream, profile.clone(), relay.as_ref(), seed, &trace);
+                let (shaper, _hop) = match started.await {
                     Ok(s) => s,
                     Err(e) => {
                         let k = Key { profile: &name, phase: "cold", scale, run, seed };
@@ -701,5 +746,505 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bytes per minute, by message type
+
+/// What one connection carried, both ways, keyed by message type: a request's method up, its
+/// reply as `reply:<method>` down, a notification by method (an `_acpmux/event` by its record's
+/// kind and `sessionUpdate`). Bytes are the JSON text; `wire_*` add the WebSocket frame header,
+/// `link_*` model the phone's link instead (cmux-mobile-link frames, the host's deflate envelope).
+#[derive(Default)]
+struct Tap {
+    inner: std::sync::Mutex<TapInner>,
+}
+
+#[derive(Default, Clone)]
+struct TapInner {
+    methods: std::collections::HashMap<i64, String>,
+    down: std::collections::BTreeMap<String, (u64, u64)>,
+    up: std::collections::BTreeMap<String, (u64, u64)>,
+    link_down: u64,
+    link_up: u64,
+    /// When the first text chunk came (`agent_message_chunk` as `_acpmux/event`, or
+    /// `_acpmux/chunk`), since the last `take`.
+    first_chunk: Option<Instant>,
+}
+
+/// cmux-mobile-link `frame.rs`: `u32 length | u32 channel | u8 type`, payloads split at 256 KiB.
+const LINK_HEADER: u64 = 9;
+const LINK_MAX_PAYLOAD: u64 = 256 * 1024;
+/// The phone's link keepalive (`link.rs`): an 8-byte nonce each way every 15 s.
+const LINK_PING_BYTES: u64 = LINK_HEADER + 8;
+/// The Mac's mobile host deflates acpmux messages from this size (PROTOCOL.md, CMUX-563).
+const LINK_DEFLATE_FROM: usize = 16 * 1024;
+
+fn link_frames(payload: u64) -> u64 {
+    payload + LINK_HEADER * payload.div_ceil(LINK_MAX_PAYLOAD).max(1)
+}
+
+/// The first `sessionUpdate` in `v`, a few levels down.
+fn session_update(v: &Value, depth: u8) -> Option<&str> {
+    match v {
+        Value::Object(map) => map.get("sessionUpdate").and_then(Value::as_str).or_else(|| {
+            if depth == 0 {
+                return None;
+            }
+            map.values().find_map(|v| session_update(v, depth - 1))
+        }),
+        _ => None,
+    }
+}
+
+impl Tap {
+    fn add(map: &mut std::collections::BTreeMap<String, (u64, u64)>, key: String, bytes: u64) {
+        let slot = map.entry(key).or_default();
+        slot.0 += 1;
+        slot.1 += bytes;
+    }
+
+    fn up(&self, id: i64, method: &str, len: usize) {
+        let mut t = self.inner.lock().unwrap();
+        t.methods.insert(id, method.to_owned());
+        Self::add(&mut t.up, method.to_owned(), len as u64);
+        t.link_up += link_frames(len as u64);
+    }
+
+    fn up_ping(&self) {
+        Self::add(&mut self.inner.lock().unwrap().up, "ws:ping".to_owned(), 0);
+    }
+
+    fn down(&self, frame: &Message) {
+        let mut t = self.inner.lock().unwrap();
+        let (key, len, link) = match frame {
+            Message::Text(text) => {
+                let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+                let key = match v.get("method").and_then(Value::as_str) {
+                    Some(m) if m == method::MUX_EVENT => {
+                        let p = &v["params"];
+                        let kind = p["kind"]
+                            .as_str()
+                            .or_else(|| p.pointer("/event/kind").and_then(Value::as_str))
+                            .unwrap_or("?");
+                        match session_update(p, 4) {
+                            Some(update) => format!("{m}:{kind}/{update}"),
+                            None => format!("{m}:{kind}"),
+                        }
+                    }
+                    Some(m) => m.to_owned(),
+                    None => match v.get("id").and_then(Value::as_i64) {
+                        Some(id) => format!(
+                            "reply:{}",
+                            t.methods.get(&id).map(String::as_str).unwrap_or("?")
+                        ),
+                        None => "?".to_owned(),
+                    },
+                };
+                let len = text.len();
+                // The host's deflate envelope: 0x00, two u32 lengths, the raw deflate (the zlib
+                // stream less its 2-byte header and 4-byte checksum).
+                let link = if len >= LINK_DEFLATE_FROM {
+                    let raw = acpmux::frame_compress::deflate(text.as_bytes()).len() as u64 - 6;
+                    link_frames(9 + raw)
+                } else {
+                    link_frames(len as u64)
+                };
+                (key, len as u64, link)
+            }
+            Message::Binary(b) => {
+                ("binary".to_owned(), b.len() as u64, link_frames(b.len() as u64))
+            }
+            Message::Ping(b) => ("ws:ping".to_owned(), b.len() as u64, 0),
+            Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
+            _ => return,
+        };
+        if t.first_chunk.is_none()
+            && (key.ends_with("/agent_message_chunk") || key == method::MUX_CHUNK)
+        {
+            t.first_chunk = Some(Instant::now());
+        }
+        Self::add(&mut t.down, key, len);
+        t.link_down += link;
+    }
+
+    /// Everything so far, and a fresh start (the request ids stay known).
+    fn take(&self) -> TapInner {
+        let mut t = self.inner.lock().unwrap();
+        let out = t.clone();
+        t.down.clear();
+        t.up.clear();
+        t.link_down = 0;
+        t.link_up = 0;
+        t.first_chunk = None;
+        out
+    }
+}
+
+/// Which app's requests the bandwidth bench sends.
+#[derive(Clone, Copy, PartialEq)]
+enum App {
+    /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
+    Ios,
+    /// [`App::Ios`] that asks for compact text chunks (`initialize` `_meta.acpmux.chunkDeltas`,
+    /// `server/chunk_deltas.rs`).
+    IosCompact,
+    /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
+    /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
+    Macos,
+}
+
+impl App {
+    fn name(self) -> &'static str {
+        match self {
+            App::Ios => "ios",
+            App::IosCompact => "ios-compact",
+            App::Macos => "macos",
+        }
+    }
+}
+
+impl Link {
+    async fn open_as(
+        app: App,
+        delta: bool,
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+    ) -> Result<Self, String> {
+        if app != App::Macos {
+            return Self::open_with(addr, token, deadline, app, delta).await;
+        }
+        let mut meta = json!({"peerRowBatches": true, "localAppToken": token});
+        if delta {
+            meta["sessionChangedDelta"] = json!(true);
+        }
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1,
+                       "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"},
+                       "clientCapabilities": {},
+                       "_meta": {"acpmux": meta}}),
+            )
+            .await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let watch = link.post("_acpmux/watch", json!({"enabled": true, "limit": 200})).await?;
+        link.answer(watch, deadline).await?;
+        Ok(link)
+    }
+
+    async fn attach_as(
+        &mut self,
+        app: App,
+        session: &str,
+        deadline: Instant,
+    ) -> Result<(Instant, Value), String> {
+        if app != App::Macos {
+            return self.attach(session, None, deadline).await;
+        }
+        let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
+        let mut params = json!({"sessionId": session, "waitLogs": false, "limit": PAGE_SIZE,
+            "maxBytes": OPEN_BYTES, "eventStream": true, "visible": true,
+            "kinds": ["transcript", "available_commands_update", "usage_update",
+                      "config_option_update", "bookmarks", "secret_request", "secret_decision",
+                      "subsession", "queue_order", "queue_updated", "prompt_refused",
+                      "elevation_request", "elevation_decision", "preset_approval_request",
+                      "preset_approval_decision"]});
+        if settled {
+            params["settled"] = json!(true);
+        }
+        let id = self.post("_acpmux/attach", params).await?;
+        self.answer(id, deadline).await
+    }
+
+    /// Reads (and drops) every frame until `until`: the tap counts them.
+    async fn drain(&mut self, until: Instant) {
+        self.pending.clear();
+        while !matches!(self.frame(until).await, Next::Silent | Next::Closed) {}
+    }
+}
+
+/// One phase's lines: totals per minute each way, the phone's modeled link bytes, and the top
+/// consumers (`down:<type>` / `up:<type>`, bytes per minute; `msgs:` their count per minute).
+fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_min: bool) {
+    let scale = if per_min { 60.0 / secs } else { 1.0 };
+    let unit = if per_min { "_per_min" } else { "" };
+    let rate = |b: u64| Some((b as f64 * scale).round());
+    emit(k, &format!("bytes{unit}_down"), rate(wire.1));
+    emit(k, &format!("bytes{unit}_up"), rate(wire.0));
+    if app != App::Macos {
+        let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
+        emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
+        emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
+    }
+    for (way, map) in [("down", &t.down), ("up", &t.up)] {
+        let mut rows: Vec<_> = map.iter().collect();
+        rows.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
+        for (name, (n, bytes)) in rows.into_iter().take(5) {
+            emit(k, &format!("{way}:{name}"), rate(*bytes));
+            emit(k, &format!("msgs_{way}:{name}"), rate(*n));
+        }
+    }
+}
+
+/// What the shaper and the tap saw since the last call.
+fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
+    let c = shaper.counters();
+    shaper.reset_counters();
+    (link.tap.take(), (c.up_bytes, c.down_bytes))
+}
+
+/// Bytes per minute of one chat in each app, through the shaper: the long chat's open, then
+/// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
+/// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
+/// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
+/// `NETCOND_BW_APPS` (ios, ios-compact, macos). The compact phone asks for text chunks.
+/// Append `+delta` to any app to request row changes as `_acpmux/session_patch`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the bandwidth bench: run with --ignored --nocapture"]
+async fn chat_bytes_per_minute() {
+    let scratch = daemon_env::Scratch::new("netcond-bw");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = ProfileFile::builtin();
+    let profile_name = std::env::var("NETCOND_BW_PROFILE").unwrap_or_else(|_| "lte".to_owned());
+    let profile = file.get(&profile_name).unwrap_or_else(|| panic!("no profile {profile_name}"));
+    let relay = relay_hop(&file);
+    let name = profile.label(relay.as_ref());
+    let turns = env_u64("NETCOND_BW_TURNS", 10_000);
+    let secs = env_u64("NETCOND_BW_SECS", 60);
+    let window_len = Duration::from_secs(secs);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-bw"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let seeded = Instant::now();
+    control.seed(&session, 0, turns).await;
+    eprintln!("netcond-bw: {turns} turns seeded in {:?}", seeded.elapsed());
+
+    let trace = Trace::new();
+    for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos"]) {
+        let (base, delta) = match app_name.strip_suffix("+delta") {
+            Some(base) => (base, true),
+            None => (app_name.as_str(), false),
+        };
+        let app = match base {
+            "macos" => App::Macos,
+            "ios-compact" => App::IosCompact,
+            _ => App::Ios,
+        };
+        let scale = if delta { app_name.as_str() } else { app.name() };
+        let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
+        let (shaper, _hop) =
+            Shaper::start_through(upstream, profile.clone(), relay.as_ref(), 0, &trace)
+                .await
+                .unwrap();
+        let start = Instant::now();
+        let deadline = start + BOUND;
+        let mut link =
+            Link::open_as(app, delta, shaper.addr(), &listener.token, deadline).await.unwrap();
+        let (at, reply) = link.attach_as(app, &session, deadline).await.unwrap();
+        let k = key("bw_open");
+        emit(&k, "first_content_ms", Some(ms(at - start)));
+        emit(&k, "open_rows", Some(rows(&reply).len() as f64));
+        // What the open sends after its reply (a settled view's follow-up, the stream's start).
+        link.drain(Instant::now() + Duration::from_secs(2)).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&k, &t, wire, 1.0, app, false);
+
+        // Idle: the chat open, nothing happening.
+        let t0 = Instant::now();
+        link.drain(t0 + window_len).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&key("bw_idle"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+
+        // A streaming answer: a chunk every 50 ms (about a model's token rate), for the window.
+        let chunks = secs * 20 + 20;
+        let asked = Instant::now();
+        let turn = control.prompt(&session, &format!("ticking:{chunks}:50")).await;
+        let t0 = Instant::now();
+        link.drain(t0 + window_len).await;
+        let (t, wire) = window(&shaper, &link);
+        let k = key("bw_stream");
+        // The prompt to its first chunk on the phone's side of the link.
+        emit(&k, "first_chunk_ms", t.first_chunk.map(|at| ms(at - asked)));
+        emit_rates(&k, &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let _ = control.answer(turn, BOUND).await;
+        link.drain(Instant::now() + Duration::from_secs(1)).await;
+        let _ = window(&shaper, &link);
+
+        // A tool-calling turn: a tool call every 100 ms (the fake agent's 60 s turn).
+        let turn = control.prompt(&session, "works-through-cancel").await;
+        let t0 = Instant::now();
+        link.drain(t0 + window_len.min(Duration::from_secs(55))).await;
+        let (t, wire) = window(&shaper, &link);
+        emit_rates(&key("bw_tools"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let _ = control.answer(turn, BOUND).await;
+        drop(link);
+    }
+}
+
+/// Applies a `_acpmux/session_patch` `patch` to the row held: the client's side of
+/// `session-changed-delta-v1` (`server/session_patch.rs`).
+fn apply_patch(target: &mut Value, patch: &Value) {
+    match patch {
+        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
+            let args = &p["$splice"];
+            let from = args[0].as_u64().unwrap() as usize;
+            let keep = args[1].as_u64().unwrap() as usize;
+            let held = target.as_array().cloned().unwrap_or_default();
+            let mut out = held[from..from + keep].to_vec();
+            out.extend(args[2].as_array().unwrap().iter().cloned());
+            *target = Value::Array(out);
+        }
+        Value::Object(p) => {
+            if !target.is_object() {
+                *target = json!({});
+            }
+            let obj = target.as_object_mut().unwrap();
+            for (k, v) in p {
+                if v.is_null() {
+                    obj.remove(k);
+                } else {
+                    apply_patch(obj.entry(k.clone()).or_insert(Value::Null), v);
+                }
+            }
+        }
+        other => *target = other.clone(),
+    }
+}
+
+/// Every row notice `link` hears until `until`: (method, its params, its bytes).
+async fn row_notices(link: &mut Link, until: Instant) -> Vec<(String, Value, usize)> {
+    let mut out = Vec::new();
+    while let Next::Frame(_, v) = link.notification(until).await {
+        let m = v["method"].as_str().unwrap_or_default().to_owned();
+        if m == method::MUX_SESSION_CHANGED || m == "_acpmux/session_patch" {
+            let bytes = v.to_string().len();
+            out.push((m, v["params"].clone(), bytes));
+        }
+    }
+    out
+}
+
+/// A streaming turn on a 10,000-message chat (`NETCOND_DELTA_TURNS`): a client that asked for
+/// patches (`sessionChangedDelta`) hears each row change after the first as a
+/// `_acpmux/session_patch` under 2 KB that takes its row to the daemon's; a client that did not
+/// still hears every change as the whole row in `session_changed`, with no `rowSeq`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_asked() {
+    let scratch = daemon_env::Scratch::new("netcond-delta");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let addr: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-delta"}}}),
+        )
+        .await;
+    let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+    let turns = env_u64("NETCOND_DELTA_TURNS", 10_000);
+    let seeded = Instant::now();
+    control.seed(&session, 0, turns).await;
+    eprintln!("netcond-delta: {turns} turns seeded in {:?}", seeded.elapsed());
+
+    let deadline = Instant::now() + BOUND;
+    let mut old = Link::open(addr, &listener.token, deadline).await.unwrap();
+    let mut new = Link::open_with(addr, &listener.token, deadline, App::Ios, true).await.unwrap();
+    assert!(
+        new.capabilities.iter().any(|c| c == "session-changed-delta-v1"),
+        "{:?}",
+        new.capabilities
+    );
+    old.attach(&session, None, deadline).await.unwrap();
+    new.attach(&session, None, deadline).await.unwrap();
+    // The attach's own row notices, then a turn that streams a chunk every 50 ms for 2 s.
+    let settle = Instant::now() + Duration::from_secs(2);
+    let (mut old_heard, mut new_heard) =
+        tokio::join!(row_notices(&mut old, settle), row_notices(&mut new, settle));
+    let turn = control.prompt(&session, "ticking:40:50").await;
+    let window = Instant::now() + Duration::from_secs(4);
+    let (old_window, new_window) =
+        tokio::join!(row_notices(&mut old, window), row_notices(&mut new, window));
+    old_heard.extend(old_window);
+    new_heard.extend(new_window);
+    let _ = control.answer(turn, BOUND).await;
+
+    // The old client: whole rows, as before.
+    let whole: Vec<_> = old_heard
+        .iter()
+        .filter(|(m, p, _)| m == method::MUX_SESSION_CHANGED && p["sessionId"] == session)
+        .collect();
+    assert!(!whole.is_empty(), "the old client heard no row change");
+    assert!(
+        old_heard.iter().all(|(m, _, _)| m == method::MUX_SESSION_CHANGED),
+        "the old client heard a patch"
+    );
+    for (_, p, _) in &whole {
+        assert!(p["session"].is_object() && p.get("rowSeq").is_none(), "{p}");
+    }
+    let biggest = whole.iter().map(|(_, _, b)| *b).max().unwrap();
+    eprintln!("netcond-delta: old client {} rows, the largest {biggest} bytes", whole.len());
+
+    // The capable client: one whole row, then patches.
+    let patches: Vec<_> = new_heard.iter().filter(|(_, p, _)| p["sessionId"] == session).collect();
+    assert!(!patches.is_empty(), "the capable client heard no row change");
+    let mut held: Option<(u64, Value)> = None;
+    let mut sizes = Vec::new();
+    for (m, p, bytes) in &patches {
+        let row_seq = p["rowSeq"].as_u64().unwrap_or_else(|| panic!("no rowSeq: {p}"));
+        if m == method::MUX_SESSION_CHANGED {
+            held = Some((row_seq, p["session"].clone()));
+            continue;
+        }
+        sizes.push(*bytes);
+        assert!(*bytes < 2048, "a patch of {bytes} bytes on a {turns}-turn chat: {p}");
+        let (at, row) =
+            held.as_mut().unwrap_or_else(|| panic!("a patch before the whole row: {p}"));
+        assert_eq!(p["baseRowSeq"].as_u64(), Some(*at), "{p}");
+        apply_patch(row, &p["patch"]);
+        *at = row_seq;
+    }
+    assert!(!sizes.is_empty(), "no patch in the window");
+    eprintln!(
+        "netcond-delta: capable client {} patches, the largest {} bytes",
+        sizes.len(),
+        sizes.iter().max().unwrap()
+    );
+    // Its row is the daemon's: the same as the last whole row the old client heard, field by
+    // field for the ones a later read would not move.
+    let (_, row) = held.expect("the capable client's first row change is the whole row");
+    let last_old = &whole.last().unwrap().1["session"];
+    for field in ["sessionId", "lastSeq", "turnCount", "status", "harness", "cwd"] {
+        assert_eq!(row[field], last_old[field], "{field}");
+    }
+    if let Some(spans) = last_old.pointer("/timeBreakdown/spans").and_then(Value::as_array) {
+        let held_spans = row.pointer("/timeBreakdown/spans").and_then(Value::as_array);
+        assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
     }
 }

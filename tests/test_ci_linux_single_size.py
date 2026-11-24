@@ -65,11 +65,9 @@ SINGLE_SIZE: dict[str, int] = {
     "ci-artifact-canary.yml": 0,
     "ci-artifact-transport.yml": 0,
     "ci-compile-attribution.yml": 0,
-    "ci-fast-guards.yml": 0,
     "ci-guards.yml": 0,
     "ci-health-report.yml": 0,
     "ci-queue-janitor.yml": 0,
-    "ci-repo-variables.yml": 0,
     "ci-web.yml": 0,
     "ci.yml": 0,
     "cloud-capture-provision.yml": 0,
@@ -129,7 +127,6 @@ SINGLE_SIZE: dict[str, int] = {
     "ios-screenshots.yml": 0,
     "ios-testflight.yml": 0,
     "iroh-release-gate.yml": 0,
-    "iroh-v2-production-drift.yml": 0,
     "iroh-v2.yml": 0,
     "labels-sync.yml": 0,
     "merge-group-policy-checks.yml": 0,
@@ -163,7 +160,6 @@ SINGLE_SIZE: dict[str, int] = {
     "sdk-publish-npm.yml": 0,
     "sdk-publish-python.yml": 0,
     "sdk-release-cut.yml": 0,
-    "seed-derived-data.yml": 0,
     "signing-keychain-macos.yml": 0,
     "stable-next.yml": 0,
     "terminal-hang-diagnostics.yml": 0,
@@ -306,7 +302,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
@@ -317,8 +313,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotIn("LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

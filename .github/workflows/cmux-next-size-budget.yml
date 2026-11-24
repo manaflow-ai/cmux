@@ -45,7 +45,7 @@ jobs:
     name: cmux-next size budget (plan)
     # An edit that adds, changes or removes no `size:` line changes nothing measured.
     if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -86,31 +86,76 @@ jobs:
     name: cmux-next size budget (web, base)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
     outputs:
       bytes: ${{ steps.measure.outputs.bytes }}
     steps:
+      # Only what web-bundle-key.py --source hashes (INPUTS and what webviews imports), with
+      # no blobs outside it: a published key needs no build. A file left out changes the key,
+      # so a narrow pattern can only miss, never reuse the wrong bundles.
       - name: Checkout the base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.base }}
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /schemas/
+            /scripts/
+            /web/data/
+            /examples/
+            /config/
+            /clients/ts/
+            /Resources/markdown-viewer/
+            /release-notes/next/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+      # The base is a feat-cmux-next commit, so cmux-next-web-bundle-publish.yml has usually
+      # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
+      - name: The base's published web bundles
+        id: published
+        env:
+          CMUX_WEB_NODE_VERSION: "24.22.1"
+        run: |
+          set -euo pipefail
+          key="$(python3 -I scripts/cmux-next/web-bundle-key.py . --source)"
+          [[ "$key" =~ ^[0-9a-f]{64}$ ]]
+          rc=3
+          if [[ -x scripts/cmux-next/fetch-web-bundles.sh ]]; then
+            scripts/cmux-next/fetch-web-bundles.sh --key "$key" --out "$RUNNER_TEMP/web" >/dev/null && rc=0 || rc=$?
+          fi
+          if [[ "$rc" == 0 ]]; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: published under $key"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: $key not fetched (exit $rc); building"
+            rm -rf "$RUNNER_TEMP/web"
+            git sparse-checkout disable
+          fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.published.outputs.hit != 'true'
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.published.outputs.hit != 'true'
         with:
           node-version: "24.22.1"
       - name: Build and measure
         id: measure
+        env:
+          HIT: ${{ steps.published.outputs.hit }}
         run: |
           set -euo pipefail
-          (cd webviews && bun install --frozen-lockfile >/dev/null)
-          ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
+          if [[ "$HIT" != true ]]; then
+            (cd webviews && bun install --frozen-lockfile >/dev/null)
+            ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
+          fi
           # An assignment, not an echo argument: set -e then stops on a missing output (exit 2).
           bytes="$(python3 -I scripts/cmux-next/bundle-size-pr.py web-bytes "$RUNNER_TEMP/web")"
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
@@ -119,7 +164,7 @@ jobs:
     name: cmux-next size budget (web, head)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -145,10 +190,27 @@ jobs:
           # The base's counter, written out before the head's code runs.
           git show HEAD^1:scripts/cmux-next/bundle-size-pr.py > "$RUNNER_TEMP/bundle-size-pr.py"
           git show HEAD^1:scripts/cmux-next/bundle-size-budget.json > "$RUNNER_TEMP/bundle-size-budget.json"
+          # The startup JS each page parses before first paint (scripts/cmux-next/web-entry-js.mjs), the
+          # base's script and budget, the same way. It reports: an entry over its cap warns, nothing fails.
+          entry_js=false
+          if git show HEAD^1:scripts/cmux-next/web-entry-js.mjs > "$RUNNER_TEMP/web-entry-js.mjs" 2>/dev/null &&
+            git show HEAD^1:scripts/cmux-next/web-entry-js-budget.json > "$RUNNER_TEMP/web-entry-js-budget.json" 2>/dev/null; then
+            entry_js=true
+          fi
           (cd webviews && bun install --frozen-lockfile >/dev/null)
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
           bytes="$(python3 -I "$RUNNER_TEMP/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/bundle-size-budget.json")"
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          if [[ "$entry_js" == true ]]; then
+            rc=0
+            node "$RUNNER_TEMP/web-entry-js.mjs" "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/web-entry-js-budget.json" \
+              --markdown > "$RUNNER_TEMP/web-entry-js.md" || rc=$?
+            cat "$RUNNER_TEMP/web-entry-js.md"
+            { echo '### Startup JS per page'; cat "$RUNNER_TEMP/web-entry-js.md"; } >> "$GITHUB_STEP_SUMMARY"
+            if (( rc != 0 )); then
+              echo "::warning title=Startup JS over budget::$(head -1 "$RUNNER_TEMP/web-entry-js.md" | tr -d '*`')"
+            fi
+          fi
 
   size-budget:
     # An edit with no `size:` line skips this job, and a skipped job reads as success for a check:
@@ -157,7 +219,7 @@ jobs:
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

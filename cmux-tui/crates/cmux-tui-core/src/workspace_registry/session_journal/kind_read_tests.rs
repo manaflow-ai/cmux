@@ -116,7 +116,7 @@ impl WorkspaceRegistry {
 }
 
 /// Agent records in the sealed-history cost test.
-const SEALED_AGENT_RECORDS: usize = 16;
+pub(super) const SEALED_AGENT_RECORDS: usize = 16;
 
 fn sealed_agent_record(index: usize) -> TestJournalRecord {
     TestJournalRecord {
@@ -149,7 +149,7 @@ fn sealed_session_put(index: usize) -> TestJournalRecord {
 }
 
 /// The agent records spread evenly through `puts` session puts.
-fn sealed_history(puts: usize) -> Vec<TestJournalRecord> {
+pub(super) fn sealed_history(puts: usize) -> Vec<TestJournalRecord> {
     let stride = puts / SEALED_AGENT_RECORDS + 1;
     let mut agents = (0..SEALED_AGENT_RECORDS).map(sealed_agent_record);
     let mut records = Vec::with_capacity(puts + SEALED_AGENT_RECORDS);
@@ -187,7 +187,7 @@ fn read_agent_records(registry: &WorkspaceRegistry) -> Vec<SessionJournalRecord>
 
 /// Replace the content of every sealed segment: a read that decodes one
 /// fails, so a read that succeeds decoded none.
-fn destroy_sealed_segments(registry: &WorkspaceRegistry) {
+pub(super) fn destroy_sealed_segments(registry: &WorkspaceRegistry) {
     let connection = Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
     connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
     connection.execute("UPDATE journal_segments SET content = x'00112233'", []).unwrap();
@@ -247,7 +247,7 @@ fn sealed_kind_read_cost_stays_flat_as_session_puts_grow() {
 
 /// Run the reducer record backfill on `registry` until it is done or has
 /// decoded `limit` segments; returns how many it decoded.
-fn run_reducer_record_backfill(registry: &WorkspaceRegistry, limit: usize) -> usize {
+pub(super) fn run_reducer_record_backfill(registry: &WorkspaceRegistry, limit: usize) -> usize {
     use super::reducer_records::ReducerRecordBackfillStep;
     let reader =
         SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
@@ -266,7 +266,7 @@ fn run_reducer_record_backfill(registry: &WorkspaceRegistry, limit: usize) -> us
     decoded
 }
 
-fn kept_reducer_records(registry: &WorkspaceRegistry) -> i64 {
+pub(super) fn kept_reducer_records(registry: &WorkspaceRegistry) -> i64 {
     registry
         .connection
         .get()
@@ -466,7 +466,7 @@ fn reducer_record_backfill_does_not_trust_a_partly_filled_kind_map() {
 }
 
 /// A `terminal.output` record: what the output cleanup drops.
-fn sealed_terminal_output(index: usize) -> TestJournalRecord {
+pub(super) fn sealed_terminal_output(index: usize) -> TestJournalRecord {
     TestJournalRecord {
         kind: "terminal.output".into(),
         producer: JournalProducer { kind: "terminal".into(), id: "cmux-tui".into() },

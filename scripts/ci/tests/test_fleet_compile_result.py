@@ -53,6 +53,11 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(len(urls), 3)
         self.assertIn("pr=12", urls[0])
 
+    def test_each_hold_stays_under_the_gateway_limit(self):
+        _, _, urls, _ = run([(404, None), (200, rec("running")), (200, rec("pass"))], wait=1500)
+        holds = [int(u.rsplit("wait=", 1)[1]) for u in urls]
+        self.assertTrue(holds and max(holds) <= 90, holds)
+
     def test_no_record_hands_back_to_the_compile(self):
         word, why, _, t = run([(404, None)], no_record=600)
         self.assertEqual(word, "none")
@@ -76,6 +81,22 @@ class ReadTest(unittest.TestCase):
                     rec("pass", configuration="debug"), rec("unavailable"), "junk"):
             self.assertEqual(run([(200, bad)])[0], "none", bad)
 
+
+    def test_a_superseded_push_tip_is_its_own_word_at_once(self):
+        # The controller checks the newest feat-cmux-next push tip instead (2026-11-22 05-09Z: 97 push-tip
+        # checks for 120 pushes, each queued by its own push run's read).
+        word, why, urls, t = run([(200, rec("superseded", superseded_by="b" * 40))])
+        self.assertEqual(word, "superseded")
+        self.assertIn("b" * 40, why)
+        self.assertEqual(len(urls), 1)
+
+    def test_the_workflow_skips_only_a_push_whose_head_moved(self):
+        w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
+        i = w.index('if [[ "$word" == superseded && -z "${PR:-}" ]]; then')
+        block = w[i:w.index("status=0", i)]
+        self.assertIn('"$head" != "$REF"', block)
+        self.assertIn("verdict=superseded", block)
+        self.assertIn("word=none", block)  # a head that did not move, or no answer, compiles as before
 
 class WorkflowCallsIt(unittest.TestCase):
     def test_every_stub_call_runs_without_gnu_timeout(self):

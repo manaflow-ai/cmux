@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import WebKit
 
 /// `WKWebView` with cmux context menu wording. App shortcuts reach the host
@@ -76,6 +77,12 @@ final class WebKitWebView: WKWebView {
         }
         super.willOpenMenu(menu, with: event)
         adjustContextMenu(menu)
+        menu.confineTracking(at: event, in: self)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 
     /// The host rows for the last right-click's hit (none when the hit

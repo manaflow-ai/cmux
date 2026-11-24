@@ -2,7 +2,9 @@
 // Older turns draw in place (Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION UNLESS IT'S THE WORST
 // CASE" / "JUST BE MORE OPTIMISTIC"): pages of older history are asked for well ahead of the reader, so
 // scrolling up meets rows already there, with no fade. Only a page that comes late, landing while the
-// reader is already at the top of the loaded rows, fades in, each row once (cx-2lv1k). The rows the chat
+// reader is already at the top of the loaded rows and at rest, fades in, each row once (cx-2lv1k). A page that
+// lands while the reader still scrolls draws in full ink, with no 0.35 start (transcript motion model step 3,
+// cmuxterm-hq docs/design/transcript-motion-model.md: "no 0.35 fade for rows mounted while scrolling"). The rows the chat
 // opened with, rows already seen, and live rows (which keep their own entrance) never take that fade, and
 // Reduce Motion draws older rows in full ink at once.
 //
@@ -356,17 +358,23 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     await page.close();
   });
 
-  test("a page that comes late while the reader is still wheeling up fades in, as one at rest does", async () => {
+  test("a page that comes late while the reader is still wheeling up draws in full ink, with no fade", async () => {
     events.length = lastSeq;
     const page = await open("no-preference");
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     expect(await olderFades(page)).toEqual([]);
-    // How long before each older row took its fade class the reader's last wheel was.
-    await page.evaluate(() => {
-      const scope = window as unknown as { __lastWheel: number; __olderGaps: number[] };
+    // How long before each late row mounted the reader's last wheel was, and whether it took the fade class.
+    await page.evaluate((openedFrom) => {
+      const scope = window as unknown as {
+        __lastWheel: number;
+        __lateGaps: number[];
+        __lateOlder: number;
+        __keepWheeling: number;
+      };
       scope.__lastWheel = -Infinity;
-      scope.__olderGaps = [];
+      scope.__lateGaps = [];
+      scope.__lateOlder = 0;
       document.addEventListener("wheel", () => void (scope.__lastWheel = performance.now()), {
         capture: true,
         passive: true,
@@ -374,11 +382,14 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       const seen = new WeakSet<Element>();
       const check = (node: Node) => {
         if (!(node instanceof HTMLElement)) return;
-        for (const row of [node, ...node.querySelectorAll<HTMLElement>(".acpmux-row")])
-          if (row.classList.contains("acpmux-row--older") && !seen.has(row)) {
-            seen.add(row);
-            scope.__olderGaps.push(performance.now() - scope.__lastWheel);
-          }
+        for (const row of [node, ...node.querySelectorAll<HTMLElement>(".acpmux-row")]) {
+          if (!row.classList.contains("acpmux-row") || seen.has(row)) continue;
+          const turn = /(?:Question|Answer) (\d+)/.exec(row.textContent ?? "");
+          if (!turn || Number(turn[1]) >= openedFrom) continue;
+          seen.add(row);
+          scope.__lateGaps.push(performance.now() - scope.__lastWheel);
+          if (row.classList.contains("acpmux-row--older")) scope.__lateOlder += 1;
+        }
       };
       new MutationObserver((records) => {
         for (const record of records) {
@@ -386,32 +397,42 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           for (const node of record.addedNodes) check(node);
         }
       }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
-    });
+      // The page wheels on its own every 40ms too, so a loaded runner's slow round trips to the driver
+      // (one was 295ms in CI) never let the reader settle between the driver's wheels.
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scope.__keepWheeling = window.setInterval(
+        () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -600, bubbles: true, cancelable: true })),
+        40,
+      );
+    }, openedFrom);
     // The daemon is slow: the reader wheels up to the top of the loaded rows and keeps wheeling there
     // (every 40ms, well inside the 250ms a scroll takes to settle) while the next page lands.
     eventsDelay = 1500;
-    let faded = false;
+    let landed = false;
     try {
       const until = Date.now() + 20_000;
-      while (!faded && Date.now() < until) {
+      while (!landed && Date.now() < until) {
         await page.mouse.wheel(0, -600);
         // fixed-wait: the timing is the behaviour under test: a reader who keeps wheeling, one wheel every
         // 40ms, inside the 250ms a scroll takes to settle, so the late page lands while the reader moves.
         await page.waitForTimeout(40);
-        faded = await page.evaluate(() => (window as unknown as { __olderGaps: number[] }).__olderGaps.length > 0);
+        landed = await page.evaluate(() => (window as unknown as { __lateGaps: number[] }).__lateGaps.length > 0);
       }
+      await page.evaluate(() => clearInterval((window as unknown as { __keepWheeling: number }).__keepWheeling));
       await settle(page);
       await animationsDone(page);
     } finally {
       eventsDelay = 40;
     }
-    // The late page's rows took the older fade (acpmux-older-in from 0.35), and the reader was moving.
-    expect(faded).toBe(true);
-    const gaps = await page.evaluate(() => (window as unknown as { __olderGaps: number[] }).__olderGaps);
-    expect(Math.min(...gaps)).toBeLessThan(250);
-    const turns = (await olderFades(page)).map((fade) => turnOf(fade.text)).filter((turn) => turn !== undefined);
-    expect(turns.some((turn) => turn < openedFrom)).toBe(true);
-    expect(turns.filter((turn) => turn >= openedFrom)).toEqual([]);
+    // The late page's rows mounted while the reader was moving, and none took the older fade.
+    expect(landed).toBe(true);
+    const late = await page.evaluate(() => {
+      const scope = window as unknown as { __lateGaps: number[]; __lateOlder: number };
+      return { gaps: scope.__lateGaps, older: scope.__lateOlder };
+    });
+    expect(Math.min(...late.gaps)).toBeLessThan(250);
+    expect(late.older).toBe(0);
+    expect(await olderFades(page)).toEqual([]);
     expect(errors).toEqual([]);
     await page.close();
   });

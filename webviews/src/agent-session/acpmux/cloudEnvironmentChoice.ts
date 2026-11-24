@@ -101,12 +101,24 @@ export function cloudStartEnvironment(explicit: string | undefined, pick: string
   return composerSettingsSnapshot().cloudEnvironments ? environmentForStart(pick) : undefined;
 }
 
-/// The account's Default environment (Auto's), from `cloud.environment.list`: the personal one.
+/// The Default environment Auto runs in, from `cloud.environment.list`. In a team's context (the list
+/// holds the team's environments) it is the team's Default, as the platform's Auto boots a team
+/// chat from (cmux-platform `selectedCloudEnvironment`, no id: the record team's Default); else, and
+/// for a personal-only account, the personal one. Leo, 2026-11-22 (ask c-922dfe5e36): "we need to be
+/// able to make sure arbitrary paying users/teammates can properly use it with the way that we
+/// properly use it".
 export function autoEnvironment(environments: readonly CloudEnvironment[]): CloudEnvironmentChoice | undefined {
   const found =
+    environments.find((environment) => environment.is_default && environment.scope === "team") ??
     environments.find((environment) => environment.is_default && environment.scope === "personal") ??
     environments.find((environment) => environment.is_default);
   return found ? { id: found.id, name: found.name } : undefined;
+}
+
+/// What Edit opens while Auto is the pick: in a team's context the team's Default (`autoEnvironment`)
+/// by id; else none, so the editor opens the personal Default as it always has.
+export function autoEditEnvironment(environments: readonly CloudEnvironment[]): string | undefined {
+  return environments.find((environment) => environment.is_default && environment.scope === "team")?.id;
 }
 
 /// Where a page keeps each folder's recent environment picks: its `localStorage`.

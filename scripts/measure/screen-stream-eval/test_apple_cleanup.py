@@ -135,11 +135,16 @@ class AppleCleanupTests(unittest.TestCase):
         while not hung.exists() and time.monotonic() < end:
             time.sleep(0.1)
         self.assertTrue(hung.exists(), "the view never reached the hung step")
+        rows = subprocess.run(["ps", "-eo", "pid=,ppid=,args="], capture_output=True, text=True).stdout.splitlines()
+        watchdogs = [int(f[0]) for f in (r.split(None, 2) for r in rows)
+                     if len(f) == 3 and f[1] == str(verb.pid) and "apple-watchdog" in f[2]]
+        self.assertEqual(len(watchdogs), 1, f"the verb's watchdog: {watchdogs}")
         verb.kill()
         verb.wait()
         pids = launched(self.tools)
         self.assertEqual(len(pids), 1, pids)
-        time.sleep(5)  # past the 3 s deadline
+        # The watchdog exits once its 3 s deadline passed and it decided what to act on.
+        self.assertTrue(gone_within(watchdogs[0], 15), "the orphaned watchdog never reached its 3 s deadline")
         self.assertTrue(alive(pids[0]), "an orphaned watchdog stopped a viewer after its verb was gone")
         self.assertFalse((self.root / "state/view-timed-out").exists())
 
