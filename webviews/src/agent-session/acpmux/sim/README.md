@@ -8,22 +8,24 @@ The simulator plays a chat through the pane's own code on virtual time, with no 
 
 - the records acpmux would write (`EventRecord`s) are folded one at a time by the pane's real reducer
   (`AcpmuxDirectClient.replay` / `seekReplay`, as session replay does);
-- each snapshot is shaped by the real turn view (`turnViewFrom`, built on the last, as `App.tsx` does) and
-  placed by the real layout (`layoutConversation`, the gap over each row the virtual stack draws);
-- after every step it probes the drawn rows and checks three rules, and writes one JSONL line per step.
+- each snapshot gets the running tray's subagent lines (`withSubagentLines`, as `App.tsx` does), is shaped
+  by the real turn view (`turnViewFrom`, built on the last, as `App.tsx` does) and placed by the real
+  layout (`layoutConversation`, the gap over each row the virtual stack draws);
+- after every step it probes the drawn rows and checks four rules, and writes one JSONL line per step.
 
 It runs under plain `bun` (no DOM), so it scales: a 1,800-turn run is 43k steps, 10k+ rows and 40 hours of
 virtual time.
 
-| File                                | What                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `script.ts`                         | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `message` and `steer` (mid-turn), `background`, `subagent`, `compaction`, `plan`, `permission`, `retry`, `stop`, `fail`, `reader` (scrolling), `wait`, and `record` for any raw record. |
-| `scenarios.ts`                      | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                                                                                                 |
-| `map.ts`                            | The map: every case, what is expected of it, and its check (below).                                                                                                                                                                                                                                                                     |
-| `run.ts`                            | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                                                                                                             |
-| `sanitize.ts`                       | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                                                                                                           |
-| `../../../../scripts/chat-sim.ts`   | The command line.                                                                                                                                                                                                                                                                                                                       |
-| `../../../../test/chat-sim.test.ts` | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                                                                                                               |
+| File                                    | What                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `script.ts`                             | The scenario language: `sim(name, about).prompt(..).think(..).tool(..).say(..).turnEnd()`, plus `incoming` (another agent's notice or message), `message` and `steer` (mid-turn), `background`, `subagent`, `compaction`, `plan`, `permission`, `retry`, `stop`, `fail`, `reader` (scrolling), `wait`, and `record` for any raw record. |
+| `scenarios.ts`                          | The named scenarios (`SCENARIOS`) and `longRun(turns)`.                                                                                                                                                                                                                                                                                 |
+| `map.ts`                                | The map: every case, what is expected of it, and its check (below).                                                                                                                                                                                                                                                                     |
+| `run.ts`                                | `runSimulation(scenario, options)`: the run, the probes and the rules. `summarize(result)`.                                                                                                                                                                                                                                             |
+| `sanitize.ts`                           | Makes a recorded chat safe to commit (below).                                                                                                                                                                                                                                                                                           |
+| `../../../../scripts/chat-sim.ts`       | The command line.                                                                                                                                                                                                                                                                                                                       |
+| `../../../../scripts/chat-sim-watch.ts` | Watch a run in Chrome with motion on: video and screenshots ("Watch it").                                                                                                                                                                                                                                                               |
+| `../../../../test/chat-sim.test.ts`     | The tests: every scenario, a sanitized replay, the sanitizer, a long run.                                                                                                                                                                                                                                                               |
 
 ## Run it
 
@@ -59,6 +61,38 @@ CMUX_BROWSER_TESTS=1 CHAT_SIM_DUMP=incoming-notice-turn:30 bun test test/chat-si
 
 It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two frames, so the replay
 (3,561 steps) takes a couple of minutes.
+
+## Watch it
+
+Leo, 2026-11-22: "offline as in it doesnt actually need a proper agent response. it just simulates it. based
+off like my transcript history. that's offline".
+
+`scripts/chat-sim-watch.ts` plays a scenario, a long run or any recorded chat (a fixture or a session
+directory) in headless Chrome with the real `VirtualTranscript`, the pane's CSS and its motion **on**, on
+scaled real time, so streaming text, tool calls, subagents and folds move as they do in the pane. It writes a
+video (`--video`, WebM) and screenshots (`--shots DIR`) at every turn's start and end, at the end, and every
+`--shot-every N` steps, plus `result.json` (steps played, turns, model-rule violations).
+
+```sh
+bun scripts/chat-sim-watch.ts incoming-notice-turn --video /tmp/sim.webm --shots /tmp/sim-shots
+bun scripts/chat-sim-watch.ts --long 3 --speed 2 --video /tmp/long.webm --shots /tmp/long-shots
+bun scripts/chat-sim-watch.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson --limit 800 --speed 8 --video /tmp/replay.webm
+bun scripts/chat-sim-watch.ts --replay ~/.acpmux/sessions/<id> --from 2000 --to 3000 --shots /tmp/mine
+```
+
+`--speed X` runs virtual time X times faster; `--max-gap MS` (default 1500) caps any one real wait, so an
+idle hour in a transcript does not play as one; `--max-seconds S` (default 600) stops the run there, so a
+huge fixture cannot run forever; `--width`/`--height` size the pane (720 by 900); `--motion off` draws rows at
+rest, as the rule checks do. The page's entry is `window.__chatSim.watch({ name | records, speed, ... })`
+in `test/browser/chat-sim.harness.tsx` (the page is handed the records, so any file works); `run` and `at`
+are unchanged.
+
+Like the browser lane it needs Chrome, so not on a Mac: run it on a Linux VM with Chrome, or through the fleet:
+
+```sh
+cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video /tmp/long.webm --shots /tmp/long-shots   # on the VM
+cmux-ci test --setup playwright --not-tests --artifact webviews/sim-out -- 'cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video sim-out/long.webm --shots sim-out/long'
+```
 
 ## Replay a real chat
 
@@ -229,6 +263,13 @@ the escape hatch for any record acpmux writes.
   next call alone is a violation. A reply whose text reappears in another row is `remapped`, not folded.
 - **(c) stillness**: no row two or more turns back is rebuilt (a new row object with the same id, version
   and fold) when nothing changed it. Live lines are exempt.
+- **(d) the 22:05Z burst** (Leo's chat, 2026-11-22 22:05-22:11Z, `test/fixtures/chat-sim/leo-2205-subagent-burst.ndjson`):
+  `d-started-pill`: a "started working" line names at most `STARTED_LINE_NAMES` (3) subagents, each by name,
+  and none whose start the pane never read (one first met through progress, its spawn before the page);
+  `d-started-lines`: one start line a turn (later starts join it); `d-blank`: once rows are drawn, the chat
+  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its top;
+  `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
+  row of a steer's turn that came after the steer is drawn above it.
 
 ## Read the trace
 
@@ -265,7 +306,14 @@ One JSON object per step:
       "received": true,
       "text": "hq#16160 merged"
     },
-    { "id": "working-user-22", "kind": "working", "turn": 2, "gap": 0, "fold": "", "head": true }
+    {
+      "id": "working-user-22",
+      "kind": "working",
+      "turn": 2,
+      "gap": 0,
+      "fold": "",
+      "head": true
+    }
   ]
 }
 ```

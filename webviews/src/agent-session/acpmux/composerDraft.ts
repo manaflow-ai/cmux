@@ -43,6 +43,18 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
   return `${saved}${DRAFT_SEPARATOR}${typed}`;
 }
 
+/**
+ * The prompt once a prompt comes back into it (`ComposerHandle.restore`: a send that failed or was
+ * refused, one taken back from the queue, one a hold gives back): `back` goes first, or after what
+ * the prompt holds when `behind`. The same rule as `mergedDraft`, so a prompt that is already there
+ * is never doubled. Before, a send that failed while the chat loaded came back ahead of the same
+ * text the draft had already put in the prompt, and the draft was saved twice over (Mango,
+ * 2026-11-24: "big disaster in Mango! i had a draft too that i wanted to send :(").
+ */
+export function restoredPrompt(typed: string, back: string, behind = false): string {
+  return behind ? mergedDraft(back, typed) : mergedDraft(typed, back);
+}
+
 /** What goes between a saved draft and text typed after it (`mergedDraft`). */
 const DRAFT_SEPARATOR = "\n\n";
 
