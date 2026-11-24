@@ -1096,7 +1096,7 @@ jobs:
       contents: read
       id-token: write
     # npm provenance and trusted publishing require a GitHub-hosted runner.
-    runs-on: ${{ 'ubuntu-latest' }} # github-hosted-required: npm provenance needs a github-hosted runner
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     timeout-minutes: 30
     environment:
       name: npm
@@ -1448,7 +1448,7 @@ jobs:
       - publish-npm
       - publish-python-wheel
       - publish-python-sdist
-    runs-on: ${{ 'ubuntu-latest' }} # github-hosted-required: npm provenance verification
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification
     timeout-minutes: 20
     permissions:
       actions: read

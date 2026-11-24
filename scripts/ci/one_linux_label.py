@@ -399,8 +399,8 @@ def freeze_line(expr: str) -> str | None:
     if not FREEZE_SCOPE.search(expr) or re.search(r"github\.repository_owner != 'manaflow-ai' && '(?:macos|windows)", expr):
         return None
     frozen = freeze_expr(expr)
-    # `owner guard && 'ubuntu-latest' || 'ubuntu-latest'` (a provenance job) says the label once.
-    frozen = re.sub(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && ('[^']*') \|\| \1 \}\}$", r"${{ \1 }}", frozen)
+    # `owner guard && 'ubuntu-latest' || 'ubuntu-latest'` (a provenance job) is the plain label.
+    frozen = re.sub(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && '([^']*)' \|\| '\1' \}\}$", r"\1", frozen)
     # A fork pull request arm that now names the same label as the route after it says it once.
     fork = re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'"))
     frozen = re.sub(rf"\({fork} && ('[^']*') \|\| \1\)", r"\1", frozen)
@@ -409,6 +409,8 @@ def freeze_line(expr: str) -> str | None:
     # vendor label it would queue forever instead, so it takes the guard every other Linux route leads with.
     if not frozen.startswith("${{ github.repository_owner") and re.search(r"'(?!ubuntu-)[^']+' \}\}$", frozen):
         frozen = frozen.replace("${{ ", f"${{{{ {OWNER_GUARD} || ", 1)
+    # An expression left with one quoted label and nothing else is that label.
+    frozen = re.sub(r"^\$\{\{ '([^']*)' \}\}$", r"\1", frozen)
     return frozen if frozen != expr and not re.search(r"vars\.|fromjson\(vars", frozen, re.I) else None
 
 

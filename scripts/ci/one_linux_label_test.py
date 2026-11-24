@@ -192,14 +192,14 @@ class OneLinuxLabelTest(unittest.TestCase):
             # No owner guard: an unset variable failed in a fork; the frozen label would queue there, so it is guarded.
             ("${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}", f"${{{{ {g} || 'blacksmith-4vcpu-ubuntu-2404' }}}}"),
             # A GitHub-hosted label needs no guard.
-            ("${{ fromJSON(vars.RUNNER_POOLS).provenance }}", "${{ 'ubuntu-latest' }}"),
+            ("${{ fromJSON(vars.RUNNER_POOLS).provenance }}", "ubuntu-latest"),
         ):
             self.assertEqual(olc.freeze_line(expr), want, expr)
 
     def test_provenance_job_keeps_its_hosted_runner_without_the_variable(self) -> None:
         text = job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm", "publish-npm")
         out, report = rewrite(text, name="x-publish-npm.yml")
-        self.assertEqual(out, job("${{ 'ubuntu-latest' }} # github-hosted-required: npm", "publish-npm"))
+        self.assertEqual(out, job("ubuntu-latest # github-hosted-required: npm", "publish-npm"))
         self.assertEqual(rewrite(out, name="x-publish-npm.yml")[0], out)
 
     def test_probe_job_keeps_its_variable(self) -> None:

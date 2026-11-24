@@ -94,13 +94,13 @@ class WorkflowTests(unittest.TestCase):
                 runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # ephemeral-required: credentialed job
                 steps: []
               publish:
-                runs-on: ${{{{ 'ubuntu-latest' }}}} # github-hosted-required: npm provenance
+                runs-on: ubuntu-latest # github-hosted-required: npm provenance
                 steps: []
               plain:
                 runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # a note, not a reason
                 steps: []
               wrong-kind:
-                runs-on: ${{{{ 'ubuntu-latest' }}}} # ephemeral-required: an ephemeral reason does not admit hosted
+                runs-on: ubuntu-latest # ephemeral-required: an ephemeral reason does not admit hosted
                 steps: []
             """)
         self.assertEqual(found, [("w.yml", "plain", ["blacksmith-4vcpu-ubuntu-2404"]),
