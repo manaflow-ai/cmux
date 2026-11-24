@@ -436,7 +436,8 @@ class RequiredCheckNamesReport(unittest.TestCase):
         migrations = pull_request_target_workflows()["backend-migrations.yml"]
         for action in ("opened", "synchronize", "reopened", "labeled", "edited"):
             for base in PULL_REQUEST_BASES:
-                context = pull_request_event(action, base, base_changed=True)
+                # full-ci: a label that counts into feat-cmux-next too (ignored labels are the test below).
+                context = pull_request_event(action, base, label="full-ci", base_changed=True)
                 self.assertEqual(jobs_started(migrations, context), ["plan", "gate"], (action, base))
 
     def test_every_required_expression_name_reports_from_a_running_job(self):
