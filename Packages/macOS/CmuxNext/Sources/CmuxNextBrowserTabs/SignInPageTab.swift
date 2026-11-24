@@ -4,7 +4,8 @@ import Foundation
 /// provider's page it opened does not stay behind. Leo 2026-11-23: "WE ABSOLUELY MUST ERR ON THE SIDE
 /// OF BEING NOT ANNOYING", which cuts both ways: no leftover page, and never a tab that may not be
 /// this sign-in's.
-public nonisolated enum SignInPageTab {
+public nonisolated struct SignInPageTab {
+    public nonisolated init() {}
     /// Of the browser tabs made since the sign-in opened its page (`made`: each tab's id and the
     /// addresses it shows, the live page's first, then the daemon's record), the one to close: the
     /// only one still on the host of `url`. A tab the person took to another site stays, and with
