@@ -96,6 +96,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var machine = BrowserTabStateMachine()
     /// The one automatic reload a memory end of the renderer owes (``BrowserExitRecovery``).
     @ObservationIgnored var exitRecovery = BrowserExitRecovery()
+    /// Ends the renderer of a page that stays hung while hidden, where no one sees its "Page unresponsive"
+    /// card (``BrowserHiddenHangBound``, hq#13463). A test gives it a manual clock.
+    @ObservationIgnored lazy var hiddenHangBound = BrowserHiddenHangBound(
+        owner: "CEFTab.hiddenHang",
+        mayEnd: { [weak self] in self?.mayEndHiddenHungRenderer ?? false },
+        end: { [weak self] in self?.endHiddenHungRenderer() })
+    /// The renderer's next end is the hidden-hang bound's, not a crash or the person's Exit page.
+    @ObservationIgnored var rendererEndedForHang = false
     /// The system's memory pressure, read when the renderer ends; a test gives a fixed level.
     @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
@@ -104,7 +112,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
     /// manual clock.
     @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
-    @ObservationIgnored var isCreationPending = false
+    @ObservationIgnored var isCreationPending = false {
+        // The browser is on its way: a load `load` kept for it starts now (``startLoadAwaitingBrowser()``).
+        didSet { if isCreationPending { startLoadAwaitingBrowser() } }
+    }
+    /// `load` gave the page an address while it had no browser and none was on its way: the load starts when one is
+    /// (``startLoadAwaitingBrowser()``), not before, since Chromium loads nothing until then.
+    @ObservationIgnored var loadAwaitsBrowser = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
@@ -494,8 +508,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // What the page area shows, and when the document takes it over, are in
     // `CEFTab+LoadingBackground`.
 
+    /// The browser of a page `load` gave an address before it had one is on its way (a pane shows the tab, or its
+    /// creation began): the load starts now, so the throbber and Stop show in the frame that shows the page.
+    /// Chromium's own load events carry it from there (`CEFTab+Events`).
+    func startLoadAwaitingBrowser() {
+        guard loadAwaitsBrowser else { return }
+        loadAwaitsBrowser = false
+        guard !isClosed, browserID == nil, let url = pendingURL, !state.isLoading else { return }
+        let id = makeNavigationID()
+        navigation = id
+        machine.apply(.started(id, url: url))
+    }
+
     func creationFailed() {
         isCreationPending = false
+        loadAwaitsBrowser = false
         agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
@@ -543,6 +570,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // A tab whose renderer ended while hidden shows the crash notice with its Reload button
         // when shown; only a renderer the system ended for memory reloads, once (`exitRecovery`).
         reloadOwedAfterExit()
+        hiddenHangChanged()
     }
 
     /// Takes the one automatic reload a memory end owes, if the sad tab still shows.
@@ -575,7 +603,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         documentDidSettle()
         findRequests.cancel()
         let pressure = memoryPressure()
-        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        hiddenHangBound.cancel()
+        let owed: Bool
+        if rendererEndedForHang {
+            // cmux ended it for staying hung while hidden: the page reloads once when shown.
+            rendererEndedForHang = false
+            owed = exitRecovery.endedForHang(now: .now)
+        } else {
+            owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        }
         runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
         if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
@@ -586,6 +622,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     func contentDidDisappear() {
         host.conceal(self)
+        hiddenHangChanged()
     }
 
     func emit(_ intent: BrowserTabIntent) {
@@ -609,6 +646,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func load(_ url: URL) {
         guard !isClosed else { return }
         automaticDownloads.userGesture()
+        guard browserID != nil || isCreationPending else {
+            // No browser, and none on its way: a page made before any pane shows its tab (a rest on the tab, a
+            // hibernated page restored in the background, an agent's read). Chromium makes its browser when a pane
+            // shows it or an agent needs one, and loads nothing before, so a navigation started here never ended:
+            // the tab read as loading and its strip spun forever (Lawrence 2026-11-23). It keeps the address, as
+            // Chrome's unloaded tab does, and loads when its browser is on its way.
+            pendingURL = url
+            loadAwaitsBrowser = true
+            machine.apply(.addressPending(url))
+            return
+        }
+        loadAwaitsBrowser = false
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
@@ -676,7 +725,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }
-        if !terminate { machine.apply(.unresponsiveChanged(false)) }
+        if !terminate { machine.apply(.unresponsiveChanged(false)); hiddenHangChanged() }
     }
 
     public func stop() {
@@ -754,6 +803,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
         if visible, host.visibleTab === self { reloadOwedAfterExit() }
+        hiddenHangChanged()
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host
@@ -780,6 +830,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentFiles.withdraw()
         titleTimer.cancel()
         settleTimer.cancel()
+        hiddenHangBound.cancel()
         devToolsController.openTimer.cancel()
         faviconTask?.cancel()
         documentFaviconRead?.cancel()
