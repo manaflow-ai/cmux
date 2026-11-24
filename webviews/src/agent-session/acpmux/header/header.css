@@ -501,7 +501,7 @@
   flex-wrap: wrap;
   flex: 0 8 auto;
   min-width: 0;
-  height: var(--acpmux-header-control-height, 26px);
+  height: var(--acpmux-header-control-height);
   max-width: min(52vw, 560px);
   padding: 0 var(--ds-space-1);
   color: var(--agent-muted);
