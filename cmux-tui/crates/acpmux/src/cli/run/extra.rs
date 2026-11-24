@@ -100,7 +100,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client
                 .request(
                     method::MUX_RETENTION,
-                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only, "unreadOnly": args.unread_only}),
                 )
                 .await?;
             if json_out {
@@ -116,6 +116,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if args.dry_run { "would be freed (dry run)" } else { "freed" }
                 );
                 println!("skipped: {}", v["skipped"]);
+                let read_back = v.get("readBack").and_then(|r| r.as_array());
+                for chat in read_back.into_iter().flatten() {
+                    let text = |key: &str| chat.get(key).and_then(|x| x.as_str()).unwrap_or("?");
+                    let num = |key: &str| chat.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
+                    println!(
+                        "{}: {} -> {} bytes, reads back the same {} rows (digest {})",
+                        text("sessionId"),
+                        num("bytesBefore"),
+                        num("bytesAfter"),
+                        num("rows"),
+                        text("digest")
+                    );
+                }
             }
             Ok(())
         }
@@ -547,10 +560,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Allow { session, option } => {
-            answer_permission(&session, option, true, json_out).await
+        Command::Allow { session, option, standing_grant } => {
+            let how = if standing_grant { Answer::StandingGrant } else { Answer::Allow };
+            answer_permission(&session, option, how, json_out).await
         }
-        Command::Deny { session } => answer_permission(&session, None, false, json_out).await,
+        Command::Deny { session } => {
+            answer_permission(&session, None, Answer::Deny, json_out).await
+        }
         Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
@@ -895,7 +911,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_start_modes().await;
             Ok(())
         }
-        Command::Web { app, no_open, show_token, rotate_token } => {
+        Command::Web { app, no_open, show_token, rotate_token, tailnet } => {
+            let app = app || tailnet;
             let client = connect(true).await?;
             let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
             let v = client.request(m, json!({})).await?;
@@ -904,6 +921,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("daemon has no web listener"))?
                 .to_owned();
+            let tailnet_plan = if tailnet {
+                let tn = crate::tailnet::Tailnet::locate()?;
+                let plan = crate::web_tailnet::plan(&tn.status()?, &url)?;
+                // Name the host and origin first, so the proxy never fronts a listener that
+                // would refuse its requests; the daemon applies them at its next connection.
+                let mut cfg = Config::load()?;
+                if let Some(ws) = cfg.websocket.as_mut()
+                    && crate::web_tailnet::allow(ws, &plan.fqdn)
+                {
+                    cfg.save()?;
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
+                tn.serve_https_to_loopback(plan.port)?;
+                Some(plan)
+            } else {
+                None
+            };
             let url = if app {
                 let mut url = reqwest::Url::parse(&url).context("invalid web listener URL")?;
                 let listener_token = url
@@ -915,7 +949,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 url.set_path("/app/");
                 url.set_query(None);
                 url.set_fragment(Some(&format!("token={token}")));
-                url.to_string()
+                match &tailnet_plan {
+                    Some(plan) => crate::web_tailnet::link(&plan.fqdn, &token),
+                    None => url.to_string(),
+                }
             } else {
                 url
             };
@@ -972,8 +1009,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if status {
                 return crate::cli::cloud_join::status(hub, json_out).await;
             }
-            // A process-wide file lock protects the check, redeem and commit as one
-            // transaction. A second installer never redeems behind the first one.
+            // A symlinked home is refused by name; then a process-wide file lock protects the check, redeem
+            // and commit as one transaction. A second installer never redeems behind the first one.
+            crate::cli::join_input::refuse_symlinked_home()?;
             let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
