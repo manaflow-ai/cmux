@@ -136,7 +136,7 @@ pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
         Err(refusal) => return Probe::Failed(refusal.0),
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let http = match reqwest::Client::builder()
+    let http = match crate::happy_dial::http_client()
         .timeout(TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()

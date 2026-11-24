@@ -83,6 +83,8 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import type { ResumeActions } from "../subagents/ResumeControl";
 import { AlsoHereSection } from "./AlsoHereSection";
+import { CarriedSection, carriedSummary } from "./CarriedSection";
+import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
@@ -116,6 +118,7 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -263,6 +266,7 @@ export function SessionInfoPanel({
     >
       <div
         className="acpmux-session-info__resize"
+        {...RESIZE_HANDLE_PROPS}
         aria-hidden="true"
         onPointerDown={(event) => {
           if (event.button !== 0 || !frame.current) return;
@@ -378,6 +382,8 @@ export function SessionInfo({
   remoteControl,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   onCompact,
   onOpenFolder,
   edits,
@@ -472,6 +478,10 @@ export function SessionInfo({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home` while the section is open, and
+  /// sends `_acpmux/agent_home_resolve` on Accept or Drop. Unset (Quick Chat, a subagent's panel): no section.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
@@ -732,6 +742,32 @@ export function SessionInfo({
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
     </SessionInfoSection>
   );
+  // Carried memory: only in the chat's own panel, read while it is open (and once for its header
+  // value as it is drawn, so the folded line says what waits).
+  const carriedRead = useCarried(readCarried, Boolean(readCarried), chatId ?? "");
+  const carriedHome = carriedRead.home;
+  const carriedValue = carriedSummary(t, carriedHome, carriedRead.failed);
+  const carriedOpens = Boolean(carriedHome?.configured || carriedRead.failed);
+  const carried = readCarried && (
+    <SessionInfoSection
+      id="carried"
+      title={t("rail.carried")}
+      open={carriedOpens && state.carried}
+      onOpenChange={carriedOpens ? fold("carried") : undefined}
+      meta={carriedValue ? value(carriedValue) : undefined}
+    >
+      <CarriedSection
+        home={carriedHome}
+        failed={carriedRead.failed}
+        onResolve={onResolveCarried}
+        onSettled={(resolution) => {
+          carriedRead.settle(resolution);
+          carriedRead.reload();
+        }}
+        locale={language}
+      />
+    </SessionInfoSection>
+  );
   const changes = pullRequests.length > 0 && (
     <SessionInfoSection
       id="changes"
@@ -944,6 +980,7 @@ export function SessionInfo({
           context,
           usage: usageSection,
           connectors,
+          carried,
           changes,
           sources: sourcesSection,
           outputs: outputsSection,
