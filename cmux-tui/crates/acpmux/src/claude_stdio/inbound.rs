@@ -532,7 +532,7 @@ impl Translator {
                 }
             }
             "control_request" => {
-                let req = line.get("request").cloned().unwrap_or(Value::Null);
+                let req = line.get("request").unwrap_or(&Value::Null);
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("").to_owned();
                 match req.get("subtype").and_then(Value::as_str) {
                     Some("can_use_tool") => {
@@ -564,7 +564,7 @@ impl Translator {
                             "kind": tool_kind(name),
                             "status": "pending",
                             "rawInput": input,
-                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(&req)}}
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": ask_description(req)}}
                         });
                         with_edit(&mut call, name, &input);
                         out.push(Message::request(
@@ -578,16 +578,16 @@ impl Translator {
                         ));
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
-                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    Some("elicitation") => out.extend(self.elicit(&sid, &rid, req).await),
                     // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
                     Some("hook_callback")
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(policy_gate::GATE_CALLBACK) =>
                     {
-                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                        out.extend(self.gate_hook(&sid, &rid, req).await);
                     }
-                    // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Hook decisions travel on the same stream as their requests.
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,

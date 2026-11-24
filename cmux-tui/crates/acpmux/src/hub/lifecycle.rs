@@ -1428,6 +1428,7 @@ impl Hub {
                     recap: recap.clone(),
                     claude_session_id: known.clone(),
                     resumes_cut_turn,
+                    stop_condition: meta.stop_condition.is_some(),
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1447,6 +1448,7 @@ impl Hub {
                 );
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.stop_condition.store(meta.stop_condition.is_some(), Ordering::Relaxed);
                 tr.set_recap(recap.as_deref());
                 if resumes_cut_turn {
                     tr.owe_resumed();

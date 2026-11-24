@@ -174,8 +174,25 @@ impl Hub {
         peer_pid: u32,
         req: RegisterRequest,
     ) -> Result<Value, RpcError> {
+        self.register_caller_with_ancestry(
+            peer_pid,
+            crate::sender_harness::ancestors(peer_pid),
+            req,
+        )
+        .await
+    }
+
+    /// As [`Self::register_caller`], using the process chain captured when the socket was
+    /// accepted. A hook may time out and exit while this request is still queued in the daemon,
+    /// so walking its pid after that exit would lose the proof that it came from the session.
+    pub async fn register_caller_with_ancestry(
+        self: &Arc<Self>,
+        peer_pid: u32,
+        ancestry: Vec<u32>,
+        req: RegisterRequest,
+    ) -> Result<Value, RpcError> {
         let (Some(socket), Some(token)) = (req.socket.clone(), req.token.clone()) else {
-            return self.register_proven(peer_pid, req).await;
+            return self.register_proven(peer_pid, ancestry, req).await;
         };
         if !req.auto && !req.renew {
             return self.register_proven(peer_pid, req).await;
@@ -184,7 +201,7 @@ impl Hub {
             auto::Step::Answer(answer) => return Ok(answer),
             auto::Step::Go(reserved) => reserved,
         };
-        let out = self.register_proven(peer_pid, req).await;
+        let out = self.register_proven(peer_pid, ancestry, req).await;
         match &out {
             Err(e) => reserved.failed(&e.message),
             // Nothing to renew: kept like a failure, so a hook that asks on every turn is
@@ -200,6 +217,7 @@ impl Hub {
     async fn register_proven(
         self: &Arc<Self>,
         peer_pid: u32,
+        ancestry: Vec<u32>,
         req: RegisterRequest,
     ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
@@ -207,7 +225,7 @@ impl Hub {
         let found = tokio::task::spawn_blocking(move || {
             // Only the caller's own processes: never past this daemon, which a desktop shell may
             // have started.
-            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
+            let ancestry = below_daemon(ancestry);
             let live = crate::claude_peers::live(&homes.claude);
             nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
         })
