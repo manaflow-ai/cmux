@@ -183,6 +183,7 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
         let hook = MeshControlHook::new(
             vec![MeshControlFrom {
                 daemon_id: String::new(),
+                max_policy: None,
                 same_user: true,
                 ops: vec!["move".into()],
             }],
