@@ -512,6 +512,11 @@ path = "tests/test_next_batch_groups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_next_closes_issues.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_next_closes_issues.py"
+
+[[test]]
 path = "tests/test_next_line.py"
 lane = "linux-guard"
 
