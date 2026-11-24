@@ -128,6 +128,20 @@ class ReviewDateScopeTests(unittest.TestCase):
         status, output = self.run_lint("--base", base)
         self.assertEqual(status, 1, output)
 
+    def test_expired_flag_in_an_untracked_registry_file_fails(self):
+        """An untracked registry file is discovered, so its diff must count as touched too."""
+        base = self.commit_base(CURRENT)
+        self.registry.write_text(CURRENT)
+        untracked = self.root / "NewFlag.swift"
+        untracked.write_text(EXPIRED)
+        with mock.patch.object(self.linter, "swift_registry_files", return_value=["Example.swift", "NewFlag.swift"]):
+            status, output = self.run_lint("--base", base)
+        self.assertEqual(status, 1, output)
+        self.assertTrue(
+            any("expired-thing-release" in error for error in self.linter.errors),
+            self.linter.errors,
+        )
+
     def test_unresolvable_base_only_warns(self):
         self.commit_base(EXPIRED)
         with mock.patch.object(self.linter, "default_base", return_value=None):
