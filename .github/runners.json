@@ -2,7 +2,7 @@
   "$comment": [
     "Capability -> runner label. A job says what it needs; this file says what",
     "answers today. Read by scripts/ci/resolve_runners.py, published by",
-    ".github/workflows/resolve-runners.yml. See docs/ci-runner-capability-map.md.",
+    ".github/workflows/resolve-runners.yml. See docs/ci-runners.md.",
     "",
     "Every fleet must define every capability key. A fleet missing a key would",
     "emit an empty runs-on, and an empty or unknown label does not error on",
@@ -222,7 +222,7 @@
       "What kind of work a job does, and whether that work needs macOS.",
       "scripts/ci/runner_routing_table.py fails a macOS job with no macos_jobs entry,",
       "and a macOS job whose class needs linux (unless it is an existing job with a",
-      "linux_followup). See docs/ci-runner-capability-map.md."
+      "linux_followup). See docs/ci-runners.md."
     ],
     "apple-app-build": {
       "needs": "macos",

@@ -1411,9 +1411,13 @@ class BunInstallScript(unittest.TestCase):
         steps = doc["jobs"]["complexity"]["steps"]
         self.assertEqual(step_named(steps, "Install web dependencies")["run"],
                          "bash ../scripts/ci/bun-install.sh --frozen-lockfile")
-        cache = step_named(steps, "Cache Bun package cache")
-        self.assertEqual(cache["with"]["path"], "~/.bun/install/cache")
-        self.assertLess(steps.index(cache), steps.index(step_named(steps, "Install web dependencies")))
+        # Base branches save the cache; every other ref restores it only (a save and a restore twin).
+        caches = [s for s in steps if s.get("name", "").startswith("Cache Bun package cache")]
+        self.assertEqual(len(caches), 2, [s.get("name") for s in caches])
+        install = steps.index(step_named(steps, "Install web dependencies"))
+        for cache in caches:
+            self.assertEqual(cache["with"]["path"], "~/.bun/install/cache")
+            self.assertLess(steps.index(cache), install)
 
 
 class BunInstallScriptWithoutGnuTimeout(BunInstallScript):

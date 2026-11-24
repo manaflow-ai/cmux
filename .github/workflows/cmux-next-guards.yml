@@ -1572,6 +1572,13 @@ jobs:
           python3 scripts/measure/tests/launch-ready-summary.test.py
           bash scripts/measure/tests/launch-ready-cases.test.sh
 
+      # RFD 0134 Table 4 row 1: the installer package's postinstall pre-warms the installed copy as the console user,
+      # bounded, and never fails the install; build-pkg.sh never relocates or version-skips the app.
+      - name: cmux NEXT installer package and its pre-warm postinstall
+        id: tt-next-pkg
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-next-pkg ')) }}
+        run: bash scripts/cmux-next/tests/next-pkg.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         id: tt-install-zig
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-install-zig ')) }}
