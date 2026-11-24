@@ -44,8 +44,15 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
 }
 
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
+    crate::cli::resolve::routed_id(&session_info(client, key, true).await?)
+}
+
+/// Resolve the name and read its record in one request. Identity-only callers can use the
+/// peer's current mirrored row. Detail callers need the owner's full record.
+pub(crate) async fn session_info(client: &Client, key: &str, row_will_do: bool) -> Result<Value> {
     let key = orchestrate::expand_session_key(key)?;
-    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
+    let params = json!({"sessionId": key, "row": row_will_do});
+    match client.request(method::MUX_INFO, params).await.map_err(|e| {
         if e.downcast_ref::<crate::client::DaemonError>()
             .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
         {
@@ -53,9 +60,8 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         } else {
             e
         }
-    });
-    let v = match v {
-        Ok(v) => v,
+    }) {
+        Ok(v) => return Ok(v),
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
@@ -66,9 +72,8 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
                 Lookup::Unknown(why) => unknown_refusal(&key, e, &why),
             });
         }
-        Err(e) => return Err(e),
-    };
-    crate::cli::resolve::routed_id(&v)
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(all(test, unix))]

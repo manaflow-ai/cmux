@@ -653,7 +653,7 @@ impl Hub {
     }
 
     pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.session_get(id)
     }
 
     pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
