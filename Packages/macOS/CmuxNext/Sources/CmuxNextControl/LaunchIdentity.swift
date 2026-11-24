@@ -168,6 +168,10 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// through the strip like the switches above; before, the strip took it, so it never reached the launch latch.
     public static let inTreePagesKey = "CMUX_IN_TREE_PAGES"
 
+    /// The Chromium page resize fence's wait override in ms (`CEFLayerHosting.resizeFenceTimeoutOverrideMs`): a harness
+    /// names it for a fence experiment. Kept through the strip like ``inTreePagesKey``; another cmux's goes.
+    public static let resizeFenceOverrideKey = "CMUX_CEF_RESIZE_FENCE_MS"
+
     /// Whether this launch ignores every layer: the argument, the variable set to anything but
     /// empty, `0`, `false` or `no`, or Option and Shift held as the app starts (`keysHeld`).
     public static func ignoresCustomizations(arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -195,7 +199,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey || key == inTreePagesKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == inTreePagesKey || key == resizeFenceOverrideKey,
+               !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
