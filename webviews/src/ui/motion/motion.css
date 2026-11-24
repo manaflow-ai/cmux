@@ -199,7 +199,9 @@
   --ui-reveal-fade: 20px;
 }
 .ui-reveal-under {
-  transition: opacity var(--ui-reveal-ms, 180ms) var(--ui-reveal-ease, ease-in);
+  --ui-reveal-ms: var(--cmux-hover-reveal-out, 180ms);
+  --ui-reveal-ease: var(--cmux-hover-reveal-out-ease, ease-in);
+  transition: opacity var(--ui-reveal-ms) var(--ui-reveal-ease);
 }
 .ui-reveal-host[data-reveal-crowded]:is(:hover, :focus-within, :has([data-popup-open])) .ui-reveal-under {
   --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
