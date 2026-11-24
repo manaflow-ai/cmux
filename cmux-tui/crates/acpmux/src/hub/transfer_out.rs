@@ -401,7 +401,10 @@ impl Hub {
                 // `historyLater: {keepTurns}`: the history follows the chat (`transfer_history.rs`).
                 let keep = params.get("historyLater").filter(|l| !l.is_null());
                 let keep = keep.map(|l| l.get("keepTurns").and_then(Value::as_u64).unwrap_or(1));
-                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"), keep)
+                // A prepare copies the whole history: off the runtime's workers, so the chat
+                // and every other one answer while it runs (`qos::off_worker`, cmux#54461).
+                let session = self.resolve(text("sessionId"))?;
+                crate::qos::off_worker(|| self.transfer_prepare(&session, params.get("base"), keep))
             }
             "history_have" => self.transfer_history_have(params),
             "history_export" => {
@@ -410,7 +413,8 @@ impl Hub {
             "history" => self.transfer_history(&self.resolve(text("sessionId"))?, params),
             "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
-            "stage_finish" => self.transfer_stage_finish(params),
+            // Rewrites the staged prefix whole: off the runtime's workers too.
+            "stage_finish" => crate::qos::off_worker(|| self.transfer_stage_finish(params)),
             "digest" => self.transfer_digest(params),
             "end_stale" => self.transfer_end_stale(params).await,
             "progress" => self.transfer_progress(params),
@@ -704,28 +708,30 @@ impl Hub {
         // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
         let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
         let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
-        let made = self
-            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
-            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-            .and_then(|bundle| {
-                let approved_waiting = match folded.as_mut() {
-                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
-                    None => {
-                        let prefix_seq =
-                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
-                        self.held_prompts_with(prefix_seq, &bundle)?
-                    }
-                };
-                if !approved_waiting.is_empty() && !gates_receiver {
-                    return Err(approved_prompts_error(
-                        json!(approved_waiting),
-                        "the move's client does not check that its receiver approves",
-                    ));
+        // A whole move's bundle is its whole history: made off the runtime's workers, so the
+        // daemon's other chats answer while it is (`qos::off_worker`, cmux#54461).
+        let made = crate::qos::off_worker(|| {
+            self.export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
+        })
+        .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+        .and_then(|bundle| {
+            let approved_waiting = match folded.as_mut() {
+                Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                None => {
+                    let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                    self.held_prompts_with(prefix_seq, &bundle)?
                 }
-                let files = bundle_files(&bundle)
-                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                Ok((files, approved_waiting))
-            });
+            };
+            if !approved_waiting.is_empty() && !gates_receiver {
+                return Err(approved_prompts_error(
+                    json!(approved_waiting),
+                    "the move's client does not check that its receiver approves",
+                ));
+            }
+            let files = bundle_files(&bundle)
+                .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+            Ok((files, approved_waiting))
+        });
         steps.step("export");
         let (files, approved_waiting) = match made {
             Ok(made) => made,
