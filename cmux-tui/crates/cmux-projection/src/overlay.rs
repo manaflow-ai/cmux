@@ -23,6 +23,9 @@
 //!   new blob is admitted the least recently used ones go, and a later read fetches them again.
 //!   A pinned folder's bytes ([`Overlay::pin`], the `pins` file) are kept apart: fetched whole,
 //!   never evicted and not counted against the cap, so they read with the Mac away.
+//!   Each cached blob is a hard link into `content/` ([`content`], RFD 0065 piece 5): every
+//!   fetched blob by the hash of its bytes, sized to the free disk and kept across listings, so a
+//!   blob the cap let go or a new listing forgot is read off the disk again, not fetched.
 //!   The upper layer is never evicted; it goes only once its edits are safe ([`crate::state`],
 //!   [`crate::reap`]).
 
@@ -379,6 +382,9 @@ pub struct Overlay {
     away: Option<Arc<crate::away::Away>>,
     cache_index: Mutex<CacheIndex>,
     cache_max: u64,
+    /// Every fetched blob by the hash of its bytes, kept across listings ([`content`]); `None`
+    /// for a source that is not cached, or a store that could not be made.
+    content: Option<content::Content>,
     cache_evicted: AtomicU64,
     /// The pinned paths, written to `pins_file` (one per NUL) on every change.
     pins: Mutex<BTreeSet<String>>,
@@ -648,6 +654,8 @@ impl Overlay {
         let (whiteouts, rewrite) = parse_whiteouts(&bytes);
         let next = manifest.len() as u64 + 2;
         let cache_index = Mutex::new(cache_on_disk(&cache));
+        let content =
+            if fetch.cache() { content::Content::open(&state.join("content")) } else { None };
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
@@ -683,6 +691,7 @@ impl Overlay {
             away: None,
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
+            content,
             cache_evicted: AtomicU64::new(0),
             pins: Mutex::new(BTreeSet::new()),
             pins_file,
@@ -727,6 +736,22 @@ impl Overlay {
         self.cache_max = bytes;
         self.evict_to_fit(&mut self.cache_lock(), 0);
         self
+    }
+
+    /// This overlay with its content store leaving `bytes` of its disk free
+    /// ([`content::DEFAULT_CONTENT_FLOOR`] by default); `u64::MAX` keeps nothing in it.
+    #[must_use]
+    pub fn with_content_floor(self, bytes: u64) -> Self {
+        if let Some(content) = &self.content {
+            content.set_floor(bytes);
+        }
+        self
+    }
+
+    /// The bytes the content store holds now (every listing's blobs, by hash).
+    #[must_use]
+    pub fn content_bytes(&self) -> u64 {
+        self.content.as_ref().map_or(0, content::Content::bytes)
     }
 
     /// The bytes of the Mac's files cached on the machine now.
@@ -1316,7 +1341,7 @@ impl Overlay {
         }
         let Ok(bytes) = fs::read(self.cache_path(key)) else {
             self.cache_lock().remove(key);
-            return None;
+            return self.content_read(key);
         };
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         self.cache_lock().touch(key);
@@ -1330,11 +1355,47 @@ impl Overlay {
         }
         let Ok(file) = fs::File::open(self.cache_path(key)) else {
             self.cache_lock().remove(key);
-            return None;
+            let bytes = self.content_read(key)?;
+            let from = usize::try_from(offset).ok()?;
+            return bytes.get(from..from.checked_add(len)?).map(<[u8]>::to_vec);
         };
         let bytes = read_range(&file, offset, len)?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         self.cache_lock().touch(key);
+        Some(bytes)
+    }
+
+    /// What the listing says of `key`'s blob: the content store's name for it.
+    fn content_name(&self, (index, part): Key) -> Option<content::Name> {
+        let entry = self.manifest.entry(index)?;
+        (entry.kind == Kind::File).then(|| content::Name {
+            path: self.manifest.path_of(index),
+            size: entry.size,
+            mtime_ns: entry.mtime_ns,
+            part,
+        })
+    }
+
+    /// Whether the content store holds `key`'s bytes (by its index alone).
+    fn in_content(&self, key: Key) -> bool {
+        self.content
+            .as_ref()
+            .zip(self.content_name(key))
+            .is_some_and(|(content, name)| content.has(&name))
+    }
+
+    /// `key`'s bytes from the content store (an earlier listing, or a blob the cap let go),
+    /// put back in the cache; a hit, never a fetch.
+    fn content_read(&self, key: Key) -> Option<Vec<u8>> {
+        let content = self.content.as_ref()?;
+        let (hash, bytes) = content.get(&self.content_name(key)?)?;
+        let temp = self.scratch_path();
+        if content.link(&hash, &temp) || fs::write(&temp, &bytes).is_ok() {
+            self.admit(key, &temp, bytes.len() as u64);
+        } else {
+            let _ = fs::remove_file(&temp);
+        }
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
@@ -1343,11 +1404,22 @@ impl Overlay {
             return;
         }
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_err() {
+        // The content store keeps the bytes once, by hash; the cache's file is a hard link to it.
+        let linked = self
+            .content
+            .as_ref()
+            .zip(self.content_name(key))
+            .and_then(|(content, name)| content.put(name, bytes).map(|hash| (content, hash)))
+            .is_some_and(|(content, hash)| content.link(&hash, &temp));
+        if !linked && fs::write(&temp, bytes).is_err() {
             let _ = fs::remove_file(&temp);
             return;
         }
-        let size = bytes.len() as u64;
+        self.admit(key, &temp, bytes.len() as u64);
+    }
+
+    /// Lands scratch file `temp` (`size` bytes) as cached `key`, under the cap.
+    fn admit(&self, key: Key, temp: &Path, size: u64) {
         // Room first, then the blob lands and is counted, under one lock: the cache never holds
         // more than its cap, and no eviction races a blob landing. A pinned file's blob is kept
         // apart and makes no room.
@@ -1356,17 +1428,17 @@ impl Overlay {
         if !pinned && size > self.cache_max {
             // Never fits: it is served, not kept.
             drop(index);
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
             return;
         }
         index.remove(key);
         if !pinned {
             self.evict_to_fit(&mut index, size);
         }
-        if fs::rename(&temp, self.cache_path(key)).is_ok() {
+        if fs::rename(temp, self.cache_path(key)).is_ok() {
             index.insert(key, size);
         } else {
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
         }
     }
 
@@ -1408,7 +1480,9 @@ impl Overlay {
                 read_ahead(&self.manifest, index, |other, entry| {
                     self.manifest.kept(other).is_some()
                         || Self::hidden(&inner, &self.manifest.path_of(other))
-                        || (entry.kind == Kind::File && self.cache_path((other, WHOLE)).exists())
+                        || (entry.kind == Kind::File
+                            && (self.cache_path((other, WHOLE)).exists()
+                                || self.in_content((other, WHOLE))))
                 })
             };
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
@@ -2185,6 +2259,9 @@ pub mod pin;
 
 #[path = "overlay_swap.rs"]
 mod swap;
+
+#[path = "overlay_content.rs"]
+pub mod content;
 
 #[path = "overlay_extend.rs"]
 mod extend;
