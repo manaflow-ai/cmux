@@ -61,11 +61,13 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-session-cloud",
  "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-hooks",
@@ -78,11 +80,13 @@ dependencies = [
  "cmux-worktree-care",
  "crossterm",
  "dhat",
+ "diffy",
  "dirs",
  "flate2",
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "glob",
  "hpke",
  "imbl",
  "inotify",
@@ -1372,6 +1376,9 @@ dependencies = [
 [[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-automations"
@@ -1496,6 +1503,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
+ "cmux-egress",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1650,6 +1658,13 @@ name = "cmux-command-class"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-computer-use"
 version = "1.0.0"
 dependencies = [
@@ -1698,6 +1713,7 @@ dependencies = [
  "base64",
  "cmux-embed",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -1827,6 +1843,16 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "toml",
+ "toml_edit 0.22.27",
+]
+
+[[package]]
+name = "cmux-egress"
+version = "1.0.0"
+dependencies = [
+ "reqwest",
+ "rustls",
+ "tokio",
 ]
 
 [[package]]
@@ -2191,6 +2217,7 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "png",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
@@ -2270,6 +2297,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-file-lock",
  "cmux-process",
  "flate2",
  "fuser",
@@ -2279,6 +2307,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha1collisiondetection",
  "sha2 0.10.9",
  "tempfile",
  "zstd",
@@ -2390,6 +2419,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-signed-envelope",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
@@ -2514,6 +2544,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-session-cloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hex",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-session-pack"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-share-approval"
 version = "0.1.0"
 dependencies = [
@@ -2609,6 +2670,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
 ]
+
+[[package]]
+name = "cmux-tag-cache"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-tailnet"
@@ -2752,6 +2817,7 @@ dependencies = [
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-conversation",
@@ -2786,6 +2852,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-bundle",
+ "cmux-stack-auth",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
@@ -2950,6 +3017,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "memchr",
+ "mio",
  "notify",
  "parking_lot",
  "proptest",
@@ -8452,6 +8520,15 @@ name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
+name = "sha1collisiondetection"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f606421e4a6012877e893c399822a4ed4b089164c5969424e1b9d1e66e6964b"
+dependencies = [
+ "generic-array",
+]
 
 [[package]]
 name = "sha2"

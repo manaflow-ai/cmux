@@ -27,12 +27,21 @@ nonisolated public struct StoreSchemaProbe: Sendable {
     /// (nil: cmux-tui's default state root), as the build's CLI reads it;
     /// nil when any of them cannot be read.
     public func stored(stateDirectories: [URL?]) async -> [String: Int]? {
+        // One run per state root, all at once (a rollback waits on the slowest, not the sum).
+        let answers = await withTaskGroup(of: [String: Int]?.self) { group in
+            for directory in stateDirectories {
+                var environment: [String: String] = [:]
+                if let directory { environment["CMUX_TUI_STATE_DIR"] = directory.path }
+                group.addTask { await run(arguments: ["--stored"], environment: environment) }
+            }
+            var answers: [[String: Int]?] = []
+            for await answer in group { answers.append(answer) }
+            return answers
+        }
         var newest: [String: Int] = [:]
-        for directory in stateDirectories {
-            var environment: [String: String] = [:]
-            if let directory { environment["CMUX_TUI_STATE_DIR"] = directory.path }
-            guard let found = await run(arguments: ["--stored"], environment: environment) else { return nil }
-            newest.merge(found, uniquingKeysWith: max)
+        for answer in answers {
+            guard let answer else { return nil }
+            newest.merge(answer, uniquingKeysWith: max)
         }
         return newest
     }
