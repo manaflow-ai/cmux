@@ -589,7 +589,6 @@
       "class": "apple-signing-release",
       "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
-    "seed-derived-data.yml#seed": "apple-app-build",
     "seed-swiftpm-manifests.yml#seed": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -703,7 +702,6 @@
       "cmux-next-guards.yml#ci-guard-group": {"size": 8, "failover": 16, "measured": {"32": [2765.5, 3.3, 4.93]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-next-perf-budgets.yml#plan": {"size": 4, "failover": 8, "measured": {"32": [21.0, 0.43, 0.6], "4": [24.0, 0.73, 0.93]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-next-shim-cpp.yml#shim-downloads-cpp": {"size": 4, "failover": 8, "measured": {"16": [3.5, 0.54, 0.58]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
-      "cmux-next-skew-matrix.yml#skew-matrix": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-next-source-archive.yml#vt-link-graph": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-next-web-bundle-publish.yml#build": {"size": 4, "failover": 8, "measured": {"32": [156.0, 0.98, 1.63]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-next-web-bundles.yml#bundles": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
@@ -772,7 +770,6 @@
       "fast-checks.yml#checks": {"routes": [8, 16, 32], "target": 8, "measured": {"32": [1524.0, 3.56, 5.88], "16": [77.5, 2.89, 5.08]}, "pending": "#29934 and #29932 change this job's runs-on; the broker's reroute set lists 32 (tests/test_ci_runner_set.py)"},
       "gallery-advisory.yml#capture": {"size": 8, "failover": 16, "measured": {"16": [870.5, 3.3, 4.25]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "gallery-health.yml#health": {"routes": [4, 16, 32], "target": 16, "measured": {"16": [3964.0, 12.24, 21.77]}, "pending": "#29844 moves this job to the Linux pool"},
-      "iroh-relay-minter.yml#test": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "iroh-v2.yml#backend": {"size": 4, "failover": 8, "measured": {"16": [0.5, 1.22, 1.22]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "machine-join-e2e.yml#e2e": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "macos-cross-parity.yml#linux-build": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
