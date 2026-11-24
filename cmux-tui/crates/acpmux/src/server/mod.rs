@@ -2757,6 +2757,7 @@ mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
+mod machine_files_relay;
 pub(crate) mod machine_health;
 mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]
