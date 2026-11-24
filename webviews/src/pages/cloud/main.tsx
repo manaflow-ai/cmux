@@ -35,6 +35,12 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
     if (parseView(location.hash) !== view)
       history.replaceState(null, "", `${location.pathname}${location.search}${view === "get" ? "#/get" : ""}`);
   });
+  // A failed payment may be fixed in the browser meanwhile: the billing state is read again each
+  // time the page is shown or the app becomes active, never on a timer.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void store.refreshBilling();
+  });
+  window.addEventListener("focus", () => void store.refreshBilling());
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));
