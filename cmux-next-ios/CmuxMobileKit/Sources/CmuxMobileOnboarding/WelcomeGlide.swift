@@ -147,7 +147,9 @@ struct WelcomeGlide: View {
 
             Text("Your Macs, in your pocket")
                 .font(Geist.regular.font(size: 17, relativeTo: .body))
-                .foregroundStyle(theme.colors.label2)
+                // `legal`, not `label2`: label2 is 3.4:1 on white (fails WCAG AA
+                // for 17 pt text); legal is 5.6:1 in light, label2's 6.2:1 in dark.
+                .foregroundStyle(theme.colors.legal)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, theme.metrics.sideMargin)
