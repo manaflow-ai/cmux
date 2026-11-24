@@ -103,6 +103,16 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   against your system and names your roles and steps in each fix. A file that does not read is one
   `system` warning, and the check uses cmux's system. `examples/extensions/design-system` is a pane
   that shows yours next to cmux's.
+- **Every state of a widget.** Record the scenes your widget draws in `preview/scenes.json`: an
+  object of states by name, each `{"size": "small", "ops": [scene ops]}`. Name an empty or error
+  state for what it is (`medium-empty`, `small-offline`, `medium-denied`). `cmux ext preview DIR
+  [--out FILE] [--check]` takes each size class the widget declares and adds the states a person must
+  see: `long-text` (every word about three times longer), `empty` (its repeated rows taken out) and
+  `error` (the tile the host draws when the render throws), unless you recorded your own. Each state
+  carries its design warnings, and it lists the states still missing. The gallery entry
+  `apps.widget-previews` draws all of them in light and dark on one page, from
+  `webviews/src/apps/scene/fixtures/widget-previews.json`
+  (`cmux ext preview examples/extensions --out` that file).
 
 `--json` adds `shot` to the `ext dev --once` fields: `{"path", "width", "height"}`, or
 `{"error"}` when there is no picture.
