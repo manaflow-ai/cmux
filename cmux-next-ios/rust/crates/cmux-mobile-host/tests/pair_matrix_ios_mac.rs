@@ -75,7 +75,8 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
 const PAIR: &str = "ios-mac";
-const RIG: &str = "cmux-next-ios/rust/crates/cmux-mobile-host/tests/pair_matrix_ios_mac.rs::pair_matrix_ios_mac";
+const RIG: &str =
+    "cmux-next-ios/rust/crates/cmux-mobile-host/tests/pair_matrix_ios_mac.rs::pair_matrix_ios_mac";
 /// No wait is longer (DESIGN.md: a run that never reached content within 90 s failed).
 const BOUND: Duration = Duration::from_secs(90);
 /// The sleep condition's silence.
@@ -248,7 +249,11 @@ fn reply(id: &Value, result: &str) -> String {
     format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{result}}}"#)
 }
 
-async fn acpmux_connection(stream: tokio::net::TcpStream, store: Arc<Mutex<Store>>, appended: broadcast::Sender<usize>) {
+async fn acpmux_connection(
+    stream: tokio::net::TcpStream,
+    store: Arc<Mutex<Store>>,
+    appended: broadcast::Sender<usize>,
+) {
     let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
     let (mut sink, mut source) = socket.split();
     let (out, mut queue) = mpsc::channel::<String>(256);
@@ -629,7 +634,8 @@ impl Rig {
             servers.push(Some(TestTurn::start().await));
         }
         let ice: Vec<_> = servers.iter().flatten().map(TestTurn::udp_only).collect();
-        let options = DialOptions { relay_only: path == Path::Relay, ice_servers: ice.clone(), ..base_options() };
+        let options =
+            DialOptions { relay_only: path == Path::Relay, ice_servers: ice.clone(), ..base_options() };
         let mac_options = DialOptions { ice_servers: ice, ..base_options() };
         let config = Arc::new(ServiceConfig {
             tui_socket_dir: dir.path().to_owned(),
@@ -646,8 +652,9 @@ impl Rig {
         });
         let signaling = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
-        let mac_client =
-            SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id).await.expect("mac signaling");
+        let mac_client = SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id)
+            .await
+            .expect("mac signaling");
         let mac = tokio::spawn(async move {
             let mut links = tokio::task::JoinSet::new();
             while let Some(session) = mac_client.next_session().await {
@@ -656,10 +663,12 @@ impl Rig {
                     session_id: session.first.session_id.clone(),
                     session: session.events,
                 };
-                let (mac_client, options, config) = (mac_client.clone(), mac_options.clone(), Arc::clone(&config));
+                let (mac_client, options, config) =
+                    (mac_client.clone(), mac_options.clone(), Arc::clone(&config));
                 links.spawn(async move {
                     let Ok(connected) =
-                        dial::answer(&mac_client, session.first, events, &options, LinkConfig::default()).await
+                        dial::answer(&mac_client, session.first, events, &options, LinkConfig::default())
+                            .await
                     else {
                         return;
                     };
@@ -692,8 +701,13 @@ impl Rig {
     }
 
     async fn dial(&self, deadline: Instant) -> Result<Connected, String> {
-        let dial =
-            dial::connect(&self.phone, &self.mac_id, TransportKind::WireGuard, &self.options, LinkConfig::default());
+        let dial = dial::connect(
+            &self.phone,
+            &self.mac_id,
+            TransportKind::WireGuard,
+            &self.options,
+            LinkConfig::default(),
+        );
         match tokio::time::timeout_at(deadline, dial).await {
             Err(_) => Err("dial timed out".into()),
             Ok(Err(error)) => Err(format!("dial: {error:?}")),
@@ -718,7 +732,14 @@ impl Phone {
         let connected = rig.dial(deadline).await?;
         let (chat, at) = Chat::open(&connected, session, None, &seen, deadline).await?;
         Ok((
-            Self { connected, chat, session: session.to_owned(), seen, redials: 0, redial_errors: Vec::new() },
+            Self {
+                connected,
+                chat,
+                session: session.to_owned(),
+                seen,
+                redials: 0,
+                redial_errors: Vec::new(),
+            },
             at,
         ))
     }
@@ -817,8 +838,10 @@ fn stream_into(acpmux: &FakeAcpmux, index: usize) -> tokio::task::JoinHandle<()>
                 let mut store = store.lock().expect("store");
                 let records = &mut store.sessions[index].records;
                 let seq = records.len() as u64 + 1;
-                records
-                    .push(record_text(seq, "assistant", "agent_message_chunk", &prose(turn, STREAM_RECORD_BYTES)).into());
+                records.push(
+                    record_text(seq, "assistant", "agent_message_chunk", &prose(turn, STREAM_RECORD_BYTES))
+                        .into(),
+                );
             }
             let _ = appended.send(index);
             turn += 1;
@@ -866,7 +889,7 @@ async fn run_cell(cell: &Cell<'_>) {
     let change_end = match cell.condition {
         "handoff" => {
             let session_id = phone.connected.session_id.clone();
-            let hit = wireguard::simulate_network_loss(Some(&session_id), true);
+            let hit = wireguard::simulate_network_loss(Some(session_id.as_str()), true);
             let stall = handoff_stall(cell.seed);
             tokio::time::sleep(stall).await;
             let end = Instant::now();
