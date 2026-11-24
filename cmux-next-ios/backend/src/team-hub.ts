@@ -545,6 +545,19 @@ export class TeamHub extends DurableObject<Env> {
     return null
   }
 
+  /**
+   * The kind of `deviceId` when it is one of this owner's registered devices, as this hub knows it (null when the
+   * hub has not seen it, or it was removed): the three-way hub admits only the owner's own devices (PROTOCOL.md
+   * "Three-way hub"). The Worker falls back to the database on null.
+   */
+  async hubDevice(owner: HubOwner, deviceId: string): Promise<"mac" | "phone" | null> {
+    this.bind(owner)
+    if (this.sql.exec(`SELECT 1 FROM forgotten WHERE device_id = ?`, deviceId).toArray().length > 0) return null
+    const row = this.sql.exec<{ owner_key: string; kind: string }>(`SELECT owner_key, kind FROM devices WHERE device_id = ?`, deviceId).toArray()[0]
+    if (!row || row.owner_key !== owner.ownerKey) return null
+    return row.kind === "mac" ? "mac" : "phone"
+  }
+
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
     this.bind(owner)
     return { colo: await this.hubColo() }

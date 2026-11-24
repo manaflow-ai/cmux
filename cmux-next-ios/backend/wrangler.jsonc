@@ -20,8 +20,8 @@
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
   },
-  "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }],
+  "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }],
   "env": {
     "dev": {
       "name": "cmux-mobile-api-dev",
@@ -43,8 +43,8 @@
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
         "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
-      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }],
+      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }],
       // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
       "triggers": { "crons": ["* * * * *"] },
       // Hyperdrive configs here have
@@ -82,8 +82,8 @@
         "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
-      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }],
+      "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }, { "name": "LINK_RELAY", "class_name": "LinkRelay" }, { "name": "HUB_RELAY", "class_name": "HubRelay" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }, { "tag": "v2", "new_sqlite_classes": ["ConnectivityAlertDesk"] }, { "tag": "v3", "new_sqlite_classes": ["LinkRelay"] }, { "tag": "v4", "new_sqlite_classes": ["HubRelay"] }],
       // Retires the old per-team hubs every minute (src/index.ts retireAllTeamHubs, the 0.10.0 migration).
       "triggers": { "crons": ["* * * * *"] },
       "ratelimits": [
