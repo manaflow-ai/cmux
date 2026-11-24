@@ -118,6 +118,30 @@ nonisolated enum PageBackground {
         return document ?? engineDefaultARGB
     }
 
+    /// The page area shows the pane's ground where the document draws nothing (fork API 17's see-through switch):
+    /// a see-through cmux page, or a tab whose document has not painted yet, from the browser's creation on, so the
+    /// tab goes ground, then page, in one change.
+    ///
+    /// Before the first real page the page window is a hole (`CEFTab.applyOcclusion`) and Chromium's own page was
+    /// left opaque, painted the theme color. The commit closed the hole in the same turn that first sent the
+    /// see-through switch, and the switch reaches Chromium's compositor a frame or more later, so for that frame the
+    /// pane showed Chromium's last opaque frame: ground, the flat theme color, ground again, then the page (Leo,
+    /// 2026-11-22: "it has the transparent background. then it draws some asinine bullshit idk opaque layer for a
+    /// nasty-ass flicker. THEN loads the web page"; 1 frame of #1d1d2d at the commit on 5 of 10 cold loads). The
+    /// page is see-through from its creation instead, so nothing opaque is behind the hole when it closes.
+    ///
+    /// - Parameters:
+    ///   - pageSeeThrough: A cmux page that is see-through for good (`CEFTab.pageSeeThrough`).
+    ///   - pastFirstRealPage: The tab showed a real page (`CEFTab.pastFirstRealPage`).
+    ///   - documentSettled: The committed document painted, or its load ended (`CEFTab.documentSettled`).
+    ///   - seeThroughFork: The fork has the see-through switch (API 17); without it a page cannot be see-through.
+    static func showsPaneGround(pageSeeThrough: Bool, pastFirstRealPage: Bool, documentSettled: Bool,
+                                seeThroughFork: Bool) -> Bool {
+        if pageSeeThrough { return true }
+        guard seeThroughFork else { return false }
+        return !(pastFirstRealPage && documentSettled)
+    }
+
     /// True when a committed document is a real page (not blank, not the
     /// New Tab page).
     static func isRealPage(_ url: URL?) -> Bool { !isBlank(url) }
