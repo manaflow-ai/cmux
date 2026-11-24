@@ -306,6 +306,51 @@ test("with no run mode and the chat not on Cloud, the list offers no Cloud row t
   expect(connects).toEqual([]);
 });
 
+// A started chat's Move to… list opens on where the chat runs now, checked: the person sees what
+// they are moving from. Picking that row moves nothing and closes the list.
+test("Move to… lists where the chat runs now, checked, before its targets; picking it moves nothing", async () => {
+  const moves: string[] = [];
+  const { container, picks } = await renderDevices(DEVICES.slice(0, 1), {
+    otherDevices: false,
+    onOffload: () => undefined,
+    offload: "move",
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id) => moves.push(id),
+  });
+  await open(container);
+  await choose('[data-action="moveTo"]');
+  expect(optionRows().map(rowLabel)).toEqual(["This Mac", "dev-box", "gpu-box"]);
+  const here = document.querySelector<HTMLElement>('.acpmux-env-moves [data-action="moveHere"]')!;
+  expect(here.hasAttribute("data-current")).toBe(true);
+  expect(here.querySelector(".acpmux-location-check svg")).not.toBeNull();
+  expect(document.querySelectorAll(".acpmux-env-moves [data-current]").length).toBe(1);
+  await choose('[data-action="moveHere"]');
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(moves).toEqual([]);
+  expect(picks).toEqual([]);
+});
+
+test("a target picked from Move to… still moves the chat there", async () => {
+  const moves: string[] = [];
+  const { container } = await renderDevices(DEVICES.slice(0, 1), {
+    otherDevices: false,
+    onOffload: () => undefined,
+    offload: "move",
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: (id) => moves.push(id),
+  });
+  await open(container);
+  await choose('[data-action="moveTo"]');
+  await choose('[data-action="moveTarget"]');
+  expect(moves).toEqual(["vm-dev"]);
+});
+
 // cmux#51745: the Environment dropdown resizes as the model menu does, from its edges away from the
 // chip, and keeps its size for every composer.
 test("the Environment dropdown has resize grips on its edges away from the chip and opens at its kept size", async () => {

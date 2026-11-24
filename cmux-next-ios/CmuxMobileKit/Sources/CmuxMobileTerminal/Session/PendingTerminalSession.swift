@@ -31,12 +31,13 @@ public final class PendingTerminalSession: TerminalSession {
 }
 
 /// Picks a terminal tab's session and artifact source. A live session always
-/// wins; without one the tab is honest about connecting. The scripted mock is
-/// only compiled into DEBUG (and Demo) builds and only used when the developer
-/// turned mock data on.
+/// wins; without one the tab is honest about connecting. The scripted shell is
+/// used only when the caller asks for demo content: DEBUG mock mode, or the App
+/// Review demo account (server-flagged, in every build).
 @MainActor
 public enum TerminalSessionChoice {
-    /// Whether this build carries mock content at all (false in Production).
+    /// Whether this build has the developer mock mode (DEBUG only). The review demo
+    /// account's shell does not depend on it.
     public nonisolated static var mockCompiledIn: Bool {
         #if DEBUG
         true
@@ -46,10 +47,12 @@ public enum TerminalSessionChoice {
     }
 
     /// `live`: the Mac's session for the tab, when it exists. `mockDataEnabled`:
-    /// Settings → Developer → Mock (or a mock launch); ignored outside DEBUG.
+    /// demo content (Settings → Developer → Mock or a mock launch in DEBUG; the
+    /// review demo account in any build).
     public static func session(
         live: (any TerminalSession)?,
         mockDataEnabled: Bool,
+        reviewDemo: Bool = false,
         macName: String?,
         programName: String
     ) -> any TerminalSession {
@@ -61,16 +64,20 @@ public enum TerminalSessionChoice {
             #endif
             return live
         }
-        #if DEBUG
+        // The review demo account: the terminal opens on its last commands, ready for typing.
+        if reviewDemo { return MockTerminalSession(instantIntro: true) }
         if mockDataEnabled {
+            #if DEBUG
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
             // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
             let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
             return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
+            #else
+            return MockTerminalSession(instantIntro: true)
+            #endif
         }
-        #endif
         return PendingTerminalSession(macName: macName, programName: programName)
     }
 
@@ -83,12 +90,10 @@ public enum TerminalSessionChoice {
     }
     #endif
 
-    /// Files and Links for a tab with no live source: the mock files only in
-    /// mock mode, else an empty source that says the Mac is not connected.
+    /// Files and Links for a tab with no live source: the sample files with demo
+    /// content, else an empty source that says the Mac is not connected.
     public static func fallbackArtifactSource(mockDataEnabled: Bool) -> any ArtifactSource {
-        #if DEBUG
         if mockDataEnabled { return MockArtifactSource() }
-        #endif
         return UnavailableArtifactSource()
     }
 }
