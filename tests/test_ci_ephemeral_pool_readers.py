@@ -36,10 +36,7 @@ RUNS_ON_LINE = re.compile(r"^    runs-on:(.*)$")
 # Labels a persistent or owned runner carries: the owned GCP fleet, glaeda's hosts, the JIT pools'
 # labels (persistent runners carry them too, decisions/junctions.md) and the shared Linux label.
 # Write-token pool readers left where they are, each with why.
-NOT_YET_MOVED = {
-    ("herdr-upstream-drift.yml", "drift"): "a scheduled workflow main has no copy of: the pre-push gate refuses any edit "
-                                           "here until it gets a main twin; dispatch-only until then",
-}
+NOT_YET_MOVED: dict = {}
 OWNED_LABEL = re.compile(r"^(?:cmux-fleet-|cmux-gcp-|cmux-linux$|cmux-runner-pool-|glaeda-|self-hosted$)")
 
 
