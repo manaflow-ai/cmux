@@ -4,6 +4,12 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Concurrency {
+    pub max: i64,
+    pub on_limit: ConcurrencyOnLimit,
+}
+
 wire_enum! {
     ConcurrencyOnLimit {
         Queue = "queue",
