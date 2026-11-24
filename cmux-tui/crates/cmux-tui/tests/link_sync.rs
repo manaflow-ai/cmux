@@ -1083,9 +1083,12 @@ fn missing_ignored_and_outside_files_are_absent_and_outside_name_is_reported() {
     let root = std::fs::canonicalize(root.path()).unwrap();
     let folder = root.join("chat");
     std::fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q", "-b", "main"]);
     std::fs::write(folder.join(".gitignore"), "ignored.txt\n").unwrap();
     std::fs::write(folder.join("ignored.txt"), "needed build input\n").unwrap();
     std::fs::write(folder.join("present.txt"), "arrived\n").unwrap();
+    git(&folder, &["add", ".gitignore", "present.txt"]);
+    git(&folder, &["commit", "-q", "-m", "fixture"]);
     std::fs::write(root.join("outside.txt"), "needed source\n").unwrap();
     std::os::unix::fs::symlink(root.join("outside.txt"), folder.join("outside-link")).unwrap();
 

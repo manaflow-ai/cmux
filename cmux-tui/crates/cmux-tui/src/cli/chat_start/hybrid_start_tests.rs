@@ -7,8 +7,8 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, move_words, pause_words,
-    plan_of, takes, tool_event,
+    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, local_harness,
+    move_words, pause_words, plan_of, takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -292,4 +292,63 @@ fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready()
         driver.did,
         ["create", "show booting", "show ready", "show moving", "move", "show live"]
     );
+}
+
+/// What this machine's acpmux answers `_acpmux/harnesses` with Claude Code and Codex found.
+fn catalog() -> Value {
+    json!({
+        "harnesses": {"claude": {"family": "claude"}, "codex": {"family": "codex"},
+                      "codex-acp": {"family": "codex"}},
+        "families": {"claude": ["claude"], "codex": ["codex", "codex-acp"]},
+        "defaultHarness": "claude",
+        "defaults": {},
+    })
+}
+
+/// A new person's Mac with neither Claude Code nor Codex: acpmux configures none, so a chat here
+/// would fail with "no harnesses configured" (staging run 45276902076); the Cloud start runs.
+#[test]
+fn a_start_runs_here_only_when_the_local_acpmux_has_the_agent_it_names() {
+    let found = catalog();
+    // Names one that exists: a profile, or a family that resolves to one.
+    assert_eq!(local_harness(Some(&found), Some("claude")), Ok(()));
+    assert_eq!(local_harness(Some(&found), Some("codex-acp")), Ok(()));
+    // A family of several with neither a preference nor a profile named like it is refused by
+    // acpmux, so it is no harness here; with a preference it is.
+    let mut several = found.clone();
+    several["families"]["gpt"] = json!(["codex", "codex-acp"]);
+    assert_eq!(local_harness(Some(&several), Some("gpt")), Err(Off::NoLocalHarness));
+    several["defaults"]["gpt"] = json!({"prefer": ["codex-acp"]});
+    assert_eq!(local_harness(Some(&several), Some("gpt")), Ok(()));
+    assert_eq!(local_harness(Some(&found), Some("codex")), Ok(()));
+    // Names one that does not exist here, or one acpmux marks unavailable.
+    assert_eq!(local_harness(Some(&found), Some("gemini")), Err(Off::NoLocalHarness));
+    let mut unavailable = found.clone();
+    unavailable["harnesses"]["claude"]["unavailable"] = json!("not signed in");
+    assert_eq!(local_harness(Some(&unavailable), Some("claude")), Err(Off::NoLocalHarness));
+    // Names none: the default decides.
+    assert_eq!(local_harness(Some(&found), None), Ok(()));
+    let mut codex_only = found;
+    codex_only["defaultHarness"] = json!("codex");
+    assert_eq!(local_harness(Some(&codex_only), None), Ok(()));
+    // Names none and no harness at all: acpmux's "no harnesses configured".
+    let none = json!({"harnesses": {}, "families": {}, "defaultHarness": null, "defaults": {}});
+    assert_eq!(local_harness(Some(&none), None), Err(Off::NoLocalHarness));
+    assert_eq!(local_harness(Some(&none), Some("claude")), Err(Off::NoLocalHarness));
+    // The daemon could not be asked: the Cloud start, as before.
+    assert_eq!(local_harness(None, None), Err(Off::NoLocalHarness));
+    assert_eq!(local_harness(None, Some("claude")), Err(Off::NoLocalHarness));
+}
+
+/// `cmux cloud hybrid-status --json` says why: the account's reason first, then the machine's.
+#[test]
+fn hybrid_status_names_a_missing_local_harness_after_the_accounts_reasons() {
+    let pro = account(None, Ok(json!({})), || Some("next_pro".to_owned()));
+    let none = json!({"harnesses": {}, "families": {}, "defaultHarness": null});
+    let off = hybrid::enabled(&pro).and(local_harness(Some(&none), None));
+    assert_eq!(off, Err(Off::NoLocalHarness));
+    assert_eq!(json!(off.err()), json!("no-local-harness"));
+    let plain = account(None, Ok(json!({})), || None);
+    assert_eq!(hybrid::enabled(&plain).and(local_harness(Some(&none), None)), Err(Off::Plan));
+    assert_eq!(hybrid::enabled(&pro).and(local_harness(Some(&catalog()), None)), Ok(()));
 }
