@@ -2543,6 +2543,7 @@ pub(super) fn dial_wireguard<'a>(
             return Err(error);
         }
         let turn = allocated.carrier;
+        let udp_later = allocated.udp_later.filter(|_| !no_plain_udp(options));
         if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
             return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
         }
@@ -2663,6 +2664,9 @@ pub(super) fn dial_wireguard<'a>(
         tunnel.session.start_control(&net).await;
         if turn_missed {
             tunnel.session.retry_missing_turn();
+        }
+        if let Some(udp) = udp_later {
+            tunnel.session.upgrade_turn_when(udp);
         }
         // The media lane's port is bound before the link stream opens, so
         // the Mac's first frames (sent once a browser tab claims the lane)
@@ -3569,6 +3573,121 @@ mod tests {
             "a dial opened {} TLS connections",
             turn.stream_connections()
         );
+    }
+
+    /// `turn`'s TLS port behind a forwarder that holds each new connection
+    /// `delay` first (a far TURN server, a slow middlebox): its `turns:` URL.
+    async fn slow_tls(turn: &crate::testing::TestTurn, delay: Duration) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let target = turn.tls_address();
+        tokio::spawn(async move {
+            while let Ok((mut inbound, _)) = listener.accept().await {
+                let target = target.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    if let Ok(mut outbound) = tokio::net::TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                    }
+                });
+            }
+        });
+        format!("turns:127.0.0.1:{port}?transport=tcp")
+    }
+
+    /// Item 4 (hotel, netlab): an early allocation (started when /v1/ice
+    /// answers, before the dial's STUN clock runs) on a network that drops
+    /// UDP takes TURN over TLS once its own UDP allocation has gone
+    /// unanswered for STUN_SILENT, not UDP_GRACE after TLS is ready nor
+    /// STUN_SILENT after the dial starts. With a TLS leg slower than
+    /// STUN_SILENT, the old order took TLS + UDP_GRACE.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_early_allocation_takes_tls_on_its_own_udp_silence() {
+        let turn = crate::testing::TestTurn::start().await;
+        turn.set_udp_blocked(true);
+        let tls_delay = Duration::from_millis(300);
+        let mut ice = turn.ice.clone();
+        ice.urls[1] = slow_tls(&turn, tls_delay).await;
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        // The dial's STUN clock has not started: nothing says UDP is silent.
+        let (_silent_tx, silent_rx) = watch::channel(false);
+        let started = Instant::now();
+        let allocated = TurnCarrier::allocate_with(&options, Some(silent_rx), true).await;
+        let took = started.elapsed();
+        let carrier = allocated.carrier.expect("a TURN allocation over TLS");
+        assert!(carrier.transport.is_stream(), "{:?}", carrier.transport);
+        assert!(
+            took < tls_delay + Duration::from_millis(180),
+            "the early allocation waited for a STUN clock that had not started: {took:?} (TLS alone {tls_delay:?})"
+        );
+    }
+
+    /// Item 5 (review F1): a stream carrier taken while UDP still asks (STUN
+    /// silent while the first UDP answer was lost; or a proxied stream, taken
+    /// at once) does not keep the session off UDP: the UDP allocation goes
+    /// on and lands in `udp_later` for the session to move onto.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stream_taken_first_still_hands_over_a_udp_allocation_that_lands() {
+        for proxied in [false, true] {
+            let turn = crate::testing::TestTurn::start().await;
+            turn.drop_allocate_successes(1);
+            let proxy = crate::testing::TestProxy::start(crate::testing::ProxyAuth::None).await;
+            let egress = if proxied {
+                crate::egress::Egress { proxy: proxy.config(), ..crate::egress::Egress::default() }
+            } else {
+                crate::egress::Egress::default()
+            };
+            let options = DialOptions {
+                ice_servers: vec![turn.ice.clone()],
+                turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+                include_loopback: true,
+                egress,
+                ..DialOptions::default()
+            };
+            // Not proxied: STUN went silent (its answers lost too), so the
+            // stream is taken as soon as it is ready, before UDP's retry.
+            let (_silent_tx, silent_rx) = watch::channel(!proxied);
+            let started = Instant::now();
+            let allocated = TurnCarrier::allocate_with(&options, Some(silent_rx), true).await;
+            let took = started.elapsed();
+            let carrier = allocated.carrier.expect("a TURN allocation");
+            assert!(carrier.transport.is_stream(), "proxied {proxied}: {:?}", carrier.transport);
+            if proxied {
+                assert!(took < STUN_SILENT, "proxied: the stream waited for UDP ({took:?})");
+            }
+            let later = allocated.udp_later.expect("the UDP allocation still asking");
+            let udp = tokio::time::timeout(Duration::from_secs(4), later)
+                .await
+                .unwrap_or_else(|_| panic!("proxied {proxied}: UDP never landed"))
+                .expect("the UDP allocation");
+            assert!(!udp.transport.is_stream(), "proxied {proxied}: {:?}", udp.transport);
+            if proxied {
+                assert!(!proxy.tunnels().is_empty(), "the stream did not use the proxy");
+            }
+        }
+    }
+
+    /// Where UDP answers first, the stream is dropped and nothing is handed
+    /// over later.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn udp_first_leaves_nothing_for_later() {
+        let turn = crate::testing::TestTurn::start().await;
+        let mut ice = turn.ice.clone();
+        ice.urls[1] = slow_tls(&turn, Duration::from_millis(300)).await;
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let allocated = TurnCarrier::allocate_with(&options, None, true).await;
+        assert!(!allocated.carrier.expect("UDP").transport.is_stream());
+        assert!(allocated.udp_later.is_none());
     }
 
     #[test]

@@ -667,13 +667,20 @@ impl Session {
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
         let Some(turn) = TurnCarrier::allocate(&self.allocation_options()).await else { return false };
+        self.adopt_turn(turn, roams).await;
+        true
+    }
+
+    /// Carry the session on `turn`, allocated on the network of roam count
+    /// `roams`, and tell the peer its relayed address. Nothing if a roam
+    /// moved on meanwhile (it took its own allocation on the new network,
+    /// or started its own retry) or the session closed.
+    async fn adopt_turn(self: &Arc<Self>, turn: TurnCarrier, roams: u64) {
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
-            // A roam took its own allocation on the new network, or started
-            // its own retry.
-            return true;
+            return;
         }
-        let Ok(net) = self.net() else { return true };
+        let Ok(net) = self.net() else { return };
         let (old, _) = lock(&self.relayed).clone();
         let mut endpoints: Vec<String> =
             lock(&self.endpoints).iter().filter(|endpoint| !old.contains(endpoint)).cloned().collect();
@@ -682,7 +689,31 @@ impl Session {
         self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
         let _ = net.refresh().await;
         self.announce(endpoints, relayed, relayed_tls);
-        true
+    }
+
+    /// The dial took TURN over TCP or TLS while its UDP allocation was still
+    /// asking (review F1: a proxied stream is taken at once, and an early one
+    /// on its own UDP silence): if that UDP allocation lands after all, the
+    /// session moves onto it (UDP works here, and it carries WireGuard with
+    /// no head-of-line blocking and no proxy in the way), and the stream
+    /// allocation is released. Not once this network showed it carries no
+    /// WireGuard over UDP, nor after a roam.
+    pub(super) fn upgrade_turn_when(self: &Arc<Self>, udp: tokio::sync::oneshot::Receiver<TurnCarrier>) {
+        let weak = Arc::downgrade(self);
+        let roams = self.roams.load(Ordering::Relaxed);
+        tokio::spawn(async move {
+            let Ok(turn) = udp.await else { return };
+            let Some(session) = weak.upgrade() else { return };
+            if session.stream_only.load(Ordering::Relaxed) {
+                return;
+            }
+            tracing::info!(
+                session = session.session_id,
+                "TURN over UDP answered after all; moving off the stream"
+            );
+            session.options.timeline.mark("turn_udp_upgraded");
+            session.adopt_turn(turn, roams).await;
+        });
     }
 
     /// The answer went out with this side's host endpoints only
