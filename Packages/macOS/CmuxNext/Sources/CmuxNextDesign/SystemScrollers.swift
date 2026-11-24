@@ -62,15 +62,8 @@ public struct SystemScrollers {
     /// Gives `scrollView` the shared ``ThinScroller`` and follows it like ``follow(_:)``: the
     /// sidebar and every scrollable card (hover cards, the update card's popover) scroll with this
     /// one style, the native twin of the chat's (webviews/src/scrollers.ts).
-    ///
-    /// - Parameter revealsOnHover: False shows the knob only while the view scrolls (and its fade
-    ///   after), never for the pointer alone: the pointer then only holds and widens a knob a scroll
-    ///   showed (``ThinScroller/revealsNearPointerAtRest``). The sidebar's scrollers sit under its
-    ///   resize band, so a hidden knob there never takes the band's press (Leo, ask-969743672d:
-    ///   "claude code, you dont see it... unless you scroll first. hovering only doesnt show.").
-    public static func followThin(_ scrollView: NSScrollView, revealsOnHover: Bool = true) {
+    public static func followThin(_ scrollView: NSScrollView) {
         if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
-        (scrollView.verticalScroller as? ThinScroller)?.revealsNearPointerAtRest = revealsOnHover
         follow(scrollView)
     }
 

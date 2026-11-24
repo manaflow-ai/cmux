@@ -69,7 +69,7 @@
         "local.customize.sync"
       ],
       "wait": 2,
-      "optional": true
+      "optional": "a before app built before #47325 has no toolbar items, so the op is not there to run"
     },
     {
       "title": "Save the manifest with a second button: no relaunch",

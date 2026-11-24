@@ -37,7 +37,7 @@ extension UpdaterService {
                 switch await host?.installCanary() {
                 case nil: nil
                 case .passed: .passed
-                case .refused(let reason): .refused(reason)
+                case .refused(let reason, let retryable): .refused(reason, retryable: retryable)
                 case .inconclusive(let reason): .inconclusive(reason)
                 }
             }, stateDirectories: directories, notify: notify)

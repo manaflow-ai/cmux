@@ -15,10 +15,11 @@ with an agent chat on the acpmux test agent, one turn answered), then workspaces
   FRONT    what the front window shows at the quit and so after the relaunch: `chat` (l5-b's chat tab, typed into
            its composer) or `terminal` (l5-a's terminal, typed into its shell's tty, which echoes).
   KIND     `cold_install`: the copy is deleted and copied again (ditto) from the one kept at the start, so the launch
-           is the first exec of new files, as a fresh install; `cold_after_update`: the same fresh copy after the
-           updater's StagedUpdatePrewarm sequence; `warm`: the same copy relaunched right after the quit
-           (launch-ready.sh prerun=0); `warm60`: before it, one full run of the same copy that stays up 60 s after
-           its window shows, then quits (launch-ready.sh prerun=60).
+           is the first exec of new files, as a fresh install; `cold_after_update`: a fresh copy after the updater's
+           StagedUpdatePrewarm sequence, run in a staging folder that is then renamed into place (updated_copy, as
+           nightly-fresh-launch.py's update arm): the launch after an update, of the same pre-warmed copy; `warm`:
+           the same copy relaunched right after the quit (launch-ready.sh prerun=0); `warm60`: before it, one full run
+           of the same copy that stays up 60 s after its window shows, then quits (launch-ready.sh prerun=60).
 
 Each round is Quit and Keep Sessions, then the app started again with the run's environment, the typing probe on
 (CMUX_NEXT_TYPING_PROBE, a release build's own key-to-echo timeline) and a fresh launch-marks pipe. From the start the
@@ -325,7 +326,7 @@ def quit_app(inst: rr.Instance, process) -> str | None:
     return None
 
 
-def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
+def fresh_copy(app: Path, pristine: Path, n: int | str) -> Path:
     """A new copy of PRISTINE for round N's cold launch, in a folder of its own beside APP's (under the smoke's root,
     which its cleanup removes), and the copy APP was is removed, best effort. Never into APP's own path: a bundle
     path a process has launched from refuses new files there on a fleet Mac ("ditto: ...: Operation not permitted",
@@ -335,6 +336,18 @@ def fresh_copy(app: Path, pristine: Path, n: int) -> Path:
     subprocess.run(["ditto", str(pristine), str(new)], check=True, timeout=600)
     shutil.rmtree(app, ignore_errors=True)
     return new
+
+
+def updated_copy(app: Path, pristine: Path, n: int, env: dict) -> tuple[Path, dict]:
+    """Round N's cold_after_update copy, made the way scripts/measure/nightly-fresh-launch.py's update arm
+    (prewarm-update-moved, NOW's app_update_launch_ms) makes it: a new copy in a staging folder, the updater's pre-warm
+    run there (staged_update_prewarm), then the folder renamed into place, as an installed update is moved; the launch
+    is that same pre-warmed copy. Returns the placed app and the pre-warm's record."""
+    staged = fresh_copy(app, pristine, f"stage-{n}")
+    prewarm = staged_update_prewarm(staged, env)
+    placed = staged.parent.parent / f"app-cold-{n}"
+    os.rename(staged.parent, placed)
+    return placed / staged.name, prewarm
 
 
 def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
@@ -447,15 +460,16 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         failures.append(why)
     if kind in ("cold_install", "cold_after_update"):
         try:
-            app = fresh_copy(app, pristine, n)
+            if kind == "cold_after_update":
+                app, row["prewarm"] = updated_copy(app, pristine, n, env)
+            else:
+                app = fresh_copy(app, pristine, n)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
             return row, process, app
         # The seeded session's CLI is the running copy's (Instance.cli): follow the app to its new path.
         inst.app, inst.cli = str(app), os.path.join(str(app), "Contents", "Resources", "bin", "cmux")
-        if kind == "cold_after_update":
-            row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
         _, why = prerun(inst, app, env, out, PRERUN_S)
         if why:

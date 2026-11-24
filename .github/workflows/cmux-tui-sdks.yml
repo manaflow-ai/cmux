@@ -53,6 +53,8 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -192,6 +194,7 @@ on:
       - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-extension-author/recipes/**"
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
@@ -232,6 +235,8 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -371,6 +376,7 @@ on:
       - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-extension-author/recipes/**"
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"

@@ -7724,6 +7724,14 @@
       "afterTitle": "After {days} days",
       "after": "We ask: Plus, Pro, or not now. If not now, machines pause, messages are held, and everything is kept {keepDays} days, with notices before anything is deleted.",
       "who": "For individuals new to paid cmux Cloud, once per person and card. A limited number each day."
+    },
+    "proof": {
+      "title": "Measured on cmux Cloud",
+      "seconds": "{seconds} s",
+      "newMachine": "for a new machine to be running, the slowest of three runs",
+      "burst": "for {machines} machines asked for at once to all be ready",
+      "chatMove": "to move a chat to another machine and get its answer there, one run",
+      "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
   }
 }

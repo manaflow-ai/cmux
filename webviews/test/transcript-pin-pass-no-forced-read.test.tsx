@@ -9,6 +9,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { settleReact } from "./support/domTeardown";
+import { openSettled } from "./support/openSettled";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -168,6 +169,9 @@ test("a streamed token's placement pass reads the scroller only before it writes
   try {
     await act(async () => render(0));
     await redraw(0);
+    // The streamed tokens' passes are measured on the opened transcript, its history mounted (it mounts
+    // after the open's first frame painted, not in its first commit): that mount is the open's work.
+    await openSettled(dom.window);
     scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
     const TOKENS = 8;

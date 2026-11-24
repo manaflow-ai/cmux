@@ -16,7 +16,7 @@ extension SidebarViewComponents {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.followThin(scroll, revealsOnHover: false) // shown by a scroll only, as the list's
+            SystemScrollers.followThin(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
