@@ -452,14 +452,14 @@ ids), remove all but the create for those services. Unset, nothing changes.
   answer 503 without sending until the 10 minute send grace has passed
   (`CREATE_SEND_GRACE_MS`), each later round that boots another snapshot
   making and deleting one VM. What the provider answers for a snapshot it no
-  longer has is not confirmed; confirm it before listing a caller other than
-  cmux-platform development. A mismatched VM whose delete fails runs
+  longer has is not confirmed; confirm it before listing production. A mismatched VM whose delete fails runs
   unrecorded until the orphan sweep; it is logged as
   `vm_create_discard_failed` (public VM id, `reason` `receipt` or
   `oversized`, the delete's `status`).
 
-The staging Worker lists `cloud-platform-dev` in both (it also serves
-cmux-platform staging, which stays as before); production lists none. The
+The staging Worker lists `cloud-platform-dev` and `cloud-platform-staging` in
+both; production lists none. Staging takes the unconfirmed missing-snapshot
+case above: at worst a staging create answers 503 for the send grace. The
 `vm_create` line (Operations) says what each create did: `imageVariant`, and
 null `recoverMs`, `verifyImageMs` and `resizeMs` for a call that was not made.
 
