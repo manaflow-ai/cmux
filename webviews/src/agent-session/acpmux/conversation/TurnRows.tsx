@@ -40,12 +40,15 @@ import {
   workedCountsText,
   workedLabel,
   workedMessagesText,
+  formatDuration,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
+import { workedLine } from "./workedLine.experiment";
+import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
@@ -55,7 +58,7 @@ import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
@@ -67,6 +70,63 @@ import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
 import { WithFacts } from "../chips/FactsHoverCard";
+
+/// Parts of a closed line after a " · ", failures in the failure red (workedOutcome.ts).
+function WorkedParts({ parts }: { parts: readonly WorkedPart[] }) {
+  return parts.map((part, index) => (
+    <span key={index}>
+      {" · "}
+      <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
+    </span>
+  ));
+}
+
+/// What a finished turn's line says besides its time, by workedLine.experiment.ts's arm (`time`, the
+/// default, says nothing more): undefined for a line that keeps today's words.
+function workedOutcomeLabel(t: Translate, row: AcpmuxRow, arm: string): ReactNode | undefined {
+  const runs = row.workedRuns;
+  if (arm === "time" || !runs?.length || row.previous !== undefined || row.durationMs === undefined) return undefined;
+  const duration = row.durationMs;
+  if (arm === "sentence") {
+    const sentence = workedSentence(t, runs);
+    if (!sentence) return undefined;
+    const [first, ...rest] = sentence.results;
+    const tone = (part: WorkedPart) => (part.failed ? "cv-tool__failed" : undefined);
+    // The outcome's place in the catalog's sentence ("{work}: {outcome}"), so its red is only its words.
+    const marker = "\u0000";
+    const [before, after = ""] = first
+      ? t("workedLine.sentence", { work: sentence.work, outcome: marker }).split(marker)
+      : [sentence.work];
+    return (
+      <>
+        {before}
+        {first && <span className={tone(first)}>{first.text}</span>}
+        {rest.map((part, index) => (
+          <span key={index} className={tone(part)}>
+            {t("toolRun.separator") + part.text}
+          </span>
+        ))}
+        {after}
+        <span className="cv-worked__work">
+          {" · "}
+          <span className="cv-worked__label-time">{formatDuration(duration)}</span>
+        </span>
+      </>
+    );
+  }
+  const outcome = workedOutcome(runs);
+  const parts = arm === "counts" ? workedCountParts(t, outcome) : workedOutcomeParts(t, runs);
+  if (!parts.length) return undefined;
+  const key = turnTimeKey(row);
+  return (
+    <>
+      <TimedLabel text={(time) => t(key, { time })} time={duration} />
+      <span className="cv-worked__work">
+        <WorkedParts parts={parts} />
+      </span>
+    </>
+  );
+}
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -81,6 +141,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
     () => (countsOn && !work && row.durationMs !== undefined ? workedCountsText(t, row) : undefined),
     [countsOn, work, t, row],
   );
+  // workedLine.experiment.ts: a line that says what the turn did and how it came out.
+  const outcome = workedOutcomeLabel(t, row, experimentArm(workedLine));
+  if (outcome !== undefined) return outcome;
   let label: ReactNode;
   if (row.previous !== undefined || row.durationMs === undefined) label = workedLabel(t, row);
   else {
