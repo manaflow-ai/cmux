@@ -16,8 +16,6 @@ fn sh(dir: &Path, args: &[&str]) -> String {
         .env("GIT_AUTHOR_EMAIL", "t@example.com")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@example.com")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
@@ -235,15 +233,14 @@ fn a_lost_increment_is_skipped_and_the_archive_still_checks_out() {
 
 #[test]
 fn the_store_is_off_unless_configured() {
-    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("repo-archive.json");
     let none = |_: &str| None;
-    assert_eq!(configured_store(&none, Some(home.path())), None);
-    std::fs::create_dir_all(home.path().join(".config/cmux")).unwrap();
-    std::fs::write(home.path().join(".config/cmux/repo-archive.json"), r#"{"store":"file:///s"}"#)
-        .unwrap();
-    assert_eq!(configured_store(&none, Some(home.path())).as_deref(), Some("file:///s"));
+    assert_eq!(configured_store(&none, &config), None);
+    std::fs::write(&config, r#"{"store":"file:///s"}"#).unwrap();
+    assert_eq!(configured_store(&none, &config).as_deref(), Some("file:///s"));
     let env = |name: &str| (name == "CMUX_REPO_ARCHIVE_STORE").then(|| "/e".to_owned());
-    assert_eq!(configured_store(&env, Some(home.path())).as_deref(), Some("/e"));
+    assert_eq!(configured_store(&env, &config).as_deref(), Some("/e"));
 }
 
 /// A public bucket over HTTP that answers ranged GETs from `root`, counting them.

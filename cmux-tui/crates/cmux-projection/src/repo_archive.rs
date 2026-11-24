@@ -31,7 +31,7 @@
 //! left in place (a VM may be downloading one); the bucket's lifecycle rule expires them.
 //!
 //! The switch: nothing reads a store unless one is configured, `CMUX_REPO_ARCHIVE_STORE` or
-//! `~/.config/cmux/repo-archive.json` (`{"store": "..."}`) ([`configured_store`]). S3 keys come
+//! the machine's [`CONFIG`] (`{"store": "..."}`) ([`configured_store`]). S3 keys come
 //! from the projection's variables (`CMUX_PROJECTION_S3_ACCESS_KEY_ID` and the rest, else
 //! `AWS_*`); with none the store is read unsigned (a public bucket) and cannot be written.
 
@@ -297,25 +297,25 @@ pub fn open(spec: &str, lookup: &dyn Fn(&str) -> Option<String>) -> anyhow::Resu
 }
 
 /// The store this machine is configured with: `CMUX_REPO_ARCHIVE_STORE`, else `store` in
-/// `~/.config/cmux/repo-archive.json`. `None` (the default) turns archives off.
+/// `config` ([`CONFIG`]). `None` (the default) turns archives off.
 #[must_use]
-pub fn configured_store(
-    env: &dyn Fn(&str) -> Option<String>,
-    home: Option<&Path>,
-) -> Option<String> {
+pub fn configured_store(env: &dyn Fn(&str) -> Option<String>, config: &Path) -> Option<String> {
     if let Some(store) = env("CMUX_REPO_ARCHIVE_STORE").filter(|value| !value.trim().is_empty()) {
         return Some(store);
     }
-    let text = std::fs::read_to_string(home?.join(".config/cmux/repo-archive.json")).ok()?;
+    let text = std::fs::read_to_string(config).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     value.get("store")?.as_str().filter(|store| !store.trim().is_empty()).map(str::to_owned)
 }
 
-/// The store from the process environment and home, opened; `None` when none is configured.
+/// The machine's store setting: one per machine (the image or the controller writes it), shared
+/// by every user and build on it.
+pub const CONFIG: &str = "/etc/cmux/repo-archive.json";
+
+/// The store from the process environment and [`CONFIG`], opened; `None` when none is configured.
 pub fn store_from_env() -> anyhow::Result<Option<Box<dyn Store>>> {
     let env = |name: &str| std::env::var(name).ok();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let Some(spec) = configured_store(&env, home.as_deref()) else { return Ok(None) };
+    let Some(spec) = configured_store(&env, Path::new(CONFIG)) else { return Ok(None) };
     let file: serde_json::Value = std::env::var("CMUX_PROJECTION_S3_CONFIG")
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())

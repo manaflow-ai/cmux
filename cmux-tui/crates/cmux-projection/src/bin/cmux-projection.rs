@@ -53,7 +53,7 @@
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     match linux::run(std::env::args().skip(1).collect()) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(code) => std::process::ExitCode::from(code),
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
             std::process::ExitCode::FAILURE
@@ -157,11 +157,16 @@ mod linux {
         Ok(parsed)
     }
 
-    pub fn run(args: Vec<String>) -> anyhow::Result<()> {
+    /// The process's exit code: 0, or 3 from `repo-archive-fetch` for a repo the store lacks.
+    pub fn run(args: Vec<String>) -> anyhow::Result<u8> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
         if command == "repo-archive-publish" || command == "repo-archive-fetch" {
             return repo_archive(command, rest);
         }
+        run_other(command, rest).map(|()| 0)
+    }
+
+    fn run_other(command: &str, rest: &[String]) -> anyhow::Result<()> {
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
@@ -170,7 +175,7 @@ mod linux {
             return s3_push(&args);
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
-        match command.as_str() {
+        match command {
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
@@ -248,7 +253,7 @@ mod linux {
     }
 
     /// `repo-archive-publish` and `repo-archive-fetch`.
-    fn repo_archive(command: &str, rest: &[String]) -> anyhow::Result<()> {
+    fn repo_archive(command: &str, rest: &[String]) -> anyhow::Result<u8> {
         use cmux_projection::repo_archive::{self as archive, Fetched, Publish};
 
         let mut flags: Vec<(&str, &str)> = Vec::new();
@@ -278,15 +283,10 @@ mod linux {
                 None => Fetched::Unknown { why: "no repo archive store is configured".to_owned() },
             };
             println!("{}", serde_json::to_string(&fetched)?);
-            if matches!(fetched, Fetched::Unknown { .. }) {
-                std::process::exit(3);
-            }
-            return Ok(());
+            return Ok(if matches!(fetched, Fetched::Unknown { .. }) { 3 } else { 0 });
         }
         let store = store.ok_or_else(|| {
-            anyhow::anyhow!(
-                "no store: --store, CMUX_REPO_ARCHIVE_STORE or ~/.config/cmux/repo-archive.json"
-            )
+            anyhow::anyhow!("no store: --store, CMUX_REPO_ARCHIVE_STORE or {}", archive::CONFIG)
         })?;
         let source = need("--source")?;
         let branches = all("--branch");
@@ -328,7 +328,7 @@ mod linux {
             let _ = std::fs::remove_dir_all(&work);
         }
         anyhow::ensure!(failed == 0, "{failed} branches were not published");
-        Ok(())
+        Ok(0)
     }
 
     /// How many blobs `s3-push` reads and sends at once.

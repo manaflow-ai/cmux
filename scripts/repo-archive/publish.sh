@@ -4,7 +4,7 @@
 # fleet's `wt` mirrors. Run by cmux-repo-archive-publish.timer; one JSON line per branch.
 #
 # Off until configured: with no store (CMUX_REPO_ARCHIVE_STORE, or `store` in
-# ~/.config/cmux/repo-archive.json) it says so and exits 0. Its environment file
+# /etc/cmux/repo-archive.json) it says so and exits 0. Its environment file
 # (~/.config/cmux-repo-archive-publish.env) names:
 #   CMUX_REPO_ARCHIVE_STORE   a folder, file:// URL, or bucket URL (https://ACCOUNT.r2.cloudflarestorage.com/BUCKET)
 #   CMUX_PROJECTION_S3_ACCESS_KEY_ID / CMUX_PROJECTION_S3_SECRET_ACCESS_KEY  write keys for a bucket
@@ -18,7 +18,7 @@ mirrors=${CMUX_REPO_ARCHIVE_MIRRORS:-$HOME/Projects/.wt-mirrors}
 repos=${CMUX_REPO_ARCHIVE_REPOS:-manaflow-ai/cmux:feat-cmux-next,main}
 bin=${CMUX_PROJECTION_BIN:-cmux-projection}
 
-if [ -z "${CMUX_REPO_ARCHIVE_STORE:-}" ] && ! [ -s "$HOME/.config/cmux/repo-archive.json" ]; then
+if [ -z "${CMUX_REPO_ARCHIVE_STORE:-}" ] && ! [ -s /etc/cmux/repo-archive.json ]; then
   echo "repo-archive: no store configured (CMUX_REPO_ARCHIVE_STORE); nothing published"
   exit 0
 fi
