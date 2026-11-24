@@ -317,11 +317,10 @@ fn derive(facts: &Facts) -> Derived {
             Cloud::None | Cloud::Moving | Cloud::Live => {}
         }
     }
-    if let Some(refusal) = facts.refusal.as_ref().filter(|refusal| is_slots_full(&refusal.code)) {
-        if !in_cloud {
-            let why = why_at(Reason::SlotsFull, refusal.at_ms);
-            return (Phase::StayingLocalSlotsFull, refusal.at_ms, None, why);
-        }
+    let slots_full = facts.refusal.as_ref().filter(|refusal| is_slots_full(&refusal.code));
+    if let Some(refusal) = slots_full.filter(|_| !in_cloud) {
+        let why = why_at(Reason::SlotsFull, refusal.at_ms);
+        return (Phase::StayingLocalSlotsFull, refusal.at_ms, None, why);
     }
     match paused {
         Some((_, since)) if in_cloud => (Phase::Sleeping, since, None, None),
