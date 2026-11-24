@@ -703,6 +703,10 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// The harness-magic scorecard over every session log (`scorecard.rs`): tokens and leo-units
+    /// per settled pull request, steering rate, time to the first useful result, by feature;
+    /// the local unix socket only, like `MUX_STATS`.
+    pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
