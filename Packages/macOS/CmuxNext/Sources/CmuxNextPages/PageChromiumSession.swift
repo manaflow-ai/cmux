@@ -14,13 +14,19 @@ final class PageChromiumSession {
     var hangWatch: Task<Void, Never>?
     /// Restarts this page's renderer when it stays hung (agent chats only; ``AgentRendererHangRestart``).
     var hangRestart: AgentRendererHangRestart?
-    /// The visibility the page was last told (``PageWebView/setChromiumVisibility(_:)``); nil before the first.
-    var reportedVisible: Bool?
+    /// What the page view told ``page`` last: it shows. ``setVisible(_:)`` is its only writer.
+    private(set) var shows = false
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
         self.bridge = bridge
         deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
+    }
+
+    /// Tells the page whether it shows, and keeps the answer: the page view's one call (``PageWebView/setChromiumVisibility(_:)``).
+    func setVisible(_ visible: Bool) {
+        page.setVisible(visible)
+        shows = visible
     }
 
     /// Stops the bridge and closes the page. Idempotent.

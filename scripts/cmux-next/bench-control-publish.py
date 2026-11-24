@@ -55,6 +55,7 @@ from bench_cli_storm import Client  # noqa: E402
 from bench_idle import wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 
 def daemon_socket(tag, limit_s=30):
@@ -118,7 +119,9 @@ def main():
     parser.add_argument("--workspaces", type=int, default=50)
     parser.add_argument("--tabs", type=int, default=10, help="terminal tabs per workspace")
     parser.add_argument("--renames", type=int, default=120)
-    parser.add_argument("--settle", type=float, default=5)
+    parser.add_argument("--settle", type=float, default=5,
+                        help="the seeded tree settles: the wait for the published topology to hold still is up to "
+                             "max(10, 4 x this) seconds")
     parser.add_argument("--pty-margin", type=int, default=100)
     parser.add_argument("--max-p50-ms", type=float, default=2.0)
     parser.add_argument("--max-stall-ms", type=float, default=2000)
@@ -156,7 +159,9 @@ def main():
         report["seed_s"] = round(time.monotonic() - started, 1)
         total = tab_count(tree(control))
         report["tabs"] = total
-        time.sleep(args.settle)  # test script: let the seeded tree settle before the measured window
+        # The seeded tree settles before the measured window: the published topology holds still for about a second.
+        wait_stable(lambda: tree(control), "the seeded tree", timeout=max(10.0, args.settle * 4), interval=0.25,
+                    reads=5, raise_on_timeout=False)
         control.call("debug.timings", {"clear": True})
         control.call("debug.hangs", {"clear": True})
         rename_ms = []

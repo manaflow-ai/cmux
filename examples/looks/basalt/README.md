@@ -5,7 +5,7 @@
 ![The Basalt look in Light](screenshots/basalt-light.png)
 
 A quiet, near-black agent-editor look. The chat gets nearly all of the window: a #1a1a1a page,
-a slightly cooler #232425 sidebar behind a 1 pt line that lists your chats under their
+a slightly cooler #1a1b1c sidebar behind a 1 pt line that lists your chats under their
 repository, one line each with a small status dot and its age, and pin and archive controls
 that appear only on hover. Your prompt sits in a bordered box with 12 px corners; tool calls
 and thoughts fold into one gray line you can open ("Explored 5 files"); each turn ends with
@@ -18,8 +18,8 @@ It is built only from public surfaces, so you can copy any part of it:
 | File | What it does |
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; sets the chat in the system font at 15 px on a 1.6 line, code at 0.9, a 760 px column, no minimap, tool calls folded, the branch and machine pickers under the composer at its left, the session rail pushing the chat aside, the changed files card under each turn (that turn only); the sidebar grouped by folder under plain headings, one line per chat with its age, status as a plain dot, pin and archive on hover, a compact hover card; a 6 px address field |
-| `themes/basalt.json` | Default, Dark. Page `#1a1a1a`, text `#f0f0f0`, the sidebar `#232425` behind a 1 pt line, code, diffs and the terminal on `#181818`, accent `#699be1` with dark ink, selection `#2f4766`, diff and status colors (`#80b38d`, `#ea7485`, `#e8b773`) as the terminal palette |
-| `themes/basalt-light.json` | Light. Page `#f9f7f8`, text `#141414`, the sidebar `#eeeeee`, code on `#fcfcfc`, accent `#3d6db3` with white on it, selection `#cddcf0`, the same palette taken down until it reads on the light page |
+| `themes/basalt.json` | Default, Dark. Page `#1a1a1a`, text `#f0f0f0`, the sidebar `#1a1b1c` behind a 1 pt line, code, diffs and the terminal on `#181818`, accent `#699be1` with dark ink, selection `#5e7695`, diff and status colors (`#80b38d`, `#ea7485`, `#e8b773`) as the terminal palette |
+| `themes/basalt-light.json` | Light. Page `#f9f7f8`, text `#141414`, the sidebar `#f7f7f7`, code on `#fcfcfc`, accent `#3d6db3` with white on it, selection `#cddcf0`, the same palette taken down until it reads on the light page |
 | `agent-pane/theme.css` | The bordered prompt box (a fill 3% off the page, a 10% edge, 12 px corners), cards on the same quiet fill, gray secondary text at 70% and 60%, links in the accent pulled a fifth toward the text, and the editor's menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like the editor's thread card (the title and age, then the branch and folder lines, each with a gray icon) and rows in regular weight with a plain status dot |
 | `markdown/theme.css` | The Markdown viewer's paint: code in the bordered box's 8 px corners on a quiet gray, headings with no rule, quotes on a gray line; nothing blue but links. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
