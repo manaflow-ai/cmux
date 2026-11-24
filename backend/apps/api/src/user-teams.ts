@@ -4,7 +4,7 @@ import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
-import { HEAL_BUDGET_MS, keepAlive, stackHealDeps, stackTeamsOf, syncTeam, within, type StackHealDeps } from "./stack-team-heal.ts"
+import { HEAL_BUDGET_MS, keepAlive, refreshTeam, stackHealDeps, stackTeamsOf, syncTeam, within, type StackHealDeps } from "./stack-team-heal.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
 type Membership = { role: string; display_name: string; kind: "personal" | "stack" } | null
@@ -83,6 +83,15 @@ export const listUserTeams = async (env: Env, p: Principal, deps: UserTeamsDeps 
           const synced = await within(sync, HEAL_BUDGET_MS)
           if (!synced.done) keepAlive(sync)
           m = synced.done ? await membershipOf(env, team, user) : "unreachable"
+        } else if (m && m !== "unreachable" && stackTeam !== undefined) {
+          // Confirmed here: still sync the team from Stack once per window, so teammates who joined in Stack and
+          // whose webhook never came are listed by team.members.list and reachable by dm.open. Not waited on past
+          // the budget, and never what decides this person's own listing.
+          const refresh = refreshTeam(env, team, stackTeam, user, deps.now())
+          if (refresh !== undefined) {
+            const done = await within(refresh, HEAL_BUDGET_MS)
+            if (!done.done) keepAlive(refresh)
+          }
         }
         return m && m !== "unreachable" ? { m, sso: await ssoRequiredIn(env, p, team) } : { m, sso: false as const }
       })

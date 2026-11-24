@@ -117,6 +117,12 @@ jobs:
           cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
           echo "HFR_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
+      # The hybrid start runs the chat on this Mac first, on a harness the app's acpmux finds on PATH (acpmux
+      # config/discover.rs): with no `claude` here it has none ("no harnesses configured", run 45276902076).
+      - name: Install Claude Code (the local harness)
+        run: |
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          command -v claude && claude --version
       - name: Hybrid start, three runs, follow-up, control
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}

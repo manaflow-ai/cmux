@@ -125,7 +125,8 @@ def transcript(session: str) -> dict:
         "continuations": len(re.findall(r"(?i)continu(?:e|ation)[^\"]{0,80}(?:move|machine|where you)", text)),
         "interrupted_markers": text.count("[Request interrupted"),
         "tool_calls": len(tools), "repeated_tool_calls": len(tools) - len(set(tools)),
-        "sleep_calls": text.count("sleep 20"), "done_1": text.count("done-1"), "finished": text.lower().count("finished"),
+        "sleep_calls": agent_text(text).count("sleep 20"), "done_1": agent_text(text).count("done-1"),
+        "finished": agent_text(text).lower().count("finished"),
         "raw_tail": text[-3000:] if got["code"] == 0 else got["err"][-1500:],
     }
 
@@ -147,7 +148,20 @@ def follow_log(path: Path, lines: list, stop: threading.Event) -> None:
         stop.wait(0.2)
 
 
-OK_WORD = re.compile(r'(?i)"(?:text|content|delta|message|value)"\s*:\s*"[^"]{0,200}\bok\b')
+OK_WORD = re.compile(r"(?i)\bok\b")
+PERSON_ROLES = ("user", "person", "prompt", "turn_end")
+
+
+def agent_text(text: str) -> str:
+    """What the agent and its tools wrote, as one string: every item of an `agents chat read` except the person's
+    prompts and turn ends. The prompt itself holds "ok", "done-1" and "finished", so a count over the whole read
+    is true before the agent says a word (the first staging run's numbers were that)."""
+    value = parsed(text)
+    items = (value.get("result") or value).get("items") if isinstance(value, dict) else None
+    return "\n".join(
+        json.dumps(i) for i in items or []
+        if isinstance(i, dict) and i.get("role") not in PERSON_ROLES and i.get("kind") not in ("prompt", "user_message")
+    )
 
 
 def first_token(session: str, started: float, out: dict, stop: threading.Event) -> None:
@@ -162,7 +176,7 @@ def first_token(session: str, started: float, out: dict, stop: threading.Event) 
             first = len(text)
         elif text and "grew_ms" not in out and len(text) > first:
             out["grew_ms"] = at
-        if OK_WORD.search(text):
+        if OK_WORD.search(agent_text(text)):
             out["ok_ms"] = at
             out["at_ok"] = text[-1500:]
         stop.wait(0.25)
