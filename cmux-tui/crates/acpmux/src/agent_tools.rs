@@ -515,7 +515,7 @@ pub struct Inputs {
     pub github: bool,
     /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
     /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
-    /// pool suspends while the model thinks (crates/desktop-lease, cmuxterm-hq#8741).
+    /// pool suspends while the model thinks (cmuxterm-hq#8741).
     pub desktop_lease: Option<PathBuf>,
 }
 

@@ -145,6 +145,7 @@ pub(crate) mod evict;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_replay;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
@@ -179,6 +180,7 @@ pub(crate) mod list_tee;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
+pub(crate) mod hub_health;
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -1110,6 +1112,8 @@ pub struct Hub {
     pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
+    pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Hub-routed session reads shared by callers while the same network read is in flight.
@@ -1693,6 +1697,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
             child_tags: Default::default(),
@@ -2476,6 +2481,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),

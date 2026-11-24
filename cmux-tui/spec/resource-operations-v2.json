@@ -8128,6 +8128,80 @@
       },
       "extra": false
     },
+    "SettingsHistory": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SettingsHistoryEntry"
+            }
+          },
+          "description": "Recorded changes of the settings file, newest first."
+        }
+      },
+      "extra": false
+    },
+    "SettingsHistoryEntry": {
+      "kind": "object",
+      "fields": {
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the change was published, in unix milliseconds."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed."
+        },
+        "origin": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "user",
+              "cli",
+              "mcp",
+              "script",
+              "remote",
+              "app",
+              "file"
+            ]
+          },
+          "description": "Who made the change; file is a hand edit the daemon found on disk."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The settings revision the change produced; settings.restore takes it."
+        },
+        "undoes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Present on a settings.undo: the revision it took back."
+        }
+      },
+      "extra": false
+    },
     "SettingsEdit": {
       "kind": "object",
       "fields": {
@@ -37810,6 +37884,39 @@
         "validation.invalid"
       ]
     },
+    "settings.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Every published change of the settings file this daemon recorded (at most 100, newest first), whoever made it: settings writes from the page, palette, CLI and MCP, and hand edits of the file (origin file). Each entry's revision is what settings.restore takes; the file texts stay in the daemon's state directory. No state directory: no entries."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SettingsHistory"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "settings.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -38032,6 +38139,161 @@
         "validation.invalid"
       ]
     },
+    "settings.reset_group": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "A Settings section id (appearance), every row of the section, or section.group (appearance.sidebar: the section and the last part of the group's localization key), the rows of that group."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes every key of the group's schema rows (their defaults apply) in one write with one revision and one settings.history entry; rows of other groups, keys the schema does not know and managed keys stay. An unknown group is validation.invalid and its message lists the groups. An origin other than user or app is settings.agent_refused when the group sets a user-only row."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A settings.history entry's revision: the file goes back to its text just before that change."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The settings file becomes its text just before the change that produced revision, as one write that is itself recorded (settings.undo takes it back). A revision settings.history does not hold is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may restore only when every row whose value changes is one settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
     "settings.schema": {
       "class": "read",
       "idempotency": "forbidden",
@@ -38210,6 +38472,75 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.undo": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Takes back the newest change in settings.history that is not itself an undo and was not undone yet, whoever made it (page, palette, CLI, MCP, a hand edit): the settings file becomes its text before that change, as one write that is itself recorded. Repeated undo walks back one change at a time; a change made after an undo is undone first. Nothing left to undo is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may undo only changes to the rows settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },
