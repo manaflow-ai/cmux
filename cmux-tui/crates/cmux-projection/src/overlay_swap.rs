@@ -23,8 +23,19 @@ const RENAME_EXCHANGE: u32 = 2;
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let done = rename_at(&from, &to, flags);
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_at(from: &CString, to: &CString, flags: u32) -> i64 {
     // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    #[allow(clippy::useless_conversion)]
     let done = unsafe {
         libc::syscall(
             libc::SYS_renameat2,
@@ -35,11 +46,22 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
             flags,
         )
     };
-    if done < 0 {
-        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
-    } else {
-        Ok(())
-    }
+    done.into()
+}
+
+/// macOS has no `renameat2`: `renameatx_np` takes `RENAME_EXCL` for no-replace and
+/// `RENAME_SWAP` for exchange (as `acpmux`'s `write_journal/nofollow.rs` does).
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn rename_at(from: &CString, to: &CString, flags: u32) -> i64 {
+    let flags = match flags {
+        RENAME_EXCHANGE => libc::RENAME_SWAP,
+        RENAME_NOREPLACE => libc::RENAME_EXCL,
+        _ => 0,
+    };
+    // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    i64::from(unsafe {
+        libc::renameatx_np(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), flags)
+    })
 }
 
 impl Overlay {
