@@ -215,6 +215,18 @@ extension UpdaterService {
     /// for the person's click (``UpdateController/asksBeforeInstalling``); any other build clears it.
     static let pickedBuildKey = "cmux.next.updates.pickedBuild"
 
+    /// A skip the running build has passed hides nothing any more (every build offered is newer
+    /// than the running one), so launch drops it: an older NIGHTLY's rollback or failed install
+    /// check no longer rides along in the defaults of every build after it. A skip at or above the
+    /// running build (the rollback is still in effect) stays. True when it dropped one.
+    @discardableResult
+    nonisolated static func dropOutgrownSkip(defaults: UserDefaults, running: String) -> Bool {
+        guard let skip = defaults.string(forKey: skipsBuildsThroughKey),
+              AppcastSelector.isOlder(skip, than: running) else { return false }
+        defaults.removeObject(forKey: skipsBuildsThroughKey)
+        return true
+    }
+
     /// Whether the running build is the one a rollback or Install this version went to, so a newer
     /// build waits for the person's click (the driver's hold, and ``applyDownloadPolicy()``'s resume).
     var runsPickedBuild: Bool { defaults.string(forKey: Self.pickedBuildKey) == identity.build }
@@ -327,6 +339,7 @@ extension UpdaterService {
     /// Then puts back what a swap cut short left (``RollbackSwap/recover(current:store:)``) and reads
     /// the build Go back would take (``refreshRevertOffer()``), off the main thread.
     func restoreRollbackSkip() {
+        Self.dropOutgrownSkip(defaults: defaults, running: identity.build)
         controller?.skipsBuildsThrough = defaults.string(forKey: Self.skipsBuildsThroughKey)
         let picked = defaults.string(forKey: Self.pickedBuildKey)
         if picked != nil && picked != identity.build { defaults.removeObject(forKey: Self.pickedBuildKey) }
