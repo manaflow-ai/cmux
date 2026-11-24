@@ -2,6 +2,8 @@
 //! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
 //! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
+//! - [`app_ops`]: the Mac app's reads of the file as JSON ops (the app
+//!   FFI's `cmux_settings_call`).
 //! - [`language`]: the `app.language` setting's shipped locales and their
 //!   fallbacks.
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
@@ -12,12 +14,15 @@
 //! - [`managed`], [`effective`]: MDM and team policy layers and the merge.
 //! - [`migrations`]: settings written for another cmux, rewritten through
 //!   the retired-keys table (renamed and removed keys).
+//! - [`project_actions`]: a repository's `.cmux/actions.json`, found from a
+//!   working directory and merged with the global `actions`.
 //! - [`youtube`]: the `youtube:` background id and reading a pasted YouTube
 //!   address into it.
 //! - [`store`]: the pure reducer `apply(&State, Op)`; [`owner`]: the single
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
 
+pub mod app_ops;
 pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;
@@ -36,6 +41,7 @@ pub mod location;
 pub mod managed;
 pub mod migrations;
 pub mod owner;
+pub mod project_actions;
 pub mod refusal;
 pub mod render;
 pub mod schema;

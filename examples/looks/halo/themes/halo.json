@@ -1,0 +1,33 @@
+// Halo: near-monochrome white. A white page, the sidebar a whisper of gray (#f9f9f9), near-black
+// ink (#0d0d0d), a neutral gray selection, and black as the accent: no color but the content's.
+{
+  "name": "Halo",
+  "description": "Near-monochrome white: a white page, a whisper-gray sidebar, near-black ink, no accent color.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#ececec", "accent": "#0d0d0d" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "spacious",
+
+  // Proportions: a 260 pt sidebar of 36 pt rows, 13 pt chrome text, wide gaps.
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 36,
+  "appearance.metrics.chromeFontSize": 13,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#f9f9f9",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#ffffff",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot"
+}

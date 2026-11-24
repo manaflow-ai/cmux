@@ -281,22 +281,22 @@ export class AcpmuxPerf {
         key: event.key,
       };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
-      // The key's edit: its `input` event, then the microtasks the field and React run it in.
-      const input = () => {
-        const done = new MessageChannel();
-        done.port1.onmessage = () => {
-          sample.work ??= performance.now() - start;
-          done.port1.close();
-        };
-        done.port2.postMessage(0);
-      };
-      page.addEventListener("input", input, { capture: true, once: true });
+      // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
+      // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
+      // commit) run before the next handler. A microtask from here ends the key's work. A point after the task (a
+      // posted message) also counted whatever ran before it: on Mac WebKit the next frame ran first on nearly every
+      // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
+      const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
+      page.addEventListener("input", input, { once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
+        performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
-        page.removeEventListener("input", input, { capture: true });
+        page.removeEventListener("input", input);
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
+          performance.mark?.("acpmux:key-paint");
           sample.frame = frame - start;
           const painted = performance.now();
           sample.paint = painted - start;
@@ -367,7 +367,11 @@ export class AcpmuxPerf {
   /** Records `stage` on the wall clock once per page (`LaunchMark`). */
   markLaunch(stage: LaunchMark, now = Date.now()): void {
     if (stage === "handshakeStart") this.handshakeAttempts += 1;
-    if (this.launchMarks[stage] === undefined) this.launchMarks[stage] = now;
+    if (this.launchMarks[stage] !== undefined) return;
+    this.launchMarks[stage] = now;
+    // The same stage as a user-timing mark, so a trace (DevTools, bench/chat-floor.bench.ts) shows it.
+    if (typeof performance !== "undefined" && typeof performance.mark === "function")
+      performance.mark(`acpmux:${stage}`);
   }
 
   /** An event of the shown chat arrived; `at` is when acpmux recorded it (ms since 1970). */

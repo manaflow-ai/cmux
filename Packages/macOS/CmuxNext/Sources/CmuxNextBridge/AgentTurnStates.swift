@@ -77,6 +77,10 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The chat's latest subagents, oldest first (at most 8, acpmux `recentSubagents`), and how many it started in
+    /// all (`subagentsSeen`): the sidebar lists them under the chat's row. Empty and 0 from an older acpmux.
+    public var subagents: [Subagent] = []
+    public var subagentsSeen = 0
     /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
     /// gives back its memory at once (HiddenChatPages).
     public var archived = false
@@ -110,6 +114,31 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.archived = archived
         self.summary = summary
         self.nextAction = nextAction
+    }
+
+    /// One of the chat's latest subagents (acpmux `recentSubagents[]`).
+    public struct Subagent: Hashable, Sendable {
+        public var id: String
+        /// The subagent that started it; nil for one the chat started.
+        public var parent: String?
+        /// Its name, else its task, as acpmux masked and cut it.
+        public var title: String?
+        /// `running`, `done`, `failed` or `stopped`.
+        public var state: String
+
+        public init(id: String, parent: String? = nil, title: String? = nil, state: String) {
+            (self.id, self.parent, self.title, self.state) = (id, parent, title, state)
+        }
+    }
+
+    /// A summary's `recentSubagents`: each entry with an id and a state; others are skipped.
+    static func subagents(_ value: Any?) -> [Subagent] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let item = item as? [String: Any], let id = item["id"] as? String, !id.isEmpty,
+                  let state = item["state"] as? String, !state.isEmpty else { return nil }
+            let text = { (key: String) in (item[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            return Subagent(id: id, parent: text("parent"), title: text("title"), state: state)
+        }
     }
 
     /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
@@ -170,6 +199,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      archived: archived(summary),
                                      summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
         if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
+        detail.subagents = subagents(summary["recentSubagents"])
+        detail.subagentsSeen = count(summary["subagentsSeen"])
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -289,6 +320,14 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         }
     }
 
+    /// Whether someone renamed the chat (acpmux `rename`): it has former names, and its title is the one
+    /// the new name gave it (`titleSource` `named`, hub/turns.rs `rename_as`). That title is real: the
+    /// sidebar row and the workspace it names follow the rename (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN
+    /// RENAMED TO WHAT THE PROPAGATION OF RENAMES ARE INCOMPLETE").
+    static func isRenamed(_ summary: [String: Any]) -> Bool {
+        summary["titleSource"] as? String == "named" && !((summary["formerNames"] as? [Any])?.isEmpty ?? true)
+    }
+
     /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
     private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
@@ -297,7 +336,7 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
             // may feed durable workspace auto-naming; an absent source is an
             // older daemon and is intentionally treated as unknown.
             let source = summary["titleSource"] as? String
-            guard let source, ["harness", "generated", "adopted"].contains(source) else { return nil }
+            guard let source, ["harness", "generated", "adopted"].contains(source) || isRenamed(summary) else { return nil }
         }
         if let title = summary["title"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return promptGist(title)

@@ -323,6 +323,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `sidebar.drawnMenus`: the sidebar's right-click and more-button menus open as ``GlassMenu``s, which
+    /// the menu look styles; off keeps the system menu. Read as a menu opens.
+    public var sidebarDrawnMenus = false
     /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
     /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
     public var liquidGlass = false
@@ -366,6 +369,11 @@ public final class DesignSettings {
     /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
     public var cornerFlush: CornerFlush? {
         didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.tabShape`: how blocky the tabs of every tab bar and the sidebar's rows are (``TabShape``): block (the
+    /// default) or rounded; a change repaints, as the tone does. The gooey look is `appearance.cornerFlush` flush-goo.
+    public var tabShape: TabShape = .block {
+        didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs

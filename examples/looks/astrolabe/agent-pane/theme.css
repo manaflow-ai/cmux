@@ -1,0 +1,18 @@
+/* Astrolabe's chat: the prompt and every card framed in a gold hairline with small, nearly square
+   corners, over the faintest wash of the accent; secondary text warmed toward it.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent), so it reads over Astrolabe and Astrolabe Dawn and
+   over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 9%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-accent) 60%, transparent);
+  --cv-user-bubble-radius: 3px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 42%, transparent);
+  --cv-code-edge-fade: 40px;
+  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 88%, var(--agent-accent)) 82%, transparent);
+  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 88%, var(--agent-accent)) 70%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+}

@@ -406,7 +406,13 @@ final class AppServices {
     /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
     private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
+    private(set) lazy var configActions = ConfigActionsController(registry: registry, run: runCommandAction)  // first read in init (no IUO)
+    /// The focused project's own actions file, registered as `cmuxProject.<name>`.
+    private(set) lazy var projectActions = ProjectActionsController(registry: registry, folder: { [weak self] in self.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) }?.path } },
+                                                                    connection: { [weak self] in self?.machines.local.connection }, run: runCommandAction)
+    private var runCommandAction: @MainActor (ConfigCommandAction, ActionInvocation) -> Void {
+        { [weak self] in if let self { ConfigCommandRunner.run($0, invocation: $1, context: AppActionContext(services: self)) } }
+    }
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
@@ -523,6 +529,8 @@ final class AppServices {
     var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
+    /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).
+    let paidPlanReread = DemandTimer(owner: "AppServices.paidPlanReread")
     /// One marked-tab list for the palette and every agent page.
     let attentionTabs = AgentPaneAttentionTabs()
     /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
@@ -959,7 +967,23 @@ extension AppServices {
     }
 
     /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    ///
+    /// The payment can land after the person is back, and nothing else reads the plan until the next activation: so
+    /// the plan is read again on ``PaidPlanOnboarding/rereadAfter``, until it turns paid (which ends the wait) or
+    /// the list runs out.
     func paidPlanReturned() async {
-        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
+        guard PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+        await cloud.refresh()
+        paidPlanRereadNext(PaidPlanOnboarding.rereadAfter[...])
+    }
+
+    /// One plan read per wait left, each on the timer (a newer return to the app replaces the run).
+    private func paidPlanRereadNext(_ waits: ArraySlice<Duration>) {
+        guard let wait = waits.first else { return paidPlanReread.cancel() }
+        paidPlanReread.schedule(after: wait) { @MainActor [weak self] in
+            guard let self, PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+            await self.cloud.refresh()
+            self.paidPlanRereadNext(waits.dropFirst())
+        }
     }
 }

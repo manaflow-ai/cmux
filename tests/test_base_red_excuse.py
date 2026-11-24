@@ -2936,6 +2936,28 @@ class JoblessStatusChecks(unittest.TestCase):
             self.judge()
         self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
 
+    def test_required_checks_status_red_asks_its_own_rerun(self):
+        # cmux#49885 at 8b11f0c2: the pool's 'clippy (changed cmux-tui packages)' failed while its Actions twin was
+        # skipped; judging the twin said "re-run it", and an Actions rerun comes back skipped.
+        name = "clippy (changed cmux-tui packages)"
+        self.CONTEXT = name
+        pool = f"failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head={HEAD[:12]}"
+        self.head = {"context": name, "state": "failure", "description": pool,
+                     "target_url": f"http://100.89.225.106:18765/v1/required-checks?head={HEAD}"}
+        self.base = {self.TIP: [], self.OLDER: [dict(self.head, state="success", description="passed on the cmux pool")]}
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CONTROLLER": "http://controller.test:1/"}):
+            with self.assertRaises(excuse.Refused) as said:
+                self.judge()
+        text = str(said.exception)
+        self.assertIn(f"base {self.OLDER[:12]} has it success: passed on the cmux pool", text)
+        self.assertIn(f"rerun the pool: POST http://controller.test:1/v1/required-checks/rerun?head={HEAD}", text)
+        self.assertNotIn("re-run it", text)
+        self.assertFalse(any("actions/runs" in route for route in self.gh.routes))  # its Actions twin is never judged
+        # The base sharing the red excuses nothing: the description names no failure to compare.
+        self.base[self.TIP] = [dict(self.head)]
+        with self.assertRaisesRegex(excuse.Refused, rf"base {self.TIP[:12]} has it failure: .*rerun the pool: POST "):
+            self.judge()
+
     IGNORED = "Canceled by Ignored Build Step"
 
     def pr_files(self, *paths, number=7192, changed=None):
@@ -3134,6 +3156,52 @@ jobs:
 
 
 NEW_BASE_SHA = "d" * 40
+
+
+class NamesakeJobsInTwoWorkflows(unittest.TestCase):
+    """hq#20438 at e60497b1 (2026-11-24): two workflows each ran a job 'tests' on the head and both were red. The base's
+    newest run of one (fleet-reconcilers tests) was cancelled by concurrency, and its run before failed the same way;
+    the other's (lane-gh-broker tests) at the same base commit passed. Each red is judged by its own workflow's base
+    runs alone, and the refusal names both runs' workflows, so a green namesake is never read as the verdict."""
+
+    def setUp(self):
+        self.gh = TwoWorkflowGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, "tests"), 2: failed_job(2, 20, BASE_SHA, "tests"),
+                        3: failed_job(3, 11, HEAD, "tests"),
+                        4: {**failed_job(4, 31, NEW_BASE_SHA, "tests"), "conclusion": "success"}}
+        for step in self.gh.jobs[4]["steps"]:
+            step["conclusion"] = "success"
+        self.gh.logs = {1: log("tests", TEST_STEP, ISSUE, "##[error]1 red tests: writesTheRequest()"),
+                        2: log("tests", TEST_STEP, ISSUE, OTHER, "##[error]2 red tests: writesTheRequest(), palette()"),
+                        3: log("tests", TEST_STEP, OTHER, "##[error]1 red tests: palette()")}
+        # Workflow 7: its run at the newer base commit was cancelled with no verdict; the one before failed.
+        self.gh.base_runs = [{"id": 21, "workflow_id": 7, "event": "push", "head_branch": "feat-cmux-next",
+                              "status": "completed", "conclusion": "cancelled", "head_sha": NEW_BASE_SHA},
+                             {"id": 20, "workflow_id": 7, "event": "push", "head_branch": "feat-cmux-next",
+                              "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA}]
+        # Workflow 8: its run at that same newer base commit passed its own 'tests'.
+        self.gh.second_runs = [{"id": 31, "workflow_id": 8, "event": "push", "head_branch": "feat-cmux-next",
+                                "status": "completed", "conclusion": "success", "head_sha": NEW_BASE_SHA}]
+
+    def test_the_cancelled_workflows_red_is_compared_with_its_own_older_base_run(self):
+        audit = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+        self.assertIn("excused 'tests'", audit)
+        self.assertIn("run 20", audit)
+        self.assertNotIn("run 31", audit)
+
+    def test_the_green_workflows_refusal_names_both_runs_workflows(self):
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [11], self.gh)
+        text = str(refused.exception)
+        self.assertIn("'tests' is not red on feat-cmux-next run 31 (success), workflow 8, the base's run of the "
+                      "head's red in run 11 (workflow 8)", text)
+        self.assertNotIn("run 20", text)
+
+    def test_a_label_names_a_runs_workflow_by_name_and_file(self):
+        self.assertEqual(excuse.workflow_label({"name": "lane-gh-broker tests",
+                                                "path": ".github/workflows/lane-gh-broker-tests.yml"}, 397627621),
+                         "workflow 'lane-gh-broker tests' (lane-gh-broker-tests.yml)")
+        self.assertEqual(excuse.workflow_label({}, 397708542), "workflow 397708542")
 
 
 class StaleBasePass(unittest.TestCase):
@@ -6325,7 +6393,8 @@ class FixedOnBaseGitHub(FakeGitHub):
             self.routes.append(route)
             name = urllib.parse.unquote(route.split("check_name=", 1)[1].split("&", 1)[0])
             return {"check_runs": [] if self.at_merge_base is None else
-                    [{"name": name, "status": "completed", "conclusion": self.at_merge_base}]}
+                    [{"name": name, "status": "completed", "conclusion": self.at_merge_base,
+                      "app": {"slug": "github-actions"}}]}
         return super().json(route, paginate=paginate)
 
 
@@ -8070,6 +8139,94 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "names no failed steps"):
             self.judge()
 
+    def discounted_red(self, description, *, base_failed=True, own_unit="test_b.py"):
+        """HEAD red on DEPLOY's units test_a.py (main's red too: its own base pass failed it on main) and OWN_UNIT, main
+        red on test_a.py's test_a: the run's WS_CHECK_RESULT lists DEPLOY, its status DESCRIPTION (tools/ws-check
+        discount_base_reds counted only OWN_UNIT)."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a")}})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                own_unit: self.ws_deploy("test_b")}}, description=description)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 2 failed units fail on main too (9.0 s)"]
+        if base_failed:
+            log[at:at] = [stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [test_a.py] (exit 1, ran 4, skipped 0, "
+                                  "gh calls 0)"]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_a_status_that_discounted_mains_reds_is_read(self):
+        # 2026-11-24: since leo-workspace#9404 tools/ws-check reruns a run's failed units on main and counts only the
+        # rest ("12 of 929 steps failed: UNIT (+K base red discounted, main SHA8)", cut at 139), while WS_CHECK_RESULT
+        # still lists every failed step: lw#9704, #9760, #9702 and #9753 were refused "does not match run ...".
+        own = f"{self.DEPLOY} [test_b.py]"
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})"[:139],
+                            f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})"[:100],
+                            f"1 of 77 steps failed (+1 base red discounted, main {main8}): {own}"[:139]):
+            with self.subTest(description=description):
+                self.discounted_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "test_b"):  # read, and test_b is the head's own red
+                    self.judge()
+                try:
+                    self.judge()
+                except excuse.Refused as error:
+                    self.assertNotIn("does not match", str(error))
+
+    def test_a_discounted_status_that_the_log_does_not_bear_out_is_refused(self):
+        own = f"{self.DEPLOY} [test_b.py]"
+        main8 = self.gh.TIP[:8]
+        for description, kwargs in (
+                (f"1 of 77 steps failed: {own} (+2 base red discounted, main {main8})", {}),  # count
+                (f"1 of 77 steps failed: {own} (+1 base red discounted, main {'0' * 8})", {}),  # main
+                (f"1 of 77 steps failed (+1 base red discounted, main {main8}): {self.DEPLOY} [test_c.py]", {}),  # unit
+                (f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})", {"base_failed": False})):
+            with self.subTest(description=description, **kwargs):
+                self.discounted_red(description, **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
+    def test_a_global_git_config_write_is_read_from_its_own_line(self):
+        # ws_check_run.py adds "global git config changed by a step" to `failed` with no step line, only "ws-check: a
+        # step changed the global git config PATH (...)": lw#9703 at 85551f8b (run 45341796653) was refused "has no
+        # 'ws-check step FAILED: global git config changed by a step' line".
+        step, said = excuse.WS_CHECK_GIT_CONFIG_STEP, excuse.WS_CHECK_GIT_CONFIG_LINE
+        for sha, run, path in ((self.gh.TIP, 2, "/home/a/.gitconfig"), (HEAD, 1, "/home/b/.gitconfig")):
+            self.gh.verdict(sha, run, {self.RELAY: self.relay_lint()})
+            log = self.gh.logs[run * 10 + 1]
+            result = json.loads(log.rsplit("WS_CHECK_RESULT=", 1)[1])
+            result["failed"].append(step)
+            log = log.rsplit("\n", 1)[0] + (f"\n2026-11-05T04:39:27.9954759Z {said} {path} (ran 8 at a time, first "
+                                            f"watching step: x)\n2026-11-05T04:39:27.9954759Z WS_CHECK_RESULT="
+                                            + json.dumps(result))
+            self.gh.logs[run * 10 + 1] = log
+            self.gh.statuses[sha][0]["description"] = f"2 of 77 steps failed: {self.RELAY}"[:139]
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        # Not red that way on main: the head's own.
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+        with self.assertRaisesRegex(excuse.Refused, "global git config changed by a step"):
+            self.judge()
+        # Named in `failed` with no line saying it: refused, never guessed.
+        self.gh.logs[11] = self.gh.logs[11].replace(said, "something else")
+        with self.assertRaisesRegex(excuse.Refused, f"has no '{said}' line"):
+            self.judge()
+
+    def test_an_unreadable_main_verdict_is_passed_over_for_an_older_one(self):
+        # 2026-11-24: main 106d10145c's run 45341598629 kept only the last 200 lines of a red suite (16 of 17 FAIL
+        # lines), and every leo-workspace PR was refused "its failing tests cannot be listed" on main's run.
+        self.deploy_red(f"1 of 77 steps failed: {self.DEPLOY}")
+        self.gh.verdict(self.gh.OLDER, 3, {self.DEPLOY: self.ws_deploy("test_a")})
+        broken = {self.DEPLOY: self.ws_deploy("test_a")[:-1] + ["FAILED (failures=1, errors=1)"]}
+        self.gh.verdict(self.gh.TIP, 2, broken)
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertTrue(any(self.gh.OLDER[:12] in line for line in audit), audit)
+        # The head's own unreadable red is still refused.
+        self.gh.verdict(HEAD, 1, broken)
+        with self.assertRaisesRegex(excuse.Refused, "its failing tests cannot be listed"):
+            self.judge()
+
     def test_a_test_list_that_disagrees_with_its_summary_is_not_excused(self):
         red = {self.DEPLOY: self.ws_deploy("test_a")}
         self.gh.verdict(self.gh.TIP, 2, red)
@@ -8080,7 +8237,10 @@ class WsCheckPerTest(unittest.TestCase):
 
     def test_an_unreadable_main_verdict_is_not_excused(self):
         self.gh.logs[21] = self.gh.logs[21].replace(f"ws-check step FAILED: {self.RELAY}", "ws-check step ok: x")
-        with self.assertRaisesRegex(excuse.Refused, f"'ws-check' on {self.gh.TIP}: .*has no 'ws-check step FAILED"):
+        # Passed over for an older verdict (test_an_unreadable_main_verdict_is_passed_over_for_an_older_one); with none,
+        # the refusal still says why main's could not be read.
+        with self.assertRaisesRegex(excuse.Refused, f"1 unreadable, first {self.gh.TIP[:12]}: .*has no 'ws-check step "
+                                                    "FAILED"):
             self.judge()
 
     def test_main_green_head_red_is_not_excused(self):
@@ -13809,6 +13969,57 @@ class EveryReportedFailureIsNamed(unittest.TestCase):
                          UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, self.CARGO, self.CARGO))
 
 
+class ANestedCargoRunIsCountedAgainstItsOwnBlock(unittest.TestCase):
+    """cmux#50285: a test that re-execs its own test binary with a filter prints a whole nested libtest summary inside
+    the parent target's `---- NAME stdout ----` dump. Counted against the names its runner printed since the previous
+    summary, that nested `0 passed; 1 failed; ... 6808 filtered out` matched its own one name and then emptied the
+    tally, so the target's real `9 failed` summary read as unnamed and no PR could be excused against that base red
+    (cmux job 137195667407). Each cargo summary now counts the names of its own `failures:` block (test_reds.py's
+    CARGO_LISTED, landed for the same class as #50988 while this PR waited on a rebase): these four cases pin the
+    whole live shape at the base_red_excuse layer -- the nested summary, a summary reporting more than its block
+    names, a block name no `test NAME ... FAILED` line named (a doc test: still unnamed, #41166's review F2), and a
+    log cut short before its block, which falls back to the runner's leftover names. Detector:
+    `tests/test_base_red_excuse.py` `ANestedCargoRunIsCountedAgainstItsOwnBlock`."""
+
+    NESTED = ["running 1 test", "test m::re_execs ... FAILED", "", "failures:", "",
+              "failures:", "    m::re_execs", "",
+              "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6808 filtered out; finished in 0.01s",
+              "", "", ""]
+
+    def target(self, nested=None, block=None, failed=2):
+        """One libtest target's lines: its two `... FAILED` lines, a stdout dump each (NESTED printed inside the
+        second, as the re-exec prints it), then its own `failures:` block (BLOCK, default both names) and summary."""
+        names = ["m::first", "m::re_execs"]
+        lines = ["running 6810 tests", "test m::passes ... ok"]
+        lines += [f"test {name} ... FAILED" for name in names]
+        lines += ["", "failures:", "", "---- m::first stdout ----",
+                  "thread 'm::first' panicked at src/a.rs:1:1:", "assertion failed", ""]
+        lines += ["---- m::re_execs stdout ----"] + list(nested or []) + [""]
+        lines += ["failures:"] + [f"    {name}" for name in (block or names)] + [""]
+        return lines + [f"test result: FAILED. 6724 passed; {failed} failed; 76 ignored; 0 measured; "
+                        "0 filtered out; finished in 431.31s"]
+
+    def test_the_nested_summary_does_not_empty_the_targets_tally(self):
+        self.assertEqual(TR.runner_unnamed(self.target(self.NESTED)), [])
+        self.assertEqual(TR.runner_unnamed(self.target()), [])
+
+    def test_a_summary_reporting_more_than_its_block_names_is_unnamed(self):
+        lines = self.target(self.NESTED, failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_block_name_no_failure_line_named_is_unnamed(self):
+        # A failing doc test's `test src/lib.rs - parse (line 3) ... FAILED` is a name no parser reads, so the
+        # third failure its block names can still be told from no other (#41166's review F2).
+        lines = self.target(block=["m::first", "m::re_execs", "src/lib.rs - parse (line 3)"], failed=3)
+        self.assertEqual(TR.runner_unnamed(lines), [lines[-1]])
+
+    def test_a_log_cut_short_before_its_block_falls_back_to_the_names_since(self):
+        cut = [line for line in self.target() if not line.startswith("    ") and line != "failures:"]
+        self.assertEqual(TR.runner_unnamed(cut), [])
+        self.assertEqual(TR.runner_unnamed([line for line in cut if "FAILED" not in line or "result" in line]),
+                         [cut[-1]])
+
+
 def bun_lines(results=(), recap=(), fail=None):
     """One bun invocation of test/a.test.ts: RESULTS printed in the run, a recap of RECAP titles, ` N fail`."""
     out = ["bun test v1.3.0", "test/a.test.ts:"]
@@ -15887,6 +16098,11 @@ SCANNERS = {
     "test_reds.gallery_states": lambda f: TR.gallery_states(f.log),
     "test_reds.gallery_entries": lambda f: TR.gallery_entries(f.log),
     "test_reds.gallery_classify": lambda f: TR.gallery_classify(f.log, f.log),
+    # A ws-check run's base pass and FAILED labels, read once each over the log's lines.
+    "base_red_excuse.ws_check_discount": lambda f: excuse.ws_check_discount(f.lines, len(f.lines), ["x"]),
+    "base_red_excuse.ws_check_described": lambda f: excuse.ws_check_described(
+        excuse.WS_CHECK_DESCRIPTION.fullmatch("1 of 2 steps failed: x (+1 base red discounted, main 0123abcd)"),
+        ["x"], 2, f.lines, len(f.lines)),
 }
 # Readers the sweep does not time, each with why.
 NOT_SWEPT = {
@@ -16345,7 +16561,8 @@ class SpawnOwnerGitHub:
             return [[]] if paginate else []
         if f"/commits/{SPAWN_MERGE_BASE}/check-runs" in path:
             name = urllib.parse.unquote(query.split("check_name=", 1)[1].split("&", 1)[0])
-            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"]}
+            return {"check_runs": [{"name": name, "status": "completed", "conclusion": job["conclusion"],
+                                    "app": {"slug": "github-actions"}}
                                    for job in self.jobs.values() if job["run_id"] == SPAWN_PRIOR_RUN
                                    and job["name"] == name]}
         raise AssertionError(route)
@@ -16533,7 +16750,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
-            "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
+            "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
             "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
@@ -16985,10 +17202,11 @@ class OtherPrSetupRed(unittest.TestCase):
                 "raw_url": f"https://github.com/{REPO}/raw/{self.HEAD_SHA}/{changed}", "patch": "@@ -1 +1 @@\n-a\n+b"}
 
     def github(self, *, other_pulls=(43755,), other_branch="lane/perf-cmux-571-restore-chat", edit=None,
-               changed=(), related="diverged"):
+               changed=(), related="diverged", event="pull_request"):
         """A fake serving the head run, the other PR's run (OTHER_PULLS, OTHER_BRANCH) and no base run; EDIT(jobs,
         logs) changes the recorded jobs and logs first. CHANGED: what the PR changes (file); RELATED: GitHub's
-        compare status of the other run's head with this head."""
+        compare status of the other run's head with this head. EVENT: the pull-request event every run of the
+        workflow has, and the one its `on:` names (a workflow is triggered by one of PR_EVENTS, never both)."""
         case = self
         jobs, logs = {}, {}
         for job_id in (*self.HEAD_JOBS.values(), *self.OTHER_JOBS.values()):
@@ -17026,10 +17244,10 @@ class OtherPrSetupRed(unittest.TestCase):
                 if f"...{case.HEAD_SHA}?per_page=1" in route:  # the other run's head with this one (shares_commits)
                     return {"status": related, "merge_base_commit": {"sha": BASE_SHA}}
                 if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
-                    if "event=pull_request" not in route:
-                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    if f"event={event}&" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"id": run, "event": "pull_request", "status": "completed", "conclusion": "failure",
+                        {"id": run, "event": event, "status": "completed", "conclusion": "failure",
                          "path": case.PATH, "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run}", **record[run]}
                         for run in (case.OTHER_RUN, case.HEAD_RUN)]}
@@ -17049,14 +17267,15 @@ class OtherPrSetupRed(unittest.TestCase):
                                                                   "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
                 if "/actions/runs/" in route:
                     run = int(route.rsplit("/", 1)[1])
-                    return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                    return {"id": run, "workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", "head_sha": case.HEAD_SHA, **record[run]}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
                 self.refs.append(ref)
                 assert path == case.PATH, path
-                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text().replace(
+                    "\n  pull_request:\n", f"\n  {event}:\n")
 
             def blob_if_present(self, repo, ref, path):
                 assert path == ".gitmodules", path
@@ -17121,6 +17340,14 @@ class OtherPrSetupRed(unittest.TestCase):
             logs[mac] = logs[mac].replace(self.AXE, "##[error]Error: No available formula with the name \"axe\".")
         with self.assertRaisesRegex(excuse.Refused, "'mac-ios-e2e': no feat-cmux-next run"):
             self.judge(self.github(edit=edit), checks=["ios-e2e-status"])
+
+    def test_a_pull_request_target_workflows_other_pr_is_listed_under_its_own_event(self):
+        # cmux#50878, 2026-11-22: cla-policy-guard.yml is triggered by pull_request_target alone, so a listing of its
+        # `event=pull_request` runs answered with none and its red had no other PR to share (handoff cmux#51045).
+        github = self.github(event="pull_request_target")
+        self.assertIn("excused 'backend'", self.judge(github, checks=["backend"]))
+        self.assertIn(f"runs?event=pull_request_target&status=failure&per_page={excuse.OTHER_PR_LIST}",
+                      "\n".join(github.routes))
 
     def test_a_different_error_on_the_other_pr_is_refused(self):
         def edit(jobs, logs):
@@ -17429,7 +17656,8 @@ class OtherPrPeerVerdict(unittest.TestCase):
         return {"index": index, "number": 44000 + index if number is None else number, "sha": f"{index:x}" * 40
                 if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base}
 
-    def github(self, peers, *, changed=()):
+    def github(self, peers, *, changed=(), event="pull_request"):
+        """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names."""
         case = self
         head_job, head_log = OtherPrSetupRed.fixture(self, self.HEAD_JOB)
         peer_job, peer_log = OtherPrSetupRed.fixture(self, self.PEER_JOB)
@@ -17474,10 +17702,10 @@ class OtherPrPeerVerdict(unittest.TestCase):
                     peer = by_sha[route.split("/compare/", 1)[1].split("...", 1)[0]]
                     return {"status": peer["related"], "merge_base_commit": {"sha": BASE_SHA}}
                 if f"/actions/workflows/{case.WORKFLOW}/runs?" in route:
-                    if "event=pull_request" not in route:
-                        return {"workflow_runs": []}  # it never runs on feat-cmux-next
+                    if f"event={event}&" not in route:
+                        return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"event": "pull_request", "status": "completed", "conclusion": "failure", "path": case.PATH,
+                        {"event": event, "status": "completed", "conclusion": "failure", "path": case.PATH,
                          "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run['id']}", **run}
                         for run in runs.values()]}
@@ -17497,13 +17725,14 @@ class OtherPrPeerVerdict(unittest.TestCase):
                                                                   "head_sha": case.HEAD_SHA, "path": case.PATH}]}]
                 if "/actions/runs/" in route:
                     run = int(route.rsplit("/", 1)[1])
-                    return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": "pull_request",
+                    return {"workflow_id": case.WORKFLOW, "path": case.PATH, "event": event,
                             "name": "iOS E2E", **runs[run]}
                 raise AssertionError(route)
 
             def blob(self, repo, ref, path):
                 assert path == case.PATH, path
-                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text()
+                return (OTHER_PR_SETUP_FIXTURES / "ios-e2e.yml").read_text().replace(
+                    "\n  pull_request:\n", f"\n  {event}:\n")
 
             def blob_if_present(self, repo, ref, path):
                 assert path == ".gitmodules", path
@@ -17557,6 +17786,16 @@ class OtherPrPeerVerdict(unittest.TestCase):
             with self.subTest(what, fourth=True):
                 self.assertIn("excused 'backend'", self.judge(self.github([self.peer(1), self.peer(2), peer,
                                                                            self.peer(4)])))
+
+    def test_a_pull_request_target_workflows_peers_are_listed_under_its_own_event(self):
+        # cmux#50878, 2026-11-22: a workflow triggered by pull_request_target alone has no `event=pull_request` run
+        # anywhere, so peers listed under that event found none and its red was unexcusable on every PR, for ever
+        # (handoff cmux#51045; leo-workspace#8742 is the same fix in land-judge's pr_only_peer_excuse).
+        github = self.github([self.peer(i) for i in (1, 2, 3)], event="pull_request_target")
+        self.assertIn("excused 'backend'", self.judge(github))
+        self.assertEqual([route for route in github.routes if "status=completed" in route],
+                         [f"repos/{REPO}/actions/workflows/{self.WORKFLOW}/runs?event=pull_request_target"
+                          f"&status=completed&per_page={excuse.PR_ONLY_PEER_RUNS}"])
 
     def test_its_reads_are_bounded(self):
         github = self.github([self.peer(i, step="Start per-run backend") for i in range(1, 15)])
@@ -18097,6 +18336,20 @@ class BaseVerdictInASiblingRepo(unittest.TestCase):
             said.append(str(refused.exception))
         self.assertEqual(said[0], said[1])
         self.assertNotIn("BASE_VERDICT_REPO", said[0])
+
+
+class ActionsCheckRunsOnly(unittest.TestCase):
+    def test_a_same_name_red_from_another_app_is_not_the_jobs_verdict(self):
+        runs = {"check_runs": [
+            {"name": "Web status", "status": "completed", "conclusion": "failure", "app": {"slug": "some-status-bot"}},
+            {"name": "Web status", "status": "completed", "conclusion": "failure"},
+            {"name": "Web status", "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"}},
+            {"name": "Other", "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"}},
+        ]}
+        seen = excuse.actions_check_runs(runs, "Web status")
+        self.assertEqual([run["app"]["slug"] for run in seen], ["github-actions"])
+        self.assertEqual(excuse.actions_check_runs({"check_runs": runs["check_runs"][:2]}, "Web status"), [])
+        self.assertEqual(excuse.actions_check_runs(None, "Web status"), [])
 
 
 if __name__ == "__main__":

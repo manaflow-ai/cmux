@@ -332,7 +332,7 @@ struct AgentChatsScreen: View {
             // A link coming back says nothing over the kept rows; only one gone past the bound does
             // (Leo, 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just connect").
             if model.reconnecting, model.stale {
-                ConnectionChip(ListStatusRow.State.stale.chip)
+                ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil) // the model held it past the quiet gate
                     .padding(.top, 8)
                     .accessibilityIdentifier("agentChats.reconnecting")
                     .transition(.opacity)

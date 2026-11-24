@@ -630,12 +630,6 @@ test("a usage record's reported setup reaches the context summary while the tool
 // The line under the work (`below`); "Working for" over the work says only the turn's time.
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -654,8 +648,8 @@ test("the line keeps elapsed time and background work counts without token amoun
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // Background work counts remain even when usage data is present.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2 subagents");
+  // Usage data adds nothing to the line: the tray counts the background work, never the line.
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
   // Over the work, as the Codex app's "Working for 32s": the time alone.
   expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });

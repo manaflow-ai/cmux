@@ -16,6 +16,26 @@ use crate::per_lane::PerLane;
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Unacknowledged frames one lane may have in flight by default.
+const DEFAULT_DELIVERY_FRAMES_PER_LANE: usize = 1_024;
+/// Unacknowledged encoded bytes one lane may have in flight by default.
+///
+/// This window caps one lane's throughput at window / RTT, so it must cover the
+/// bandwidth-delay product of a slow link: 256 KiB held `cmux remote cp` to
+/// about 1.6 MiB/s at 100 ms RTT, where kernel TCP did 26.6 MiB/s. 7 MiB
+/// allows about 50 MiB/s of base64 file data at 100 ms and 8 MiB/s at 600 ms.
+///
+/// The peer acknowledges a frame once it leaves the link's ingress queue, and
+/// that queue holds `INGRESS_BYTES_PER_LANE`, counting each frame as at least
+/// `INGRESS_ACCOUNTING_FLOOR_BYTES`. A full window therefore always fits, so one
+/// lane's window never makes the peer stop reading the shared transport.
+const DEFAULT_DELIVERY_BYTES_PER_LANE: usize = 7 * 1024 * 1024;
+const _: () = assert!(
+    DEFAULT_DELIVERY_BYTES_PER_LANE
+        + DEFAULT_DELIVERY_FRAMES_PER_LANE * crate::link::INGRESS_ACCOUNTING_FLOOR_BYTES
+        <= crate::link::INGRESS_BYTES_PER_LANE
+);
+
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
     pub replay_frames_per_lane: usize,
@@ -31,8 +51,8 @@ impl Default for SessionLimits {
         Self {
             replay_frames_per_lane: 4_096,
             replay_bytes_per_lane: 16 * 1024 * 1024,
-            delivery_frames_per_lane: 64,
-            delivery_bytes_per_lane: 256 * 1024,
+            delivery_frames_per_lane: DEFAULT_DELIVERY_FRAMES_PER_LANE,
+            delivery_bytes_per_lane: DEFAULT_DELIVERY_BYTES_PER_LANE,
             queued_frames_per_lane: 256,
             queued_bytes_per_lane: 8 * 1024 * 1024,
         }
@@ -949,3 +969,7 @@ impl fmt::Display for SessionError {
 }
 
 impl std::error::Error for SessionError {}
+
+#[cfg(test)]
+#[path = "session_window_tests.rs"]
+mod window_tests;
