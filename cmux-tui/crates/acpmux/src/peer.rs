@@ -522,6 +522,8 @@ pub struct Peer {
     pipelined_key: StdMutex<Option<String>>,
     /// The `initialize` that went out with the upgrade request: its id and its answer
     /// (`early_initialize`); the handshake takes it instead of asking again.
+    /// A listener refused the upgrade with a request behind it: none is sent early again.
+    early_refused: AtomicBool,
     early_init: StdMutex<Option<(i64, oneshot::Receiver<Result<Value, RpcError>>)>>,
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.

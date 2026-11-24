@@ -186,6 +186,7 @@ async fn cold_connect_round_trips() {
 /// it must answer 101 and then the frame, in that order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_listener_answers_an_initialize_sent_with_the_upgrade() {
+    let _ = tracing_subscriber::fmt().with_env_filter("warn").with_test_writer().try_init();
     let home = std::env::temp_dir().join(format!("cold-early-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     let auth = PeerAuth::create(&home).unwrap();
@@ -199,13 +200,27 @@ async fn the_listener_answers_an_initialize_sent_with_the_upgrade() {
         WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
     ));
     let mut s = TcpStream::connect(addr).await.unwrap();
-    let request = format!(
-        "GET / HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: Bearer tok\r\n{}: {}\r\n\r\n",
-        acpmux::server::peer_auth::HEADER,
-        peer_token.trim()
-    );
+    // The request tungstenite's client writes, captured instead of hand-rolled.
+    let request = {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut req = format!("ws://{addr}/").into_client_request().unwrap();
+        req.headers_mut().insert("authorization", "Bearer tok".parse().unwrap());
+        req.headers_mut()
+            .insert(acpmux::server::peer_auth::HEADER, peer_token.trim().parse().unwrap());
+        let (near, mut far) = tokio::io::duplex(8192);
+        tokio::spawn(async move {
+            let _ = tokio_tungstenite::client_async(req, near).await;
+        });
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            far.read_exact(&mut byte).await.unwrap();
+            head.push(byte[0]);
+        }
+        String::from_utf8(head).unwrap()
+    };
     let line = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#;
-    let mut bytes = request.into_bytes();
+    let mut bytes = request.clone().into_bytes();
     if std::env::var_os("NO_EARLY").is_none() {
         bytes.extend(acpmux::peer_link::masked_text_frame(line.as_bytes()));
     }
@@ -226,6 +241,6 @@ async fn the_listener_answers_an_initialize_sent_with_the_upgrade() {
     };
     let _ = tokio::time::timeout(Duration::from_secs(5), read).await;
     let text = String::from_utf8_lossy(&got);
-    assert!(text.starts_with("HTTP/1.1 101"), "{text}");
+    assert!(text.starts_with("HTTP/1.1 101"), "reply {} B: {text}\nrequest:\n{request}", got.len());
     assert!(text.contains("\"id\":1"), "no answer behind the 101: {text}");
 }
