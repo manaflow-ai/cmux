@@ -55,7 +55,11 @@ function keyOf(node: Element, doc: Document): string {
 /// the first time for this node, name and key since the page's tokens last changed.
 /// `doc` is the node's document (given by a caller that has it: the root, whose `ownerDocument` is the
 /// document itself in a browser but not in every test's stand-in).
-export function motionToken(node: Element, name: string, doc: Document | null | undefined = node.ownerDocument): string {
+export function motionToken(
+  node: Element,
+  name: string,
+  doc: Document | null | undefined = node.ownerDocument,
+): string {
   const read = () => doc?.defaultView?.getComputedStyle(node).getPropertyValue(name).trim() ?? "";
   // A stand-in node that cannot be watched or keyed (no document, no `closest`) reads every time.
   const state = doc && typeof node.closest === "function" ? epochOf(doc) : undefined;

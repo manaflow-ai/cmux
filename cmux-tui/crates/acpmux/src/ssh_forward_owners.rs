@@ -83,7 +83,7 @@ impl Drop for Owner {
         let end = move || {
             cancel(&ssh_program, &record);
             if let Some(file) = file {
-                let _ = std::fs::remove_file(file);
+                let _ = crate::home_fs::remove_file(file);
             }
         };
         // `ssh -O cancel` waits on the master (bounded): off the worker when a runtime runs.
@@ -97,12 +97,12 @@ impl Drop for Owner {
 }
 
 fn write_record(ledger: &Path, record: &Record) -> anyhow::Result<PathBuf> {
-    std::fs::create_dir_all(ledger)?;
+    crate::home_fs::create_dirs(ledger)?;
     let name = format!("{}.json", uuid::Uuid::now_v7().simple());
     let file = ledger.join(&name);
     let tmp = ledger.join(format!(".{name}.tmp"));
-    std::fs::write(&tmp, serde_json::to_vec(record)?)?;
-    std::fs::rename(&tmp, &file)?;
+    crate::home_fs::write(&tmp, serde_json::to_vec(record)?)?;
+    crate::home_fs::rename(&tmp, &file)?;
     Ok(file)
 }
 
@@ -166,7 +166,7 @@ pub(crate) fn reap_recorded(ssh_program: &OsStr, ledger: &Path) -> Reaped {
                 .and_then(|m| now.duration_since(m).ok())
                 .is_some_and(|age| age > Duration::from_secs(60));
             if old {
-                let _ = std::fs::remove_file(&path);
+                let _ = crate::home_fs::remove_file(&path);
             }
             continue;
         }
@@ -177,7 +177,7 @@ pub(crate) fn reap_recorded(ssh_program: &OsStr, ledger: &Path) -> Reaped {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok())
         else {
-            let _ = std::fs::remove_file(&path);
+            let _ = crate::home_fs::remove_file(&path);
             continue;
         };
         let age = now
@@ -195,9 +195,9 @@ pub(crate) fn reap_recorded(ssh_program: &OsStr, ledger: &Path) -> Reaped {
         if let Some(dir) = record.local.parent().filter(|d| {
             d.file_name().is_some_and(|n| n.to_string_lossy().starts_with("acpmux-fwd-"))
         }) {
-            let _ = std::fs::remove_dir_all(dir);
+            let _ = crate::home_fs::remove_dir_all(dir);
         }
-        let _ = std::fs::remove_file(&path);
+        let _ = crate::home_fs::remove_file(&path);
         reaped.ended += 1;
     }
     reaped

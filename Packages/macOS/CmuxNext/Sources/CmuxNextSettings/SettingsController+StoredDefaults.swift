@@ -45,6 +45,7 @@ extension SettingsController {
         _ = try? await migrateLegacyQuitBehavior()
         _ = try? await migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
         _ = try? await migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
+        _ = try? await migrateComputerUseDeniedApps() // a copy of the earlier default deny list drops the terminals and cmux
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).
         _ = try? await migrateClassicSettings()
         // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).

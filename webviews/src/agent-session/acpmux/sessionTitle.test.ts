@@ -66,3 +66,15 @@ test("a whole last prompt of wide characters ending in an ellipsis is not a cut"
   expect(own.length).toBeGreaterThan(200);
   expect(sessionTitle({ ...chat, lastPrompt: own }, t)).toBe(own);
 });
+
+// Leo, 2026-11-22: "RENAMES NEED TO BE PROPAGATED TO THE VISIBLE AREAS": a handle someone gave
+// (acpmux `displayName`) reads first, over the name, the title and an opaque launcher name.
+test("a given display name reads first on every surface", () => {
+  const t = (key: string) => key;
+  const coordinator = { sessionId: "c", name: "claude-sr2-coord-old", harness: "claude", title: "Coordinator" };
+  expect(sessionTitle({ ...coordinator, displayName: "Mango" }, t)).toBe("Mango");
+  expect(sessionTitle({ ...coordinator, name: "optchat-sub-6b68ac4a-a26", displayName: "Mango" }, t)).toBe("Mango");
+  // Blank is no name: the old rules read.
+  expect(sessionTitle({ ...coordinator, displayName: "  " }, t)).toBe("claude-sr2-coord-old");
+  expect(sessionTitle(coordinator, t)).toBe("claude-sr2-coord-old");
+});

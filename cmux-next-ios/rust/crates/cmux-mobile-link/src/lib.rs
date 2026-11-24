@@ -17,12 +17,14 @@
 pub mod api;
 pub mod build_space;
 pub mod class_queue;
+pub mod classes;
 pub mod dial;
 pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
 pub mod link;
 pub mod link_stat;
+mod liveness;
 pub mod media;
 pub mod names;
 pub mod path_report;

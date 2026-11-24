@@ -17,13 +17,13 @@ Pick the fastest route that covers your change. The table and its numbers are in
 
 | Change | Route | Edit to visible |
 |---|---|---|
-| Swift values, strings, colors or logic in a running DEBUG app | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397)) | about 2 s |
-| Any change, sent from your checkout to an always-on simulator on another Mac | `scripts/ios-live/ios-live swift` or `swap` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 5 s live, about 16 s rebuild |
+| Any change, sent from your checkout to the always-on simulator | `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 16 s |
+| Swift values, strings, colors or logic in a running DEBUG app | `ios-live swift`, Swift live code ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `scripts/live-code/ios-sim.sh` not on the branch yet) | about 2 s once it lands |
 | PR evidence: tests, UI tests, benches, video | the fleet simulator step below | about 15 min |
 
-Both live routes are open PRs and aren't on `feat-cmux-next` yet, so until they land the fleet
-step is the only route that works from a branch. Once they land, use them for every edit and keep
-the fleet step for the evidence a PR cites.
+`ios-live swap` is on `feat-cmux-next`: use it for every edit and keep the fleet step for the evidence a PR
+cites. `ios-live swift` needs `scripts/live-code/ios-sim.sh` (#45397, still open); until it lands `swift`
+refuses and `swap` is the live route.
 
 ## Build and test on the fleet
 

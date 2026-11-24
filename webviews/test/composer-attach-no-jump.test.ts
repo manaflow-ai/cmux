@@ -285,7 +285,7 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     const summary = shown
       .map(
         (frame) =>
-          `${frame.where}@${Math.round(frame.tile!.x)},${Math.round(frame.tile!.y)} ${Math.round(frame.tile!.width)}x${Math.round(frame.tile!.height)} box=${Math.round(frame.box)}`,
+          `${frame.where}@${Math.round(frame.tile!.x)},${Math.round(frame.tile!.y)} ${Math.round(frame.tile!.width)}x${Math.round(frame.tile!.height)} box=${Math.round(frame.box)} bottom=${Math.round(frame.top + frame.box)}`,
       )
       .filter((line, index, all) => index === 0 || line !== all[index - 1]);
     console.log(`composer-attach-no-jump ${label}: ${summary.join(" | ")}`);
@@ -312,15 +312,18 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       if (frame.row) expect(frame.tile!.y).toBeGreaterThanOrEqual(frame.row.y - 1);
     }
     // Every tile, in every frame, is in the text (the inline view draws no strip), and the one
-    // already there keeps its place in the composer (which grows upward from its bottom edge, so
-    // its place is read from the composer's top) and its size.
+    // already there keeps its place and size: in the composer (which grows upward from its bottom
+    // edge, so that place is read from the composer's top), or, while the card grows on its spring
+    // with its bottom held (fieldGrowth.ts), on the screen where it ends. Either way it moves once,
+    // to the line the paste wraps it to, and never anywhere in between.
     const final = frames.at(-1)!;
     for (const frame of frames) {
       expect(frame.tiles.filter((each) => each.where === "strip")).toEqual([]);
       if (frame.row && final.row)
-        expect(close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top })).toBe(
-          true,
-        );
+        expect(
+          close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top }) ||
+            close(frame.row, final.row),
+        ).toBe(true);
     }
     // The composer never grows past where it ends.
     const finalBox = frames.at(-1)!.box;

@@ -432,7 +432,8 @@ for (const pending of ["inventory", "recheck"] as const) {
       expect(fixture.state()).toEqual({ resuming: true });
       expect(fixture.reads()).toBe(reads);
       expect(fixture.rechecks()).toBe(rechecks);
-      expect(jest.getTimerCount()).toBe(0);
+      // The one timer left is the new resume's own slow clock (RESUME_SLOW_MS); the old chat left none.
+      expect(jest.getTimerCount()).toBe(1);
       // Unmount ends the new wait too.
       await act(async () => root.render(null));
       expect(jest.getTimerCount()).toBe(0);

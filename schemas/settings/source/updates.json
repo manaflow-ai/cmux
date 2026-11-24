@@ -267,6 +267,49 @@
           ]
         },
         {
+          "key": "updates.daemon",
+          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
+          "title": {
+            "key": "settings.updates.daemon",
+            "text": "Live Background Updates"
+          },
+          "help": {
+            "key": "settings.updates.daemon.help",
+            "text": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesDaemonSetting"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesDaemonOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesDaemonEveryMerge",
+                "text": "Every Merge"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "update",
+            "daemon",
+            "terminal",
+            "live",
+            "background",
+            "no restart",
+            "nightly",
+            "merge"
+          ]
+        },
+        {
           "key": "updates.liveWebReload",
           "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
           "title": {

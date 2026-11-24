@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 
 use super::*;
+use crate::lower::ExtendError;
 use crate::manifest::Item;
 
 fn me() -> Who {
@@ -222,6 +223,26 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     let readme = path_ino(&overlay, "README.md");
     assert_eq!(overlay.read(readme, 0, 10), Err(112));
     assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+}
+
+/// RFD 0007: the agent is told once that the Mac is away, naming the reads that failed: one
+/// report for many failed reads, with the files the agent read (not the ones read ahead).
+#[test]
+fn reads_while_the_mac_is_away_make_one_report_naming_them() {
+    let (state, manifest, fake) = setup(true);
+    let (sender, reports) = std::sync::mpsc::channel();
+    let sender = Mutex::new(sender);
+    let away = crate::away::Away::with_gather(Duration::from_millis(100), move |report| {
+        let _ = sender.lock().unwrap().send(report);
+    });
+    let overlay = open(state.path(), &manifest, &fake).with_away(away);
+    for path in ["README.md", "src/a.rs", "big.bin", "src/a.rs", "README.md"] {
+        assert_eq!(overlay.read(path_ino(&overlay, path), 0, 10), Err(112));
+    }
+    let report = reports.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(report.paths, ["README.md", "big.bin", "src/a.rs"]);
+    assert_eq!(report.failed, 3);
+    assert!(reports.recv_timeout(Duration::from_millis(400)).is_err());
 }
 
 #[test]
@@ -580,7 +601,8 @@ fn sized(files: &[(&str, u64)]) -> Manifest {
 /// What a fault on `path` reads ahead, as paths, with the paths `skip` names left out.
 fn picked(manifest: &Manifest, path: &str, skip: impl Fn(&str, &Entry) -> bool) -> Vec<String> {
     let index = manifest.resolve(path).unwrap();
-    let picked = read_ahead(manifest, index, |other, entry| skip(&manifest.path_of(other), entry));
+    let lower = Lower::new(Arc::new(manifest.clone()));
+    let picked = read_ahead(&lower, index, |other, entry| skip(&manifest.path_of(other), entry));
     let names: Vec<String> = picked.iter().map(|other| manifest.path_of(*other)).collect();
     let mut unique = names.clone();
     unique.sort();
@@ -915,4 +937,90 @@ fn hydration_after_a_restart_keeps_the_disk_reserve() {
     assert_eq!(report.first_error, Some(libc::ENOSPC));
     assert_eq!(report.fetched_bytes, 0);
     assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}
+
+fn file_item(path: &str, size: u64) -> Item {
+    Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size,
+        mtime_ns: 1_700_000_000_000_000_000,
+        link: None,
+    }
+}
+
+/// The head of `setup` plus a new file in `src` and a new folder, as the Mac's full manifest.
+fn full_of(manifest: &Manifest, extra: &[&str]) -> Arc<Manifest> {
+    let mut items: Vec<Item> = (1..manifest.len() as u32)
+        .map(|id| {
+            let entry = manifest.entry(id).unwrap();
+            Item {
+                path: manifest.path_of(id),
+                kind: entry.kind,
+                mode: entry.mode,
+                size: entry.size,
+                mtime_ns: entry.mtime_ns,
+                link: entry.link.clone(),
+            }
+        })
+        .collect();
+    items.extend(extra.iter().map(|path| file_item(path, 4)));
+    Arc::new(Manifest::build(1, items).unwrap())
+}
+
+#[test]
+fn extend_keeps_an_inode_and_an_upper_write_and_adds_the_tail() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    let src = path_ino(&overlay, "src");
+    overlay.write(readme, 0, b"README").unwrap();
+    assert_eq!(overlay.lookup(src, "new.rs"), Err(ENOENT));
+    assert_eq!(overlay.lookup(overlay.root(), "tail"), Err(ENOENT));
+
+    let full = full_of(&manifest, &["src/new.rs", "tail/x.txt"]);
+    let done = overlay.extend(full).unwrap();
+    assert_eq!(done.added, 3);
+    assert!(done.changed.contains(&src));
+
+    assert_eq!(path_ino(&overlay, "README.md"), readme);
+    assert_eq!(path_ino(&overlay, "src"), src);
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"README");
+    assert_eq!(fs::read(overlay.upper_dir().join("README.md")).unwrap(), b"README");
+    assert!(overlay.lookup(src, "new.rs").is_ok());
+    assert!(names(&overlay, src).contains(&"new.rs".to_string()));
+    assert!(names(&overlay, overlay.root()).contains(&"tail".to_string()));
+    let x = path_ino(&overlay, "tail/x.txt");
+    assert_eq!(overlay.getattr(x).unwrap().size, 4);
+    // The head's files still read through the Mac by the same entries.
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+}
+
+#[test]
+fn extend_to_a_manifest_missing_a_path_is_refused_and_the_mount_stays() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let a = path_ino(&overlay, "src/a.rs");
+    let items: Vec<Item> = ["README.md", "big.bin"].iter().map(|p| file_item(p, 1)).collect();
+    let not_super = Arc::new(Manifest::build(1, items).unwrap());
+    assert!(matches!(overlay.extend(not_super), Err(ExtendError::NotSuperset { .. })));
+    assert_eq!(path_ino(&overlay, "src/a.rs"), a);
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    // A refused extend leaves the overlay open to a good one.
+    assert!(overlay.extend(full_of(&manifest, &["z.txt"])).is_ok());
+    assert!(overlay.lookup(overlay.root(), "z.txt").is_ok());
+    // Only once.
+    assert!(matches!(overlay.extend(full_of(&manifest, &["y.txt"])), Err(ExtendError::Done)));
+}
+
+#[test]
+fn extend_refuses_a_path_that_changed_kind() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    // `src` becomes a file.
+    let items = vec![file_item("README.md", 6), file_item("big.bin", BIG), file_item("src", 1)];
+    let full = Arc::new(Manifest::build(1, items).unwrap());
+    assert!(matches!(overlay.extend(full), Err(ExtendError::NotSuperset { .. })));
 }
