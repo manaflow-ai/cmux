@@ -480,13 +480,13 @@ import Testing
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
             if op == "integration.connect" {
                 keys.append(key)
-                return ["connection": ["id": "p-\(params["repo"]?.stringValue ?? "")"],
+                return ["connection": ["id": .string("p-\(params["repo"]?.stringValue ?? "")")],
                         "authorize_url": "https://github.com/apps/cmux/installations/new/permissions?target_id=9001&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
         }, open: { opened.append($0) })
-        await model.connect(repo: "acme/web", returnTo: nil)
-        await model.connect(repo: "acme/api", returnTo: nil)
+        await model.connect(repo: "acme/web")
+        await model.connect(repo: "acme/api")
         #expect(opened.count == 2)
         #expect(keys.count == 2)
         #expect(keys[0] != nil && keys[0] != keys[1])
