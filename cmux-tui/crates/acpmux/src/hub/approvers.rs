@@ -351,7 +351,7 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub(super) fn unhex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2)
         || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 7u
+#define CMUX_RD_FFI_ABI_VERSION 8u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -218,6 +218,14 @@ int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream
 int32_t cmux_rd_session_feedback(CmuxRdSession *session, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 uint64_t cmux_rd_session_next_deadline_us(const CmuxRdSession *session);
 int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, CmuxRdStats *out);
+/* ABI 8. 1 when the host went silent for 1.5 s (as of the last tick or push)
+   while it sends heartbeats (cursor positions, clock pongs: at least one a
+   second from a live host, even on a still screen): the network dropped and
+   the picture is frozen. 0 otherwise, including a host that sends no
+   heartbeats (an idle screen sends nothing else). The next bytes received
+   clear it. next_deadline_us includes the stall time, so the caller's one
+   timer wakes for it. */
+int32_t cmux_rd_session_stalled(const CmuxRdSession *session);
 /* Starts session clock probes (rd change C8). Call only when welcome lists
    the "clock" cap: an older host refuses the probe kinds. Pings then leave
    through cmux_rd_session_feedback; pongs are consumed, not queued. */

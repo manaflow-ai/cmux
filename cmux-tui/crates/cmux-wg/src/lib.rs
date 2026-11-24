@@ -32,6 +32,7 @@
 mod config;
 mod device;
 mod error;
+mod handshake_retry;
 mod mesh;
 mod mesh_driver;
 mod mesh_paths;
@@ -42,6 +43,9 @@ mod net;
 mod pacing;
 mod probe_schedule;
 mod probing;
+mod send_gate;
+#[cfg(test)]
+mod send_gate_tests;
 mod single_path;
 mod stream;
 #[cfg(test)]

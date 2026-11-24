@@ -64,7 +64,7 @@ fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
 /// stylesheet and sets the sidebar and chat settings.
 #[test]
 fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
-    for name in ["codex-app", "codex-app-dark", "claude-code-app"] {
+    for name in ["codex-app", "codex-app-dark", "claude-code-app", "web-coding-app"] {
         let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
         assert_eq!(recipe.group, Group::Apps, "{name}");
         let profile = recipe.profile().unwrap();
@@ -218,7 +218,11 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
         let path = dir.join(format!("{}.json", recipe.name)).display().to_string();
         let line = page
             .lines()
-            .find(|line| line.starts_with("cmux customize use ") && line.contains(recipe.name))
+            .find(|line| {
+                // By its file, so `grid` does not find `dot-grid`'s line.
+                line.starts_with("cmux customize use ")
+                    && line.contains(&format!("/{}.json", recipe.name))
+            })
             .unwrap_or_else(|| panic!("no Run command for {}", recipe.name));
         let argument = line.strip_prefix("cmux customize use ").unwrap();
         // The shell reads the argument back as exactly the path, as one word.
@@ -228,6 +232,45 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8(out.stdout).unwrap(), format!("{path}\n"), "{line}");
+    }
+}
+
+/// Lamina (a layered, translucent desktop look): four variants, each dark and light, each a
+/// theme file whose every key is a look key the schema accepts, with its own chat stylesheet.
+#[test]
+fn every_lamina_recipe_carries_a_theme_file_the_reader_takes_whole_and_a_squarer_toast() {
+    let names: Vec<_> =
+        RECIPES.iter().map(|recipe| recipe.name).filter(|n| n.starts_with("lamina")).collect();
+    assert_eq!(names.len(), 8, "{names:?}");
+    for name in names {
+        let profile = find(name).unwrap().profile().unwrap();
+        assert_eq!(profile.settings.get("appearance.themeFile"), Some(&serde_json::json!(name)));
+        assert_eq!(
+            profile.settings.get("notifications.toast.style"),
+            Some(&serde_json::json!("flat")),
+            "{name}: the native toast is flat, not a glass pill"
+        );
+        let theme = profile.files.get(&format!("themes/{name}.json")).expect("a theme file");
+        let read = cmux_config::theme_file::ThemeFile::read(
+            name,
+            Some(Ok(theme)),
+            &serde_json::json!({}),
+            None,
+            cmux_config::schema::Schema::embedded(),
+            &Default::default(),
+        );
+        assert!(read.is_loaded && !read.is_unparsable, "{name}");
+        let shown: Vec<_> = read.diagnostics.iter().map(|d| d.display()).collect();
+        assert!(shown.is_empty(), "{name}: {shown:?}");
+        let sets = |key: &str| read.values.iter().any(|(path, _)| path.join(".") == key);
+        for key in ["layout.paneCornerRadius", "layout.paneBorderWidth", "sidebar.density"] {
+            assert!(sets(key), "{name} does not set {key}");
+        }
+        let chat = profile.files.get("agent-pane/theme.css").expect("a chat stylesheet");
+        assert!(chat.contains("--cv-bubble"), "{name}");
+        assert!(chat.contains("--acpmux-composer-radius: 8px"), "{name}: composer corner");
+        assert!(chat.contains(".ui-notice"), "{name}: the toast");
+        assert_eq!(find(name).unwrap().parts(), ["settings", "themes", "styles"], "{name}");
     }
 }
 

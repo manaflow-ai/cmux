@@ -167,7 +167,10 @@ public final class CmuxRemoteService {
 
     /// Tells the daemon this app's own grants (`remote-host-config` `app_permissions` only, no
     /// switch: nothing saved, started or stopped). Where no cmux Remote is bundled (Release and
-    /// NIGHTLY) the app captures the screen itself, so `cmux remote-host grants` reads these.
+    /// NIGHTLY), `cmux remote-host grants` reads these. A build with the Screen Sharing helper
+    /// captures in the helper and its children (the cmux.rd/1 host and the iPhone viewer's WebRTC
+    /// host), whose grants are the helper's (`MacScreenHelper.permissions`); this app's own matter
+    /// for a build without the helper, and for the Accessibility tap of `MacScreenSystemShortcuts`.
     public func reportAppPermissions() async {
         guard let connection else { return }
         do {

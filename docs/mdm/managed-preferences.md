@@ -81,7 +81,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
 | `announcements.fetch` | boolean | `true` |  | Download Announcements. Off: cmux never asks the network for announcements. The request carries no identifiers. |
 | `computerUse.mode` | string | `"fullAccess"` | `fullAccess`, `approvedApps`, `askEveryTime`, `lookOnly`, `off` | Computer Use. What agents may do with the apps on this Mac. Denied apps are never used, in any mode. |
-| `computerUse.deniedApps` | array | `["com.apple.keychainaccess","com.apple.Passwords","com.1password.*","com.agilebits.onepassword*","com.bitwarden.*","com.dashlane.*","com.lastpass.*","com.nordpass.*","me.proton.pass","org.keepassxc.keepassxc","com.markmcguill.strongbox","in.sinew.enpass*","com.keepersecurity.*","1password.exe","bitwarden.exe","keepass.exe","keepassxc.exe","org.keepassxc.KeePassXC","1password","bitwarden","com.apple.systempreferences","com.apple.Terminal","com.googlecode.iterm2","com.mitchellh.ghostty","net.kovidgoyal.kitty","com.github.wez.wezterm","org.alacritty","dev.warp.*","windowsterminal.exe","cmd.exe","powershell.exe","pwsh.exe","org.gnome.Terminal","org.gnome.Ptyxis","org.kde.konsole","com.cmuxterm.app","com.cmuxterm.app.*"]` |  | Denied Apps. Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name. |
+| `computerUse.deniedApps` | array | `["com.apple.keychainaccess","com.apple.Passwords","com.1password.*","com.agilebits.onepassword*","com.bitwarden.*","com.dashlane.*","com.lastpass.*","com.nordpass.*","me.proton.pass","org.keepassxc.keepassxc","com.markmcguill.strongbox","in.sinew.enpass*","com.keepersecurity.*","1password.exe","bitwarden.exe","keepass.exe","keepassxc.exe","org.keepassxc.KeePassXC","1password","bitwarden","com.apple.systempreferences"]` |  | Denied Apps. Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name. |
 | `computerUse.allowOwnMachines` | boolean | `true` |  | Allow My Other Machines. Agents on your other machines, signed in to the same account, may use this Mac's apps. |
 | `computerUse.pauseOnTakeover` | boolean | `true` |  | Pause When I Use the Mouse or Keyboard. While you use the mouse or keyboard, agents wait before their next click or key press. |
 | `computerUse.showCursor` | boolean | `true` |  | Show Agent Cursor. A blue cursor shows wherever an agent clicks or types. |
@@ -125,7 +125,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
-| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. The cmux app on your iPhone can open this Mac's workspaces, on the same account. |
+| `mobile.allowIPhoneConnections` | boolean | `true` |  | Allow iPhone Connections. The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once. |
+| `mobile.autoApprovePhones` | boolean | `false` |  | Approve Phone Requests Automatically. A new phone signed in to your account connects without asking you first. Other accounts never connect. |
 | `mobile.terminalSizing` | string | `"smallest"` | `smallest`, `mac`, `latest`, `priority` | Terminal Size When Shared. The size of a terminal shown on this Mac and a phone at once. |
 | `mobile.terminalSizingOrder` | array | `[]` |  | Terminal Size Priority. The devices a shared terminal sizes to first, highest first. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
@@ -161,6 +162,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. Days unused before a chat is compressed. Busy chats never are. |
+| `agents.chats.coldSegments` | boolean | `false` |  | Compress Long Chats. Compresses the older parts of long chats. Run cmux chats warm to undo. |
+| `agents.chats.coldSegmentsLevel` | real | `3` | 1 to 19 | Long Chat Compression Level. Higher levels use less disk and take longer to compress. |
 | `agents.chats.archiveInactive` | string | `"never"` | `never`, `1d`, `3d`, `7d`, `30d` | Archive Inactive Chats. Archives chats after a period of no activity. Chats that are running or have background work never are. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. Listed under Locations. Use full or ~/ paths. |
@@ -452,7 +455,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows its unread notification count. |
-| `sidebar.groupHeader.background` | string | `"folder"` | `folder`, `auto`, `glass`, `solid`, `sections` | Group Background. How a group draws. Folders shows plain folders; Sections shows plain headings. |
+| `sidebar.groupHeader.background` | string | `"auto"` | `folder`, `auto`, `glass`, `solid`, `sections`, `chip`, `tree`, `card` | Group Background. How a group draws. Folders shows plain folders; Sections shows plain headings. |
 | `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial` | Group Colors. Where group colors come from. A color you pick for a group stays. |
 | `sidebar.groupGradient` | string | `"sunset"` | `sunset`, `aurora`, `lagoon`, `twoTone` | Group Gradient. The gradient Group Colors uses when set to Gradient. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |

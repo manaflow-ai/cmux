@@ -46,6 +46,7 @@ mod clock;
 mod color;
 mod fade;
 mod flight;
+pub mod goo;
 pub mod hover;
 mod light;
 mod marquee;
@@ -56,6 +57,7 @@ mod spring;
 mod tab_strip;
 pub mod terminal_selection;
 mod tokens;
+mod turn_presence;
 mod tween;
 // The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
 #[cfg(all(feature = "settings", not(target_os = "macos")))]
@@ -73,4 +75,5 @@ pub use settings::*;
 pub use spring::*;
 pub use tab_strip::*;
 pub use tokens::*;
+pub use turn_presence::*;
 pub use tween::*;
