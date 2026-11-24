@@ -1035,7 +1035,11 @@ async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offs
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     let (transfer_id, epoch) = (begin["transferId"].clone(), begin["epoch"].clone());
-    let path = begin["files"][0]["path"].as_str().unwrap().to_owned();
+    // Midway through a file longer than one 64-byte read (the chat's log): the manifest's first
+    // file can be one a single read finishes (the drafts and sent list, 23 bytes).
+    let files = begin["files"].as_array().unwrap();
+    let midway = files.iter().find(|f| f["size"].as_u64().unwrap_or(0) > 64).expect("a long file");
+    let path = midway["path"].as_str().unwrap().to_owned();
     let read =
         json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": 64, "epoch": epoch});
     let part = src.request("_acpmux/transfer_read", read).await.unwrap();
@@ -1058,7 +1062,7 @@ async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offs
     // The copy goes on from where it was, against the new daemon.
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
-        let mut offset = if path == begin["files"][0]["path"] { reached } else { 0 };
+        let mut offset = if path == midway["path"] { reached } else { 0 };
         loop {
             let read = json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch});
             let part = src.request("_acpmux/transfer_read", read).await.unwrap();

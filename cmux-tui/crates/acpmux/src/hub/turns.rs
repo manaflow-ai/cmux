@@ -309,6 +309,11 @@ impl Hub {
         };
         let outcome = match seen {
             Err(mut first) => {
+                // A copy never reaches the queue: it lets the chat's prompt admission go
+                // (#52381) before it waits for the first run. Held, it kept every later prompt
+                // of the chat from its queue for the whole first run, and that run's own queue
+                // never moved on (a burst of doubled sends answered none of them).
+                drop(opts.prompt_admission.take());
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
