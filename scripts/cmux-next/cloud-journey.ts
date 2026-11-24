@@ -128,7 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
+import { awaitPaused, runWakeEcho, setupPrefetch, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
@@ -4277,6 +4277,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
+  // --wake-echo-prefetch BIN: a static x86_64 cmux-resume-prefetch; even cycles prefetch on the wake (the A/B, hq#21300).
+  const wakeEchoPrefetch = argValue("--wake-echo-prefetch", argv);
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
   if (!Number.isFinite(resumeFill) || resumeFill < 0 || resumeFill > 80) throw new Error("--resume-fill must be 0..80 percent");
   // --resume-deadline EPOCH_S: the matrix takes no sample it cannot finish by then (each pause length its even share of
@@ -4774,8 +4776,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const netHost = new URL(backend.api).hostname;
         const setup = await J.step("wake-echo probe setup", async () => ({ value: await setupProbe({ exec, guest: GUEST, netHost, netPort: 443, log }), detail: "daemon socket, terminal and dry run ok" }));
         meta.probe = { daemon: setup.daemon, version: setup.version, protocol: setup.protocol, dry_run: setup.dry_run };
+        let prefetchBin: string | undefined;
+        if (wakeEchoPrefetch) {
+          const pf = await J.step("wake-echo prefetch upload", async () => {
+            const v = await setupPrefetch({ exec, guest: GUEST, log }, readFileSync(wakeEchoPrefetch));
+            return { value: v, detail: `first plan ${JSON.stringify(v.record)}` };
+          });
+          prefetchBin = pf.bin;
+          meta.prefetch = { first_plan: pf.record, arms: "even cycles on, odd off" };
+        }
+        let lastTiming: Record<string, number> | null = null;
         cycles = await runWakeEcho({
-          exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log,
+          exec, guest: GUEST, netHost, netPort: 443, holdMs: wakeEchoHoldMs, log, prefetchBin,
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
           status: async () => String((await row())?.status ?? "unread"),
           pause: async () => {
@@ -4783,13 +4795,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
           },
-          wake: () => startWithRetry(
-            (key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000),
-            () => `${tag}-we-start-${k++}`,
-            async () => String((await row())?.status ?? "unread"),
-            180_000,
-            (ms) => new Promise<void>((r) => setTimeout(r, ms)),
-          ),
+          wake: async () => {
+            lastTiming = null;
+            const retries = await startWithRetry(
+              async (key) => {
+                const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
+                lastTiming = parseServerTiming(r.headers?.get("server-timing")) ?? null;
+                return r;
+              },
+              () => `${tag}-we-start-${k++}`,
+              async () => String((await row())?.status ?? "unread"),
+              180_000,
+              (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+            );
+            return { retries, serverTiming: lastTiming };
+          },
           onCycle: (all) => { cycles = all; write(); },
           onStop: (why) => { meta.stopped = why; },
         }, wakeEchoN);

@@ -73,3 +73,45 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
   expect(notes.length).toBe(2);
   await expect(startWithRetry(async () => ({ status: 200, body: { ok: false, error: { code: "cloud.machine.not_found", retryable: false } } }), () => "k", async () => "paused", 60_000, sleep, () => t)).rejects.toThrow(/not_found/);
 });
+
+test("prefetch A/B: even cycles are on, tables split by arm, and slow restores show the platform's share", async () => {
+  const { armOf, serverTimingSplit, summarizeArms } = await import("./cloud-wake-echo.ts");
+  expect([0, 1, 2, 3].map(armOf)).toEqual(["on", "off", "on", "off"]);
+  const on = { ...cycle(0, true, { resumed: 4000, pty_attach: 4100, input: 4100, echo: 4120 }), arm: "on" as const, server_timing: { provider: 3000, vmapi: 1500, total: 5200 } };
+  on.guest = { prefetch: { touched: 1000, ms: 300, cut: false } };
+  const off = { ...cycle(1, true, { resumed: 1500, pty_attach: 1900, input: 1900, echo: 1950 }), arm: "off" as const, server_timing: { provider: 900, total: 1400 } };
+  const arms = summarizeArms([on, off]);
+  expect(arms.map((a) => a.arm)).toEqual(["on", "off"]);
+  expect(arms[0]!.prefetch).toMatchObject({ n: 1, pages_p50: 1000, ms_p50: 300 });
+  expect(arms[1]!.prefetch).toBeNull();
+  const st = serverTimingSplit([on, off]);
+  expect(st.slow).toEqual([{ i: 0, restore: 4000, answered: 1, server_timing: on.server_timing, ours: 2200 }]);
+  const md = wakeEchoMarkdown([on, off], { machine: "m" });
+  expect(md).toContain("### By prefetch arm");
+  expect(md).toContain("| #0 | 4.00 |");
+  // A run without the A/B prints no arm table.
+  expect(wakeEchoMarkdown([cycle(0, true, { resumed: 1, echo: 2 })], {})).not.toContain("By prefetch arm");
+});
+
+test("the on arm's arm file names the prefetch and every cycle records a plan before its pause", async () => {
+  const cmds: string[] = [];
+  let status = "running";
+  const cycles = await runWakeEcho({
+    exec: async (c) => {
+      cmds.push(c);
+      if (c.includes("@@plan")) return { code: 0, stdout: '@@plan {"procs":3,"pages":10}\n@@probe 9', stderr: "" };
+      if (c.startsWith("date")) return { code: 0, stdout: `${Date.now()}`, stderr: "" };
+      if (c.includes("result.")) return { code: 0, stdout: `{"resumed_wall":${Date.now()},"echo_at":${Date.now() + 5},"pty_attach_at":${Date.now()},"prefetch":{"touched":10,"ms":1}}`, stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    guest: "", netHost: "h", netPort: 443, holdMs: 0, log: () => {}, onCycle: () => {}, prefetchBin: "/tmp/wake-echo/cmux-resume-prefetch",
+    status: async () => status,
+    pause: async () => { status = "paused"; return 1; },
+    wake: async () => { status = "running"; return { retries: [], serverTiming: { provider: 5, total: 9 } }; },
+    sleep: async () => {},
+  }, 2);
+  expect(cycles.map((c) => [c.arm, c.ok, c.plan?.pages, c.server_timing?.total])).toEqual([["on", true, 10, 9], ["off", true, 10, 9]]);
+  const arms = cmds.filter((c) => c.includes("> /tmp/wake-echo/arm"));
+  expect(arms[0]).toContain('"prefetch":"/tmp/wake-echo/cmux-resume-prefetch"');
+  expect(arms[1]).not.toContain('"prefetch"');
+});

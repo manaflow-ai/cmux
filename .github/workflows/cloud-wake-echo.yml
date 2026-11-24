@@ -18,7 +18,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The prefetch A/B's guest binary (cmux-tui/crates/cmux-resume-prefetch): static x86_64 musl, uploaded by the harness.
+  prefetch-bin:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.body, 'wake-echo: run') &&
+      (github.event.action != 'edited' || github.event.changes.body != null)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+      - name: Build cmux-resume-prefetch (x86_64 musl, static)
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p cmux-resume-prefetch
+          bin="${CARGO_TARGET_DIR:-target}/x86_64-unknown-linux-musl/release/cmux-resume-prefetch"
+          strip "$bin" || true
+          mkdir -p "$RUNNER_TEMP/pf" && cp "$bin" "$RUNNER_TEMP/pf/"
+          ls -l "$RUNNER_TEMP/pf/cmux-resume-prefetch"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-resume-prefetch
+          path: ${{ runner.temp }}/pf/cmux-resume-prefetch
+          retention-days: 7
+
   wake-echo:
+    needs: prefetch-bin
+    # The A/B (hq#21300): 30 s holds on 2 machines x 28 cycles, 300 s holds on 5 machines x 12 cycles; even cycles
+    # prefetch on the wake, odd ones do not (n >= 28 per arm at 30 s, 30 per arm at 300 s).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { hold: 30, cycles: 28, shard: a }
+          - { hold: 30, cycles: 28, shard: b }
+          - { hold: 300, cycles: 12, shard: a }
+          - { hold: 300, cycles: 12, shard: b }
+          - { hold: 300, cycles: 12, shard: c }
+          - { hold: 300, cycles: 12, shard: d }
+          - { hold: 300, cycles: 12, shard: e }
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.body, 'wake-echo: run') &&
@@ -37,7 +83,11 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
-      - name: Wake to first echo (staging, 50 cycles, 5 s hold)
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-resume-prefetch
+          path: ${{ runner.temp }}/pf
+      - name: Wake to first echo (staging, ${{ matrix.cycles }} cycles, ${{ matrix.hold }} s hold, prefetch A/B)
         # Under the job's 150: the upload below still runs when this one is cut. The run ends itself by --wake-echo-deadline.
         timeout-minutes: 135
         env:
@@ -47,14 +97,16 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/wake-echo"
+          chmod +x "$RUNNER_TEMP/pf/cmux-resume-prefetch"
           mkdir -p "$out"
           deadline=$(( $(date +%s) + 125 * 60 ))
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --model stub \
-            --wake-echo 50 --wake-echo-hold 5 --wake-echo-deadline "$deadline"
+            --wake-echo ${{ matrix.cycles }} --wake-echo-hold ${{ matrix.hold }} --wake-echo-deadline "$deadline" \
+            --wake-echo-prefetch "$RUNNER_TEMP/pf/cmux-resume-prefetch"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: wake-echo
+          name: wake-echo-${{ matrix.hold }}s-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/wake-echo/wake-echo.json
             ${{ runner.temp }}/wake-echo/wake-echo.md

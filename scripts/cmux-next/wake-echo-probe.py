@@ -19,6 +19,9 @@ The sequence, from the first tick after the gap (resumed_wall):
   daemon: a NEW unix connection: identify, set-client-info {name: wake-probe, kind: tui}, attach-surface -> pty_attach_at
           at the attach's ok reply; then `send` one marker character -> input_at; the first `output` event carrying
           the marker -> echo_at (echo_any_at: the first output event of any kind after the send).
+Prefetch A/B (--wake-echo-prefetch): when DIR/arm names `prefetch` (the binary) and `plan`, the probe starts
+`cmux-resume-prefetch run PLAN` at the first tick after the gap, beside the sequence, and puts its JSON line in the
+result's `prefetch` (as cmux-host's Cloud agent runs it beside its own wake work).
 Protocol client copied from split-latency-bench.py (Conn).
 """
 import base64
@@ -338,6 +341,36 @@ def setup(directory, binary, nethost, netport):
     return 0 if "error" not in dry else 1
 
 
+def start_prefetch(arm):
+    bin_, plan = arm.get("prefetch"), arm.get("plan")
+    if not bin_ or not plan:
+        return None
+    cmd = "sudo -n %s run %s --threads 4 --deadline-ms 20000 2>/dev/null || %s run %s --threads 4 --deadline-ms 20000" % (bin_, plan, bin_, plan)
+    try:
+        return subprocess.Popen(["sh", "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except Exception as e:
+        return e
+
+
+def finish_prefetch(p):
+    if p is None:
+        return None
+    if isinstance(p, Exception):
+        return {"error": "spawn: %s" % p}
+    try:
+        out, _ = p.communicate(timeout=30)
+    except Exception as e:
+        p.kill()
+        return {"error": "wait: %s" % e}
+    for line in reversed((out or "").splitlines()):
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except Exception:
+                break
+    return {"error": "no JSON line: %s" % (out or "")[-300:]}
+
+
 def run(directory):
     with open(os.path.join(directory, "config.json")) as f:
         cfg = json.load(f)
@@ -359,10 +392,13 @@ def run(directory):
                 arm = None
             log.write(json.dumps(dict(gap, armed=arm is not None)) + "\n")
             if arm:
+                pf = start_prefetch(arm)
                 with open(os.path.join(directory, "config.json")) as f:
                     cfg = json.load(f)
                 res = dict(gap, seq=arm["seq"])
                 res.update(sequence(cfg, arm["marker"], 90.0))
+                if pf is not None:
+                    res["prefetch"] = finish_prefetch(pf)
                 tmp = os.path.join(directory, "result.%s.json.tmp" % arm["seq"])
                 with open(tmp, "w") as f:
                     json.dump(res, f)

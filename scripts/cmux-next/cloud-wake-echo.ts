@@ -18,9 +18,17 @@
  * A cycle that fails counts apart (with its cause, causeOf); percentiles are over the cycles that echoed, with n.
  * Before each pause the machine settles out of a transition (pausing, starting) by a deadline, so a cycle never
  * pauses a machine still in flight; the run sets idle_seconds 0 so the platform's own idle pause does not race it.
+ *
+ * Each cycle keeps cloud.machine.start's Server-Timing (cmux-platform#1797: provider, vmapi, pre, finish, total), so
+ * a slow restore splits into the provider's call and the platform's own time (`ours` = total - provider).
+ *
+ * --wake-echo-prefetch BIN (hq#21300): an A/B of the working-set prefetch (cmux-tui/crates/cmux-resume-prefetch). The
+ * static binary goes to the guest at setup; every cycle records a plan before its pause, and even cycles are the `on`
+ * arm: the probe runs the prefetch at the first tick after the gap, beside the sequence (as cmux-host's Cloud agent
+ * runs it beside its wake work). Odd cycles are `off`. Tables split by arm.
  */
 import { readFileSync } from "node:fs";
-import { awaitPaused, percentile } from "./cloud-resume-matrix.ts";
+import { awaitPaused, parseServerTiming, percentile } from "./cloud-resume-matrix.ts";
 
 export const PHASES = ["restore", "net_up", "pty_attach", "echo", "total"] as const;
 export type Phase = (typeof PHASES)[number];
@@ -34,6 +42,8 @@ export type GuestMarks = {
   prev_wall?: number; resumed_wall?: number; wall_gap?: number; mono_gap?: number;
   net_up_at?: number; dns_at?: number; conn_at?: number; pty_attach_at?: number; input_at?: number; echo_at?: number; echo_any_at?: number;
   error?: string; marker?: string;
+  /** The on arm's prefetch, as the binary printed it ({planned,touched,stale_procs,threads,ms,cut}) or {error}. */
+  prefetch?: Record<string, unknown>;
   daemon?: { pid: number | null; start: number | null };
   surface_lost?: Record<string, unknown>;
 };
@@ -57,7 +67,18 @@ export type WakeCycle = {
   state_json: boolean;
   state_wake: unknown;
   start_retries?: string[];
+  /** cloud.machine.start's Server-Timing, ms by name (the last answer's when it was retried). */
+  server_timing?: Record<string, number> | null;
+  /** The prefetch A/B arm (--wake-echo-prefetch); absent without it. */
+  arm?: Arm;
+  /** The plan recorded before this cycle's pause ({procs, pages}). */
+  plan?: Record<string, unknown> | null;
 };
+
+export type Arm = "on" | "off";
+export const armOf = (i: number): Arm => (i % 2 === 0 ? "on" : "off");
+/** What `wake` answers: the retries it took and the landed answer's Server-Timing. */
+export type WakeAnswer = { retries: string[]; serverTiming?: Record<string, number> | null };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
 export function phasesOf(m: WakeCycle["marks_ms"]): { phases: Partial<Record<Phase, number>>; warnings: string[] } {
@@ -99,6 +120,28 @@ export function summarize(cycles: WakeCycle[]) {
   return { cycles: cycles.length, echoed: echoed.length, failed: cycles.length - echoed.length, rows, biggest, causes };
 }
 
+/** Per-arm summaries (only when the run had arms) and the on arm's prefetch p50s. */
+export function summarizeArms(cycles: WakeCycle[]) {
+  const arms = [...new Set(cycles.map((c) => c.arm).filter((a): a is Arm => a !== undefined))].sort((a, b) => (a === "on" ? -1 : b === "on" ? 1 : 0));
+  return arms.map((arm) => {
+    const mine = cycles.filter((c) => c.arm === arm);
+    const pf = mine.map((c) => c.guest?.prefetch).filter((x): x is Record<string, unknown> => !!x && typeof x.touched === "number");
+    const nums = (k: string) => pf.map((x) => Number(x[k])).filter((x) => Number.isFinite(x));
+    return { arm, ...summarize(mine), prefetch: pf.length ? { n: pf.length, pages_p50: percentile(nums("touched"), 50), ms_p50: percentile(nums("ms"), 50), ms_p95: percentile(nums("ms"), 95), cut: pf.filter((x) => x.cut === true).length } : null };
+  });
+}
+
+/** Slow restores: the platform's own share of cloud.machine.start (total - provider) beside the restore. */
+export const SLOW_RESTORE_MS = 3000;
+export function serverTimingSplit(cycles: WakeCycle[]) {
+  const timed = cycles.filter((c) => c.server_timing && typeof c.server_timing.total === "number");
+  const ours = (c: WakeCycle) => (c.server_timing && typeof c.server_timing.provider === "number" && typeof c.server_timing.total === "number" ? c.server_timing.total - c.server_timing.provider : null);
+  const names = [...new Set(timed.flatMap((c) => Object.keys(c.server_timing ?? {})))].sort();
+  const p50 = Object.fromEntries(names.map((k) => [k, percentile(timed.map((c) => c.server_timing![k]).filter((x): x is number => typeof x === "number"), 50)]));
+  const slow = cycles.filter((c) => (c.phases.restore ?? 0) >= SLOW_RESTORE_MS).map((c) => ({ i: c.i, restore: c.phases.restore!, answered: c.answered_ms, server_timing: c.server_timing ?? null, ours: ours(c) }));
+  return { timed: timed.length, of: cycles.length, p50, slow };
+}
+
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
   const s = summarize(cycles);
   const asked = typeof meta.asked === "number" ? meta.asked : null;
@@ -112,6 +155,20 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
     "",
     `Biggest phase by p95: **${s.biggest ?? "none"}**. state.json carried a wake block in ${cycles.filter((c) => c.state_wake != null).length} of ${cycles.length} cycles.`,
   ];
+  const arms = summarizeArms(cycles);
+  if (arms.length) {
+    lines.push("", "### By prefetch arm (even cycles on, odd off)", "", "| arm | phase | n | p50 | p95 | max |", "|---|---|---|---|---|---|");
+    for (const a of arms) for (const r of a.rows) lines.push(`| ${a.arm} | ${r.phase === "total" ? "**wake-to-first-echo**" : r.phase} | ${r.n} | ${f(r.p50)} | ${f(r.p95)} | ${f(r.max)} |`);
+    for (const a of arms) lines.push("", `${a.arm}: ${a.cycles} cycles, ${a.echoed} echoed.${a.prefetch ? ` Prefetch (n ${a.prefetch.n}): ${a.prefetch.pages_p50} pages p50, ${f(a.prefetch.ms_p50)} s p50, ${f(a.prefetch.ms_p95)} s p95, cut by the deadline ${a.prefetch.cut}.` : ""}`);
+  }
+  const st = serverTimingSplit(cycles);
+  if (st.timed) {
+    lines.push("", `### cloud.machine.start Server-Timing (${st.timed} of ${st.of} cycles)`, "", `p50 ms: ${Object.entries(st.p50).map(([k, v]) => `${k} ${v}`).join(", ")}.`);
+    if (st.slow.length) {
+      lines.push("", `Restores of ${SLOW_RESTORE_MS / 1000} s or more; ours = total - provider:`, "", "| cycle | restore | start answered | total | provider | ours | all |", "|---|---|---|---|---|---|---|");
+      for (const r of st.slow) lines.push(`| #${r.i} | ${f(r.restore)} | ${f(r.answered)} | ${f(r.server_timing?.total ?? null)} | ${f(r.server_timing?.provider ?? null)} | ${f(r.ours)} | ${r.server_timing ? Object.entries(r.server_timing).map(([k, v]) => `${k} ${v}`).join(", ") : "-"} |`);
+    }
+  }
   if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
   if (bad.length) {
@@ -146,7 +203,9 @@ export type WakeEchoDeps = {
   /** pause call, then resolves once the machine reads paused (ms from the call to the read). */
   pause: () => Promise<number>;
   /** cloud.machine.start, answered; resolves with a note per retry it took (startWithRetry). */
-  wake: () => Promise<void | string[]>;
+  wake: () => Promise<void | string[] | WakeAnswer>;
+  /** The prefetcher's path on the guest (setupPrefetch): turns the A/B on. */
+  prefetchBin?: string;
   status: () => Promise<string>;
   holdMs: number;
   deadlineAt?: number;
@@ -175,6 +234,29 @@ export async function setupProbe(d: Pick<WakeEchoDeps, "exec" | "guest" | "netHo
   if (!s.ok) throw new Error(`probe setup failed: ${short(JSON.stringify(s))}`);
   return s;
 }
+
+/** Puts the static cmux-resume-prefetch on the guest (in chunks: one exec argument stays well under 128 KiB) and records a plan once. */
+export async function setupPrefetch(d: Pick<WakeEchoDeps, "exec" | "guest" | "log">, binary: Buffer): Promise<{ bin: string; record: Record<string, any> }> {
+  const bin = `${WAKE_DIR}/cmux-resume-prefetch`;
+  const arch = await d.exec("uname -m", 30_000);
+  if (arch.stdout.trim() !== "x86_64") throw new Error(`prefetch binary is x86_64, guest is ${short(arch.stdout)}`);
+  const b64 = binary.toString("base64");
+  const CHUNK = 64 * 1024;
+  await d.exec(`mkdir -p ${WAKE_DIR} && : > ${bin}.b64`, 60_000);
+  for (let at = 0; at < b64.length; at += CHUNK) {
+    const r = await d.exec(`echo ${b64.slice(at, at + CHUNK)} >> ${bin}.b64 && echo ok`, 60_000);
+    if (!r.stdout.includes("ok")) throw new Error(`prefetch upload at ${at}: ${short(r.stderr || r.stdout)}`);
+  }
+  const r = await d.exec(`base64 -d ${bin}.b64 > ${bin} && chmod +x ${bin} && rm -f ${bin}.b64 && ${RECORD(bin)}`, 120_000);
+  const line = /\{.*\}/.exec(r.stdout)?.[0];
+  if (!line) throw new Error(`prefetch record printed nothing: ${short(r.stdout + r.stderr)}`);
+  const record = JSON.parse(line);
+  d.log(`wake-echo prefetch: ${(binary.length / 1024).toFixed(0)} KiB uploaded; record ${JSON.stringify(record)}`);
+  return { bin, record };
+}
+
+/** Root reads every process's page table; without sudo the plan holds this user's processes only. */
+const RECORD = (bin: string) => `{ sudo -n ${bin} record ${WAKE_DIR}/plan.json 2>/dev/null || ${bin} record ${WAKE_DIR}/plan.json; }`;
 
 const ENSURE_PROBE = `if ! [ -s ${WAKE_DIR}/pid ] || ! kill -0 "$(cat ${WAKE_DIR}/pid)" 2>/dev/null; then nohup setsid python3 ${WAKE_DIR}/probe.py run ${WAKE_DIR} >> ${WAKE_DIR}/probe.log 2>&1 < /dev/null & echo $! > ${WAKE_DIR}/pid; echo @@started; sleep 1; fi; echo "@@probe $(cat ${WAKE_DIR}/pid)"`;
 
@@ -262,18 +344,29 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
   for (let i = 0; i < n; i++) {
     if (d.deadlineAt && Date.now() > d.deadlineAt - 150_000) { d.log(`wake-echo: deadline near, stopping after ${i} cycles`); d.onStop?.(`deadline near after ${i} of ${n} cycles`); break; }
     const c: WakeCycle = { i, ok: false, error: "", at: new Date().toISOString(), paused_ms: null, answered_ms: null, first_exec_ms: null, offset_ms: null, offset_rtt_ms: null, offset_pre_ms: null, marks_ms: {}, phases: {}, warnings: [], guest: null, state_json: false, state_wake: null };
+    if (d.prefetchBin) c.arm = armOf(i);
     cycles.push(c);
     try {
       // A machine still pausing (or starting) from the last cycle settles first; one that settled paused is woken.
       await ensureRunning(d, sleep);
-      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; echo '{"seq":${i},"marker":"${marker(i)}"}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
+      // Both arms record the plan before the pause (the Cloud agent records 20 s after each resume); only `on` runs it.
+      const record = d.prefetchBin ? `echo "@@plan $(${RECORD(d.prefetchBin)})"; ` : "";
+      const armJson = JSON.stringify({ seq: i, marker: marker(i), ...(c.arm === "on" ? { prefetch: d.prefetchBin, plan: `${WAKE_DIR}/plan.json` } : {}) });
+      const arm = await execAnswered(d, `${d.guest}rm -f ${WAKE_DIR}/result.${i}.json; ${record}echo '${armJson}' > ${WAKE_DIR}/arm; ${ENSURE_PROBE}`, 120_000, sleep);
       if (!arm.stdout.includes("@@probe")) throw new Error(`arm: ${short(arm.stderr || arm.stdout)}`);
+      if (d.prefetchBin) {
+        const pl = /@@plan (\{.*\})/.exec(arm.stdout)?.[1];
+        c.plan = pl ? JSON.parse(pl) : null;
+        if (!pl) c.warnings.push(`plan record printed nothing: ${short(arm.stdout)}`);
+      }
       c.offset_pre_ms = (await clockOffset(d.exec, 2))?.offset ?? null;
       c.paused_ms = await d.pause();
       await sleep(d.holdMs);
       const wakeAt = Date.now();
-      const retries = await d.wake();
+      const woke = await d.wake();
       c.answered_ms = Date.now() - wakeAt;
+      const retries = Array.isArray(woke) ? woke : woke ? woke.retries : undefined;
+      if (woke && !Array.isArray(woke)) c.server_timing = woke.serverTiming ?? null;
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
@@ -312,6 +405,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
         c.state_json = sj !== null;
         c.state_wake = sj?.wake ?? null;
       } catch { c.state_json = false; }
+      if (c.arm === "on" && !(g.prefetch && typeof g.prefetch.touched === "number")) c.warnings.push(`prefetch did not run: ${short(JSON.stringify(g.prefetch ?? null))}`);
       if (g.error) throw new Error(`guest probe: ${g.error}`);
       if (g.echo_at === undefined) throw new Error("the probe marked no echo");
       c.ok = true;
@@ -330,4 +424,4 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
   return cycles;
 }
 
-export { awaitPaused };
+export { awaitPaused, parseServerTiming };
