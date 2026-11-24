@@ -71,7 +71,7 @@ fn now() -> u64 {
 impl Tokens {
     pub fn new(source: TokenSource) -> Self {
         cmux_mobile_link::install_crypto_provider();
-        Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http: reqwest::Client::new() }
+        Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http: cmux_mobile_link::api::ApiClient::http_client() }
     }
 
     /// A current access token, refreshed 60 s before it expires.
