@@ -485,3 +485,38 @@ fn link_show_names_the_pairing_file() {
     assert_eq!(shown["peers_file"].as_str(), state.peers_path().to_str());
     assert_eq!(shown["install"].as_str(), Some("inst_show"));
 }
+
+/// `cmux link <action> --help` prints that action's own lines and exits 0 (the Cloud and remote
+/// command matrix); before, `--help` was an unknown option.
+#[test]
+fn each_link_action_has_its_own_help() {
+    let help = include_str!("../localization/link_help.en.txt");
+    let enrollment =
+        "Use an existing paired server identity:\n  init --server-identity FILE [--port PORT]\n";
+    for action in super::OWN_ACTIONS {
+        let text = super::verb_help_from(action, help, enrollment)
+            .unwrap_or_else(|| panic!("{action} has no help"));
+        assert!(text.starts_with(&format!("USAGE: cmux link {action} [OPTIONS]\n")), "{text}");
+        assert!(text.contains(&format!("\n  {action}")), "{text}");
+        assert!(text.trim_end().ends_with("(default: <daemon state dir>/link)."), "{text}");
+        assert_ne!(text, help);
+    }
+    let peer = super::verb_help_from("peer", help, enrollment).unwrap();
+    assert!(
+        peer.contains("peer add") && peer.contains("peer remove") && peer.contains("peer list")
+    );
+    assert!(!peer.contains("  serve"));
+    let serve = super::verb_help_from("serve", help, enrollment).unwrap();
+    assert!(serve.contains("--server-config PATH"), "{serve}");
+    assert!(!serve.contains("ensure"), "{serve}");
+    let init = super::verb_help_from("init", help, enrollment).unwrap();
+    assert!(init.contains("--server-identity FILE"), "{init}");
+    assert!(super::verb_help_from("dial", help, enrollment).is_none());
+    let japanese = include_str!("../localization/link_help.ja.txt");
+    for action in super::OWN_ACTIONS {
+        let text = super::verb_help_from(action, japanese, "").unwrap();
+        assert!(text.starts_with(&format!("使用方法: cmux link {action} ")), "{text}");
+    }
+    assert!(super::asks_help(&["--install".into(), "x".into(), "-h".into()]));
+    assert!(!super::asks_help(&["--".into(), "--help".into()]));
+}
