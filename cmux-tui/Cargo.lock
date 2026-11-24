@@ -1423,6 +1423,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -2326,6 +2334,7 @@ dependencies = [
  "cmux-process",
  "flate2",
  "fuser",
+ "ignore",
  "libc",
  "reqwest",
  "rustls",
@@ -2440,6 +2449,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-path",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2880,6 +2890,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
+ "cmux-migrate",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
