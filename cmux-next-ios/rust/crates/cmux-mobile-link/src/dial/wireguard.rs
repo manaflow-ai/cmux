@@ -614,6 +614,29 @@ fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     }
 }
 
+/// A hop/1 port is also an ordinary relayed endpoint for older Macs.
+fn hop_address(
+    hop: Option<&str>,
+    relayed: &[String],
+    endpoints: &[String],
+    options: &DialOptions,
+) -> Option<SocketAddr> {
+    if options.block_udp {
+        return None;
+    }
+    hop.filter(|address| endpoints.iter().any(|s| s == address) && relayed.iter().any(|s| s == address))
+        .and_then(|s| s.parse::<SocketAddr>().ok())
+        .filter(|addr| {
+            // Both endpoints send UDP directly to the advertised relay port.
+            let ip = addr.ip();
+            addr.port() != 0
+                && !ip.is_unspecified()
+                && !ip.is_multicast()
+                && (options.include_loopback || !ip.is_loopback())
+                && !(options.exclude_cgnat && super::is_cgnat(ip))
+        })
+}
+
 /// The peer's endpoints this side may use for plain UDP.
 fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
     if no_plain_udp(options) {
@@ -1008,21 +1031,10 @@ impl HybridUnderlay {
     }
 
     fn set_peer_hop(&mut self, hop: Option<&str>, relayed: &[String], endpoints: &[String]) {
-        if !self.accept_peer_hop || no_plain_udp(&self.options) {
+        if !self.accept_peer_hop {
             return;
         }
-        let address = hop
-            .filter(|address| endpoints.iter().any(|s| s == address) && relayed.iter().any(|s| s == address))
-            .and_then(|s| s.parse::<SocketAddr>().ok())
-            .filter(|addr| {
-                // Both endpoints send UDP directly to the advertised relay port.
-                let ip = addr.ip();
-                addr.port() != 0
-                    && !ip.is_unspecified()
-                    && !ip.is_multicast()
-                    && (self.options.include_loopback || !ip.is_loopback())
-                    && !(self.options.exclude_cgnat && super::is_cgnat(ip))
-            });
+        let address = hop_address(hop, relayed, endpoints, &self.options);
         if self.hop.as_ref().map(|h| h.relayed) != address {
             self.install_hop(address.and_then(|addr| HopCarrier::peer(addr).ok()));
         }
@@ -1355,7 +1367,10 @@ impl HybridUnderlay {
             // Plain UDP is off here: whatever arrived, it was not ours.
             return None;
         }
-        let usable = |addr: &SocketAddr| carrier == Carrier::Turn || !self.refused.contains(addr);
+        let usable = |addr: &SocketAddr| {
+            self.hop.as_ref().is_none_or(|hop| hop.relayed != *addr)
+                && (carrier == Carrier::Turn || !self.refused.contains(addr))
+        };
         let addr = if via_turn {
             let mut relayed: Vec<SocketAddr> =
                 self.labels.peer_relayed.iter().copied().filter(usable).collect();
@@ -1668,7 +1683,11 @@ impl HybridUnderlay {
         if self.direct_only()
             && let Some(roam) = self.roam.take()
         {
-            roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
+            roam.mark(match path {
+                LinkPath::Hop => "roam_hop",
+                LinkPath::Direct => "roam_direct",
+                _ => "roam_turn",
+            });
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
         let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
@@ -2173,7 +2192,6 @@ struct TunnelSpec<'a> {
     /// What this side offered the peer.
     own_endpoints: Vec<String>,
     hop: Option<HopCarrier>,
-    peer_hop: Option<String>,
     turn: Option<TurnCarrier>,
     /// This side keeps a TURN allocation (again after a roam, or when its
     /// stream to the server dies): the phone whenever offered one, the Mac
@@ -2239,12 +2257,11 @@ fn start_tunnel(
         },
         options,
     );
-    let own_hop = spec.hop.as_ref().map(|h| h.relayed);
+    let own_hop = spec.hop.as_ref().filter(|_| spec.dialer).map(|h| h.relayed);
     underlay.accept_peer_hop = !spec.dialer;
     if let Some(hop) = spec.hop {
         underlay.install_hop(Some(hop));
     }
-    underlay.set_peer_hop(spec.peer_hop.as_deref(), spec.peer_relayed, spec.peer_endpoints);
     let hop_sender = underlay.hop_sender.clone();
     let host = |ip: Ipv4Addr| IpNetwork::new(IpAddr::V4(ip), 32).expect("host prefix");
     let config = WgConfig {
@@ -2330,21 +2347,18 @@ async fn gather_dial(
     pending.spawn(async move { RelayAllocation::Hop(hop::allocate(&hop_options).await) });
     let gathered = gather_endpoints(socket, options, stun).await;
     let (mut turn, mut hop) = (None, None);
-    while let Some(result) = pending.join_next().await {
+    let needs_relay = no_plain_udp(options) || gathered.endpoints.is_empty();
+    loop {
+        let result = if needs_relay && turn.is_none() && hop.is_none() {
+            pending.join_next().await
+        } else {
+            pending.try_join_next()
+        };
         match result {
-            Ok(RelayAllocation::Turn(carrier)) => turn = carrier,
-            Ok(RelayAllocation::Hop(carrier)) => hop = carrier,
-            Err(_) => {}
-        }
-        if hop.is_some() || turn.is_some() || (!options.relay_only && !gathered.endpoints.is_empty()) {
-            break;
-        }
-    }
-    while let Some(result) = pending.try_join_next() {
-        match result {
-            Ok(RelayAllocation::Turn(carrier)) => turn = carrier,
-            Ok(RelayAllocation::Hop(carrier)) => hop = carrier,
-            Err(_) => {}
+            Some(Ok(RelayAllocation::Turn(carrier))) => turn = carrier,
+            Some(Ok(RelayAllocation::Hop(carrier))) => hop = carrier,
+            Some(Err(_)) => {}
+            None => break,
         }
     }
     (gathered, turn, hop, pending)
@@ -2464,7 +2478,6 @@ pub(super) fn dial_wireguard<'a>(
             own_endpoints,
             turn,
             hop,
-            peer_hop: None,
             keeps_turn: true,
             dialer: true,
             stun,
@@ -2599,7 +2612,9 @@ impl Dialer for WireGuardDialer {
             // A STUN answer came after all: the early allocation is dropped
             // (released) unused.
             let turn = if wants_turn { turn } else { None };
-            if no_plain_udp(options) && turn.is_none() {
+            let hop = hop_address(peer_hop.as_deref(), &peer_relayed, &peer_endpoints, options)
+                .and_then(|addr| HopCarrier::peer(addr).ok());
+            if no_plain_udp(options) && turn.is_none() && hop.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
@@ -2623,8 +2638,7 @@ impl Dialer for WireGuardDialer {
                 keeps_turn: wants_turn,
                 turn,
                 dialer: false,
-                hop: None,
-                peer_hop,
+                hop,
                 stun,
             };
             let tunnel = start_tunnel(signaling, spec, options)?;
@@ -3153,6 +3167,19 @@ mod tests {
         assert_eq!(replay, (first..SENT).collect::<Vec<_>>(), "the newest, oldest first: {order:?}");
         assert!(replay.len() * SIZE <= REPLAY_BYTES, "{} bytes replayed at once", replay.len() * SIZE);
         assert!(replay.len() * SIZE + SIZE > REPLAY_BYTES, "as many as fit: {replay:?}");
+    }
+
+    #[test]
+    fn hop_endpoint_requires_an_offered_relay_and_udp() {
+        let addr = "192.0.2.10:8421";
+        let offer = vec![addr.to_owned()];
+        let mut options = DialOptions { relay_only: true, ..Default::default() };
+        assert_eq!(hop_address(Some(addr), &offer, &offer, &options), Some(addr.parse().unwrap()));
+        assert_eq!(hop_address(None, &offer, &offer, &options), None);
+        assert_eq!(hop_address(Some(addr), &[], &offer, &options), None);
+        assert_eq!(hop_address(Some(addr), &offer, &[], &options), None);
+        options.block_udp = true;
+        assert_eq!(hop_address(Some(addr), &offer, &offer, &options), None);
     }
 
     #[tokio::test]
