@@ -193,6 +193,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+mod native_history_chain;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_list;
@@ -262,6 +263,7 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
+pub(crate) mod image_size;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
