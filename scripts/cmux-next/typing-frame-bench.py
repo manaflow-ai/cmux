@@ -902,18 +902,34 @@ def workspaces():
 SENTENCE = "the chief reads your note and starts on the work in a new workspace "
 
 
+# The app stamps its key events on CLOCK_UPTIME_RAW; off macOS that name does not exist, and a unit test of this
+# module's own functions must still run on the Linux test host (2026-11-23, test_typing_frame_verdict on huge-blue).
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def type_keys(count, params, column):
     keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
+    # What the app did with each key, as `debug.key` reports it: "responder" or "page" went on to AppKit's dispatch,
+    # which is where the typing probe opens its sample; "app" means the key router consumed the key before that, so
+    # the key leaves no probe row and no sample. Without this a route the router eats reads as a surface that simply
+    # measured nothing -- 80 keys, 0 rows, no reason named (#45273's fleet run, 2026-11-23).
+    verdicts = {}
     for index in range(count):
         t0 = time.perf_counter()
         key = keys[index % len(keys)]
-        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(UPTIME_CLOCK)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"key {index}: {reply.get('error')}")
+        if isinstance(reply, dict):
+            verdict = f"{reply.get('handled_by')}/{reply.get('action')}@{reply.get('window_kind')}"
+            if reply.get("error"):
+                verdict = f"error:{json.dumps(reply.get('error'))[:80]}"
+                note(f"key {index}: {reply.get('error')}")
+        else:
+            verdict = f"no reply ({type(reply).__name__})"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
@@ -921,7 +937,7 @@ def type_keys(count, params, column):
     wait_until(lambda: sum(1 for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)) >= count,
                "a probe row for the last key", timeout=5, raise_on_timeout=False)
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
-    return rows, trips
+    return rows, trips, verdicts
 
 
 GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
@@ -1079,7 +1095,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    rows, trips = type_keys(opts.samples, params, column)
+    rows, trips, verdicts = type_keys(opts.samples, params, column)
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
@@ -1103,6 +1119,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "mode_missing": (MODE or {}).get("nativeMissing") or [],
         "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
+        # `measured: 0` with every key under "app/..." is the key router eating them, not a slow surface.
+        "key_verdicts": verdicts,
         # Every measured key's value, so a reader pools the rounds (the perf cron's terminal.key_to_echo rows).
         "key_to_frame_values": [round(v, 3) for v in f(column)],
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
