@@ -26,6 +26,7 @@ cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
 # The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
 cmux-tab-snapshots.workspace = true
+cmux-phone-page.workspace = true
 # Compressed acpmux messages on the phone link (src/link_deflate.rs).
 flate2.workspace = true
 futures-util.workspace = true

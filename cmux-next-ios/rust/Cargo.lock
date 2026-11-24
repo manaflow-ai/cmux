@@ -531,6 +531,7 @@ dependencies = [
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-phone-page",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -621,6 +622,13 @@ dependencies = [
  "uniffi",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
