@@ -2505,7 +2505,6 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     // Every page crossed the relay: what it carried is at least the bundle.
     assert!(carried >= bundle, "the relay carried {carried} B of a {bundle} B bundle");
     let moved_timings = moved["timings"].clone();
-
     let commit_started = tokio::time::Instant::now();
     let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": moved["cwd"]});
     let committed = ca
@@ -3176,3 +3175,6 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+#[path = "hub_carrier/move_out.rs"]
+mod move_out;
