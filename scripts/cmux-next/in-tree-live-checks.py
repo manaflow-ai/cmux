@@ -61,6 +61,14 @@ pane beside the terminal:
   key_route       (23) the page focused by tab.focus from the terminal, no click: its view is the first responder, a
                   real letter reaches it, real Cmd-Shift-Return zooms and unzooms its pane, real Cmd-D splits it (real
                   keys: debug.key `sequence`, the app's event queue)
+  element_fullscreen
+                  (24) on the fs page, a page click on a button calls requestFullscreen() on a div (exit: a real Escape),
+                  on a <video> (exit: document.exitFullscreen()) and on the div with the window already in full screen
+                  (exit: Escape; the window stays in full screen): document.fullscreenElement is the element, the window
+                  is in full screen, the page view fills the window within 2 pt, :fullscreen CSS applies and
+                  fullscreenchange fires; after the exit the window and every page view frame are back exactly (0.5 pt).
+                  The cmux window is made key first (debug.key `key_window`, no activation), as a person's click makes
+                  it; `element_fullscreen.unfocused` (INFO) is the same click with no key window, the sweep's state
 
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
@@ -75,7 +83,8 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,two_pages,reveal",
+                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
@@ -86,7 +95,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route"}
+               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -169,12 +178,42 @@ window.layoutReady = true;
 </script></body></html>"""
 
 
+# The element full screen page (in-tree-regressions.md bug 24, sweep-06675353 D9): a red box that turns green under
+# :fullscreen, a <video>, and a button for each that calls requestFullscreen() from its click. window.fsState() reports
+# the fullscreen element, the viewport, the box's computed colour and the log of results and fullscreenchange events.
+FS = """<!doctype html><html><head><title>in-tree fs probe</title><style>
+body{margin:0;background:#246;color:#fff;font:14px sans-serif} button{font-size:16px;margin:8px}
+#box{width:300px;height:200px;background:rgb(204,51,51)} #box:fullscreen{background:rgb(51,204,51)}
+#vid{width:320px;height:180px;background:#000;display:block}
+</style></head><body>
+<button id="fsbox">Fullscreen box</button><button id="fsvid">Fullscreen video</button>
+<div id="box">box</div><video id="vid" muted playsinline></video>
+<script>
+window.__fs = [];
+const log = (...a) => window.__fs.push([Date.now()].concat(a));
+document.addEventListener('fullscreenchange', () => log('change', document.fullscreenElement ? document.fullscreenElement.id : null));
+document.addEventListener('fullscreenerror', e => log('fserror', e.target.id || e.target.tagName));
+document.addEventListener('keydown', e => log('keydown', e.key), true);
+const ask = id => () => { log('click', id, navigator.userActivation.isActive);
+  document.getElementById(id).requestFullscreen().then(() => log('ok', id), e => log('err', id, String(e))); };
+document.getElementById('fsbox').onclick = ask('box');
+document.getElementById('fsvid').onclick = ask('vid');
+window.fsState = () => JSON.stringify({el: document.fullscreenElement ? document.fullscreenElement.id : null,
+  w: innerWidth, h: innerHeight, box_bg: getComputedStyle(document.getElementById('box')).backgroundColor,
+  log: window.__fs.slice(-12)});
+window.buttonCentre = id => JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById(id).getBoundingClientRect()));
+window.fsReady = true;
+</script></body></html>"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/download"):
             body, kind = b"in-tree download probe\n", "application/octet-stream"
         elif self.path.startswith("/layout"):
             body, kind = LAYOUT.encode(), "text/html"
+        elif self.path.startswith("/fs"):
+            body, kind = FS.encode(), "text/html"
         elif self.path.startswith("/popup"):
             body, kind = POPUP.encode(), "text/html"
         else:
@@ -1445,7 +1484,7 @@ def check_omnibar_narrow(tab, pane):
              "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
 
 
-KEY_CODES = {"command": 55, "shift": 56, "return": 36, "d": 2, "z": 6}
+KEY_CODES = {"command": 55, "shift": 56, "return": 36, "d": 2, "z": 6, "escape": 53}
 
 
 def real_keys(keys):
@@ -1533,8 +1572,123 @@ def check_key_route(tab, pane):
         time.sleep(1.0)  # test harness: the pane closes
 
 
+def page_views_frames(layers=None):
+    """Every shown (unparked) page view's frame in the main window, by pane."""
+    return {str(v.get("pane")): v.get("frame_in_window") for v in (layers or main_layers()).get("page_views") or [] if not v.get("parked")}
+
+
+def same_frame(a, b, px=0.5):
+    return bool(a and b) and len(a) == len(b) and all(abs(x - y) <= px for x, y in zip(a, b))
+
+
+def make_key():
+    """The cmux window (in tree) or the page's window (off) becomes the app's key window without activating the app,
+    as a person's click into the page makes it: a Shift tap through the app's event queue with debug.key `key_window`."""
+    steps = [{"key_code": KEY_CODES["shift"], "down": True, "after_ms": 0}, {"key_code": KEY_CODES["shift"], "down": False, "after_ms": 20}]
+    reply = rpc("debug.key", {"sequence": steps, "key_window": "shell" if opts.in_tree == "on" else "page"})
+    time.sleep(0.3)  # test harness: the tap plays and the key status reaches the page's view
+    return reply
+
+
+def check_element_fullscreen(tab, pane):
+    """Bug 24 (sweep-06675353 D9): element full screen from a page click. requestFullscreen() on a div rejected
+    "TypeError: not granted" in both modes; Chrome gives the element the window's content (tab fullscreen), enters
+    the window's full screen when it is not there and leaves it on exit, and Escape exits. Per variant: the element is
+    document.fullscreenElement, the window is in full screen, the page view fills the window within 2 pt, :fullscreen
+    applies (box), fullscreenchange fired; after the exit no fullscreen element and the window frame, its full screen
+    state and every page view frame equal the start within 0.5 pt."""
+    page_eval(f"location.href = {json.dumps(URL + 'fs')}; true", tab)
+    if not wait(lambda: page_eval("window.fsReady === true", tab).get("value") is True, 30, 0.3):
+        row(False, "element_fullscreen.setup", {"bug": 24, "note": "the fs page did not load"})
+        return
+    time.sleep(0.5)  # test harness: the fs page draws
+
+    def state():
+        return page_json("window.fsState()", tab) or {}
+
+    def click(button):
+        centre = page_json(f"window.buttonCentre({json.dumps(button)})", tab)
+        return rpc("debug.mouse", {"target": "page", "pane": pane, "x": centre[0], "y": centre[1]}) if centre else {"error": "no button"}
+
+    def settle(predicate, seconds=6.0):
+        """Waits for `predicate` and then for the page view to hold still for 0.5 s."""
+        ok = wait(predicate, seconds, 0.1)
+        last, since, end = None, time.time(), time.time() + 4
+        while time.time() < end:
+            frame = page_view(pane)
+            if frame != last:
+                last, since = frame, time.time()
+            elif time.time() - since > 0.5:
+                break
+            time.sleep(0.05)  # test harness: one sample a few display frames
+        return ok
+
+    # The sweep's state: the same click with no key window (an agent launch never activates the app).
+    facts0 = focus_facts()
+    click("fsbox")
+    time.sleep(1.0)  # test harness: the request resolves
+    st = state()
+    row("INFO", "element_fullscreen.unfocused", {"bug": 24, "state": st, "facts": facts0,
+                                                  "note": "Chromium refuses fullscreen to a view without focus (kSuppressFullscreenFromUnfocusedView)"})
+    if st.get("el"):
+        page_eval("document.exitFullscreen(); true", tab)
+        settle(lambda: not state().get("el") and not is_full_screen())
+
+    for variant, button, element, exit_by, window_fs in (("box", "fsbox", "box", "escape", False),
+                                                         ("video", "fsvid", "vid", "api", False),
+                                                         ("box_in_fs", "fsbox", "box", "escape", True)):
+        if window_fs:
+            action("toggleFullScreen")
+            if not wait(is_full_screen, 8):
+                row(False, f"element_fullscreen.{variant}.setup", {"bug": 24, "note": "the window did not enter full screen"})
+                continue
+            time.sleep(1.5)  # test harness: the full-screen Space settles
+        layers0 = main_layers()
+        start = {"window": layers0.get("frame"), "full_screen": is_full_screen(), "views": page_views_frames(layers0)}
+        record(f"element_fullscreen_{variant}", 10)
+        key = make_key()
+        sent = click(button)
+        entered = settle(lambda: state().get("el") == element and is_full_screen())
+        layers = main_layers()
+        st, window, view = state(), layers.get("frame"), page_view(pane, layers)
+        fills = bool(window and view) and abs(view[0]) <= 2 and abs(view[1]) <= 2 and abs(view[2] - window[2]) <= 2 \
+            and abs(view[3] - window[3]) <= 2 and abs((st.get("w") or 0) - window[2]) <= 2 and abs((st.get("h") or 0) - window[3]) <= 2
+        css = element != "box" or st.get("box_bg") == "rgb(51, 204, 51)"
+        changed = any(e[1] == "change" and e[2] == element for e in st.get("log") or [])
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"element-fullscreen-{variant}.png")})
+        row(bool(entered) and fills and css and changed, f"element_fullscreen.{variant}.enter",
+            {"bug": 24, "state": st, "window": window, "page_view": view, "full_screen": is_full_screen(), "click": sent,
+             "key": key, "facts": focus_facts(),
+             "pass_if": "fullscreenElement is the element, window in full screen, page view fills the window within 2 pt, "
+                        ":fullscreen applies, fullscreenchange fired"})
+        if exit_by == "escape":
+            # A real Escape through the app's event queue to the key window that holds the page.
+            how = rpc("debug.key", {"sequence": [{"key_code": KEY_CODES["escape"], "down": True, "after_ms": 0},
+                                                 {"key_code": KEY_CODES["escape"], "down": False, "after_ms": 40}],
+                                    "key_window": "shell" if opts.in_tree == "on" else "page"})
+        else:
+            how = page_eval("document.exitFullscreen().then(() => true, e => String(e))", tab)
+        left = settle(lambda: not state().get("el") and is_full_screen() == start["full_screen"])
+        time.sleep(0.5)  # test harness: the layout settles after the exit
+        layers = main_layers()
+        end = {"window": layers.get("frame"), "full_screen": is_full_screen(), "views": page_views_frames(layers)}
+        restored = end["full_screen"] == start["full_screen"] and same_frame(end["window"], start["window"]) \
+            and end["views"].keys() == start["views"].keys() and all(same_frame(end["views"][k], start["views"][k]) for k in start["views"])
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"element-fullscreen-{variant}-exit.png")})
+        row(bool(left) and restored, f"element_fullscreen.{variant}.exit_{exit_by}",
+            {"bug": 24, "state": state(), "start": start, "end": end, "exit": how,
+             "pass_if": "no fullscreen element; window frame, full screen state and every page view frame as at the start (0.5 pt)"})
+        if st.get("el") and state().get("el"):  # the exit did not take: leave for the next variant
+            page_eval("document.exitFullscreen(); true", tab)
+            settle(lambda: not state().get("el"))
+        if is_full_screen():  # back to a windowed window for the next variant
+            action("toggleFullScreen")
+            wait(lambda: not is_full_screen(), 8)
+            time.sleep(1.0)  # test harness: the window settles
+
+
 REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "tab_spam", "pane_zoom",
-                     "popup_float", "omnibar_narrow", "key_route")
+                     "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
 if os.path.exists(SOCKET):
@@ -1732,7 +1886,7 @@ try:
                               ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("tab_spam", check_tab_spam),
-                              ("key_route", check_key_route)):
+                              ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
                 if name in CHECKS:
                     try:
                         run(page_tab, pane)
