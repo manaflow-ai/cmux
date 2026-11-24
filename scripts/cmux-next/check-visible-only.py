@@ -134,6 +134,9 @@ def scan(root: Path) -> dict[tuple[str, str], list[tuple[int, str]]]:
         refuse(f"ast-grep printed {type(matches).__name__}, not a list of matches")
     hits: dict[tuple[str, str], list[tuple[int, str]]] = collections.defaultdict(list)
     texts: dict[str, list[str]] = {}
+    # One hit per matched node: two eager calls on one line are two hits (a key of line and text counted them once,
+    # so the second slipped under the file's row). A node ast-grep reports twice keeps one.
+    seen: set[tuple[str, str, int, int]] = set()
     for m in matches:
         rel, rule, index = m["file"].replace(os.sep, "/"), m["ruleId"], m["range"]["start"]["line"]
         if rel.startswith("./"):
@@ -144,9 +147,13 @@ def scan(root: Path) -> dict[tuple[str, str], list[tuple[int, str]]]:
             texts[rel] = (root / rel).read_text(encoding="utf-8", errors="replace").split("\n")
         if escaped(texts[rel], index):
             continue
+        node = (rel, rule, m["range"]["byteOffset"]["start"], m["range"]["byteOffset"]["end"])
+        if node in seen:
+            continue
+        seen.add(node)
         line = texts[rel][index].strip() if index < len(texts[rel]) else ""
         hits[(rel, rule)].append((index + 1, line))
-    return {key: sorted(set(found)) for key, found in hits.items()}
+    return {key: sorted(found) for key, found in hits.items()}
 
 
 def read_baseline(root: Path) -> dict[tuple[str, str], int]:

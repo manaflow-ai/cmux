@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextSidebar
 import CmuxNextTabs
 import Foundation
 
@@ -15,6 +16,18 @@ extension SidebarBridge {
     func revealPinnedTab(_ ref: String) {
         guard let state, let (tab, pane) = pinnedTab(ref), let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)?.id else { return }
         reveal(tab, in: pane, workspace: workspace, state: state)
+    }
+
+    /// A chat's subagent line under its sidebar row (`SidebarSubagentsView`): shows the chat's tab, then opens the
+    /// subagent's pane beside it as the chat's own subagent cards do (``AgentTabStore/openSubagentFromSidebar``).
+    /// No subagent ("N more", the stacked line): the chat only.
+    func wireSubagentOpen() {
+        model.openSubagent = { [weak self] _, tab, subagent in
+            guard let self else { return }
+            revealPinnedTab(tab.rawValue)
+            guard let subagent, let (chat, _) = pinnedTab(tab.rawValue) else { return }
+            services.agentTabs.openSubagentFromSidebar(subagent.id, title: subagent.title, chat: chat)
+        }
     }
 
     /// Focuses a tab of this window's current space showing `text` (an

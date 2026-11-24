@@ -1,12 +1,12 @@
 import { errorMessage, isHostRefusal, startCancelled, switchFailedText, startErrorMessage } from "./transportErrors";
-import { logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
+import { logStartFailure, startFailureCause, startFailureCode, isConnectionLoss } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
 import { harnessFamilyMenu } from "./harnessModes";
 import { heldOptionPick, isEffortOption } from "./heldOptions";
-import { isTrustRefusal } from "./direct";
+import { isTrustRefusal } from "./trustRefusal";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
@@ -207,6 +207,9 @@ type Intent = {
   tickets: Map<string, Promise<string | undefined>>;
   /// The port a run is in flight on; a reconnect runs again on the new one.
   running?: SwitchPort;
+  /// A start again after a connection loss on a port no reconnect has replaced yet
+  /// (`retryAfterLoss`); cleared by any new run.
+  lossRetry?: { timer: ReturnType<typeof setTimeout>; delay: number };
   done: { resolve(sessionId: string | undefined): void; promise: Promise<string | undefined> };
   /// The switch started in this turn of the event loop: a send in the same turn (the New Tab
   /// page's agent pick and Send) leaves its gesture to the session/new it just sent (#23031).
@@ -419,7 +422,9 @@ export class HarnessSwitch {
     const leftMode =
       previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
     if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
-    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
+    // Only a switch back from another harness brings a mode back: a new chat on the harness the pane
+    // shows starts on acpmux's start mode, never the shown chat's (agent-pane-start-mode-chip).
+    const back = leftHarness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -789,9 +794,25 @@ export class HarnessSwitch {
     if (this.port && !intent.running && intent.phase !== "failed" && intent.phase !== "trust") void this.run(intent);
   }
 
+  /// A start whose connection to acpmux was lost before the pane replaced it: no failure and no
+  /// card. The prompts stay held and the switch stays starting; a reconnect runs it on the next
+  /// client (`connect`), and until one comes it asks this client again, 1 s, 2 s, ... up to 15 s
+  /// apart, for as long as this switch is the current one.
+  private retryAfterLoss(intent: Intent, port: SwitchPort, error: unknown): void {
+    // The app's log still says what failed, as a failed start's does (#44964).
+    logStartFailure(intent.harness, intent.sessionId, startFailureCause(error));
+    const delay = Math.min((intent.lossRetry?.delay ?? 500) * 2, 15_000);
+    if (intent.lossRetry) clearTimeout(intent.lossRetry.timer);
+    const timer = setTimeout(() => {
+      if (this.intent === intent && this.port === port) this.runOnNextClient(intent);
+    }, delay);
+    intent.lossRetry = { timer, delay };
+  }
+
   private async run(intent: Intent): Promise<void> {
     const port = this.port;
     if (!port || intent.running) return;
+    if (intent.lossRetry) clearTimeout(intent.lossRetry.timer);
     let sessionId = intent.sessionId;
     // A chat on another machine starts with the first send, never with a pick (cx-k21v).
     if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
@@ -804,6 +825,7 @@ export class HarnessSwitch {
         // A dropped connection is not a failure: the next client runs it again.
         if (this.intent !== intent) return;
         if (this.port !== port) return this.runOnNextClient(intent);
+        if (isConnectionLoss(error)) return this.retryAfterLoss(intent, port, error);
         this.fail(intent, error);
         return;
       }
@@ -837,6 +859,7 @@ export class HarnessSwitch {
       if (intent.running === port) intent.running = undefined;
       if (this.intent !== intent) return;
       if (this.port !== port) return this.runOnNextClient(intent);
+      if (isConnectionLoss(error)) return this.retryAfterLoss(intent, port, error);
       this.fail(intent, error);
       return;
     }

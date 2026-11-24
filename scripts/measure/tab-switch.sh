@@ -140,6 +140,23 @@ tsw_stop_tree() {
   done
   kill -KILL "${pids[@]}" 2>/dev/null || true
 }
+# follow_log LOG DONE: print LOG from its start as it grows, and end at its end once the file DONE exists, so the
+# caller waits for the follower itself to have printed every last line.
+follow_log() {
+  python3 -I -c 'import os, sys, time
+log, done = sys.argv[1], sys.argv[2]
+with open(log, "rb") as f:
+    while True:
+        finished = os.path.exists(done)  # before the read: what was written before DONE is read
+        chunk = f.read(65536)
+        if chunk:
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        elif finished:
+            break
+        else:
+            time.sleep(0.1)' "$1" "$2"
+}
 # tsw_step PREFIX NAME LIMIT LOG [--stream] -- COMMAND...: runs COMMAND with its output in LOG, shown as it comes
 # with --stream; without it, every TSW_STEP_EVERY seconds a line gives the elapsed time and LOG's last line. Past
 # LIMIT seconds it stops COMMAND and everything under it, prints "PREFIX step NAME ran past LIMIT s" with LOG's tail
@@ -150,10 +167,11 @@ tsw_step() {
   [[ "${1:-}" == --stream ]] && { stream=1; shift; }
   [[ "${1:-}" == -- ]] && shift
   : >"$log"
+  rm -f "$log.done"
   "$@" >"$log" 2>&1 &
   local pid=$! started=$SECONDS next=$((SECONDS + TSW_STEP_EVERY))
   if [[ "$stream" == 1 ]]; then
-    tail -n +1 -f "$log" &
+    follow_log "$log" "$log.done" &
     follow=$!
   fi
   while kill -0 "$pid" 2>/dev/null; do
@@ -173,9 +191,12 @@ tsw_step() {
   done
   wait "$pid" || rc=$?
   if [[ -n "$follow" ]]; then
-    sleep 1 # tail -f reads the last lines on its next pass
-    kill "$follow" 2>/dev/null
+    # Until the follower has printed the log's last lines and ended, 10 s.
+    : >"$log.done"
+    for _ in $(seq 1 100); do kill -0 "$follow" 2>/dev/null || break; sleep 0.1; done
+    kill "$follow" 2>/dev/null || true
     wait "$follow" 2>/dev/null || true
+    rm -f "$log.done"
   fi
   return "$rc"
 }

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import sceneType from "../../../../schemas/type-scale/scene-type.json";
 import type { SceneProps } from "./store";
 
 export const sceneText = (value: unknown): string =>
@@ -13,7 +14,9 @@ const COLORS: Record<string, string> = {
   // The theme's accent: its text color by default (the no-blue rule), its own hue with appearance.accent.
   accent: "var(--cmux-accent, var(--agent-text))",
   secondary: "var(--agent-muted)",
-  tertiary: "color-mix(in srgb, var(--agent-text) 38%, transparent)",
+  // The theme's tertiary ink (WebTheme --cmux-text-tertiary, 3:1 on every fill). The fixed 38% wash read a widget's
+  // icons at 2.71:1 on Catppuccin Mocha's card (control-contrast-2, apps.widgets).
+  tertiary: "var(--cmux-text-tertiary, color-mix(in srgb, var(--agent-text) 38%, transparent))",
   separator: "var(--agent-border)",
   success: "var(--agent-status-success)",
   warning: "var(--agent-status-warning)",
@@ -75,18 +78,22 @@ export function scenePosition(props: SceneProps): { x: string; y: string } | und
     value === undefined ? "50%" : fraction ? `${value * 100}%` : `${value}px`;
   return { x: place(x), y: place(y) };
 }
-const FONTS: Record<string, string> = {
-  largeTitle: "var(--text-title)",
-  title: "var(--text-title)",
-  title2: "var(--text-heading)",
-  title3: "var(--text-heading)",
-  headline: "var(--text-control)",
-  subheadline: "var(--text-body)",
-  body: "var(--text-control)",
-  callout: "var(--text-body)",
-  caption: "var(--text-detail)",
-  caption2: "var(--text-caption)",
-};
+/** The scene's type, one table for both renderers (RFD 0009): every name a node's `font` may take, a
+ * cmux type role (`numeral` ... `footnote`) or an Apple text style name, at one size and weight. AppKit
+ * draws the same table (`SceneType`, which scripts/cmux-next/gen-type-scale.py writes from this file). */
+type SceneTypeStyle = { name: string; size: number; weight: "regular" | "medium" | "semibold" | "bold" };
+const SCENE_TYPE: ReadonlyMap<string, SceneTypeStyle> = new Map(
+  [...(sceneType.roles as SceneTypeStyle[]), ...(sceneType.styles as SceneTypeStyle[])].map((style) => [
+    style.name,
+    style,
+  ]),
+);
+
+/** A `font` name's size and weight; an unknown name draws as `body`, as it does in AppKit. */
+export function sceneTypeStyle(name: string): SceneTypeStyle {
+  return SCENE_TYPE.get(name) ?? SCENE_TYPE.get("body")!;
+}
+
 const WEIGHTS: Record<string, number> = {
   ultraLight: 200,
   thin: 200,
@@ -168,9 +175,14 @@ const DESIGNS: Record<string, string> = {
 export function textStyle(props: SceneProps): CSSProperties {
   const size = sceneNumber(props.font);
   const lines = sceneNumber(props.lineLimit);
+  // A name draws its table size, grown with Interface Size like the chrome's `--text-*` steps.
+  const named = typeof props.font === "string" ? sceneTypeStyle(props.font) : undefined;
   return {
-    fontSize: size === undefined ? FONTS[sceneText(props.font)] : Math.min(64, Math.max(6, size)),
-    fontWeight: WEIGHTS[sceneText(props.weight)],
+    fontSize:
+      size !== undefined
+        ? Math.min(64, Math.max(6, size))
+        : named && `calc(${named.size}px * var(--cmux-interface-scale, 1))`,
+    fontWeight: WEIGHTS[sceneText(props.weight)] ?? (named && WEIGHTS[named.weight]),
     fontStyle: props.italic === true ? "italic" : undefined,
     textDecorationLine: props.strikethrough === true ? "line-through" : undefined,
     fontFamily: DESIGNS[sceneText(props.fontDesign)] ?? (props.monospaced === true ? "var(--font-mono)" : undefined),

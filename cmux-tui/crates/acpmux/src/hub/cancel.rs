@@ -368,6 +368,10 @@ impl Hub {
     }
 
     pub async fn cancel(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
+        // A chat a cmux terminal drives stops that terminal's turn (`terminal_input.rs`).
+        if let Some(stopped) = self.stop_in_terminal(session).await {
+            return stopped;
+        }
         self.cancel_preserving_queued(session, None).await
     }
 

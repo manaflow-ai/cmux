@@ -16,6 +16,16 @@ extension Strings {
         count == 1 ? String(localized: "sidebar.hoverCard.commands.one", defaultValue: "1 command", bundle: .localizedModule)
             : String(format: String(localized: "sidebar.hoverCard.commands.other", defaultValue: "%d commands", bundle: .localizedModule), count)
     }
+    /// "desktop-helper on studio-mac": who made a workspace and where (`WorkspaceHoverCardOrigin`).
+    static func originOnHost(_ creator: String, _ host: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.origin.onHost", defaultValue: "%1$@ on %2$@", bundle: .module), creator, host)
+    }
+    /// "Made by desktop-helper · studio-mac": the one-line byline of a workspace's creator.
+    static func originMadeBy(_ creator: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.origin.madeBy", defaultValue: "Made by %@", bundle: .module), creator)
+    }
+    /// The creator's name for a script that ran in no acpmux session.
+    static var originScript: String { String(localized: "sidebar.hoverCard.origin.script", defaultValue: "Script", bundle: .module) }
     /// A blank browser tab's (about:blank) title in the hover card's tab rows.
     static var hoverCardNewTab: String { String(localized: "sidebar.hoverCard.tab.newTab", defaultValue: "New Tab", bundle: .localizedModule) }
     static var hoverCardKindTerminal: String { String(localized: "sidebar.hoverCard.tab.kind.terminal", defaultValue: "Terminal", bundle: .localizedModule) }

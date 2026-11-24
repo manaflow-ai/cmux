@@ -7,11 +7,11 @@ import CmuxNextBridge
 import Foundation
 import Testing
 
-/// Switch to Chat / Switch to Terminal in the pane's "…" (user 2026-11-20: "we used to have an additional button that
-/// will let u switch from terminal to chat ui; we should add that back, but inside the 3 dots thing"). The toolbar's
-/// `>_ | bubble` control (#42748) went on 2026-11-13 (821f04425f5a); its action, Toggle Terminal and Chat
-/// (`palette.toggleTerminalChat`), stayed in the palette and the tab's right-click. The "…" now offers it on half of a
-/// terminal and chat pair, titled by the way it goes, and runs the same action on the selected tab.
+/// Switch to Chat / Switch to Terminal on a terminal and chat pair (user 2026-11-20: "we used to have an additional
+/// button that will let u switch from terminal to chat ui"). The toolbar's `>_ | bubble` control (#42748) went on
+/// 2026-11-13 (821f04425f5a), and the pane's "…" that offered it after went with
+/// https://github.com/manaflow-ai/cmux/issues/53356; its action, Toggle Terminal and Chat (`palette.toggleTerminalChat`),
+/// stays in the palette and leads the tab's right-click, titled by the way it goes.
 @MainActor @Suite(.serialized)
 struct TerminalChatSwitchMenuTests {
     static let toggle: ActionID = "palette.toggleTerminalChat"
@@ -40,30 +40,30 @@ struct TerminalChatSwitchMenuTests {
             terminal.agent = AgentStatus(surface: SurfaceID(rawValue: 1), state: .idle, session: "s-1", agent: "claude")
         }
 
-        /// The pane's "…" menu, every row (submenus too), with the terminal selected.
-        func moreMenu() throws -> [NSMenuItem] {
-            let toolbar = PaneToolbar(pane: pane)
-            toolbar.update(target: terminal.id, kind: .terminal, paneKinds: [.terminal])
-            let menu = try #require(toolbar.view.moreMenu?())
+        /// The terminal tab's right-click, every row (submenus too). The pane's "…" that also led with the switch is
+        /// gone (#53356); the right-click keeps it.
+        func rightClickMenu() throws -> [NSMenuItem] {
+            let id = StripTabID(terminal.id)
+            let menu = try #require(pane.contextMenu(for: .tab(id, selection: [id])))
             func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
             return all(menu)
         }
     }
 
-    @Test func aTerminalRunningAnAgentOffersSwitchToChatFirstInThePanesMenu() throws {
+    @Test func aTerminalRunningAnAgentOffersSwitchToChatFirstInItsRightClick() throws {
         let fixture = try Fixture()
         fixture.runAgent()
-        let rows = try fixture.moreMenu()
-        let row = try #require(rows.first { ActionRegistry.menuRun(of: $0)?.id == Self.toggle }, "the \"…\" offers no switch")
+        let rows = try fixture.rightClickMenu()
+        let row = try #require(rows.first { ActionRegistry.menuRun(of: $0)?.id == Self.toggle }, "the right-click offers no switch")
         #expect(row.title == "Switch to Chat")
-        #expect(rows.first === row, "the tab's own switch leads the menu, as in its right-click")
+        #expect(rows.first === row, "the tab's own switch leads its right-click")
         #expect(rows.dropFirst().first?.isSeparatorItem == true)
         #expect(ActionRegistry.menuRun(of: row)?.target == ActionTargetRef(kind: .tab, id: fixture.terminal.id))
     }
 
     @Test func aPlainTerminalOffersNoSwitch() throws {
         let fixture = try Fixture()
-        let rows = try fixture.moreMenu()
+        let rows = try fixture.rightClickMenu()
         #expect(!rows.contains { ActionRegistry.menuRun(of: $0)?.id == Self.toggle }, "a shell with no agent session has no chat")
     }
 

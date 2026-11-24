@@ -214,6 +214,12 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
 }
 
+/// The live line `thread` holds pinned now, if any: its translate is the pin's while it is held, so
+/// a motion's settle (VirtualTranscript.tsx `settleMotion`) leaves it on. O(1).
+export function pinnedLiveRow(thread: HTMLElement | null): HTMLElement | undefined {
+  return thread ? pinned.get(thread)?.live : undefined;
+}
+
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
 export function refreshPinned(thread: HTMLElement | null): void {
   if (thread) drawPinned(thread, threadY(thread));
@@ -228,7 +234,8 @@ export function notePinPass(thread: HTMLElement | null): void {
   if (rows) rows.painted = rows.x - rows.cap;
 }
 
-/// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass. Let go while
+/// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass, which draws it
+/// with `refreshPinned` once its tail glides start. Let go while
 /// it was held away from the thread's offset, it returns what it was held back by for the pass's glide
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
 /// Whether `row` plays a translate of its own (a glide, a send's rise, a carry home). O(its own).
@@ -289,7 +296,10 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
     stepUp(rows, live.previousElementSibling);
     pinned.set(thread, rows);
     thread.setAttribute(PIN_LIVE_ATTR, "");
-    drawPinned(thread, x);
+    // Not drawn here: the placement pass draws it once, after its tail glides start (`refreshPinned`),
+    // at this same offset (the glides move rows, never the thread, and skip the pinned line). Drawn here
+    // too, each streamed token read every animation in the thread twice (`playingOn`): 0.24 ms a token
+    // in a chat of short turns, which mounts twice the rows (bench/transcript-replay.bench.ts PAIRED=1).
     return undefined;
   }
   if (!was) return undefined;

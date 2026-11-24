@@ -777,7 +777,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         table.delegate = self
         let menu = NSMenu()
         menu.delegate = self
-        table.menu = menu
+        table.menu = NSMenu.systemFree(menu)
         table.registerForDraggedTypes([.cmuxConversationID])
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)

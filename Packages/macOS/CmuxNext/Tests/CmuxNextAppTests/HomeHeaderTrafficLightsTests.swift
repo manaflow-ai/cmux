@@ -165,7 +165,9 @@ import Testing
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: controls)
         #expect(h.search.minY >= controls.maxY)
         #expect(h.search.minX == HomeSidebarHeaderLayout.inset && h.search.width >= HomeSidebarHeaderLayout.minimumField)
-        #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
+        // The bare filter's glyph (its box is twice the glyph) stays inside the list's inset.
+        let glyph = h.filterGlyph ?? h.filter.width / 2
+        #expect(h.filter.midX + glyph / 2 <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
     }
 
     /// The avatar-only list: the search circle and the Unread circle side by side inside the list,

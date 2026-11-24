@@ -1,23 +1,29 @@
 public import Foundation
 
-/// The person's answer to "should agents you start in cmux get cmux's tools?": the settings key
-/// `agents.cmuxMcp` (schemas/settings/source/agent-defaults.json). `ask` is no answer yet and `off`
-/// is no: agents cmux starts (a Claude Code or Codex typed into a cmux terminal, the app's agent
-/// chats) get no cmux MCP server, and the app asks at launch. `on`: each gets cmux's server, named
-/// `cmux`, through its launch (the `claude` and `codex` shims, acpmux's session tools). cmux never
-/// writes an agent's own config.
+/// Whether agents cmux starts get cmux's tools: the settings key `agents.cmuxMcp`
+/// (schemas/settings/source/agent-defaults.json). `on` is the default (cmux's tools come with the
+/// app): each agent cmux starts (a Claude Code or Codex typed into a cmux terminal, the app's agent
+/// chats) gets cmux's server, named `cmux`, through its launch (the `claude` and `codex` shims,
+/// acpmux's session tools). Only an explicit `off` turns it off. cmux never writes an agent's own
+/// config.
 public enum AgentToolsChoice: String, Sendable, CaseIterable {
-    case ask, on, off
+    case on, off
 
     /// The settings key's path.
     public static let path = ["agents", "cmuxMcp"]
+
+    /// The choice a settings value means: only `"off"` is off; no value, or any other value
+    /// (an old `"ask"` too), is the default `on`. cmux-tui's `AgentsCmuxMcp` reads it the same way.
+    public init(settingsValue value: String?) {
+        self = value == Self.off.rawValue ? .off : .on
+    }
 }
 
 /// One coding agent on this Mac and whether it gets cmux's tools when cmux starts it, as `cmux
 /// setup mcp` reports it.
 public nonisolated struct AgentToolsAgent: Sendable, Equatable {
     public enum State: String, Sendable {
-        /// Installed; it gets no cmux tools in cmux yet (the answer is not `on`).
+        /// Installed; it gets no cmux tools in cmux (the choice is `off`).
         case ready
         /// Started in cmux (its terminals, agent chats), it gets cmux's server.
         case terminals
@@ -77,7 +83,7 @@ public nonisolated extension AgentToolsAgent {
     }
 }
 
-/// What the cmux Tools step reads and runs that only the App has: the setting, and the bundled
+/// What Settings' cmux Tools card reads and runs that only the App has: the setting, and the bundled
 /// CLI's `cmux setup mcp` report (the same code a person or an agent runs in a terminal). Nothing
 /// here writes an agent's own config.
 @MainActor

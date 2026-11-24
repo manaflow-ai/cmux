@@ -448,6 +448,54 @@ def test_a_failed_binary_upload_writes_no_completion(tmp_path: Path) -> None:
     assert not [k for k in keys if k.rsplit("/", 1)[-1].startswith("completion")]
 
 
+def test_the_tree_carries_every_name_of_the_signed_linux_release_file() -> None:
+    # tree/<key>/release.json names every installer binary under tree/<key>/: with the companions and acpmux,
+    # the release names cover every name the release file can list (cmux-machine-channel.py).
+    spec = importlib.util.spec_from_file_location("cmux_machine_channel", ROOT / "scripts/ci/cmux-machine-channel.py")
+    channel = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(channel)
+    names = {f"{name}-{target}" for target in channel.LINUX_RELEASE_TARGETS for name in channel.LINUX_RELEASE_NAMES}
+    tree = set(publisher.COMPANION_NAMES + publisher.ACPMUX_NAMES + publisher.RELEASE_NAMES)
+    assert names <= tree, sorted(names - tree)
+    assert not set(publisher.RELEASE_NAMES) & set(publisher.COMPANION_NAMES + publisher.ACPMUX_NAMES)
+    result = subprocess.run([sys.executable, str(SCRIPT), "--list-release-companions"],
+                            text=True, capture_output=True, check=True)
+    assert tuple(result.stdout.split()) == publisher.RELEASE_NAMES
+
+
+def test_release_names_are_uploaded_but_listed_in_no_completion_file(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _acpmux_fixture(tmp_path)
+    data = json.loads(manifest.read_text())
+    attested = publisher.RELEASE_NAMES[:3]
+    for name in attested:
+        path = assets / name
+        path.write_bytes(f"release {name}".encode() * 5)
+        data["binaries"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(data))
+    kwargs = dict(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                  endpoint_url="https://r2.example", bucket="cmux-binaries",
+                  manifest_file=manifest, source_file=source)
+    digests = publisher.publish_tree(**kwargs)
+    by_key = _uploaded(tmp_path)
+    for name in attested:
+        digest = data["binaries"][name]
+        assert digests[name] == digest
+        assert by_key[f"{name}.sha256"] == f"{digest}  {name}\n"
+    for name in publisher.RELEASE_NAMES[3:]:  # not attested: not published
+        assert name not in by_key
+    for completion in ("completion.json", "completion-linux.json"):
+        assert not set(json.loads(by_key[completion])["binaries"]) & set(publisher.RELEASE_NAMES)
+    # A release name with other bytes than the manifest attests fails the publication.
+    (assets / attested[0]).write_bytes(b"tampered")
+    (tmp_path / "contents.jsonl").unlink()
+    try:
+        publisher.publish_tree(**kwargs)
+    except publisher.PublicationError as error:
+        assert attested[0] in str(error) and "does not match commit manifest" in str(error)
+    else:
+        raise AssertionError("a tampered release binary was accepted")
+
+
 def main() -> int:
     """Run every test_* function in file order; a `tmp_path` parameter gets its own temporary directory.
 
