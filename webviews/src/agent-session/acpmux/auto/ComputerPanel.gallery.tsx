@@ -65,6 +65,7 @@ export default componentEntry<Props>({
     "cloud-awake": {
       note: "Cloud, awake: size now, 1 h 25 min today, five computers in its history; the computer id shows only here.",
       props: AWAKE,
+      height: 960,
     },
     "cloud-asleep": {
       note: "Cloud, asleep: same panel, nothing is running; sleep is Auto.",
