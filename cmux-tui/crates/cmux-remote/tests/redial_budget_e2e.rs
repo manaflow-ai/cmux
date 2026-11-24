@@ -31,7 +31,7 @@ use bytes::Bytes;
 use cmux_remote::admin::{AdminRequest, LinkStatus, call_admin, serve_link_admin};
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
-    ReconnectPolicy,
+    ReconnectPolicy, StandbyGroup,
 };
 use cmux_remote::crypto::{ClientAuthMode, NetworkPeer, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, InboundLink, RemoteDaemon};
@@ -201,6 +201,20 @@ impl TestGroup {
         }
     }
 
+    /// Another route to the same daemon: a carrier of its own, nothing frozen.
+    fn sibling(&self) -> Arc<TestGroup> {
+        Arc::new(TestGroup {
+            daemon: self.daemon.clone(),
+            evidence: CarrierEvidence::Relay { provider: "test".into() },
+            down: AtomicBool::new(false),
+            hang: AtomicBool::new(false),
+            flap_after: Mutex::new(None),
+            silent: Arc::new(AtomicBool::new(false)),
+            links: Mutex::new(Vec::new()),
+            dials: Mutex::new(Vec::new()),
+        })
+    }
+
     fn cut_all(&self) {
         for (up, down) in std::mem::take(&mut *lock(&self.links)) {
             up.cut();
@@ -264,6 +278,8 @@ struct TestSource {
     group: Arc<TestGroup>,
     hang: AtomicBool,
     calls: AtomicUsize,
+    /// A warm standby on another route, handed to the next redial.
+    standby: Mutex<Option<Arc<TestGroup>>>,
 }
 
 #[async_trait]
@@ -275,7 +291,18 @@ impl ReconnectGroupSource for TestSource {
         }
         Ok(self.group.clone())
     }
+
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        let group = lock(&self.standby).take()?;
+        Some(StandbyGroup {
+            group,
+            attempt_timeout: STANDBY_BOUND,
+            race_after: Some(Duration::from_millis(250)),
+        })
+    }
 }
+
+const STANDBY_BOUND: Duration = Duration::from_secs(1);
 
 struct Harness {
     _dir: TempDir,
@@ -331,6 +358,7 @@ async fn harness_leased(
             group: group.clone(),
             hang: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
+            standby: Mutex::new(None),
         })
     });
     let client = ClientConnection::connect_with_reconnect_groups(
@@ -760,4 +788,56 @@ async fn a_gone_session_replaces_the_last_transport_failure() {
         reason.as_deref().is_some_and(|reason| reason.contains("no longer has")),
         "the link still reports {reason:?} (was {transport:?})"
     );
+}
+
+/// A route that black-holes (frames vanish, a redial on it hangs) with a warm standby held:
+/// once the heartbeat declares the link dead the redial goes to the standby at once. The dead
+/// route is not redialed first, so the 15 s attempt timeout is never waited out.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_moves_to_the_standby_without_waiting_out_the_attempt() {
+    let h = harness_with(policy(), true, true).await;
+    let standby = h.group.sibling();
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_millis(2_100)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.silent.store(true, Ordering::Release);
+    h.group.hang.store(true, Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the dead link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    // Declared dead within 6 s; the standby's redial is a few round trips on a live group.
+    assert!(took < Duration::from_secs(7), "reconnected {took:?} after the black hole");
+    assert_eq!(h.group.dials_since(start), 0, "the dead route was redialed");
+    assert_eq!(standby.dials_since(start), 1, "the standby carried the redial");
+}
+
+/// A standby that is dead on the wire (live by every local sign; its redial hangs) costs its
+/// short bound, not the attempt timeout: the pass started behind it carries the redial.
+#[tokio::test(start_paused = true)]
+async fn a_dead_standby_costs_its_short_bound() {
+    let h = harness_with(policy(), true, true).await;
+    let standby = h.group.sibling();
+    standby.hang.store(true, Ordering::Release);
+    *lock(&h.source.as_ref().unwrap().standby) = Some(standby.clone());
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    let start = Instant::now();
+    h.group.cut_all();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = start.elapsed();
+    assert!(took >= STANDBY_BOUND, "the standby was not tried first ({took:?})");
+    assert!(
+        took < STANDBY_BOUND + Duration::from_millis(200),
+        "reconnected {took:?} after the cut"
+    );
+    assert_eq!(standby.dials_since(start), 1);
+    assert_eq!(h.source.as_ref().unwrap().calls.load(Ordering::Acquire), 1, "one pass behind it");
 }

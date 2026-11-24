@@ -186,6 +186,17 @@ pub trait LinkGroup: Send + Sync {
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
+    /// Whether the group is known to be closed, read from local state with no round trip (a
+    /// held QUIC connection the far end or an idle timeout closed). `false` for a group that
+    /// cannot tell, such as one that opens its socket with each link.
+    fn is_closed(&self) -> bool {
+        false
+    }
+    /// Resolves when the group closes (never, for a group that cannot tell): a warm standby
+    /// held unused re-arms when it goes, instead of being found dead when it is needed.
+    async fn wait_closed(&self) {
+        std::future::pending::<()>().await;
+    }
 }
 
 /// Returns an endpoint label safe for diagnostics and user-facing status.
