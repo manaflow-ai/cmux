@@ -263,7 +263,7 @@ proptest! {
 /// saved on the tokio worker that made it, so a few deliveries changing together held every
 /// worker in `fsync` and any other request waited behind them. With each sync 100 ms slow,
 /// 24 deliveries change over and over while a request (a task that answers at once) is timed
-/// every 5 ms: its p99 is what a hub request waits. `update_saved` is the old path, unchanged;
+/// every 5 ms: its p99 lateness is what a hub request waits. `update_saved` is the old path, unchanged;
 /// `update` hands its save to the disk writer (`disk_writer.rs`).
 #[test]
 fn a_request_waits_no_disk_while_deliveries_change_on_a_slow_disk() {
@@ -319,10 +319,10 @@ fn request_p99_while_changing(change: fn(&Outbox, &str, u32)) -> std::time::Dura
         let mut waits = Vec::new();
         let started = Instant::now();
         while started.elapsed() < Duration::from_millis(1500) {
-            let asked = Instant::now();
-            tokio::spawn(async {}).await.unwrap();
-            waits.push(asked.elapsed());
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            // How late the request runs past when it was due: the time it waited for a worker.
+            let due = tokio::time::Instant::now() + Duration::from_millis(5);
+            tokio::time::sleep_until(due).await;
+            waits.push(tokio::time::Instant::now() - due);
         }
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         for changer in changers {
