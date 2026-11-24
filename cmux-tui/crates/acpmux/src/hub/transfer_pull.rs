@@ -90,8 +90,11 @@ pub(super) fn write_pulled_manifest(
     if text.len() as u64 > MAX_PULLED_MANIFEST {
         return Err(pull_error(
             "size",
-            format!("the move's manifest is {} MiB, over its {} MiB bound", text.len() >> 20,
-                    MAX_PULLED_MANIFEST >> 20),
+            format!(
+                "the move's manifest is {} MiB, over its {} MiB bound",
+                text.len() >> 20,
+                MAX_PULLED_MANIFEST >> 20
+            ),
         )
         .with_data(json!({"refused": true, "reason": "transfer.size"})));
     }
@@ -137,8 +140,11 @@ pub(super) async fn pull_manifest(
     while (data.len() as u64) < bytes {
         let offset = data.len() as u64;
         let page = pages
-            .call("manifest", json!({"transferId": transfer_id, "offset": offset,
-                                      "limit": MANIFEST_PAGE}))
+            .call(
+                "manifest",
+                json!({"transferId": transfer_id, "offset": offset,
+                                      "limit": MANIFEST_PAGE}),
+            )
             .await?;
         let chunk = base64::engine::general_purpose::STANDARD
             .decode(field(&page, "data").as_str().unwrap_or(""))
@@ -555,7 +561,7 @@ impl Hub {
     ///   remote source daemon to run its own hub move, and waits for its move JSON row. `DAEMON`
     ///   is the source's hub-stamped id, so this local request never trusts a host or session
     ///   field as authority;
-    /// - `{sessionId, transferId, epoch, manifest, folder, branch?, commit?}`: sends op `move` for
+    /// - `{sessionId, transferId, epoch, manifest, folder, host?, branch?, commit?}`: sends op `move` for
     ///   that move, begun with `to.hub`, to the daemon it names, and waits for its answer:
     ///   `{moved: {sessionId, cwd, ...}}`. A refusal is an error with `data.refused`; no answer in
     ///   time is one with `data.unknown` (the move stays frozen; its watch ends it).
@@ -604,18 +610,18 @@ impl Hub {
             body.set("manifestPull", reference);
             body.set("version", json!(MANIFEST_PULL_VERSION));
             if body.to_string().len() > MAX_BODY {
-                return Err(pull_error("size", "the move's control body does not fit one hub message")
-                    .with_data(json!({"refused": true, "reason": "transfer.size"})));
+                return Err(pull_error(
+                    "size",
+                    "the move's control body does not fit one hub message",
+                )
+                .with_data(json!({"refused": true, "reason": "transfer.size"})));
             }
         }
         super::transfer_watch::note_activity(&dir, None);
         let op = crate::mesh_relay_config::MOVE_OP;
         let key = format!("move-{transfer_id}");
-        let host = params
-            .pointer("/to/host")
-            .and_then(Value::as_str)
-            .unwrap_or(daemon.as_str())
-            .to_owned();
+        // The target's name for the too-old refusal: the client's, else its hub id.
+        let host = Some(text("host")).filter(|h| !h.is_empty()).unwrap_or(&daemon).to_owned();
         match self.hub_control(&daemon, op, body, key, MOVE_WAIT).await? {
             Ok(result) => {
                 let moved = result
@@ -725,5 +731,53 @@ mod tests {
         for bad in ["", "short", "a b c d e f", "x\ny0000000", &"a".repeat(129)] {
             assert!(!plain_daemon(bad), "{bad:?}");
         }
+    }
+
+    /// A folder's manifest served page by page as `manifest_page` serves it.
+    struct Folder(std::path::PathBuf, u64);
+
+    impl PageSource for Folder {
+        fn call<'a>(
+            &'a mut self,
+            method: &'a str,
+            mut params: Value,
+        ) -> BoxFuture<'a, Result<Value, RpcError>> {
+            assert_eq!(method, "manifest");
+            params["limit"] = json!(self.1);
+            Box::pin(async move { manifest_page(&self.0, &params) })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pulled_manifest_is_read_in_pages_and_checked_against_its_size_and_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = json!({"transferId": "t-1", "files": vec!["x".repeat(100); 50]});
+        let reference = write_pulled_manifest(dir.path(), "t-1", &manifest).unwrap();
+        assert_eq!(reference["bytes"], manifest.to_string().len());
+        // Pages smaller than the whole: read across many.
+        let mut pages = Folder(dir.path().to_owned(), 999);
+        assert_eq!(pull_manifest(&mut pages, &reference).await.unwrap(), manifest);
+        let mut wrong = reference.clone();
+        wrong["sha256"] = json!("0".repeat(64));
+        assert!(pull_manifest(&mut pages, &wrong).await.unwrap_err().message.contains("sha256"));
+        let mut short = reference.clone();
+        short["bytes"] = json!(manifest.to_string().len() - 1);
+        assert!(pull_manifest(&mut pages, &short).await.is_err(), "a size that does not match");
+        let mut long = reference;
+        long["bytes"] = json!(MAX_PULLED_MANIFEST + 1);
+        assert!(pull_manifest(&mut pages, &long).await.is_err(), "past the bound");
+    }
+
+    #[test]
+    fn only_the_old_version_refusal_reads_as_a_target_too_old() {
+        let e = too_old(OLD_VERSION_REFUSAL, "machine-b", 200 * 1024 + 1).unwrap();
+        assert!(e.message.contains("over 64 KiB (201 KiB)"), "{}", e.message);
+        assert!(e.message.contains("`acpmux machine update machine-b`"), "{}", e.message);
+        let data = e.data.unwrap();
+        assert_eq!(
+            (data["refused"].clone(), data["reason"].clone()),
+            (json!(true), json!("transfer.target_too_old"))
+        );
+        assert!(too_old("transfer.cwd: outside the roots", "h", 1).is_none());
     }
 }

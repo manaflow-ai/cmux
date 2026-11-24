@@ -31,8 +31,7 @@ use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
 use super::transfer_pull::{
-    plain_daemon, pull_error, pull_manifest, write_pulled_manifest, MANIFEST_PULL_VERSION,
-    MAX_BODY,
+    MANIFEST_PULL_VERSION, MAX_BODY, plain_daemon, pull_error, pull_manifest, write_pulled_manifest,
 };
 use super::*;
 
