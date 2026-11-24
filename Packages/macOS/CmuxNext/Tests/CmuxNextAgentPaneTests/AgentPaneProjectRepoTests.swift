@@ -102,6 +102,17 @@ struct AgentPaneProjectRepoTests {
                 root: fixture.home + "/code/cmux", top: fixture.home + "/code/cmux", name: "cmux", branch: "main", github: "manaflow-ai/cmux"))
     }
 
+    /// The chat's ready handshake asks for its folder's GitHub repository on every launch: Git's own
+    /// files answer it, from a worktree folder too, with no `git` process (goal restart-to-chat).
+    @Test func aChatFoldersGitHubRepositoryIsReadFromGitsFiles() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try checkout(fixture)
+        try fixture.folder("wt/cmux/picker/Sources")
+        #expect(await AgentPaneGitHubRepository.read(at: fixture.home + "/wt/cmux/picker/Sources", files: fixture.repos) == "manaflow-ai/cmux")
+        #expect(fixture.touches.all.contains(fixture.home + "/code/cmux/.git/config"))
+    }
+
     @Test func aLinkedWorktreeBelongsToItsMainCheckout() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
