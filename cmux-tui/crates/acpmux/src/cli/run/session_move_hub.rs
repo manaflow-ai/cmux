@@ -143,6 +143,8 @@ pub(crate) async fn move_out(
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        // A move asked for through the hub keeps the chat's harness.
+        as_harness: None,
     };
     let result = async {
         // Resolve here before the CLI sees the key. A remote name must not expand against
