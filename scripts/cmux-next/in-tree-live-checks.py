@@ -673,7 +673,10 @@ def main_layers():
 
 def page_pane(tab):
     """The pane whose tabs list `tab` (debug.focus topology)."""
-    for pane in (rpc("debug.focus") or {}).get("topology") or []:
+    focus = rpc("debug.focus") or {}
+    # Older apps list the topology at the top; newer ones per window.
+    topology = focus.get("topology") or [p for w in focus.get("windows") or [] for p in w.get("topology") or []]
+    for pane in topology:
         if any(str(t).split(":", 1)[0] == str(tab) for t in pane.get("tabs") or []):
             return pane.get("pane")
     return None
