@@ -1246,6 +1246,10 @@ async fn acpmux(
     let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
+    // Session ids acpmux already answered as their own canonical id on this link. A current
+    // phone names chats by canonical id, so its later requests skip the per-request trusted
+    // side socket and `_acpmux/info`; an alias (an older phone) still resolves every time.
+    let mut canonical_ids = CanonicalIds::default();
     // Two independent halves (contract point 5, input never head-of-line blocked behind
     // bulk): a big frame waiting for room toward the phone (`downstream`) no longer stops
     // `upstream` reading the phone's next prompt. When either half ends, the other is
@@ -1258,7 +1262,8 @@ async fn acpmux(
             match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
-                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await
+                    let Some((text, dependencies)) =
+                        canonicalize_requests(&config.acpmux, &text, &mut canonical_ids).await
                     else {
                         let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
                         let _ = sender.send(Bytes::from(answer)).await;
@@ -1531,15 +1536,52 @@ async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Valu
     tokio::time::timeout(std::time::Duration::from_secs(5), query).await.ok().flatten()
 }
 
-async fn canonical_session(target: &AcpmuxTarget, session: &str) -> Option<String> {
-    trusted_session_query(target, "_acpmux/info", serde_json::json!({"sessionId":session,"waitLogs":false}))
-        .await?
-        .get("sessionId")?
-        .as_str()
-        .map(str::to_owned)
+/// Ids acpmux resolved to themselves on one phone link. A canonical session id never
+/// becomes an alias of another session, so it needs no second trusted lookup; exposure is
+/// still checked on every request against the canonical id. Bounded: past the cap it starts
+/// over, which only costs lookups again.
+#[derive(Default)]
+struct CanonicalIds(HashSet<String>);
+
+impl CanonicalIds {
+    const CAP: usize = 4096;
+
+    fn contains(&self, session: &str) -> bool {
+        self.0.contains(session)
+    }
+
+    fn insert(&mut self, session: String) {
+        if self.0.len() >= Self::CAP {
+            self.0.clear();
+        }
+        self.0.insert(session);
+    }
 }
 
-async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(String, HashSet<String>)> {
+async fn canonical_session(target: &AcpmuxTarget, session: &str, known: &mut CanonicalIds) -> Option<String> {
+    if known.contains(session) {
+        return Some(session.to_owned());
+    }
+    let canonical = trusted_session_query(
+        target,
+        "_acpmux/info",
+        serde_json::json!({"sessionId":session,"waitLogs":false}),
+    )
+    .await?
+    .get("sessionId")?
+    .as_str()
+    .map(str::to_owned)?;
+    if canonical == session {
+        known.insert(canonical.clone());
+    }
+    Some(canonical)
+}
+
+async fn canonicalize_requests(
+    target: &AcpmuxTarget,
+    text: &str,
+    known: &mut CanonicalIds,
+) -> Option<(String, HashSet<String>)> {
     let mut value = serde_json::from_str::<Value>(text).ok()?;
     let mut dependencies = HashSet::new();
     let requests = match &mut value {
@@ -1592,13 +1634,13 @@ async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(Str
         };
         let canonical = match (named.first(), handoff_target) {
             (Some(named), Some(destination)) => {
-                if canonical_session(target, named).await? != destination {
+                if canonical_session(target, named, known).await? != destination {
                     return None;
                 }
                 destination
             }
             (None, Some(destination)) => destination,
-            (Some(named), None) => canonical_session(target, named).await?,
+            (Some(named), None) => canonical_session(target, named, known).await?,
             (None, None) => continue,
         };
         for key in ["sessionId", "session", "name"] {

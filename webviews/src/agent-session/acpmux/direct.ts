@@ -608,6 +608,25 @@ export function indexedPromptPlaceholders(
   }
   return out;
 }
+/// `rows` in their order with each of `placeholders` (indexed prompts the held records lack) before the first row
+/// ordered after its sequence (`order`, the record that made the row: `OrderedRows.orderOf`). O(rows + placeholders
+/// log placeholders); the held rows never move against each other.
+export function withPlaceholders(
+  rows: readonly AcpmuxRow[],
+  placeholders: readonly AcpmuxRow[],
+  order: (row: AcpmuxRow) => number,
+): AcpmuxRow[] {
+  const pending = [...placeholders].sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity));
+  const out: AcpmuxRow[] = [];
+  let next = 0;
+  for (const row of rows) {
+    const at = order(row);
+    while (next < pending.length && (pending[next]!.seq ?? Infinity) < at) out.push(pending[next++]!);
+    out.push(row);
+  }
+  while (next < pending.length) out.push(pending[next++]!);
+  return out;
+}
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
@@ -1940,7 +1959,7 @@ export class AcpmuxDirectClient {
   private turnRepairNext?: TurnRepair;
   /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
   private attaching: Promise<unknown> = Promise.resolve();
-  private shownToAcpmux?: { sessionId: string; visible: boolean; attending: boolean };
+  private shownToAcpmux?: { sessionId: string; visible: boolean; attending: boolean; cutoverSeq?: number };
   /// The person's persisted seen cursor for the selected chat (`readThrough`, hub/seen.rs).
   private cursor?: { sessionId: string; seq: number | null };
   /// The newest row the transcript had on screen. It is held while away and sent on return.
@@ -4832,6 +4851,8 @@ export class AcpmuxDirectClient {
     const attending = readerHere();
     const onScreen = this.onScreen;
     const seenSeq = onScreen && onScreen.sessionId === this.selectedSessionId ? onScreen.seq : undefined;
+    const line = this.since;
+    const cutoverSeq = visible && attending && line?.sessionId === this.selectedSessionId ? line?.seq : undefined;
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
@@ -4842,16 +4863,22 @@ export class AcpmuxDirectClient {
         this.shownToAcpmux?.sessionId !== sessionId
       )
         return;
-      if (this.shownToAcpmux.visible === visible && this.shownToAcpmux.attending === attending) return;
+      if (
+        this.shownToAcpmux.visible === visible &&
+        this.shownToAcpmux.attending === attending &&
+        this.shownToAcpmux.cutoverSeq === cutoverSeq
+      )
+        return;
       await this.typed("_acpmux/view", {
         sessionId,
         visible,
         attending,
+        ...(cutoverSeq === undefined ? {} : { cutoverSeq }),
         ...(attending ? {} : seenSeq === undefined ? {} : { seenSeq }),
       }).then(
         () => {
           if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-            this.shownToAcpmux = { sessionId, visible, attending };
+            this.shownToAcpmux = { sessionId, visible, attending, cutoverSeq };
         },
         () => undefined,
       );
@@ -4932,6 +4959,7 @@ export class AcpmuxDirectClient {
     const kept = this.cursor?.sessionId === sessionId ? this.cursor.seq : undefined;
     const sent = this.sentSeen?.sessionId === sessionId ? this.sentSeen.seq : undefined;
     const cursor = typeof kept === "number" && sent !== undefined ? Math.max(kept, sent) : kept;
+    const previousCutover = this.since?.sessionId === sessionId ? this.since.seq : undefined;
     const turns = typeof cursor === "number" ? this.rows.turnsAfter(cursor) : 0;
     if (typeof cursor === "number" && turns > 0) {
       const drawn = this.since;
@@ -4941,6 +4969,8 @@ export class AcpmuxDirectClient {
       this.since = undefined;
     }
     this.placeSince();
+    // Publish the line the reader can ask about before rows now on screen advance readThrough.
+    if (this.since?.seq !== previousCutover) this.syncView();
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
         ? { ...session, unread: false, unreadTurns: 0 }
@@ -7255,6 +7285,7 @@ export class AcpmuxDirectClient {
     if (!message) return;
     this.scrolledFrom = undefined;
     this.since = { sessionId: from.sessionId, seq: from.seq, turns: 0, inPlace: true };
+    this.syncView();
   }
 
   /// The oldest row the pane's view draws while it follows the latest row (VirtualTranscript), or null: the oldest
@@ -11313,14 +11344,15 @@ export class AcpmuxDirectClient {
     const placeholders = this.indexedPlaceholders;
     const actualIds = placeholders?.size ? new Set(actualRows.map((row) => row.id)) : undefined;
     const indexedRows = actualIds ? [...placeholders.values()].filter((row) => !actualIds.has(row.id)) : [];
-    // Indexed placeholders carry only prompt text, but sorting them by their sequence keeps every
-    // prompt at its final rail slot while a sparse target page is being filled in.
+    // Indexed placeholders carry only prompt text; each goes in at its sequence, so every prompt keeps its
+    // final rail slot while a sparse target page is being filled in. The held rows stay in their own order
+    // (`OrderedRows`): most of them carry no `seq` (a reply, a call), and a sort on `seq` put every one of
+    // them after every footer and placeholder, hundreds of footers in a run at one place.
     const publishedRows =
       indexedRows.length === 0
         ? actualRows
-        : [...actualRows, ...indexedRows].sort(
-            (left, right) =>
-              (left.seq ?? Number.POSITIVE_INFINITY) - (right.seq ?? Number.POSITIVE_INFINITY) || left.at - right.at,
+        : withPlaceholders(actualRows, indexedRows, (row) =>
+            fromStore ? (row.seq ?? Number.POSITIVE_INFINITY) : this.rows.orderOf(row.id),
           );
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
