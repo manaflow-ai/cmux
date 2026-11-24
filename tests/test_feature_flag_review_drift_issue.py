@@ -57,12 +57,15 @@ const run = async () => {
   process.stdout.write(JSON.stringify({writes, issue}));
 };
 run().catch(error => {
+  console.error(error);
   // Keep the writes and issue state a failed run left behind, for the retry check.
   process.stdout.write(JSON.stringify({writes, issue, failed: String(error.message)}));
+  process.exitCode = 1;
 });
 """.replace("REPORTS", json.dumps(reports)).replace("SCRIPT", script) \
             .replace("INITIAL_ISSUE", json.dumps(initial_issue)).replace("FAIL_COMMENTS", str(fail_comments))
-        result = subprocess.run(["node", "-e", harness], capture_output=True, text=True, check=True)
+        # Only a run told to fail a comment may fail; any other error still fails the test.
+        result = subprocess.run(["node", "-e", harness], capture_output=True, text=True, check=not fail_comments)
         return json.loads(result.stdout)
 
     def test_nonempty_report_creates_then_updates_one_issue(self):
