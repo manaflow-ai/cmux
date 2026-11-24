@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110"
+	SDKIRSHA256        = "edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a"
 )
 
 type Authority string
@@ -302,7 +302,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"server-stats":                       {Name: "server-stats", GoMethod: "ServerStats", Authority: AuthorityLocalAdmin, Since: 12, Capability: "server-stats-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-attach-visibility":              {Name: "set-attach-visibility", GoMethod: "SetAttachVisibility", Authority: AuthorityFrontend, Since: 12, Capability: "attach-visibility-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-cell-pixels":                    {Name: "set-cell-pixels", GoMethod: "SetCellPixels", Authority: AuthorityFrontend, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
-	"set-client-info":                    {Name: "set-client-info", GoMethod: "SetClientInfo", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: map[string]uint32{"api_revision": 12, "device_id": 12, "device_kind": 12, "device_name": 12, "display_name": 12, "install": 12, "remote": 12, "user_id": 12, "version": 12}, FieldCapabilities: map[string]string{"device_id": "shared-sizing-v1", "device_kind": "shared-sizing-v1", "device_name": "shared-sizing-v1", "display_name": "shared-sizing-v1", "remote": "host-size-policy-v1", "user_id": "shared-sizing-v1"}},
+	"set-client-info":                    {Name: "set-client-info", GoMethod: "SetClientInfo", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: map[string]uint32{"api_revision": 12, "api_version": 12, "device_id": 12, "device_kind": 12, "device_name": 12, "display_name": 12, "install": 12, "remote": 12, "user_id": 12, "version": 12}, FieldCapabilities: map[string]string{"device_id": "shared-sizing-v1", "device_kind": "shared-sizing-v1", "device_name": "shared-sizing-v1", "display_name": "shared-sizing-v1", "remote": "host-size-policy-v1", "user_id": "shared-sizing-v1"}},
 	"set-client-sizing":                  {Name: "set-client-sizing", GoMethod: "SetClientSizing", Authority: AuthorityControl, Since: 10, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-column-dock":                    {Name: "set-column-dock", GoMethod: "SetColumnDock", Authority: AuthorityControl, Since: 12, Capability: "dock-columns-v1", Stream: "", FieldSince: map[string]uint32{"pinned": 12, "role": 12}, FieldCapabilities: map[string]string{"pinned": "pinned-dock-v1", "role": "dock-column-role-v1"}},
 	"set-default-colors":                 {Name: "set-default-colors", GoMethod: "SetDefaultColors", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: map[string]uint32{"complete": 9, "cursor": 9, "cursor_blink": 9, "cursor_style": 9, "palette": 9, "selection_bg": 9, "selection_fg": 9}, FieldCapabilities: nil},
