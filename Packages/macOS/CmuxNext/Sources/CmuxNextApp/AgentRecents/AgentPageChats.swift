@@ -96,8 +96,7 @@ final class AgentPageChats {
         self.open = open
         let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
         window.follow(self) { [weak self] rows in
-            guard let self else { return }
-            chats = Self.deviceChats(rows)
+            guard let self, AgentPaneDeviceChat.replace(&chats, with: Self.deviceChats(rows)) else { return }
             for view in views() { view.deviceChats = chats }
         }
         feed.windows.open(.newTabCards)
