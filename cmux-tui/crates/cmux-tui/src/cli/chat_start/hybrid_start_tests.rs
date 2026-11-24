@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use cmux_cloud_start_core::hybrid::{self, Cloud, Event, Home, Off};
+use cmux_cloud_start_core::hybrid::{
+    self, AutoStore, Cloud, Event, HOLDER_MOVE_VERSION, Home, MoveRoute, Off, Refusal,
+};
 use serde_json::{Value, json};
 
 use super::super::super::GlobalArgs;
@@ -167,6 +169,10 @@ fn the_env_flag_and_plan_table_decides_as_hybrid_enabled_says() {
 struct Fake {
     events: VecDeque<Event>,
     moves: VecDeque<Result<(), (String, bool)>>,
+    /// The Auto store as the daemon names it; default: none, as every start today.
+    store: AutoStore,
+    /// The store's answers to holder moves, in order; none left: given at epoch 2.
+    answers: VecDeque<Event>,
     did: Vec<String>,
     clock: u64,
 }
@@ -185,6 +191,13 @@ impl Drive for Fake {
     fn move_chat(&mut self) -> Result<(), (String, bool)> {
         self.did.push("move".into());
         self.moves.pop_front().unwrap_or(Ok(()))
+    }
+    fn auto_store(&mut self) -> AutoStore {
+        self.store
+    }
+    fn ask_holder_move(&mut self) -> Event {
+        self.did.push("ask holder".into());
+        self.answers.pop_front().unwrap_or(Event::HolderGiven { epoch: 2 })
     }
     fn pause_machine(&mut self) {
         self.did.push("pause".into());
@@ -380,4 +393,63 @@ fn hybrid_status_names_a_missing_local_harness_after_the_accounts_reasons() {
     let plain = account(None, Ok(json!({})), || None);
     assert_eq!(hybrid::enabled(&plain).and(local_harness(Some(&none), None)), Err(Off::Plan));
     assert_eq!(hybrid::enabled(&pro).and(local_harness(Some(&catalog()), None)), Ok(()));
+}
+
+fn daemon(version: Option<u32>) -> AutoStore {
+    AutoStore { registered: true, move_version: version }
+}
+
+/// The old daemon against the new driver, and the new against the new: a daemon that names no
+/// holder-move version, or an older one, gets today's transfer and nothing is asked of the store;
+/// one that names this build's gets one holder move and no transfer.
+#[test]
+fn an_old_daemon_gets_the_transfer_and_a_new_one_the_holder_move() {
+    for old in [None, Some(HOLDER_MOVE_VERSION - 1)] {
+        let mut driver = fake(vec![Event::TurnEnded, Event::MachineReady]);
+        driver.store = daemon(old);
+        let state = drive(&mut driver);
+        assert_eq!(
+            (state.home, state.cloud, state.route),
+            (Home::Cloud, Cloud::Live, MoveRoute::Transfer)
+        );
+        assert!(driver.did.iter().any(|did| did == "move"), "{old:?}");
+        assert!(!driver.did.iter().any(|did| did == "ask holder"), "{old:?}");
+    }
+    let mut driver = fake(vec![Event::TurnEnded, Event::MachineReady]);
+    driver.store = daemon(Some(HOLDER_MOVE_VERSION));
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud, state.epoch), (Home::Cloud, Cloud::Live, Some(2)));
+    assert_eq!(
+        driver.did,
+        ["create", "show booting", "show ready", "show moving", "ask holder", "show live"]
+    );
+}
+
+#[test]
+fn a_store_without_a_machine_hands_the_move_back_to_the_transfer() {
+    let mut driver = fake(vec![Event::TurnEnded, Event::MachineReady]);
+    driver.store = daemon(Some(HOLDER_MOVE_VERSION));
+    driver.answers = VecDeque::from([Event::HolderRefused { code: Refusal::NoMachine }]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.route), (Home::Cloud, MoveRoute::Transfer));
+    let asked = driver.did.iter().position(|did| did == "ask holder").unwrap();
+    let moved = driver.did.iter().position(|did| did == "move").unwrap();
+    assert!(asked < moved);
+}
+
+#[test]
+fn a_store_that_lacks_the_copy_is_asked_again_at_the_turns_end() {
+    let mut driver =
+        fake(vec![Event::TurnEnded, Event::MachineReady, Event::TurnStarted, Event::TurnEnded]);
+    driver.store = daemon(Some(HOLDER_MOVE_VERSION));
+    driver.answers = VecDeque::from([Event::HolderRefused { code: Refusal::NotCopied }]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud), (Home::Cloud, Cloud::Live));
+    assert_eq!(driver.did.iter().filter(|did| *did == "ask holder").count(), 2);
+    assert!(!driver.did.iter().any(|did| did == "move"));
+}
+
+#[test]
+fn the_live_driver_has_no_store_so_every_start_keeps_the_transfer() {
+    assert_eq!(hybrid::route(&AutoStore::default()), MoveRoute::Transfer);
 }
