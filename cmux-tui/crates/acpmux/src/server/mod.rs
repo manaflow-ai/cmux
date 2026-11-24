@@ -956,25 +956,35 @@ pub async fn serve_unix_with_v2(
                 continue;
             }
         };
-        let hub = hub.clone();
-        let v2 = v2.clone();
-        tokio::spawn(async move {
-            // Named by its audit token, read once here, never by pid.
-            let peer = {
-                use std::os::fd::AsRawFd;
-                cmux_link::app_caller::peer_token(stream.as_raw_fd())
-            };
-            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
-            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = stream
-                .peer_cred()
-                .ok()
-                .and_then(|c| c.pid())
-                .and_then(|p| u32::try_from(p).ok())
-                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
-        });
+        serve_accepted(hub.clone(), stream, v2.clone());
     }
+}
+
+/// Serve one connection of the daemon socket: one the listener accepted, or one the previous
+/// daemon accepted and handed over at a take-over (`conn_handover.rs`). Its peer is read from
+/// the socket either way, so it is the client's.
+#[cfg(unix)]
+pub(crate) fn serve_accepted(
+    hub: Arc<Hub>,
+    stream: tokio::net::UnixStream,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) {
+    tokio::spawn(async move {
+        // Named by its audit token, read once here, never by pid.
+        let peer = {
+            use std::os::fd::AsRawFd;
+            cmux_link::app_caller::peer_token(stream.as_raw_fd())
+        };
+        // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+        let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+        let socket_peer = stream
+            .peer_cred()
+            .ok()
+            .and_then(|c| c.pid())
+            .and_then(|p| u32::try_from(p).ok())
+            .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+        stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
+    });
 }
 
 static INDEX_HTML: cmux_embed::PackedStr =
@@ -2820,6 +2830,7 @@ mod share_host;
 mod vault;
 mod web_device;
 pub(crate) use vault::reply as vault_reply;
+pub(crate) mod conn_handover;
 mod races;
 mod session_auth;
 mod session_files;
