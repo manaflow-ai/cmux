@@ -166,8 +166,8 @@ def main() -> int:
             else:
                 gh("-X", "POST", f"repos/{args.repo}/issues/{number}/comments", payload={"body": body})
                 posted += 1
-            if not args.dry_run:
-                time.sleep(args.pause)  # GitHub's secondary limit on content writes
+            if body is not None and not args.dry_run:
+                time.sleep(args.pause)  # GitHub's secondary limit on content writes; only after a write
         except subprocess.CalledProcessError as error:
             if rate_limited(error):
                 print(f"published-in: rate limited at #{number}; {len(numbers) - index} PRs left, rerun to finish", file=sys.stderr)
