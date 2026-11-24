@@ -9,7 +9,8 @@ fn reader(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
     move |key| map.get(key).cloned()
 }
 
-/// gcp-agent-lane-8 as of 2026-11-24: 16 cores, 60 GB, no swap, 6 lanes, 8 GB of disk a lane.
+/// A lane VM as of 2026-11-24: 16 cores, 60 GB, no swap, 6 lanes, 8 GB of disk a lane, no `io`
+/// delegated to the user manager.
 fn lane_host() -> Host {
     Host {
         memory: GB60,
@@ -18,6 +19,7 @@ fn lane_host() -> Host {
         lanes: Some(6),
         disk_total: 247 * GIB,
         disk_per_lane: Some(8 * GIB),
+        io: IoState { delegated: Some(false), policy: None },
     }
 }
 
@@ -167,12 +169,54 @@ fn lanes_are_found_by_a_full_or_short_host_name() {
 fn status_carries_its_version_and_what_it_was_sized_from() {
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
-    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}));
+    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}), Value::Null);
     assert_eq!(v["version"], VERSION);
     assert_eq!(v["perScope"]["cpuQuotaPercent"], 1200);
     assert_eq!(v["perScope"]["diskBytes"], 8 * GIB);
     assert_eq!(v["sizedFrom"]["lanes"], 6);
     assert_eq!(v["sizedFrom"]["cores"], 16);
+    assert_eq!(
+        v["io"],
+        serde_json::json!({"delegated": false, "policy": null, "weightEffective": false})
+    );
+}
+
+/// The cgroup and sysfs text a lane VM gave on 2026-11-24, before and after `Delegate=cpu cpuset
+/// io memory pids` on `user@.service` and `enable=1` in the root `io.cost.qos`.
+#[test]
+fn io_state_reads_delegation_and_the_weight_policy() {
+    let cgroup = "0::/user.slice/user-1003.slice/user@1003.service/app.slice/acpmux.service\n";
+    let manager = "/user.slice/user-1003.slice/user@1003.service/cgroup.controllers";
+    let controllers = |c: &'static str| move |p: &str| (p == manager).then(|| c.to_owned());
+    let off = "259:0 enable=0 ctrl=auto rpct=0.00 rlat=25000 wpct=0.00 wlat=25000 min=1.00 max=10000.00\n";
+    let on = "259:0 enable=1 ctrl=auto rpct=0.00 rlat=25000 wpct=0.00 wlat=25000 min=1.00 max=10000.00\n";
+    let none = vec!["[none] mq-deadline\n".to_owned()];
+
+    let before = IoState::from(cgroup, &controllers("cpu memory pids\n"), off, &none);
+    assert_eq!(before, IoState { delegated: Some(false), policy: None });
+    assert_eq!(before.effective(), Some(false));
+
+    let delegated = IoState::from(cgroup, &controllers("cpuset cpu io memory pids\n"), off, &none);
+    assert_eq!(delegated, IoState { delegated: Some(true), policy: None });
+    assert_eq!(delegated.effective(), Some(false));
+
+    let after = IoState::from(cgroup, &controllers("cpuset cpu io memory pids\n"), on, &none);
+    assert_eq!(after.policy, Some(IoPolicy::Iocost));
+    assert_eq!(after.effective(), Some(true));
+
+    let bfq = vec!["mq-deadline kyber [bfq] none\n".to_owned()];
+    let with_bfq = IoState::from(cgroup, &controllers("io memory\n"), "", &bfq);
+    assert_eq!(with_bfq.policy, Some(IoPolicy::Bfq));
+    assert_eq!(with_bfq.effective(), Some(true));
+
+    // `iomem` is not `io`; a daemon outside any user manager does not know.
+    assert_eq!(
+        IoState::from(cgroup, &controllers("iomem cpu\n"), on, &none).delegated,
+        Some(false)
+    );
+    let system = IoState::from("0::/system.slice/acpmux.service\n", &|_: &str| None, on, &none);
+    assert_eq!(system.delegated, None);
+    assert_eq!(system.effective(), None);
 }
 
 /// The old/new compatibility check: a CLI reads any daemon's `sessionBudgets`.
@@ -182,19 +226,61 @@ fn the_budget_line_reads_old_this_and_newer_daemons() {
     assert_eq!(budget_line(&Value::Null), None);
     assert_eq!(budget_line(&serde_json::json!({"version": 1})), None);
 
-    // This version.
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
     let watch =
         serde_json::json!({"use": [{"state": "ok"}, {"state": "over"}, {"state": "stopped"}]});
+    // Version 2 (#54455): `io`, no `store`; the line is as it read then.
+    let mut v2 = status(&b, &b, &host, watch.clone(), Value::Null);
+    v2["version"] = 2.into();
+    v2.as_object_mut().unwrap().remove("store");
     assert_eq!(
-        budget_line(&status(&b, &b, &host, watch)).unwrap(),
-        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes, 2 scope(s) over"
+        budget_line(&v2).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, io weight 50 (inert: io not \
+         delegated), sized for 6 lanes, 2 scope(s) over"
     );
+
+    // This version (3): the store budget, on, with a chat over it.
+    let mut store = crate::session_store::Watch {
+        budget: crate::session_store::store_default(b.disk),
+        compress: true,
+        ..Default::default()
+    };
+    store.apply(vec![("a".into(), 2 * GIB, false), ("b".into(), 1, false)]);
+    let v3 = status(&b, &b, &host, watch.clone(), store.json(true));
+    assert_eq!(v3["version"], 3);
+    assert_eq!(v3["store"]["budgetBytes"], GIB);
+    assert_eq!(
+        budget_line(&v3).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, io weight 50 (inert: io not \
+         delegated), sized for 6 lanes, 2 scope(s) over, store 1.0G a chat (1 chat(s) over)"
+    );
+    // Store off: no store part.
+    let off = status(&b, &b, &host, watch, crate::session_store::Watch::default().json(true));
+    assert!(!budget_line(&off).unwrap().contains("store"));
+
+    // Version 1 (no `io`, no `store`): its line is what it always was.
+    let mut v1 = status(&b, &b, &host, serde_json::json!({"use": []}), Value::Null);
+    v1["version"] = 1.into();
+    v1.as_object_mut().unwrap().remove("io");
+    v1.as_object_mut().unwrap().remove("store");
+    assert_eq!(
+        budget_line(&v1).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes"
+    );
+
+    // Delegated with iocost on: the weight shows with no "inert".
+    let mut live = status(&b, &b, &host, serde_json::json!({"use": []}), Value::Null);
+    live["io"] = IoState { delegated: Some(true), policy: Some(IoPolicy::Iocost) }.json();
+    assert!(budget_line(&live).unwrap().contains(", io weight 50, sized for"));
+    live["io"] = IoState { delegated: Some(true), policy: None }.json();
+    assert!(budget_line(&live).unwrap().contains("io weight 50 (inert: no iocost or bfq)"));
 
     // A newer daemon: fields this CLI does not know, and some it knows missing.
     let newer = serde_json::json!({
-        "version": 2,
+        "version": 4,
+        "store": {"on": true, "budgetBytes": "a shape this CLI does not know"},
+        "io": {"delegated": "a shape this CLI does not know"},
         "perScope": {"memoryMaxBytes": 0, "cpuWeight": 30, "netWeight": 9, "diskBytes": GIB},
         "aggregate": {"slice": "acpmuxlanes.slice"},
         "watch": {"use": "a shape this CLI does not know"},
