@@ -155,6 +155,8 @@ type Frame = { ids: string[]; texts: string[]; turnStartedAtMs?: number; working
 /// Connects as App.tsx does, and keeps every frame the pane is handed.
 async function page(daemon: ReturnType<typeof pagingDaemon>) {
   const frames: Frame[] = [];
+  // Wakes `shows` on each frame the pane is handed.
+  const drawn: (() => void)[] = [];
   let carried: CarriedChat | undefined;
   let client: AcpmuxDirectClient | undefined;
   let lost: Promise<void> = Promise.resolve();
@@ -177,6 +179,7 @@ async function page(daemon: ReturnType<typeof pagingDaemon>) {
           working: snapshot.isWorking,
           reads: daemon.state.reads,
         });
+        for (const wake of drawn.splice(0)) wake();
       },
       () => {
         carried = client?.takeCarried() ?? carried;
@@ -198,11 +201,17 @@ async function page(daemon: ReturnType<typeof pagingDaemon>) {
       await lost;
       for (let n = 0; n < 20; n += 1) await tick();
     },
-    /// Waits, at most `ms`, until the last frame shows `text`.
-    shows: async (text: string, ms: number) => {
-      for (const until = Date.now() + ms; Date.now() < until && !frames.at(-1)?.texts.includes(text);)
-        await new Promise((resolve) => setTimeout(resolve, 20));
-    },
+    /// Waits until the last frame shows `text`; fails after `ms` with none that does.
+    shows: (text: string, ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no frame showed "${text}" within ${ms} ms`)), ms);
+        const check = () => {
+          if (!frames.at(-1)?.texts.includes(text)) return void drawn.push(check);
+          clearTimeout(timer);
+          resolve();
+        };
+        check();
+      }),
     close: () => client?.close(),
   };
 }
