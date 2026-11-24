@@ -7699,7 +7699,9 @@ mod test {
         s.cx.set_now(Instant::from_millis(1001));
         s.remote_win_len = 0;
         s.socket.ack_delay_timer = AckDelayTimer::Immediate;
-        s.socket.remote_last_ack = None;
+        // An ACK is owed: the last one sent lags what was received. (`None`
+        // owes nothing: `ack_to_transmit` is false for it.)
+        s.socket.remote_last_ack = Some(REMOTE_SEQ);
         let _ = s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
             if repr.payload.is_empty() {
                 acks.push(repr.seq_number);
