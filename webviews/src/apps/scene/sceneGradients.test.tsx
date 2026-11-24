@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { UiProvider } from "../../ui/UiProvider";
 import { SceneRenderer } from "./SceneRenderer";
 import { sceneGradient, sceneStyle } from "./sceneStyle";
-import { scenePalette, sceneSymbolRendering, symbolGlyphColor } from "./sceneSymbolRendering";
+import { scenePalette, sceneSymbolRendering, symbolLayerPaint } from "./sceneSymbolRendering";
+import { appSceneIcon, resolveSceneSymbol } from "./SceneSymbol";
+import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import { SceneStore, type SceneOp } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -131,43 +133,108 @@ test("rendering modes and palettes are validated", () => {
   expect(scenePalette(["#FFFFFF", "blue"])).toBeUndefined();
 });
 
-test("multicolor colors a one-color glyph and keeps the tint for a layered entry or an unlisted symbol", () => {
-  expect(symbolGlyphColor("sun.max.fill", "multicolor", undefined)).toBe("#FFCC00");
-  expect(symbolGlyphColor("cloud.sun.rain.fill", "multicolor", undefined)).toBeUndefined();
-  expect(symbolGlyphColor("folder", "multicolor", undefined)).toBeUndefined();
-  expect(symbolGlyphColor("sun.max.fill", "monochrome", undefined)).toBeUndefined();
+test("multicolor colors a layered weather glyph per layer and keeps the tint on the cloud", () => {
+  const paint = symbolLayerPaint("cloud.sun.rain.fill", "multicolor", undefined)!;
+  expect([0, 1, 2, 3].map((index) => paint(index, 4))).toEqual([
+    undefined,
+    { color: "#FFCC00" },
+    { color: "#0A84FF" },
+    { color: "#0A84FF" },
+  ]);
+  // A one-layer glyph keeps the tint for a layered entry and takes a one-color entry.
+  expect(paint(0, 1)).toBeUndefined();
+  expect(symbolLayerPaint("sun.max.fill", "multicolor", undefined)!(0, 1)).toEqual({ color: "#FFCC00" });
+  // A symbol with no multicolor entry draws in the tint.
+  expect(symbolLayerPaint("folder", "multicolor", undefined)).toBeUndefined();
+  expect(symbolLayerPaint("sun.max.fill", "monochrome", undefined)).toBeUndefined();
 });
 
-test("palette draws in its first color; hierarchical and a bad palette keep the tint", () => {
-  expect(symbolGlyphColor("account", "palette", ["#FFFFFF", "#FFCC00"])).toBe("#FFFFFF");
-  expect(symbolGlyphColor("account", "palette", ["blue"])).toBeUndefined();
-  expect(symbolGlyphColor("account", "hierarchical", undefined)).toBeUndefined();
+test("weather SF names draw the pack's sun, crescent or cloud, not the missing-icon mark", () => {
+  const weather = [
+    "sun.max",
+    "sun.max.fill",
+    "sun.min",
+    "sunrise.fill",
+    "sunset",
+    "moon",
+    "moon.fill",
+    "moon.stars.fill",
+    "cloud.fill",
+    "cloud.sun.fill",
+    "cloud.sun.rain.fill",
+    "cloud.sun.bolt",
+    "cloud.rain",
+    "cloud.drizzle.fill",
+    "cloud.heavyrain.fill",
+    "cloud.bolt.rain.fill",
+    "cloud.hail",
+    "cloud.sleet.fill",
+    "cloud.snow.fill",
+    "cloud.moon.fill",
+    "cloud.moon.rain.fill",
+    "cloud.fog",
+  ];
+  for (const name of weather) expect([name, appSceneIcon(name)]).not.toEqual([name, "icon.missing"]);
+  expect(resolveSceneSymbol(bundledIconPack.icons, "sun.max.fill")).toEqual({
+    name: "appearance.light",
+    paintAs: "sun.max",
+  });
+  expect(resolveSceneSymbol(bundledIconPack.icons, "moon.stars.fill")).toEqual({
+    name: "appearance.dark",
+    paintAs: "moon",
+  });
+  expect(resolveSceneSymbol(bundledIconPack.icons, "cloud.sun.rain.fill")).toEqual({ name: "cloud", paintAs: "cloud" });
+  // The stand-in sun is yellow in multicolor; a stand-in cloud keeps the tint (its rain is not drawn).
+  expect(symbolLayerPaint("sun.max", "multicolor", undefined)!(0, 2)).toEqual({ color: "#FFCC00" });
+  expect(symbolLayerPaint("cloud", "multicolor", undefined)).toBeUndefined();
+  // Names that only look like weather still miss.
+  expect(appSceneIcon("cloud.sun.rain.fill.extra")).toBe("icon.missing");
+  expect(appSceneIcon("sunflower")).toBe("icon.missing");
 });
 
-const glyphColor = (container: HTMLElement) =>
-  container.querySelector<SVGElement>('[data-app-node="icon"] svg')?.style.color ?? "";
+test("hierarchical lowers later layers' opacity; palette colors layers in order, the last repeating", () => {
+  const hierarchical = symbolLayerPaint("account", "hierarchical", undefined)!;
+  expect([0, 1, 2, 3].map((index) => hierarchical(index, 4))).toEqual([
+    { opacity: 1 },
+    { opacity: 0.5 },
+    { opacity: 0.25 },
+    { opacity: 0.25 },
+  ]);
+  expect(hierarchical(0, 1)).toBeUndefined();
+  const palette = symbolLayerPaint("account", "palette", ["#FFFFFF", "#FFCC00"])!;
+  expect([0, 1, 2].map((index) => palette(index, 3))).toEqual([
+    { color: "#FFFFFF" },
+    { color: "#FFCC00" },
+    { color: "#FFCC00" },
+  ]);
+  expect(symbolLayerPaint("account", "palette", ["blue"])).toBeUndefined();
+});
 
-test("an Icon in palette mode draws in the palette's first color", () => {
-  const container = render(
-    icon({ symbol: "account", symbolRendering: "palette", symbolColors: ["#FFFFFF", "#FFCC00"] }),
+test("an Icon draws its layers in the palette, and multicolor through the SF name's pack glyph", () => {
+  const palette = paths(
+    render(icon({ symbol: "account", symbolRendering: "palette", symbolColors: ["#FFFFFF", "#FFCC00", "#0A84FF"] })),
   );
-  expect(glyphColor(container)).toBe("rgb(255, 255, 255)");
+  expect(palette.map((path) => path.stroke)).toEqual(["#FFFFFF", "#FFCC00", "#0A84FF"]);
 });
 
-test("multicolor on a mapped SF name colors the pack glyph", () => {
-  const container = render(icon({ symbol: "exclamationmark.triangle.fill", symbolRendering: "multicolor" }));
-  expect(glyphColor(container)).toBe("rgb(255, 204, 0)");
-  expect(paths(container).length).toBeGreaterThan(0);
+test("multicolor on a mapped SF name colors the pack glyph; monochrome keeps currentColor", () => {
+  const multicolor = paths(render(icon({ symbol: "exclamationmark.triangle.fill", symbolRendering: "multicolor" })));
+  expect(multicolor.length).toBeGreaterThan(1);
+  expect(multicolor.every((path) => (path.fill === "none" ? path.stroke : path.fill) === "#FFCC00")).toBe(true);
 });
 
-test("monochrome, hierarchical and an unknown mode draw every layer in the tint", () => {
-  for (const symbolRendering of ["monochrome", "hierarchical", "rainbow", undefined]) {
-    const container = render(icon({ symbol: "account", symbolRendering }));
-    expect(glyphColor(container)).toBe("");
-    expect(paths(container).every((path) => path.stroke === "currentColor")).toBe(true);
+test("monochrome and an unknown mode draw every layer in the tint", () => {
+  for (const symbolRendering of ["monochrome", "rainbow", undefined]) {
+    const drawn = paths(render(icon({ symbol: "account", symbolRendering })));
+    expect(drawn.every((path) => path.stroke === "currentColor")).toBe(true);
     act(() => root?.unmount());
     root = undefined;
   }
+});
+
+test("hierarchical on a rendered Icon fades its second and third layers", () => {
+  const drawn = paths(render(icon({ symbol: "account", symbolRendering: "hierarchical" })));
+  expect(drawn.map((path) => path.opacity)).toEqual(["1", "0.5", "0.25"]);
 });
 
 test("a shape's gradient fill replaces its fill color", () => {

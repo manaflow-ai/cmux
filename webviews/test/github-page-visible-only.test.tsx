@@ -40,6 +40,7 @@ let host: HTMLElement;
 let boxReads = 0;
 /** The dashboard's one-second clock, captured so a test ticks it. */
 let ticks: (() => void)[] = [];
+let resizeList: (() => void) | undefined;
 
 /** Layout jsdom does not do: an item of the dashboard is as tall as its kind's estimate. */
 const HEIGHTS: Record<string, number> = {
@@ -63,7 +64,10 @@ beforeAll(() => {
   });
   const { window } = dom;
   class ResizeObserver {
-    observe() {}
+    constructor(private readonly resized: () => void) {}
+    observe(element: Element) {
+      if (element.classList.contains("gh-ci-list")) resizeList = this.resized;
+    }
     unobserve() {}
     disconnect() {}
   }
@@ -101,6 +105,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   ticks = [];
+  resizeList = undefined;
 });
 
 afterAll(async () => {
@@ -322,6 +327,45 @@ async function tab(shift = false) {
 const jobLink = (name: string) =>
   [...host.querySelectorAll<HTMLButtonElement>(".gh-ci-row .gh-row-link")].find((link) => link.textContent === name);
 const focusedText = () => dom.window.document.activeElement?.textContent;
+
+async function setColumns(columns: number) {
+  host.querySelector<HTMLElement>(".gh-ci-probe")!.style.gridTemplateColumns = Array(columns).fill("400px").join(" ");
+  await act(async () => resizeList!());
+}
+
+test("two-column refresh keeps the focused job even when its partner changes offscreen", async () => {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+  const { store, fixture } = await mount(1_000);
+  await setColumns(2);
+  const original = jobLink("job 7")!;
+  expect(original.closest("ul")!.querySelectorAll(".gh-ci-row")).toHaveLength(2);
+  await act(async () => original.focus());
+  await scrollWindow(20_000);
+  fixture.checks = { ...fixture.checks, jobs: fixture.checks.jobs.filter((job) => job.name !== "job 5") };
+  await act(async () => store.loadChecks());
+  await settle();
+  expect(original.isConnected).toBe(false);
+  expect(dom.window.document.activeElement).toBe(jobLink("job 7")!);
+  await tab();
+  expect(focusedText()).toBe("job 8");
+});
+
+test("switching columns keeps the exact focused matrix shard", async () => {
+  Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });
+  const { store, fixture } = await mount(1_000);
+  fixture.checks = {
+    ...fixture.checks,
+    jobs: fixture.checks.jobs.map((job, i) => (i === 6 || i === 7 ? { ...job, name: `matrix (${i})` } : job)),
+  };
+  await act(async () => store.loadChecks());
+  await setColumns(2);
+  const shard = () => host.querySelector<HTMLButtonElement>('.gh-ci-pip[aria-label="matrix (7)"]')!;
+  const original = shard();
+  await act(async () => original.focus());
+  await setColumns(1);
+  expect(original.isConnected).toBe(false);
+  expect(dom.window.document.activeElement).toBe(shard());
+});
 
 test("Tab from a focused row the page scrolled 20,000 px away from goes to the next job", async () => {
   Object.defineProperty(dom.window, "scrollY", { configurable: true, value: 0 });

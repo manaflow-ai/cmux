@@ -22,7 +22,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Changes the `index`th job's link and has the page read the checks again. */
-    benchChangeOne(index: number): Promise<void>;
+    benchChangeOne(index: number): void | Promise<void>;
     /** Runs the dashboard's one-second clock once. */
     benchTick(): void;
   }

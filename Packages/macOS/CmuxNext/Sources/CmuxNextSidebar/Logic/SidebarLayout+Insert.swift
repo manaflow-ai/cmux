@@ -113,9 +113,9 @@ nonisolated extension SidebarLayout {
         return true
     }
 
-    /// Whether `ws` is drawn behind a fold row (Done, archived), out of node order.
+    /// Whether `ws` is drawn behind a fold row (Done, Settled, archived), out of node order.
     private static func folds(_ ws: SidebarWorkspace, _ o: SidebarLayoutOptions) -> Bool {
-        ws.isArchived || (o.foldsDone && ws.taskStatus == .done)
+        ws.isArchived || (o.foldsDone && ws.taskStatus == .done) || o.settles(ws) || o.automates(ws)
     }
 
     private static func folds(_ node: SidebarNode, _ o: SidebarLayoutOptions) -> Bool {
