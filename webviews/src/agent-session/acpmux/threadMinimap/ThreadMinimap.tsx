@@ -1432,6 +1432,11 @@ function ThreadMinimapView({
     // arrive, and each commit paid that layout here (bench/chat-fast-scroll.bench.ts rail_click_paint).
     // In the frame the page is laid out once by then and the write only moves the list; a commit that
     // moves the band again before that frame replaces the pending place, so the list moves once a frame.
+    // With no frames to wait for (a DOM test's environment), the commit places it.
+    if (typeof requestAnimationFrame !== "function") {
+      place();
+      return;
+    }
     const frame = requestAnimationFrame(place);
     return () => cancelAnimationFrame(frame);
   }, [

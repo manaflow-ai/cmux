@@ -278,6 +278,11 @@ export const PreviewCard = React.forwardRef<
   const placeTokens = useRef(0);
   const placeSoon = useCallback(
     (beforePaint: boolean) => {
+      // With no frames to wait for (a DOM test's environment), the commit places it, as before.
+      if (typeof requestAnimationFrame !== "function") {
+        place();
+        return;
+      }
       const waiting = placeLater.current;
       if (waiting.token !== 0 && (waiting.beforePaint || !beforePaint)) return;
       if (waiting.token !== 0) cancelAnimationFrame(waiting.frame);
@@ -326,7 +331,7 @@ export const PreviewCard = React.forwardRef<
   });
   useLayoutEffect(
     () => () => {
-      cancelAnimationFrame(placeLater.current.frame);
+      if (placeLater.current.token !== 0) cancelAnimationFrame(placeLater.current.frame);
       placeLater.current = { token: 0, frame: 0, beforePaint: false };
     },
     [],
