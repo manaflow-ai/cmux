@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextHomeEngine
 @testable import CmuxNextHomeModel
 import CmuxNextHostedChief
 @testable import CmuxNextSettings
@@ -33,6 +34,30 @@ struct HomeChiefDefaultTests {
         #expect(!HomeChiefDefault.auto.prefersLocal(localRunning: false))
         #expect(HomeChiefDefault.local.prefersLocal(localRunning: false), "Local is forced")
         #expect(!HomeChiefDefault.hosted.prefersLocal(localRunning: true), "Hosted is forced")
+    }
+
+    /// An update stops this Mac's optchat-chief between turns, and the next one starts some
+    /// seconds later (Lawrence 2026-11-23, nightly 4529584712101: the old host handed off at
+    /// 17:01:39, the new one took the lock at 17:01:55, and the relaunched app read the lock in
+    /// between). Nothing holds the lock in that gap, yet this Mac's Chief is not off: Auto must
+    /// keep it rather than open the cloud Chief ("when i update cmux it focuses cloud chief
+    /// instead of normal chief"). Only `cmux chief shutdown` (its marker) turns it off.
+    @Test func thisMacsChiefBetweenTwoHostsStillCountsAsRunning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-update-gap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        // The update's gap: the old host left its lock naming a pid that is gone, and the new one has not started.
+        try Data("999999\n".utf8).write(to: state.appendingPathComponent("host.lock"))
+        #expect(await HomeService.localChiefRuns(home, canStart: true, gaveUp: false),
+                "between the old host and the new one: still this Mac's Chief")
+        // Off on purpose, or unable to run here: Auto gives the Hosted Chief.
+        #expect(!(await HomeService.localChiefRuns(home, canStart: false, gaveUp: false)), "no host can start here")
+        #expect(!(await HomeService.localChiefRuns(home, canStart: true, gaveUp: true)), "it kept dying, and the app stopped restarting it")
+        try Data().write(to: state.appendingPathComponent("shutdown"))
+        #expect(!(await HomeService.localChiefRuns(home, canStart: true, gaveUp: false)), "cmux chief shutdown")
     }
 
     // MARK: The Chief tab and the list's Main

@@ -41,13 +41,22 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+#[path = "cold_pack.rs"]
+mod packed;
+
 /// A cold-archived chat's log, in its folder beside `session.json`.
 pub const COLD_FILE: &str = "cold.zst";
+/// The stub `cmux-session-cloud` leaves when a chat's archive is offloaded to the person's cloud
+/// history store: the archive's blob, size and hash. A chat with a stub and no segment is cold; its
+/// first read fetches the archive back into `cold.zst` and thaws it as any archive.
+pub const CLOUD_STUB: &str = "cold.zst.cloud";
 /// The folder a rehydrate decodes into, renamed to `events/` once every file is on the disk.
 const THAW_DIR: &str = "cold-thaw.tmp";
 /// Where a commit renames `events/` before removing it, and a rehydrate any `events/` without a
 /// segment that was there.
 const DROP_DIR: &str = "events.cold-drop";
+/// Where a commit renames `cold-segments/` (`store/cold_segments.rs`) before removing it.
+const COLD_SEGMENTS_DROP_DIR: &str = "cold-segments.cold-drop";
 /// The header's schema.
 const SCHEMA: &str = "acpmux.cold.v1";
 /// zstd's strongest level that needs no large window to decode (19). Event logs are JSON lines
@@ -78,6 +87,48 @@ thread_local! {
     /// Tests: this thread says so, once, right before it takes the cold lock to rehydrate or settle.
     pub(crate) static NOTE_BEFORE_COLD_LOCK: super::log_sync::Note =
         const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, when the chat's cold lock it asks for is held by another.
+    pub(crate) static NOTE_COLD_LOCK_WAITS: super::log_sync::Note =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// One lock per chat for every change that removes one of its log's copies (`LocalStore::cold`):
+/// each holds it from the checks it decides by through the removal, so no two of them act on
+/// what the other is about to change (#43562 review F1, P2-F1). A chat's id is in `busy` while a
+/// thread holds its lock.
+#[derive(Default)]
+pub(crate) struct ChatLocks {
+    busy: Mutex<std::collections::BTreeSet<String>>,
+    free: std::sync::Condvar,
+}
+
+/// A chat's cold lock, held until it drops ([`ChatLocks::lock`]).
+pub(crate) struct ChatLock<'a> {
+    locks: &'a ChatLocks,
+    id: String,
+}
+
+impl ChatLocks {
+    /// Waits until no other thread holds `id`'s lock, then holds it.
+    pub(crate) fn lock(&self, id: &str) -> ChatLock<'_> {
+        let mut busy = self.busy.lock_or_recover();
+        #[cfg(test)]
+        if busy.contains(id) {
+            super::log_sync::note(&NOTE_COLD_LOCK_WAITS, "waits");
+        }
+        while busy.contains(id) {
+            busy = self.free.wait(busy).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        busy.insert(id.to_owned());
+        ChatLock { locks: self, id: id.to_owned() }
+    }
+}
+
+impl Drop for ChatLock<'_> {
+    fn drop(&mut self) {
+        self.locks.busy.lock_or_recover().remove(&self.id);
+        self.locks.free.notify_all();
+    }
 }
 
 /// What archiving a log saved.
@@ -213,7 +264,8 @@ fn decode_files(
 fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
     let (header, hashes) = decode(archive, &mut |_| Ok(None))?;
     for (entry, archived) in header.files.iter().zip(&hashes) {
-        let Ok(file) = crate::home_fs::private_state_file(events.join(&entry.name)) else {
+        // A segment that went cold since reads from its archive (`store/cold_segments.rs`).
+        let Ok(file) = super::cold_segments::open_segment(&events.join(&entry.name)) else {
             return Ok(false);
         };
         let mut hash = Sha256::new();
@@ -223,6 +275,17 @@ fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
         }
     }
     Ok(true)
+}
+
+/// A file of the log opened to archive, and its length: a cold segment's raw bytes and raw length
+/// through its archive (`store/cold_segments.rs`), any other file as it is.
+fn open_log_file(path: &Path) -> Result<(u64, Box<dyn Read>)> {
+    if super::cold_segments::is_cold(path) {
+        let file = super::cold_segments::open_segment(path)?;
+        return Ok((file.len()?, Box::new(file)));
+    }
+    let file = crate::home_fs::private_state_file(path)?;
+    Ok((file.metadata()?.len(), Box::new(file)))
 }
 
 /// Removes the tree at `path` when there is one, through the held home (`home_fs`): a home
@@ -241,6 +304,13 @@ impl LocalStore {
         id: &str,
         visit: &mut dyn FnMut(EventRecord),
     ) -> Result<()> {
+        if !crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            && crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
+        {
+            // Offloaded to cloud history: not searched, never fetched for a query (one search
+            // would pull every offloaded chat back). A local text index of them is the next step.
+            return Ok(());
+        }
         decode_files(&self.cold_path(id), &mut |entry, part, hash| {
             if !entry.name.ends_with(".ndjson") {
                 return copy_hashed(part, &mut std::io::sink(), hash);
@@ -272,24 +342,166 @@ impl LocalStore {
     /// on every platform (#41721 review F1). A home that is no longer the held one reads as not
     /// cold here; `rehydrate`, which a read of the chat goes through, answers it with an error.
     pub(super) fn is_cold(&self, id: &str) -> bool {
-        crate::home_fs::try_exists_nofollow(self.cold_path(id)).unwrap_or(false)
+        (crate::home_fs::try_exists_nofollow(self.cold_path(id)).unwrap_or(false)
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id)).unwrap_or(false))
             && self.segment_files(id).is_ok_and(|segments| segments.is_empty())
+    }
+
+    pub(super) fn cloud_stub_path(&self, id: &str) -> PathBuf {
+        self.dir(id).join(CLOUD_STUB)
+    }
+
+    fn cloud_history(&self, id: &str) -> Result<cmux_session_cloud::stub::History> {
+        cmux_session_cloud::stub::parse_history(crate::home_fs::private_state_file(
+            self.cloud_stub_path(id),
+        )?)
+    }
+
+    /// The person's cloud history store, from the config in this store's acpmux home (the
+    /// folder above `sessions/`); None when they never turned it on.
+    fn cloud(&self) -> Result<Option<std::sync::Arc<cmux_session_cloud::Cloud>>> {
+        let state = self.root.parent().unwrap_or(&self.root);
+        cmux_session_cloud::Cloud::get_in(state)
+    }
+
+    /// See [`Store::offload_cold`]. The upload runs with no lock held; the stub's write and the
+    /// archive's removal run under the cold lock, and only when the archive still holds the bytes
+    /// uploaded and the chat still has no segment. A crash between the stub and the removal
+    /// leaves both: the archive is read, and the stub goes with it at the thaw.
+    pub(super) fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let archive = self.cold_path(id);
+        if !self.is_cold(id) || !crate::home_fs::try_exists_nofollow(&archive)? {
+            return Ok(None);
+        }
+        let Some(cloud) = self.cloud()? else { return Ok(None) };
+        let record = cmux_session_cloud::offload::upload(&archive, &cloud)?;
+        let _cold = self.cold.lock(id);
+        let _sealed = self.unsealed(id)?;
+        if self.held_has_segment(id)? {
+            return Ok(None);
+        }
+        let freed = cmux_session_cloud::offload::commit(&archive, &record)?;
+        if let Some(bytes) = freed {
+            tracing::info!(session = %id, bytes, stored = record.stored_bytes, "offloaded a cold chat to cloud history");
+        }
+        Ok(freed)
+    }
+
+    /// See [`Store::register_cloud_root`]. Reads every chat folder's stub (one small file each),
+    /// so it runs once per batch. A stub that cannot be read is left out, and logged.
+    pub(super) fn register_cloud_root(&self) -> Result<Option<usize>> {
+        let Some(cloud) = self.cloud()? else { return Ok(None) };
+        self.register_cloud_root_in(&cloud, &[]).map(Some)
+    }
+
+    fn register_cloud_root_in(
+        &self,
+        cloud: &cmux_session_cloud::Cloud,
+        pending: &[&str],
+    ) -> Result<usize> {
+        // A root replaces its previous tree. Serialize scans through publication so a
+        // concurrent batch cannot overwrite a packed commit with an older snapshot.
+        static ROOT: Mutex<()> = Mutex::new(());
+        let _root = ROOT.lock_or_recover();
+        let mut blobs: Vec<String> = pending.iter().map(|s| (*s).to_owned()).collect();
+        let entries = match crate::home_fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                return Err(anyhow::Error::from(error).context("list the chats for the cloud root"));
+            }
+        };
+        for entry in entries {
+            let Some(id) = entry.name.to_str() else { continue };
+            let stub = self.cloud_stub_path(id);
+            if !crate::home_fs::try_exists_nofollow(&stub)? {
+                continue;
+            }
+            match self.cloud_history(id) {
+                Ok(cmux_session_cloud::stub::History::Archive(record)) => blobs.push(record.blob),
+                Ok(cmux_session_cloud::stub::History::Pack(record)) => {
+                    blobs.extend(record.blobs().map(str::to_owned))
+                }
+                Err(error) => {
+                    tracing::warn!(session = %id, "cloud history stub unreadable: {error:#}")
+                }
+            }
+        }
+        blobs.sort();
+        blobs.dedup();
+        cloud.store.set_root(&cloud.root_pair(), &blobs)?;
+        Ok(blobs.len())
+    }
+
+    /// Brings an offloaded chat's archive back into `cold.zst` from the cloud history store. A
+    /// failure is an error, never "not archived": an append would otherwise start a new log in
+    /// front of the one in the cloud.
+    fn fetch_cloud_locked(&self, id: &str) -> Result<()> {
+        let stub = self.cloud_stub_path(id);
+        let cloud = self.cloud()?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "chat {id} is in cloud history but cloud history is not set up on this machine: restore session-cloud.json in the acpmux home"
+            )
+        })?;
+        let started = std::time::Instant::now();
+        let bytes = cmux_session_cloud::fetch::fetch_file(&stub, &cloud)?;
+        tracing::info!(session = %id, bytes, ms = started.elapsed().as_millis() as u64, "fetched a chat's archive from cloud history");
+        Ok(())
     }
 
     /// The files of `events/` with their paths, or None when there is no log to archive: no
     /// segment, or a file a log does not hold (a retention rewrite's copy, a fork's history being
     /// written), which leaves the chat as it is for now.
     /// Listed in the held home (`home_fs`): the commit renames that `events/` aside.
+    /// A cold segment (`store/cold_segments.rs`) is in the list under its segment's name, read from
+    /// its archive: the archive holds its raw bytes like any other segment's, and a rehydrate
+    /// brings it back as a plain segment.
     fn log_files(&self, id: &str) -> Result<Option<Vec<(String, PathBuf)>>> {
-        let events = self.dir(id).join("events");
+        let session = self.dir(id);
+        let events = session.join("events");
         let Ok(rd) = crate::home_fs::read_dir(&events) else { return Ok(None) };
         let mut out = Vec::new();
+        let mut cold = Vec::new();
         for entry in rd {
             let name = entry.name.to_string_lossy().into_owned();
+            if entry.is_file
+                && let Some(index) = super::cold_segments::idx_index(&name)
+            {
+                cold.push(index);
+                continue;
+            }
             if !entry.is_file || !log_file(&name) {
                 return Ok(None);
             }
             out.push((name, events.join(&entry.name)));
+        }
+        // The commit drops `cold-segments/` whole: only when every file in it is an archive the
+        // listing takes (its index is beside the log) or a temporary leftover. A file a settle set
+        // aside there (`.orphan-`, `.damaged-`) may be the only copy of a segment, so the chat
+        // stays as it is until it is moved out (#43562 review P2-F2).
+        let cold_dir = session.join(super::cold_segments::COLD_DIR);
+        if let Ok(rd) = crate::home_fs::read_dir(&cold_dir) {
+            for entry in rd {
+                let name = entry.name.to_string_lossy();
+                let indexed = name
+                    .strip_suffix(".zst")
+                    .and_then(|stem| stem.parse::<u32>().ok())
+                    .is_some_and(|index| cold.contains(&index));
+                if !indexed && !name.contains(".tmp-") {
+                    anyhow::bail!(
+                        "{} is kept aside and may be the only copy of part of chat {id}: the \
+                         chat is not compressed whole until it is moved out of {}",
+                        name,
+                        cold_dir.display()
+                    );
+                }
+            }
+        }
+        for index in cold {
+            let name = format!("{index:06}.ndjson");
+            if !out.iter().any(|(n, _)| *n == name) {
+                out.push((name, super::cold_segments::zst_path(&session, index)));
+            }
         }
         out.sort();
         if !out.iter().any(|(name, _)| name != super::compact::MARKER) {
@@ -303,11 +515,10 @@ impl LocalStore {
     fn held_has_segment(&self, id: &str) -> Result<bool> {
         match crate::home_fs::read_dir(self.dir(id).join("events")) {
             Ok(entries) => Ok(entries.iter().any(|entry| {
-                entry
-                    .name
-                    .to_str()
-                    .and_then(|name| name.strip_suffix(".ndjson"))
-                    .is_some_and(|stem| stem.parse::<u32>().is_ok())
+                entry.name.to_str().is_some_and(|name| {
+                    name.strip_suffix(".ndjson").is_some_and(|stem| stem.parse::<u32>().is_ok())
+                        || super::cold_segments::idx_index(name).is_some()
+                })
             })),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(e.into()),
@@ -322,7 +533,7 @@ impl LocalStore {
     pub(super) fn settle_cold(&self, id: &str) -> Result<()> {
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "settle");
-        let cold = self.cold.lock_or_recover();
+        let cold = self.cold.lock(id);
         // Held through the settlement, so a seal waits for it: an archive task that outlives a
         // handover would otherwise take the next daemon's archive, published but with `events/`
         // not yet moved aside, for a crash's leftover and remove it (review of #39141).
@@ -350,7 +561,7 @@ impl LocalStore {
     /// into place to the rename of `events/` aside: an archive and a log beside it are a crash's
     /// leftover only when no commit is between the two (review of #39141: a second archive of the
     /// chat removed the first one's archive as covered, and the first then removed the log).
-    fn settle_cold_locked(&self, id: &str, _cold: &std::sync::MutexGuard<'_, ()>) -> Result<()> {
+    fn settle_cold_locked(&self, id: &str, _cold: &ChatLock<'_>) -> Result<()> {
         let dir = self.dir(id);
         // Every removal and rename below goes through the held home (`home_fs`), and so does
         // every read it decides by: the folder's names, the archive and the log it checks the
@@ -368,6 +579,12 @@ impl LocalStore {
             }
         }
         let archive = self.cold_path(id);
+        let stub = self.cloud_stub_path(id);
+        if crate::home_fs::try_exists_nofollow(&stub)? && self.held_has_segment(id)? {
+            // The log is back (a thaw that crashed before removing the stub): the stub is stale.
+            crate::home_fs::remove_file(&stub)?;
+            sync_directory(&dir)?;
+        }
         if !crate::home_fs::try_exists_nofollow(&archive)? || !self.held_has_segment(id)? {
             return Ok(());
         }
@@ -398,8 +615,12 @@ impl LocalStore {
         // since is not in the archive, and the commit refuses the log.
         let mut opened = Vec::with_capacity(files.len());
         for (name, path) in files {
-            let file = crate::home_fs::private_state_file(&path)?;
-            let len = file.metadata()?.len();
+            // A cold segment is taken only as its archive decodes whole to its index: the commit
+            // drops that archive, so a short or damaged index must stop the archive here.
+            if super::cold_segments::is_cold(&path) {
+                super::cold_segments::verify_cold(&path)?;
+            }
+            let (len, file) = open_log_file(&path)?;
             opened.push((Entry { name, len }, file));
         }
         let mut staged = StagedCold {
@@ -414,7 +635,7 @@ impl LocalStore {
         serde_json::to_writer(&mut encoder, &header)?;
         encoder.write_all(b"\n")?;
         let mut hashes = Vec::with_capacity(opened.len());
-        for (entry, file) in &opened {
+        for (entry, file) in &mut opened {
             let mut hash = Sha256::new();
             let copied = copy_hashed(&mut Read::take(file, entry.len), &mut encoder, &mut hash)?;
             anyhow::ensure!(
@@ -448,7 +669,7 @@ impl LocalStore {
         let dir = self.dir(id);
         {
             let mut writers = self.writers.lock_or_recover();
-            let _cold = self.cold.lock_or_recover();
+            let _cold = self.cold.lock(id);
             // Closed first: a write in flight to it finishes, and none lands until `events/` is
             // renamed (a write runs under its segment's lock: `store/segment_writer.rs`).
             self.close_writer_locked(id, &mut writers);
@@ -456,8 +677,7 @@ impl LocalStore {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
                         *name == entry.name
-                            && crate::home_fs::private_state_file(path)
-                                .is_ok_and(|f| f.metadata().is_ok_and(|m| m.len() == entry.len))
+                            && open_log_file(path).is_ok_and(|(len, _)| len == entry.len)
                     })
             });
             if !unchanged {
@@ -472,9 +692,19 @@ impl LocalStore {
             let aside = dir.join(DROP_DIR);
             remove_dir_if_there(&aside)?;
             crate::home_fs::rename(dir.join("events"), &aside)?;
+            // The cold segments' archives go with it: the archive holds their raw bytes. One a
+            // crash leaves before this has no index any more, and the next settle of the
+            // rehydrated log removes it (`LocalStore::settle_cold_segments`).
+            let cold_segments = dir.join(super::cold_segments::COLD_DIR);
+            if crate::home_fs::try_exists_nofollow(&cold_segments)? {
+                let cold_aside = dir.join(COLD_SEGMENTS_DROP_DIR);
+                remove_dir_if_there(&cold_aside)?;
+                crate::home_fs::rename(&cold_segments, &cold_aside)?;
+            }
             sync_directory(&dir)?;
         }
         let _ = crate::home_fs::remove_dir_all(dir.join(DROP_DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(COLD_SEGMENTS_DROP_DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::kind_index::DIR));
         let _ = crate::home_fs::remove_dir_all(dir.join(super::text_index::DIR));
         Ok(true)
@@ -491,18 +721,36 @@ impl LocalStore {
         // Read there, not by path (#41697 review F1): a replacement home without the archive
         // would answer "not archived" while the held home still holds it. On every platform:
         // off Unix a home replaced before or during the read is an error (#41721 review F1).
-        if !crate::home_fs::try_exists_nofollow(&archive)? {
+        let stub = self.cloud_stub_path(id);
+        if !crate::home_fs::try_exists_nofollow(&archive)?
+            && !crate::home_fs::try_exists_nofollow(&stub)?
+        {
             return Ok(false);
         }
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
-        let cold = self.cold.lock_or_recover();
+        let cold = self.cold.lock(id);
         // From here on, read in the held home (`home_fs`), where the rehydrate writes and
         // removes: the archive it decodes and removes is the held home's (#41462 review F1).
-        if !crate::home_fs::try_exists_nofollow(&archive)? {
+        let offloaded = crate::home_fs::try_exists_nofollow(&stub)?;
+        if !crate::home_fs::try_exists_nofollow(&archive)? && !offloaded {
             return Ok(false);
         }
         let _sealed = self.unsealed(id)?;
+        let mut packed = None;
+        if offloaded
+            && !crate::home_fs::try_exists_nofollow(&archive)?
+            && !self.held_has_segment(id)?
+        {
+            // Under the cold lock, so two reads fetch once and an offload cannot remove the
+            // archive mid-thaw.
+            match self.cloud_history(id)? {
+                cmux_session_cloud::stub::History::Pack(_) => {
+                    packed = Some(self.cloud()?.context("cloud history is not configured")?);
+                }
+                cmux_session_cloud::stub::History::Archive(_) => self.fetch_cloud_locked(id)?,
+            }
+        }
         if self.held_has_segment(id)? {
             self.settle_cold_locked(id, &cold)?;
             return Ok(false);
@@ -514,8 +762,12 @@ impl LocalStore {
         let thaw = dir.join(THAW_DIR);
         remove_dir_if_there(&thaw)?;
         crate::config::private_state_dir(&thaw)?;
-        let (header, _) =
-            decode(&archive, &mut |entry| Ok(Some(open_private_append(&thaw.join(&entry.name))?)))?;
+        let header = if let Some(cloud) = &packed {
+            self.thaw_packed(id, cloud, &thaw)?
+        } else {
+            decode(&archive, &mut |entry| Ok(Some(open_private_append(&thaw.join(&entry.name))?)))?
+                .0
+        };
         sync_directory(&thaw)?;
         let events = dir.join("events");
         let aside = dir.join(DROP_DIR);
@@ -528,7 +780,14 @@ impl LocalStore {
         }
         crate::home_fs::rename(&thaw, &events)?;
         sync_directory(&dir)?;
-        crate::home_fs::remove_file(&archive)?;
+        if packed.is_some() {
+            self.remove_packed_cache(id);
+        } else {
+            crate::home_fs::remove_file(&archive)?;
+        }
+        if offloaded {
+            crate::home_fs::remove_file(&stub)?;
+        }
         sync_directory(&dir)?;
         let _ = crate::home_fs::remove_dir_all(&aside);
         if let Some(hook) = self.rehydrate_hook.get() {
