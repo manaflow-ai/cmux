@@ -1291,6 +1291,8 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
+  startupAdmission?: { sessionId: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   protocolVersion: number;

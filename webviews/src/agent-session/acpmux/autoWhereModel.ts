@@ -13,6 +13,19 @@ import type { StringKey } from "./i18n";
 /// The daemon request (acpmux rpc.rs `MUX_PLACE_CHAT`).
 export const PLACE_CHAT_METHOD = "_acpmux/place_chat";
 
+/// The line for a scale-up admission warning. The daemon's warning is one-shot, so the page only
+/// receives this wording when `scalingUp` is true (`session/new` `_meta.acpmux.admission`).
+export function autoAddingMachineLine(admission: unknown): string | undefined {
+  return (
+    admission &&
+    typeof admission === "object" &&
+    !Array.isArray(admission) &&
+    (admission as { scalingUp?: unknown }).scalingUp === true
+  )
+    ? "Auto is adding a machine"
+    : undefined;
+}
+
 /// How Auto draws in the chip and the menu (autoWhere.css). `split` ships (Leo 2026-11-24: "the auto
 /// icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash");
 /// the rest are the gallery's variants (AutoWhere.gallery.tsx).

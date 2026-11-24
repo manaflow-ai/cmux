@@ -1293,6 +1293,8 @@ export class AcpmuxDirectClient {
     start: AcpmuxSessionStart | undefined;
     value: AcpmuxSnapshot["summary"];
   };
+  /// The scale-up warning from a just-completed `session/new`, before the attach starts the chat.
+  private startupAdmission?: AcpmuxSnapshot["startupAdmission"];
   /// The usage read in flight (refreshUsage).
   private usageRead?: Promise<void>;
   private selectedSessionId?: string;
@@ -2967,6 +2969,8 @@ export class AcpmuxDirectClient {
       this.shownBefore = this.drawn;
     }
     this.cancelTrustStart?.();
+    if (this.startupAdmission && this.startupAdmission.sessionId !== this.selectedSessionId)
+      this.startupAdmission = undefined;
     // A pane left on no chat (`leave`, a chat gone missing) closes the store's sub of the chat it
     // showed, keeping its last window; a switch to another chat closes it in `choose`.
     if (this.selectedSessionId === undefined) this.chatRows.close();
@@ -6478,6 +6482,7 @@ export class AcpmuxDirectClient {
     // the session, its newest seq and presence of the reply. None of v1's page fold runs for it.
     if (sent.hold) {
       this.summary = attachedDetail(result);
+      if (this.startupAdmission?.sessionId === sessionId) this.startupAdmission = undefined;
       this.lastSeq =
         this.configSeq =
         this.limitsSeq =
@@ -6639,6 +6644,7 @@ export class AcpmuxDirectClient {
         ? result.lastSeq
         : undefined;
     this.summary = detail;
+    if (this.startupAdmission?.sessionId === sessionId) this.startupAdmission = undefined;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.usageLimitsSeq = this.limitsSeq;
@@ -11350,6 +11356,7 @@ export class AcpmuxDirectClient {
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
+      ...(this.startupAdmission ? { startupAdmission: this.startupAdmission } : {}),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
       ...(this.forkPendingSince !== undefined && this.forkPendingFrom === this.actingSessionId
@@ -14190,6 +14197,12 @@ export class AcpmuxDirectClient {
       // A local start's caller fences it (`create`, HarnessSwitch); a peer start is fenced below.
       Boolean(pending.peer),
     );
+    const admission = result?._meta?.acpmux?.admission;
+    this.startupAdmission =
+      typeof result?.sessionId === "string" && admission?.scalingUp === true
+        ? { sessionId: result.sessionId, scalingUp: true }
+        : undefined;
+    if (this.startupAdmission) this.emit();
     // A deferred local harness switch intentionally leaves the displayed chat at first Send;
     // HarnessSwitch owns that start's cancellation. Only peer starts use this route fence.
     if (

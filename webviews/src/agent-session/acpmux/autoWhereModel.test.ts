@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   PLACE_CHAT_METHOD,
+  autoAddingMachineLine,
   autoTargets,
   decideAuto,
   keepCloudLanding,
@@ -40,6 +41,14 @@ test("a reply reads into a decision; anything else is none", () => {
   expect(parseAutoDecision({ placement: { at: "there" }, reason: { code: "x" } })).toBeUndefined();
   expect(parseAutoDecision({ placement: { at: "here" }, reason: {} })).toBeUndefined();
   expect(parseAutoDecision("here")).toBeUndefined();
+});
+
+test("a scale-up admission becomes Auto's machine line only while scalingUp is true", () => {
+  expect(autoAddingMachineLine({ warning: "a machine is being added", scalingUp: true })).toBe(
+    "Auto is adding a machine",
+  );
+  expect(autoAddingMachineLine({ warning: "lane is over cap", scalingUp: false })).toBeUndefined();
+  expect(autoAddingMachineLine({ warning: "lane is over cap" })).toBeUndefined();
 });
 
 test("only Cloud is a place the page starts a chat on; any other place runs here", () => {

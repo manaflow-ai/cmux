@@ -200,3 +200,14 @@ export function AutoArrival({
     </div>
   );
 }
+
+/// The one-shot line shown while Auto's scale-up admission starts a machine. It uses the arrival
+/// line's existing Auto styling; the model decides whether the text is present.
+export function AutoAddingMachineLine({ text, look }: { text: string; look: AutoLook }) {
+  return (
+    <div className="acpmux-auto-arrival" data-auto-look={look} data-went="scalingUp" role="status">
+      <AutoIcon look={look} />
+      <span className="acpmux-auto-arrival-text">{text}</span>
+    </div>
+  );
+}
