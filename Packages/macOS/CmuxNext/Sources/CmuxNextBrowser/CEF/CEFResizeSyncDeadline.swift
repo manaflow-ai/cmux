@@ -19,7 +19,7 @@ import Foundation
 struct CEFResizeSyncDeadline: Equatable {
     /// The share of one display frame the wait may take. Half: the layout step, AppKit's display
     /// pass and the rest of the commit keep the other half.
-    static let frameShare = 0.5
+    nonisolated static let frameShare = 0.5
 
     /// The deadline the fork gets; 0 never holds the commit.
     let milliseconds: Int32
