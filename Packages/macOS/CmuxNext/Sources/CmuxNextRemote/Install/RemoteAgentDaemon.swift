@@ -165,11 +165,11 @@ public actor RemoteApprovalPreparations {
     /// only an `idle` daemon restarts, a busy answer kept for a minute. False: the chat starts unkeyed, and its Allow
     /// shows the normal restart notice.
     public func prepare(machine: String, daemonSaidSafe: Bool, held: Bool, idle: @escaping @Sendable () async -> Bool,
-                        restart: @escaping @Sendable () async -> Bool) async -> Bool {
+                        restart: @escaping @Sendable () async -> Bool, cacheBusy: Bool = true) async -> Bool {
         let keyed = Self.timed("approvals.key", restart), idleNow = Self.timed("approvals.status", idle)
         if daemonSaidSafe { return await run(machine: machine, keepBusy: false, keyed) }
         if held { return true }
-        return await run(machine: machine, keepBusy: true) {
+        return await run(machine: machine, keepBusy: cacheBusy) {
             guard await idleNow() else { return false }
             return await keyed()
         }
@@ -201,6 +201,20 @@ public actor RemoteApprovalPreparations {
             let value = try await body()
             _ = await task.value
             return value
+        } catch {
+            task.cancel()
+            _ = await task.value
+            throw error
+        }
+    }
+
+    /// Runs a preparation beside a body and returns the preparation's result after both finish.
+    @MainActor public static func ownedWithPreparation<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool,
+                                                          _ body: @MainActor () async throws -> T) async throws -> (value: T, prepared: Bool) {
+        let task = Task { await prep() }
+        do {
+            let value = try await body()
+            return (value, await task.value)
         } catch {
             task.cancel()
             _ = await task.value

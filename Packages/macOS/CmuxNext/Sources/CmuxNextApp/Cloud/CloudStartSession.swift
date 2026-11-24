@@ -247,12 +247,12 @@ struct CloudStartSession {
         // From the connect until the agent runs, and through its first turn (``CloudStartGate/started(_:)``), the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
-        try await connected(session, request, account: account, byPerson: byPerson)
-        steps.done("connect"); try still(name)
-        // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
-        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
-            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
-        }, cwd = copy?.chat ?? request.cwd
+        let (copy, prepared): ((chat: String, trusted: Bool)?, Bool) = try await RemoteApprovalPreparations.ownedWithPreparation({ [services] in guard !made, session.daemon.connection != nil else { return false }; return await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: false) }) {
+            try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name)
+            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder
+        }
+        if !prepared { _ = await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }
+        let cwd = copy?.chat ?? request.cwd
         try still(name); steps.done("approvals"); let credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID; if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
