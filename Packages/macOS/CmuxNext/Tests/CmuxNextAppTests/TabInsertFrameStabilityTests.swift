@@ -51,7 +51,7 @@ import Testing
 
             let times = MotionPath.times(from: begin, to: end + 1.0 / 120,
                                          count: MotionPath.sampleCount(seconds: end - begin + 1.0 / 120))
-            func sample(_ cell: TabCell, at time: CFTimeInterval) -> Sample {
+            @MainActor func sample(_ cell: TabCell, at time: CFTimeInterval) -> Sample {
                 let frame = TabStripMove.shownFrame(cell.layer, at: time)
                 let scrollPart = scrollPath.value(at: time).x - scrollPath.model.x
                 return Sample(frameX: frame.minX, contentX: frame.minX + strip.scrollOffset - scrollPart)
