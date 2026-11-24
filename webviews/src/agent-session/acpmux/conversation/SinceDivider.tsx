@@ -50,7 +50,7 @@ import {
 import { sinceLook } from "./sinceLook.experiment";
 import "./unread.css";
 import { intl } from "../../../ui/intl";
-import { newMessagesLabel } from "./newMessagesLabel";
+import { newMessagesLabel, shownCount } from "./newMessagesLabel";
 
 const useUnreadView = () => useSyncExternalStore(subscribeUnread, readUnread, readUnread);
 

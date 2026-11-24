@@ -43,7 +43,7 @@ colour	webviews/src/agent-session/acpmux/icons/PuzzleSizeGallery.tsx	1
 colour	webviews/src/agent-session/acpmux/icons/ToolbarIconsGallery.tsx	3
 colour	webviews/src/agent-session/acpmux/multiplayer/people.fixtures.ts	3
 colour	webviews/src/agent-session/acpmux/styles.css	2
-colour	webviews/src/agent-session/acpmux/subagents/SenderIcon.tsx	1
+colour	webviews/src/agent-session/acpmux/subagents/senderBadge.ts	1
 colour	webviews/src/agent-session/acpmux/subagents/subagents.css	1
 colour	webviews/src/agent-session/acpmux/threadMinimap/parity.tsx	5
 colour	webviews/src/agent-session/guest/theme.ts	30
