@@ -100,7 +100,7 @@ export function saysNothing(reply: string): boolean {
 export function isQuietReply(reply: string): boolean {
   const text = reply.trim();
   const lines = text.split("\n").filter((line) => line.trim()).length;
-  return lines <= 1 && [...text].length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
+  return lines <= 1 && Array.from(text).length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
 }
 /// acpmux's `SHORT_LINE`: the longest reply, in characters, that still reads as one short line.
 const QUIET_LINE = 160;
@@ -208,7 +208,10 @@ export function openBackgroundTurns(rows: readonly AcpmuxRow[], start: number, e
   let open = "";
   for (let at = start; at < end; at += 1) {
     const row = rows[at]!;
-    if (row.kind === BACKGROUND_TURN && expanded.has(row.id)) open += `${row.id} `;
+    if (row.kind !== BACKGROUND_TURN) continue;
+    // Its own line, and the "Worked for" over its work once it ended (turns.ts `foldTailTurns`).
+    const worked = expanded.has(`worked-${row.id}`);
+    if (worked || expanded.has(row.id)) open += `${row.id}${worked ? "+" : ""} `;
   }
   return open;
 }

@@ -71,3 +71,33 @@ fn only_a_verified_document_is_cached() {
     std::fs::write(root.path().join(CACHE_NAME), br#"{"version":1}"#).unwrap();
     assert!(cached(root.path(), &key).is_none());
 }
+
+#[test]
+fn tmux_control_mode_stays_off_unless_requested() {
+    let none = |_: &str| -> Option<String> { None };
+    let on = |name: &str| (name == TMUX_CONTROL_MODE_ENV).then(|| "1".to_string());
+    let off = |name: &str| (name == TMUX_CONTROL_MODE_ENV).then(|| "0".to_string());
+    assert!(!tmux_control_mode_enabled(&none));
+    assert!(!tmux_control_mode_enabled(&off));
+    assert_eq!(tmux_control_mode_enabled(&on), !disables(TMUX_CONTROL_MODE));
+}
+
+#[test]
+fn the_hybrid_start_flag_is_the_env_then_the_disabled_list_then_none() {
+    let env = |value: &'static str| {
+        move |name: &str| (name == HYBRID_CHAT_START_ENV).then(|| value.to_string())
+    };
+    let none = |_: &str| None;
+    let kept = |_: &str| false;
+    let dropped = |name: &str| name == HYBRID_CHAT_START;
+    for on in ["1", "true", "on", "yes", " yes "] {
+        assert_eq!(hybrid_chat_start_flag(&env(on), &dropped), Some(true), "{on}");
+    }
+    for off in ["0", "false", "off", "no"] {
+        assert_eq!(hybrid_chat_start_flag(&env(off), &kept), Some(false), "{off}");
+    }
+    assert_eq!(hybrid_chat_start_flag(&none, &kept), None);
+    assert_eq!(hybrid_chat_start_flag(&env("maybe"), &kept), None);
+    assert_eq!(hybrid_chat_start_flag(&none, &dropped), Some(false));
+    assert_eq!(hybrid_chat_start_flag(&env(""), &dropped), Some(false));
+}

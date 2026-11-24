@@ -5,8 +5,6 @@ import type { Strings } from "../shared/i18n";
 import type {
   AgentAuth,
   AgentRow,
-  AgentToolsRow,
-  AgentToolsState,
   ComputerUseState,
   ImportCounts,
   ImportDataKind,
@@ -17,11 +15,13 @@ import type {
   OnboardingStep,
   PrimaryAction,
 } from "./ops";
+import { intl } from "../../ui/intl";
 
 const KIND_KEYS: Record<ImportDataKind, string> = {
   bookmarks: "onboarding.kind.bookmarks",
   history: "onboarding.kind.history",
   openTabs: "onboarding.kind.openTabs",
+  extensions: "onboarding.kind.extensions",
   cookies: "onboarding.kind.signIns",
   searchEngines: "onboarding.kind.searchEngine",
   passwords: "onboarding.kind.passwords",
@@ -35,9 +35,9 @@ export function kindLabel(strings: Strings, kind: ImportDataKind): string {
 /** A count in the page's language ("8,311"). */
 export function formatCount(strings: Strings, value: number): string {
   try {
-    return new Intl.NumberFormat(strings.language).format(value);
+    return intl.NumberFormat(strings.language).format(value);
   } catch {
-    return new Intl.NumberFormat("en").format(value);
+    return intl.NumberFormat("en").format(value);
   }
 }
 
@@ -46,6 +46,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
   "bookmarks",
   "history",
   "openTabs",
+  "extensions",
   "cookies",
   "passwords",
 ];
@@ -54,7 +55,7 @@ const COUNTED: readonly (keyof ImportCounts & ImportDataKind)[] = [
 export function countsLine(strings: Strings, counts: ImportCounts | null | undefined): string {
   if (counts == null) return "";
   const parts = COUNTED.filter((kind) => (counts[kind] ?? 0) > 0).map(
-    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind])}`,
+    (kind) => `${kindLabel(strings, kind)} ${formatCount(strings, counts[kind] ?? 0)}`,
   );
   // One default engine per profile: its name alone says it came over.
   if ((counts.searchEngines ?? 0) > 0) parts.push(kindLabel(strings, "searchEngines"));
@@ -87,9 +88,9 @@ export function quotedList(items: readonly string[], language: string): string {
   const [open, close] = quotationMarks(language);
   const quoted = items.map((item) => `${open}${item}${close}`);
   try {
-    return new Intl.ListFormat(language, { type: "conjunction" }).format(quoted);
+    return intl.ListFormat(language, { type: "conjunction" }).format(quoted);
   } catch {
-    return new Intl.ListFormat("en", { type: "conjunction" }).format(quoted);
+    return intl.ListFormat("en", { type: "conjunction" }).format(quoted);
   }
 }
 
@@ -107,7 +108,6 @@ const PRIMARY_KEYS: Record<PrimaryAction, string> = {
   findBrowsers: "onboarding.import.findBrowsers",
   import: "onboarding.button.import",
   beginImporting: "onboarding.button.beginImporting",
-  addTools: "onboarding.agentTools.add",
 };
 
 /** The footer's filled button. */
@@ -121,48 +121,19 @@ export function primaryLabels(strings: Strings, step: OnboardingStep): string[] 
   const actions: PrimaryAction[] =
     step === "importData"
       ? ["findBrowsers", "detecting", "import", "beginImporting", "continue", "done"]
-      : step === "agentTools"
-        ? ["addTools", "done"]
-        : ["continue"];
+      : ["continue"];
   return actions.map((action) => strings.t(PRIMARY_KEYS[action]));
 }
 
 export function skipLabel(strings: Strings, skip: OnboardingFooter["skip"]): string {
-  if (skip === "notNow") return strings.t("onboarding.computerUse.notNow");
   return strings.t(skip === "skipImporting" ? "onboarding.button.skipImporting" : "onboarding.button.skip");
 }
 
 /** Skip's labels on a step: Import also says Skip Importing over the Keychain explainer. */
 export function skipLabels(strings: Strings, step: OnboardingStep): string[] {
-  if (step === "agentTools") return [strings.t("onboarding.computerUse.notNow")];
   return step === "importData"
     ? [strings.t("onboarding.button.skip"), strings.t("onboarding.button.skipImporting")]
     : [strings.t("onboarding.button.skip")];
-}
-
-const TOOLS_STATE_KEYS: Record<AgentToolsRow["state"], string> = {
-  ready: "onboarding.agentTools.state.ready",
-  terminals: "onboarding.agentTools.state.terminals",
-  failed: "onboarding.agentTools.state.failed",
-};
-
-/** The line under a coding agent's name: found, gets cmux's tools in cmux, or could not be read;
- * after Not Now a found agent says Off in cmux. */
-export function agentToolsDetail(strings: Strings, row: AgentToolsRow, tools: AgentToolsState): string {
-  if (row.state === "ready" && tools.choice === "off") return strings.t("onboarding.agentTools.state.notAdded");
-  return strings.t(TOOLS_STATE_KEYS[row.state] ?? TOOLS_STATE_KEYS.ready);
-}
-
-/** The line under the cmux Tools list, or null for none: Checking…, none found, Turning on…, what the
- * answer did, or that it could not be saved. */
-export function agentToolsStatus(strings: Strings, tools: AgentToolsState | null | undefined): string | null {
-  if (tools == null || !tools.loaded) return strings.t("onboarding.agents.checking");
-  if (tools.applying) return strings.t("onboarding.agentTools.adding");
-  if (tools.answered && tools.failed) return strings.t("onboarding.agentTools.failed");
-  if (tools.answered && tools.choice === "on") return strings.t("onboarding.agentTools.addedTerminals");
-  if (tools.answered && tools.choice === "off") return strings.t("onboarding.agentTools.declined");
-  if (tools.rows.length === 0) return strings.t("onboarding.agentTools.none");
-  return null;
 }
 
 const AUTH_KEYS: Record<AgentAuth, string> = {
@@ -193,7 +164,9 @@ export function agentDetail(strings: Strings, row: AgentRow): string {
 export function agentsStatus(strings: Strings, agents: OnboardingState["agents"]): string | null {
   if (agents?.signInFailed) return strings.t("onboarding.agents.signIn.failed");
   if (agents == null || !agents.loaded) return strings.t("onboarding.agents.checking");
-  if (agents.rows.length === 0) return strings.t("onboarding.agents.none");
+  // None found: say where to add one, so the person is not left at a dead end.
+  if (agents.rows.length === 0)
+    return `${strings.t("onboarding.agents.none")} ${strings.t("onboarding.agents.none.next")}`;
   if (agents.signingIn != null) return strings.t("onboarding.agents.signIn.running");
   return null;
 }
@@ -284,11 +257,24 @@ export function computerUseLine(strings: Strings, pane: string): string {
   );
 }
 
+/** The Screenshots row's note after Screen Recording was allowed here (`confirmsCapture`): macOS asks
+ * once more the first time the helper captures. Null for any other row or state. */
+export function computerUseCaptureNote(
+  strings: Strings,
+  pane: string,
+  confirmsCapture: boolean,
+): { confirm: string; detail: string } | null {
+  if (pane !== "screenRecording" || !confirmsCapture) return null;
+  return {
+    confirm: strings.t("onboarding.computerUse.screenshots.confirm"),
+    detail: strings.t("onboarding.computerUse.screenshots.confirmDetail"),
+  };
+}
+
 /** The window's title for the Window menu and VoiceOver. */
 export function windowTitle(strings: Strings, state: OnboardingState | null): string {
   if (state?.step === "importData") return strings.t("onboarding.import.title2");
   if (state?.step === "computerUse") return strings.t("onboarding.computerUse.title");
-  if (state?.step === "agentTools") return strings.t("onboarding.agentTools.title");
   if (state?.step === "makeItYours") return strings.t("onboarding.makeItYours.title");
   return strings.t("onboarding.agents.title");
 }

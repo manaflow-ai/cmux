@@ -7,8 +7,9 @@ what runs; only the scripts come from feat-cmux-next. cmux#43781 (2026-11-15) ad
 feat-cmux-next's copy only, and production never ran it until cmux#43866 brought main's copy along.
 
 Each test uses the fixture of tests/test_cmux_next_prepush_gate.py (the real hook installer and the real
-scripts/cmux-next checks in a throwaway repository, pushed through `git push` to a bare origin). Manual lane: no new
-CI tests (CLAUDE.md; Lawrence, 2026-10-23); hq's NOW names a standing difference between the two copies.
+scripts/cmux-next checks in a throwaway repository, pushed through `git push` to a bare origin). Manual lane (kept out
+of CI under Lawrence's 2026-10-23 no-new-CI rule, since lifted); hq's NOW names a standing difference between the
+two copies.
 """
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
 # GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
@@ -67,6 +68,29 @@ jobs:
     timeout-minutes: {timeout}
     steps:
       - run: echo sweep
+"""
+NIGHTLY = ".github/workflows/nightly.yml"
+NIGHTLY_YML = """name: Nightly macOS build
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "{cron}"
+  workflow_dispatch:
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo decide
+  {job}:
+    needs: decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: {node}
 """
 UNSCHEDULED = ".github/workflows/check.yml"
 PLAIN = """name: check
@@ -191,6 +215,44 @@ class MainTwinPushTests(unittest.TestCase):
         self.assertIn("Scheduled workflows match main's", output)
         self.assertIn("never fires", output)
 
+    def old_scheduled_file_main_lacks(self) -> str:
+        """origin/feat-cmux-next already has sweep.yml with its schedule, and main has no copy: base's drift."""
+        self.base_with_twins()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("sweep: an old scheduled file main never got")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        return self.remote_head()
+
+    def test_a_step_edit_in_a_scheduled_file_main_already_lacked_warns_and_passes(self):
+        # The missing twin is base's, not the push's: a push that edits only a step (no job, no cron) did not cause
+        # it, so it is warned about and goes through. Before, any edit to the file was refused for main's missing copy.
+        self.old_scheduled_file_main_lacks()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30").replace("echo sweep", "echo sweep twice"))
+        self.commit("sweep: say it twice")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        self.assertIn("WARNING", output)
+        self.assertIn("sweep.yml", output)
+        self.assertIn("before this push", output)
+
+    def test_a_cron_edit_in_a_scheduled_file_main_lacks_is_still_refused(self):
+        # The push's own change to the schedule of a file main has no copy of: still refused.
+        before = self.old_scheduled_file_main_lacks()
+        self.write(SCHEDULED, SWEEP.format(cron="5 3 * * *", timeout="30"))
+        self.commit("sweep: run earlier")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("never fires", output)
+
     def test_a_scheduled_workflow_with_its_twin_named_passes(self):
         self.base_with_twins()
         self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
@@ -221,6 +283,84 @@ class MainTwinPushTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(self.remote_head(), before)
         self.assertIn("jobs or crons now differ", output)
+
+    # A path whose main copy is another workflow: classic's nightly.yml beside NEXT's (cmux#44131). Its jobs never
+    # match main's, so no twin of a job change can exist; only its crons are held.
+
+    def base_with_other_workflows(self):
+        """origin/main's nightly.yml is classic's build and feat-cmux-next's is NEXT's: one path, other job names."""
+        self.base_with_twins()
+        self.git("checkout", "--quiet", "main")
+        self.write(NIGHTLY, NIGHTLY_YML.format(cron="17 */6 * * *", job="build-classic", node='"20"'))
+        self.commit("main's nightly: classic's build")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(NIGHTLY, NIGHTLY_YML.format(cron="17 */6 * * *", job="build-next", node='"24.22.1"'))
+        self.commit("feat-cmux-next's nightly: NEXT's build")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+
+    def test_a_job_change_in_a_file_main_runs_as_another_workflow_passes(self):
+        # cmux#44131's case: setup-node reads .node-version in NEXT's nightly.yml; main's nightly.yml is classic's,
+        # whose only Node pin is "20" and whose jobs have other names, so there is no twin PR to open.
+        self.base_with_other_workflows()
+        self.write(NIGHTLY, NIGHTLY_YML.format(cron="17 */6 * * *", job="build-next", node="${{ needs.decide.outputs.node_version }}"))
+        self.commit("ci: every setup-node step reads its Node version from one file")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_a_cron_change_in_a_file_main_runs_as_another_workflow_is_refused(self):
+        self.base_with_other_workflows()
+        before = self.remote_head()
+        self.write(NIGHTLY, NIGHTLY_YML.format(cron="47 8 * * *", job="build-next", node='"24.22.1"'))
+        self.commit("nightly: once a day")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("another workflow under this path", output)
+
+    def test_a_job_added_to_a_file_that_matched_main_is_refused(self):
+        # Matching job names before the push make main's copy the same workflow: a new job there needs its twin.
+        self.base_with_twins()
+        self.git("checkout", "--quiet", "main")
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("main's sweep")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("feat-cmux-next's sweep, the same as main's\n\nMain-Twin: https://github.com/manaflow-ai/cmux/pull/1")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30")
+                   + "  sweep-more:\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    steps:\n      - run: echo more\n")
+        self.commit("sweep: a second pass")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("jobs or crons now differ", output)
+
+    def test_a_branch_cut_from_main_adding_its_scheduled_file_passes(self):
+        # The main twin PR itself (cmux#48672, 2026-11-21): a branch off main that adds a scheduled shim is main's
+        # copy, the one that fires, so it needs no trailer naming a twin.
+        self.base_with_twins()
+        self.git("checkout", "--quiet", "-b", "lane/main-shim", "origin/main")
+        self.write(SCHEDULED, SWEEP.format(cron="11,41 * * * *", timeout="5"))
+        self.commit("sweep: a scheduled shim on main")
+
+        result = self.push_ref("HEAD:refs/heads/lane/main-shim")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lane/main-shim", result.stdout + result.stderr)
 
     # Every job is bounded (boneheaded-designs section 11).
 

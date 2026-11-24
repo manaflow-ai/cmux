@@ -30,6 +30,9 @@ import Testing
     final class Surface: Content, PaneCommitSurface {
         private(set) var asks: [CGSize] = []
         private var ready: (@MainActor () -> Void)?
+        /// The frame ticks it asks its commits to wait for it (a page laying out at a size it took ahead); nil: the
+        /// commit's own bound.
+        var commitWaitTicks: Int?
 
         func commitWillResize(by change: CGSize, ready: @escaping @MainActor () -> Void) {
             asks.append(change)

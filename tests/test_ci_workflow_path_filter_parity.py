@@ -28,6 +28,9 @@ EXEMPTIONS: dict[str, str] = {
     "name the cloud-VM API files inside it",
     # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
     # only the paths a look can apply without a build (the workflow's path gate).
+    "cmux-tui-spec.yml": "pull requests start every run and the `changes` job decides from the diff "
+    "(cmux-tui-spec-changed.py); the push list is the same decision made by GitHub. The pull request trigger lists "
+    "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
 }
@@ -58,6 +61,11 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/cmux-next/chromium-objc-contract.json",
             "scripts/import-apple-developer-id-intermediates.sh",
             "scripts/prune_nightly_release_assets.py",
+            # The cmux-tui tree key's build recipe, named one by one on push; a pull request admits each through
+            # .github/workflows/**, scripts/cmux-next/**, scripts/ci/** and Resources/** (below).
+            ".github/workflows/cmux-tui-build-package.yml", "Resources/cmux-cli-path/**",
+            "Resources/theme-files/**", "scripts/ci/stage-agent-detector.sh",
+            "scripts/cmux-next/cmux-tui-build-profiles.json",
             # Files the app build or its packaging reads (cmux_next_route.py NATIVE_SCRIPT_INPUTS): pull
             # requests admit them through scripts/ci/** and scripts/cmux-next/**, which pushes do not take.
             "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/fleet-rust-cache.sh",
@@ -74,32 +82,20 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only
 # these broad patterns may appear on pull requests without push.
 PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
-    # #21504 starts cmux-next.yml for every product and CI input on pull
-    # requests and lets the router pick the tier; base pushes keep the product
-    # list, so a push of these alone does not start the workflow.
+    # Empty since cmux-next.yml's push list took the rest of its pull_request list (#21504's product and CI
+    # inputs): a pull request skips its checks job (scripts/ci/affected-jobs.json
+    # pull_request_skip), so the push that lands it must start on every path the pull request does.
+    # Left: the docs-only plan excludes (#47195). They narrow the pull request; the push keeps plans/cmux-next/**
+    # whole, so it still starts on every plan file a pull request starts on.
     "cmux-next.yml": (
         "paths",
         frozenset({
-            ".github/actions/**", ".github/workflows/**", "Assets.xcassets/**", "Native/**",
-            "Resources/**", "TunnelExtension/**", "cmuxTests/**", "cmuxUITests/**", "daemon/**",
-            "scripts/cmux-next/**", "scripts/whats-new/**", "tests/**",
-            # What the checks tier's tests import, run or read (tests/test_ci_workflow_paths_cover_inputs.py).
-            "scripts/ci/**", ".claude/settings.json", ".gitattributes", ".github/github-token-budget.json",
-            ".github/runners.json", "README.md", "cmux-next-ios/scripts/set-test-notes.sh",
-            "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
-            "scripts/download-prebuilt-ghosttykit.sh",
-            "scripts/install-git-hooks.sh", "scripts/launch-tagged-automation.sh", "scripts/lib/reload-shim.test.mjs",
-            "scripts/lib/stop-app-instances.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
-            "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/strip-release-bundle.sh",
-            "scripts/write-app-symbol-map.py",
-            # A pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py);
-            # a push keeps plans/cmux-next/** whole.
             "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/browser-repl/README.md",
             "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
             "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
             "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/spec-proposals/visuals/README.md",
         }),
-        "pull requests admit every product and CI input (#21504); the router picks the tier",
+        "a pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py)",
     ),
 }
 
@@ -317,11 +313,17 @@ def check_push_only_allowance(allowed):
         assert unapproved(path, "cmux-next.yml") == {}
         write([*sorted(allowed), "!docs/**", *shared], [*shared, "!docs/**"])
         assert unapproved(path, "cmux-next.yml") == {"paths": ([], [])}
-        # An allowed pull-request-only pattern passes; others still fail.
+        # cmux-next.yml takes no pull-request-only pattern: a path its push skips fails.
         write(shared, [*shared, "tests/**"])
-        assert unapproved(path, "cmux-next.yml") == {}
-        write(shared, [*shared, "tests/**", "docs/**"])
-        assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["docs/**"])}
+        assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["tests/**"])}
+        # An allowed pull-request-only pattern passes; others still fail.
+        PULL_REQUEST_ONLY_PATTERNS["cmux-next.yml"] = ("paths", frozenset({"tests/**"}), "test allowance")
+        try:
+            assert unapproved(path, "cmux-next.yml") == {}
+            write(shared, [*shared, "tests/**", "docs/**"])
+            assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["docs/**"])}
+        finally:
+            del PULL_REQUEST_ONLY_PATTERNS["cmux-next.yml"]
         # The allowance belongs to its workflow only.
         write([*shared, *sorted(allowed)], shared)
         assert unapproved(path, "other.yml") == {"paths": (sorted(allowed), [])}

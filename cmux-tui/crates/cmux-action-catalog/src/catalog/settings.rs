@@ -266,6 +266,23 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action live-swift-stop",
         ..Action::DEFAULT
     },
+    // Update Status: one read of the running build, the staged update and whether a relaunch
+    // installs it now (`UpdaterService.statusAnswer`). A CLI run answers the fields
+    // (`cmux settings update-status --json`); a palette run shows the one line as a toast.
+    Action {
+        id: "updates.status",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.status", "Update Status"),
+        hint: Some(t("ActionCatalog", "action.updates.status.hint", "The running build, the staged update and whether a relaunch installs it now.")),
+        description: Some("Reads the running build, the staged update (if any) and relaunch readiness (ready, held and why, installing, or nothing staged). Changes nothing."),
+        keywords: &["update", "status", "version", "build", "staged", "relaunch", "restart", "ready", "idle", "nightly"],
+        category: "settings",
+        symbol: "info.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings update-status",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "updates.whatsNew",
         group: GROUP,
@@ -472,6 +489,28 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action app-try-undo",
+        ..Action::DEFAULT
+    },
+    // The recovery key (customization capability matrix row `recovery-hotkey`): one fixed chord
+    // that runs `cmux customize revert`, so a look that broke the window is undone without
+    // finding Settings or a terminal. Its handler runs the bundled CLI's verb (the engine is
+    // cmux-customize `try_on.rs`), as Settings' Revert Now does. The chord is one no other
+    // default, macOS or Ghostty takes (`tests/default_keymap_conflicts.rs`). A person's
+    // keybindings can still rebind it: the catalog has no unbindable flag, and safe mode
+    // (`cmux safe-mode on`) loads the defaults with no customization.
+    Action {
+        id: "customize.revert",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.revert", "Undo Look Change"),
+        hint: Some(t("ActionCatalog", "action.customize.revert.hint", "Stop trying on a look and put back what was there before.")),
+        description: Some("Runs `cmux customize revert`: ends the look being tried on and puts back what was there before."),
+        keywords: &["customize", "customization", "look", "theme", "revert", "undo", "put back", "broken", "recover", "reset", "try on"],
+        default_shortcut: Some(Shortcut { key: "z", modifiers: CTRL | OPT | CMD }),
+        category: "settings",
+        symbol: "arrow.uturn.backward.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-revert",
         ..Action::DEFAULT
     },
     Action {
@@ -1043,6 +1082,20 @@ pub static ACTIONS: &[Action] = &[
         symbol: "keyboard",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-keycap-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every tooltip state on the real tooltip surface, light, dark and an accent theme, with a live toolbar to hover
+    // (Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent").
+    Action {
+        id: "debug.tooltipGallery",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.tooltipGallery", "Tooltip Gallery"),
+        keywords: &["tooltip", "tooltips", "hover", "help", "shortcut", "keycap", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "questionmark.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-tooltip-gallery",
         is_debug_only: true,
         ..Action::DEFAULT
     },
