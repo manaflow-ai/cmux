@@ -795,6 +795,7 @@ impl Hub {
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
             rolling_summary: m.rolling_summary.clone(),
+            approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
@@ -1058,6 +1059,11 @@ impl Hub {
             v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
+        // A fork of a subagent: the chat and the subagent whose conversation it holds
+        // (`fork_subagent.rs`), the pane's "subagent of" line.
+        if let Some(of) = &m.fork_of_subagent {
+            v.set("forkOf", json!(of));
+        }
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
