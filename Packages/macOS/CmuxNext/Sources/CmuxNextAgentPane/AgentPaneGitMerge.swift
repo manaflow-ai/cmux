@@ -9,7 +9,7 @@ import Foundation
 /// App's token, or the person's `gh`.
 extension AgentPaneGitPullRequest {
     /// One GitHub op (``AgentPaneGitHub/call(_:)``; tests pass a fake).
-    typealias GitHubCall = @Sendable (_ params: [String: any Sendable]) async -> AgentPaneGitHub.Answer
+    typealias GitHubCall = @Sendable (_ params: [String: any Sendable]) async -> AgentPaneGitHubREST.Answer
 
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
     private static let required = "!"
@@ -35,7 +35,7 @@ extension AgentPaneGitPullRequest {
     }
 
     /// ``mergeQuery`` for pull request `number` of `repository`.
-    static func mergeView(_ repository: String, _ number: Int, github: GitHubCall = AgentPaneGitHub.call) async -> Result<MergeView, MergeRefusal> {
+    static func mergeView(_ repository: String, _ number: Int, github: GitHubCall = AgentPaneGitHubREST.call) async -> Result<MergeView, MergeRefusal> {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return .failure(MergeRefusal(message: mergeChangedMessage)) }
         let answer = await github(["op": "graphql", "repo": repository, "query": mergeQuery,
@@ -53,7 +53,7 @@ extension AgentPaneGitPullRequest {
     /// Merges pull request `number` of `repository` at exactly `head` with `method`, then reads
     /// back whether it merged or went into the base branch's merge queue.
     static func mergePinned(_ repository: String, _ number: Int, head: String, method: String,
-                            github: GitHubCall = AgentPaneGitHub.call) async -> PageMerge {
+                            github: GitHubCall = AgentPaneGitHubREST.call) async -> PageMerge {
         let merged = await github(["op": "pr.merge", "repo": repository, "number": number, "head": head, "method": method])
         guard merged.ok else { return .refused(merged.refusal) }
         // A base branch with a merge queue takes it into the queue, not merged yet.
@@ -63,8 +63,8 @@ extension AgentPaneGitPullRequest {
     }
 
     @concurrent static func merge(_ number: Int, url shown: String, in folder: String,
-                                  github: GitHubCall = AgentPaneGitHub.call) async -> Outcome {
-        guard let pull = AgentPaneGitHub.pullRequest(shown), pull.number == number else { return .refused(mergeChangedMessage) }
+                                  github: GitHubCall = AgentPaneGitHubREST.call) async -> Outcome {
+        guard let pull = AgentPaneGitHubREST.pullRequest(shown), pull.number == number else { return .refused(mergeChangedMessage) }
         let view: MergeView
         switch await mergeView(pull.repository, number, github: github) {
         case .failure(let refusal): return .refused(refusal.message)

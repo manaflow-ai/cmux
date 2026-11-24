@@ -186,7 +186,7 @@ struct AgentPaneGitPullRequestTests {
         let outcome = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: nil, push: Self.push(), github: { params in
             asked.append("\(params["op"] as? String ?? "") \(params["repo"] as? String ?? "") \(params["path"] as? String ?? "")")
             let pulls = #"[{"html_url":"https://github.com/o/r/pull/9","number":9,"state":"open","head":{"sha":"x"}}]"#
-            return AgentPaneGitHub.Answer(ok: true, status: 200, body: Data(pulls.utf8), source: "app")
+            return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(pulls.utf8), source: "app")
         })
         #expect(outcome == .opened(url: "https://github.com/o/r/pull/9", number: 9))
         #expect(asked.all == ["get o/r pulls?head=o:feature&state=all&per_page=20"])

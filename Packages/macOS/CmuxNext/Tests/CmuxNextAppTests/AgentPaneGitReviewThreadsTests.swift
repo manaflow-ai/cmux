@@ -52,9 +52,9 @@ struct AgentPaneGitReviewThreadsTests {
             asked.append(op == "graphql" ? "graphql \(params["repo"] as? String ?? "") \(params["variables"].map { "\($0)" } ?? "")"
                                          : "\(op) \(params["repo"] as? String ?? "") \(params["path"] as? String ?? "")")
             switch op {
-            case "get": return AgentPaneGitHub.Answer(ok: true, status: 200, body: Data(pulls.utf8), source: "app")
-            case "graphql": return AgentPaneGitHub.Answer(ok: true, status: 200, body: Data(graphQL.utf8), source: "app")
-            default: return AgentPaneGitHub.Answer(ok: false, status: 404, message: "Not Found")
+            case "get": return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(pulls.utf8), source: "app")
+            case "graphql": return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(graphQL.utf8), source: "app")
+            default: return AgentPaneGitHubREST.Answer(ok: false, status: 404, message: "Not Found")
             }
         }
         return (folder, github, asked)

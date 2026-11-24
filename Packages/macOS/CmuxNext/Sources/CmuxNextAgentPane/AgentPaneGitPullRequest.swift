@@ -60,7 +60,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// at that path (nil: not installed).
     @concurrent static func run(_ request: AgentPaneGitPullRequest, roots: [String], home: String = NSHomeDirectory(),
                                 gh: String?, push: (@Sendable (String, String?) async throws -> Void)? = nil,
-                                github: GitHubCall = AgentPaneGitHub.call) async -> Outcome {
+                                github: GitHubCall = AgentPaneGitHubREST.call) async -> Outcome {
         let folder: String
         switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
         case .refused(let message): return .refused(message)
@@ -252,7 +252,7 @@ extension AgentPaneGitPullRequest {
     /// `git.pullRequest` (nil: params that break the contract), for a chat on this Mac only: spends
     /// `model`'s GRANT credit, then opens the pull request; a threads read needs no credit.
     @MainActor static func reply(to request: AgentPaneGitPullRequest?, in model: AgentPaneModel,
-                                 gh: String? = gitHubCLI(), github: GitHubCall = AgentPaneGitHub.call) async -> [String: Any] {
+                                 gh: String? = gitHubCLI(), github: GitHubCall = AgentPaneGitHubREST.call) async -> [String: Any] {
         guard let request else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
         guard model.gitWritesHere?() == true else {
             return AgentPaneReply.failure(code: "git.remote", message: AgentPaneGitProcess.remoteMessage)

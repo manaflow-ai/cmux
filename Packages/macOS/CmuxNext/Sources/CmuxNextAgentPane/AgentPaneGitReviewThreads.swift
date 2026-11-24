@@ -81,7 +81,7 @@ extension AgentPaneGitPullRequest {
     /// (``AgentPaneGitHub``; a merged or closed one's are not this work's). A thread on a file that
     /// differs here from the pull request's head is marked moved; every one is when that head is
     /// not here to compare.
-    @concurrent static func threads(in folder: String, github: GitHubCall = AgentPaneGitHub.call) async -> Outcome {
+    @concurrent static func threads(in folder: String, github: GitHubCall = AgentPaneGitHubREST.call) async -> Outcome {
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
         guard let place = await branchPlace(git: git) else { return .threads(url: nil, number: nil, []) }
         let found: BranchPullRequest

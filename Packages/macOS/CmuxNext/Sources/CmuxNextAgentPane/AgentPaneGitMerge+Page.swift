@@ -18,7 +18,7 @@ public extension AgentPaneGitPullRequest {
     /// at `head`, the commit the page showed; nothing is pushed and no branch is deleted. It runs
     /// through acpmux (``AgentPaneGitHub``): the cmux GitHub App's token, or the person's `gh`.
     @concurrent static func mergeShown(url: String, head: String) async -> PageMerge {
-        guard isPullRequestURL(url), isCommit(head), let pull = AgentPaneGitHub.pullRequest(url) else { return .refused(mergeChangedMessage) }
+        guard isPullRequestURL(url), isCommit(head), let pull = AgentPaneGitHubREST.pullRequest(url) else { return .refused(mergeChangedMessage) }
         let view: MergeView
         switch await mergeView(pull.repository, pull.number) {
         case .failure(let refusal): return .refused(refusal.message)
@@ -58,7 +58,7 @@ public extension AgentPaneGitPullRequest {
               parts.allSatisfy({ !$0.hasPrefix("-") && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-._".contains($0)) } }) else {
             return mergeChangedMessage
         }
-        let answer = await AgentPaneGitHub.call(["op": "run.rerunFailed", "repo": repository, "run": run])
+        let answer = await AgentPaneGitHubREST.call(["op": "run.rerunFailed", "repo": repository, "run": run])
         return answer.ok ? nil : answer.refusal
     }
 
@@ -66,14 +66,14 @@ public extension AgentPaneGitPullRequest {
     /// request's body and conversation, its checks), through acpmux; nil when it did not work.
     @concurrent static func pageRead(_ repository: String, query: String, variables: [String: any Sendable],
                                      scope: String = "pulls") async -> Data? {
-        let answer = await AgentPaneGitHub.graphql(repository, query, variables, scope: scope)
+        let answer = await AgentPaneGitHubREST.graphql(repository, query, variables, scope: scope)
         return answer.ok ? answer.body : nil
     }
 
     /// `GET repos/{repository}/{path}` for the page (an Actions job, its log's last `tail` bytes),
     /// through acpmux; nil when it did not work.
     @concurrent static func pageGet(_ repository: String, _ path: String, tail: Int? = nil) async -> Data? {
-        let answer = await AgentPaneGitHub.get(repository, path, tail: tail)
+        let answer = await AgentPaneGitHubREST.get(repository, path, tail: tail)
         return answer.ok ? answer.body : nil
     }
 }

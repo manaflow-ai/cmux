@@ -66,6 +66,9 @@ pub mod github_cli_identity;
 pub mod github_cli_joined;
 /// The Mac app's GitHub calls as data: what acpmux's `_acpmux/github_rest` runs with an App token.
 pub mod github_rest;
+/// `cmux github` on a machine a Mac lends GitHub to: the ask goes to its acpmux daemon.
+#[cfg(unix)]
+pub mod github_cli_lane;
 #[cfg(unix)]
 pub mod github_wiring;
 #[cfg(unix)]

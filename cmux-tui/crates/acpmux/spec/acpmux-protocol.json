@@ -229,6 +229,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/felt_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true

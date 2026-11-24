@@ -32,7 +32,7 @@ struct AgentPaneGitMergeTests {
 
         func show(_ json: String) { lock.withLock { shown = json } }
 
-        func call(_ params: [String: any Sendable]) -> AgentPaneGitHub.Answer {
+        func call(_ params: [String: any Sendable]) -> AgentPaneGitHubREST.Answer {
             let op = params["op"] as? String ?? ""
             return lock.withLock {
                 switch op {
@@ -41,14 +41,14 @@ struct AgentPaneGitMergeTests {
                     asked.append("graphql \(params["repo"] as? String ?? "") \(variables["number"] as? Int ?? 0)")
                     let pull = merged ? #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"\#(afterState)"}"# : shown
                     let body = #"{"data":{"repository":{"viewerDefaultMergeMethod":"REBASE","pullRequest":\#(pull)}}}"#
-                    return AgentPaneGitHub.Answer(ok: true, status: 200, body: Data(body.utf8), source: "app")
+                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(body.utf8), source: "app")
                 case "pr.merge":
                     asked.append("pr.merge \(params["repo"] as? String ?? "") \(params["number"] as? Int ?? 0) \(params["method"] as? String ?? "") \(params["head"] as? String ?? "")")
                     merged = true
-                    return AgentPaneGitHub.Answer(ok: true, status: 200, body: Data(#"{"merged":true}"#.utf8), source: "app")
+                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(#"{"merged":true}"#.utf8), source: "app")
                 default:
                     asked.append(op)
-                    return AgentPaneGitHub.Answer(ok: false, status: 404, message: "Not Found")
+                    return AgentPaneGitHubREST.Answer(ok: false, status: 404, message: "Not Found")
                 }
             }
         }
