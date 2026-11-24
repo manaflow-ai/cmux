@@ -110,9 +110,10 @@ final class TerminalDockInsetUITests: XCTestCase {
         }
     }
 
-    /// A reattach past the quiet bound: the ConnectionChip shows (no
-    /// "Reattaching…" anywhere) and the dock keeps its rows; Reconnect in the
-    /// page menu ends it.
+    /// A reattach past the quiet bound: the page keeps its last frame and
+    /// says nothing about the link (no chip, no "Reattaching…", no
+    /// "Connecting"; Leo, 2026-11-24), the dock keeps its rows, and Reconnect
+    /// in the page menu ends it.
     @MainActor
     func testReattachTakesNoRow() throws {
         XCUIDevice.shared.orientation = .portrait
@@ -125,11 +126,14 @@ final class TerminalDockInsetUITests: XCTestCase {
         let attachedBottom = field.frame.maxY
         attach(app, "1-attached")
 
+        // Past the quiet bound (10 s) the page still says nothing about the link.
+        Thread.sleep(forTimeInterval: 12)
         let chip = app.descendants(matching: .any)["connection.chip"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 25), "the connection chip shows past the quiet bound\n\(app.debugDescription)")
-        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reattaching")).firstMatch.exists,
-                       "no \"Reattaching…\" text (Leo, 2026-11-24)")
-        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(chip.exists, "no connection chip on the terminal page (Leo, 2026-11-24)\n\(app.debugDescription)")
+        for word in ["Reattaching", "Reconnecting", "Connecting", "offline"] {
+            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", word)).firstMatch.exists,
+                           "no \"\(word)\" text on the page past the quiet bound\n\(app.debugDescription)")
+        }
         attach(app, "2-reattaching")
         let gap = field.frame.minY - control.frame.maxY
         XCTAssertEqual(gap, attachedGap, accuracy: 1, "a reattach adds no row between the key row and the composer")
@@ -146,7 +150,7 @@ final class TerminalDockInsetUITests: XCTestCase {
         XCTAssertTrue(reconnect.waitForExistence(timeout: 5), "Reconnect in the page menu\n\(app.debugDescription)")
         attach(app, "3-page-menu-reconnect")
         reconnect.tap()
-        XCTAssertTrue(chip.waitForNonExistence(timeout: 5), "attached again: the chip goes")
+        XCTAssertFalse(chip.exists, "attached again: still no chip")
         attach(app, "4-reconnected")
     }
 

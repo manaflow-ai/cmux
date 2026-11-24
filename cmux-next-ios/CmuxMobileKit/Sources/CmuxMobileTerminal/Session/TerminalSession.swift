@@ -76,9 +76,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
     }
 
     /// The sentence for an outage that has lasted `QuietStatusGate.threshold`
-    /// (nil: attached): the terminal's ``ConnectionChip`` reads it to VoiceOver
-    /// (``chip``). Plain words, never a transport error ("daemon channel
-    /// closed"), never "Reattaching…" (Leo, 2026-11-24).
+    /// (nil: attached). Nothing on the page shows it (no chip, no pill
+    /// subtitle: the page keeps its last frame, Leo, 2026-11-24); it gates
+    /// Reconnect in the page menu (`TerminalModel.offersReconnect`). Plain
+    /// words, never a transport error.
     public var quietLine: String? {
         func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
@@ -93,8 +94,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
     }
 
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
-    /// its last frame live and readable under no overlay; past the quiet
-    /// bound a ``ConnectionChip`` says what is going on (``chip``).
+    /// its last frame live and readable under no overlay, and says nothing
+    /// about the link at any age of the outage (Leo, 2026-11-24).
     public var keepsWarmFrame: Bool {
         switch self {
         case .reattaching, .offline, .failed: true
@@ -419,28 +420,3 @@ public struct AlternateScreenDetector: Sendable {
         return isActive == before ? nil : isActive
     }
 }
-
-#if os(iOS)
-import CmuxMobileDesign
-
-extension TerminalConnectionState {
-    /// The terminal's connection as the same ``ConnectionChip`` every other surface shows (the
-    /// Home list, Workspaces, agent chat, the browser), with ``quietLine`` as its VoiceOver
-    /// sentence; nil while attached. The terminal's only connection text: no pill subtitle,
-    /// no "Reattaching…" (Leo, 2026-11-24: "there's some b******t about like, you know, the
-    /// reattaching dot, dot, dot type thing"). Shown only past the quiet bound
-    /// (`TerminalModel.connectionLine`).
-    public var chip: ConnectionChip.Content? {
-        guard let sentence = quietLine else { return nil }
-        let kind: ConnectionChip.Kind
-        switch self {
-        case .connecting: kind = .connecting
-        case .reattaching: kind = .reconnecting
-        case .offline: kind = .macOffline
-        case .failed: kind = .cantReach
-        case .attached: return nil
-        }
-        return ConnectionChip.Content(kind, sentence: sentence)
-    }
-}
-#endif

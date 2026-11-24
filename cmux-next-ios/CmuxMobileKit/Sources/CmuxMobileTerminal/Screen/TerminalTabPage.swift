@@ -140,7 +140,7 @@ public struct TerminalTabPage: View {
             // entire thing is somehow grayed out and I can't interact with anything at all").
             // Only a page with no rows of its own yet shows the Mac's screen text or a
             // skeleton, which take no touches. No status over the content or by the composer:
-            // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
+            // nothing on screen says it at any age (Leo, 2026-11-24: no waiting state).
             .overlay {
                 Group {
                     if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,

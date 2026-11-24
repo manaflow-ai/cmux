@@ -61,8 +61,9 @@ struct TerminalComposer: View {
             }
             // No connection line here: a reattach takes no row (Leo,
             // 2026-11-17: "The reconnect takes an extra line"). The state is
-            // the title pill's subtitle and Reconnect is in the page menu,
-            // both only past the quiet bound (`TerminalModel.connectionLine`).
+            // not on screen at all (the page keeps its last frame, Leo,
+            // 2026-11-24); Reconnect is in the page menu past the quiet bound
+            // (`TerminalModel.connectionLine`).
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)

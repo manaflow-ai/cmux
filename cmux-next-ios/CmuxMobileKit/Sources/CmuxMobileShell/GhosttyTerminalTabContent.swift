@@ -697,8 +697,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // The keyboard toggle and ^C live on the key bar, and Back leaves
         // the workspace, so the menu does not repeat them (design/terminal P1).
         var actions: [TerminalTabAction] = []
-        // Retry, past the quiet bound of an outage only (the connection chip
-        // shows then): first in the menu, no layout space on the page.
+        // Retry, past the quiet bound of an outage only: first in the menu.
+        // The page itself says nothing about the link; it keeps its last
+        // frame and reconnects on its own (Leo, 2026-11-24).
         if model.offersReconnect, let reconnect = model.reconnect {
             actions.append(TerminalTabAction(title: "Reconnect", systemImage: "arrow.clockwise") { Task { await reconnect() } })
         }
@@ -829,44 +830,6 @@ struct TerminalTabSlotPage: View {
     var body: some View {
         TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
             .id(ObjectIdentifier(slot.host))
-            .overlay(alignment: .bottomLeading) {
-                TerminalConnectionChip(model: slot.host.model, insets: insets)
-            }
-    }
-}
-
-/// The terminal's connection, as the same ``ConnectionChip`` the other surfaces show: nothing
-/// for the first ``QuietStatusGate/threshold`` of an outage (the page keeps its last frame,
-/// live and touchable), then the chip just above the key row and composer, as the agent chat
-/// places it (`AgentChatConnectionLine`). An overlay, never in the stack, so it moves nothing
-/// (Leo, 2026-11-21: "stop layout shifting"). It replaces the title pill's "Reattaching…"
-/// (Leo, 2026-11-24: "there's some b******t about like, you know, the reattaching dot, dot,
-/// dot type thing"); Reconnect stays in the page menu.
-struct TerminalConnectionChip: View {
-    let model: TerminalModel
-    let insets: EdgeInsets
-
-    var body: some View {
-        // `connectionLine` is nil until the model's QuietStatusGate has held the outage.
-        let chip = model.connectionLine == nil ? nil : model.connectionState.chip
-        Group {
-            if let chip {
-                ConnectionChip(chip, downSince: nil) // the model held it (QuietStatusGate)
-                    .padding(.leading, 20)
-                    .padding(.bottom, bottom)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: chip)
-    }
-
-    /// 8 pt above the dock at rest (key row and one-line composer), which sits 8 pt above
-    /// the toolbar inset.
-    private var bottom: CGFloat {
-        let dock = TerminalDockMetrics().restingStackHeight(
-            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
-            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
-        return insets.bottom + 8 + dock + 8
     }
 }
 
