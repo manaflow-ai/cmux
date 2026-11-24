@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45360379569",
+  "recorded_at": "2026-11-24T09:19:55Z",
+  "reason": "cmux-tui 67d01201b152 changes the image's cmux-tui (pinned 12da26a5ddc8)",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "972eeb5f61f5429ce27294b51a541f17cb446c59",
+      "mergedAt": "2026-11-24T07:50:15Z",
+      "subject": "Hybrid start: fall back to Cloud when no local harness can answer (#53326)"
+    },
+    {
+      "sha": "fc088b18e4b69e09430d2511a40847f228978acc",
+      "mergedAt": "2026-11-24T07:47:12Z",
+      "subject": "Auto: where a new agent chat runs, decided by the daemon (orbit look) (#50334)"
+    },
+    {
+      "sha": "3d22d909cb30f8c3b95f8e8174ca0c52800a1ba2",
+      "mergedAt": "2026-11-24T07:47:03Z",
+      "subject": "acpmux: a host link broken by a full disk is reattached once the store logs again (F20) (#44645)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-24T09:19:55Z",
+    "snapshot_id": "sh-45e26d8be8c94db085218199c90c0bbb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45360379569): 31 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "323030214d597907769dccbe0bb164ccd917c4c7",
+    "image": "cloud-native-auto-67d01201-45360379569-1",
+    "revision": "ci-45360379569-1",
+    "at": "2026-11-24T09:19:55Z"
+  },
+  "rolled_back": false
+}
