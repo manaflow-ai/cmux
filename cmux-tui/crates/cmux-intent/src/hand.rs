@@ -27,12 +27,12 @@ pub fn word_to(
     let mut cands: Vec<String> = Vec::new();
     if !flags {
         for rule in tbl.cli_entry(prog).map(|e| e.aliases.as_slice()).unwrap_or_default() {
-            if rule.from == [tok]
-                && rule.to.len() == 1
+            if let [to] = rule.to.as_slice()
+                && rule.from == [tok]
                 && rule.under == under
-                && known.contains(&rule.to[0])
+                && known.contains(to)
             {
-                cands.push(rule.to[0].clone());
+                cands.push(to.clone());
             }
         }
     }
@@ -61,15 +61,16 @@ pub fn word_to(
         seen.push(c.clone());
         new
     });
-    if cands.is_empty() {
+    let Some(first) = cands.first().cloned() else {
         return tok.to_owned();
-    }
+    };
     let value = tok.split_once('=').map_or(String::new(), |(_, v)| format!("={v}"));
     let shown: Vec<String> = cands
         .iter()
         .take(MAX_SHOWN)
         .map(|c| if flags { format!("{c}{value}") } else { c.clone() })
         .collect();
+    let first_shown = shown.first().cloned().unwrap_or_else(|| first.clone());
     let mut result = Repair {
         outcome: Kind::Ran,
         argv: vec![tok.to_owned()],
@@ -87,23 +88,23 @@ pub fn word_to(
             "{prog}: `{tok}` could mean (nothing ran): {}",
             shown.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(", ")
         );
-    } else if tbl.unsafe_word(&cands[0])
+    } else if tbl.unsafe_word(&first)
         || tbl.unsafe_word(tok)
-        || (!flags && tbl.exact_path(prog, &[under, std::slice::from_ref(&cands[0])].concat()))
+        || (!flags && tbl.exact_path(prog, &[under, std::slice::from_ref(&first)].concat()))
     {
         result.outcome = Kind::Exact;
-        result.word = Some(cands[0].clone());
+        result.word = Some(first.clone());
         let _ = writeln!(
             err,
             "{prog}: `{tok}` is not a form of {prog}, and `{}` is destructive or outward, so nothing ran: \
              the exact form is needed. Did you mean `{}`?",
-            shown[0], shown[0]
+            first_shown, first_shown
         );
     } else {
-        let _ = writeln!(err, "{prog}: ran `{}` for `{tok}`", shown[0]);
+        let _ = writeln!(err, "{prog}: ran `{first_shown}` for `{tok}`");
     }
     log(prog, &[tok.to_owned()], &result);
-    if result.outcome == Kind::Ran { shown[0].clone() } else { tok.to_owned() }
+    if result.outcome == Kind::Ran { first_shown } else { tok.to_owned() }
 }
 
 /// `word_to` on stderr with the process table.
@@ -155,11 +156,11 @@ pub fn words_to(
     }
     let mut sub = String::new();
     if !subcommands.is_empty()
-        && let Some(i) = out.iter().position(|t| !t.starts_with('-'))
+        && let Some(slot) = out.iter_mut().find(|t| !t.starts_with('-'))
     {
-        let fixed = word_to(&out[i], subcommands, prog, false, &[], tbl, err);
+        let fixed = word_to(slot, subcommands, prog, false, &[], tbl, err);
         sub = fixed.clone();
-        out[i] = fixed;
+        *slot = fixed;
     }
     let mut known = flags("");
     known.extend(flags(&sub));

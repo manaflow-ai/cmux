@@ -184,8 +184,8 @@ fn flag_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table) -> Vec<Edit> {
         if name.starts_with("--") && name.len() > 2 {
             let pre: Vec<String> =
                 known.names().filter(|k| k.starts_with(&name)).map(str::to_owned).collect();
-            if pre.len() == 1 {
-                return vec![("spelling", pre[0].clone())];
+            if let [one] = pre.as_slice() {
+                return vec![("spelling", one.clone())];
             }
         }
         let syn: Vec<String> = tbl
@@ -322,8 +322,8 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
         return out;
     }
     let prefixed: Vec<String> = choices.iter().filter(|c| c.starts_with(&tok)).cloned().collect();
-    if prefixed.len() == 1 {
-        swap("spelling", &prefixed, format!("`{}` for `{tok}`", prefixed[0]), 1, &mut out);
+    if let [one] = prefixed.as_slice() {
+        swap("spelling", &prefixed, format!("`{one}` for `{tok}`"), 1, &mut out);
         return out;
     }
     for m in close(&tok, &choices) {
@@ -333,16 +333,17 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
         return out;
     }
     // A subcommand word typed later: `REPO status`, `pr status` for `status pr`.
-    if let Some(&j) = walk
+    if let Some((j, word)) = walk
         .positionals
         .iter()
-        .find(|&&j| j > i && argv.get(j).is_some_and(|w| choices.contains(w)))
+        .filter(|&&j| j > i)
+        .find_map(|&j| argv.get(j).filter(|w| choices.contains(w)).map(|w| (j, w)))
     {
         let mut moved: Vec<String> = argv.iter().take(i).cloned().collect();
-        moved.push(argv[j].clone());
-        moved.extend(argv.iter().skip(i).take(j - i).cloned());
-        moved.extend(argv.iter().skip(j + 1).cloned());
-        out.push(("order", moved, format!("`{}` moved before `{tok}`", argv[j])));
+        moved.push(word.clone());
+        moved.extend(argv.iter().skip(i).take(j.saturating_sub(i)).cloned());
+        moved.extend(argv.iter().skip(j.saturating_add(1)).cloned());
+        out.push(("order", moved, format!("`{word}` moved before `{tok}`")));
     }
     let default = entry.and_then(|e| e.default.as_ref()).and_then(|d| match d {
         serde_json::Value::String(s) => Some(s.clone()),
@@ -442,10 +443,12 @@ fn message_edits(argv: &[String], walk: &Walk<'_>, err: &clap::Error, tbl: &Tabl
             }
             for m in dedup(cands) {
                 let mut new = argv.to_vec();
-                new[i] = match argv[i].strip_suffix(&tok) {
-                    Some(head) if head.ends_with('=') => format!("{head}{m}"),
-                    _ => m.clone(),
-                };
+                if let Some(slot) = new.get_mut(i) {
+                    *slot = match slot.strip_suffix(tok.as_str()) {
+                        Some(head) if head.ends_with('=') => format!("{head}{m}"),
+                        _ => m.clone(),
+                    };
+                }
                 out.push((class, new, format!("`{m}` for `{tok}`")));
             }
         }
@@ -458,7 +461,10 @@ fn message_edits(argv: &[String], walk: &Walk<'_>, err: &clap::Error, tbl: &Tabl
                 if perm.iter().enumerate().any(|(a, b)| a != *b) {
                     let mut new = argv.to_vec();
                     for (slot, src) in pos.iter().zip(&perm) {
-                        new[*slot] = argv[pos[*src]].clone();
+                        let word = pos.get(*src).and_then(|&p| argv.get(p));
+                        if let (Some(dst), Some(word)) = (new.get_mut(*slot), word) {
+                            dst.clone_from(word);
+                        }
                     }
                     if new != argv {
                         out.push(("order", new, "positionals reordered".to_owned()));

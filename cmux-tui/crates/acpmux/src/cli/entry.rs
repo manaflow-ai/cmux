@@ -305,7 +305,10 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
                     None => e.exit(),
                 }
             };
-            argv = std::iter::once(argv[0].clone())
+            argv = argv
+                .first()
+                .cloned()
+                .into_iter()
                 .chain(fixed.into_iter().map(OsString::from))
                 .collect();
             match grammar.try_get_matches_from_mut(argv.clone()) {
