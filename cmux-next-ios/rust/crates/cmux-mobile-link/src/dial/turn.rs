@@ -34,6 +34,13 @@ use crate::class_queue::{ClassQueue, Queued, SendClass};
 
 /// Bound on a UDP allocation; the dial goes on without one after this.
 const UDP_WAIT: Duration = Duration::from_millis(2000);
+/// Bound on a UDP allocation when no TCP or TLS TURN server is listed, so
+/// there is nothing to hand a slow one over to. A lost answer or two on a
+/// lossy link takes it past `UDP_WAIT`: the longest of 80 lossy-3 dials in
+/// `lan_roundtrip` (idle and under load) took 2211 ms, through the 437
+/// release. Past this, the dial goes on without a relay instead of waiting
+/// out the turn crate's 7 sends (7.8 s).
+const NO_STREAM_UDP_WAIT: Duration = Duration::from_millis(3000);
 /// A stream allocation starts this long after the UDP one, unless UDP
 /// failed sooner: UDP to the nearest TURN server takes two round trips
 /// where it works, so a network that answers UDP never opens a TLS
@@ -363,9 +370,10 @@ impl TurnCarrier {
         let tried_udp = udp.is_some();
         // UDP_WAIT hands a slow UDP allocation over to the stream one; with
         // no stream server there is nothing to hand over to, and UDP gets
-        // the dial's own bound (on a lossy link, losing an answer or two
-        // takes it past UDP_WAIT).
-        let udp_wait = if stream.is_some() { UDP_WAIT } else { options.timeout.max(UDP_WAIT) };
+        // NO_STREAM_UDP_WAIT (on a lossy link, losing an answer or two
+        // takes it past UDP_WAIT), within the dial's own bound.
+        let udp_wait =
+            if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
         let udp = async {
             match udp {
                 Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await,
@@ -819,6 +827,24 @@ mod tests {
             TurnCarrier::allocate(&options).await.expect("a TURN allocation despite the lost answer");
         assert_eq!(carrier.transport, TurnTransport::Udp);
         assert!(started.elapsed() < UDP_WAIT, "took {:?}", started.elapsed());
+    }
+
+    /// With UDP blocked and no stream server listed, the allocation gives
+    /// up at NO_STREAM_UDP_WAIT, not after the turn crate's 7 sends (7.8 s).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_blocked_udp_allocation_with_no_stream_server_gives_up_at_its_bound() {
+        let turn = crate::testing::TestTurn::start().await;
+        turn.set_udp_blocked(true);
+        let options = DialOptions {
+            ice_servers: vec![turn.udp_only()],
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let started = tokio::time::Instant::now();
+        assert!(TurnCarrier::allocate(&options).await.is_none());
+        let elapsed = started.elapsed();
+        assert!(elapsed >= NO_STREAM_UDP_WAIT - Duration::from_millis(50), "took {elapsed:?}");
+        assert!(elapsed < NO_STREAM_UDP_WAIT + Duration::from_millis(500), "took {elapsed:?}");
     }
 
     fn ice(urls: &[&str]) -> Vec<IceServer> {
