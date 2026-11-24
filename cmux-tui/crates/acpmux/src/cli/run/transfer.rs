@@ -56,6 +56,8 @@ pub(super) struct Begun {
     pub(super) transfer_id: String,
     pub(super) epoch: u64,
     pub(super) stage_id: Option<String>,
+    /// `session move --as`: the target's harness the chat lands on (`hub/transfer_in.rs`).
+    pub(super) as_harness: Option<String>,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
@@ -178,7 +180,7 @@ async fn begin_with(
             .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
     };
     let stage_id = staged.filter(|_| begin.get("prefix").is_some()).map(|s| s.stage_id.clone());
-    Ok(Begun { begin, transfer_id, epoch, stage_id })
+    Ok(Begun { begin, transfer_id, epoch, stage_id, as_harness: None })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -403,6 +405,9 @@ async fn finish_noted(
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
+    }
+    if let Some(name) = &begun.as_harness {
+        receive_params.set("asHarness", json!(name));
     }
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {

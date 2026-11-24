@@ -405,7 +405,7 @@ impl Hub {
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
-        let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let mut manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         let incoming_epoch = manifest_epoch(&manifest)?;
         let incoming_floor = incoming_epoch.unwrap_or(0);
         let guard = match params.get("guard") {
@@ -456,9 +456,12 @@ impl Hub {
                 "cmux-harness durable transfers require acpmux.transfer.v2",
             ));
         }
-        if !self.config.read().await.harnesses.contains_key(harness) {
-            let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
-            return Err(e.with_data(json!({"harness": harness})));
+        // `--as`: the chat lands on this machine's own harness for the same agent.
+        let as_harness = params.get("asHarness").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let family = manifest["harnessFamily"].as_str();
+        received_harness(&self.config.read().await, harness, as_harness, family)?;
+        if let Some(name) = as_harness {
+            manifest.set("asHarness", json!(name));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
         for f in &files {
@@ -557,6 +560,34 @@ impl Hub {
         Ok(json!({"next": have + data.len() as u64}))
     }
 
+    /// The received chat's metadata `meta` (the bundle's `session.json`) put on this machine's
+    /// harness `name`, which runs the same agent (`received_harness`): its launch is this one's,
+    /// its conversation and modes stay. Moving back `--as` the old name restores it.
+    async fn land_on_harness(
+        &self,
+        bundle: &Path,
+        meta: &mut SessionMeta,
+        name: &str,
+    ) -> Result<(), RpcError> {
+        let profile = self.config.read().await.harnesses.get(name).cloned();
+        let Some(profile) = profile else {
+            let e = transfer_error("harness", format!("agent {name:?} is not configured here"));
+            return Err(e.with_data(json!({"harness": name})));
+        };
+        meta.harness = name.to_owned();
+        meta.harness_argv = profile.argv.clone();
+        meta.family = Some(crate::config::derive_family(name, &profile));
+        // The source machine's launch and preset name nothing here.
+        meta.spawn_argv = None;
+        meta.launch_digest = None;
+        meta.preset = None;
+        let path = bundle.join("session.json");
+        let wrote = serde_json::to_vec_pretty(&*meta)
+            .map_err(anyhow::Error::from)
+            .and_then(|raw| Ok(crate::home_fs::write(&path, raw)?));
+        wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))
+    }
+
     /// Imports the received chat and runs its queue here.
     pub(super) async fn transfer_finish(
         self: &Arc<Self>,
@@ -597,6 +628,10 @@ impl Hub {
                 "schema",
                 "bundle identity does not match transfer manifest",
             ));
+        }
+        let mut bundle_meta = bundle_meta;
+        if let Some(name) = manifest["asHarness"].as_str().filter(|n| *n != bundle_meta.harness) {
+            self.land_on_harness(&bundle, &mut bundle_meta, name).await?;
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
@@ -838,4 +873,66 @@ impl Hub {
         }
         true
     }
+}
+
+/// Whether a chat on the source's harness `source` (running the agent `family`, when the source
+/// says) may land here, on `as_harness` (`session move --as`) or else on its own name. `--as`
+/// names a harness configured here that runs the same agent; with no `--as`, a missing name's
+/// refusal names this machine's harness for the same agent.
+pub(super) fn received_harness(
+    cfg: &crate::config::Config,
+    source: &str,
+    as_harness: Option<&str>,
+    family: Option<&str>,
+) -> Result<(), RpcError> {
+    let missing = |name: &str, hint: String| {
+        let e = transfer_error("harness", format!("agent {name:?} is not configured here{hint}"));
+        e.with_data(json!({"harness": name}))
+    };
+    let Some(name) = as_harness else {
+        if cfg.harnesses.contains_key(source) {
+            return Ok(());
+        }
+        let same: Vec<String> = family
+            .and_then(|f| cfg.families().remove(f))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n != source)
+            .collect();
+        let hint = match same.as_slice() {
+            [] => String::new(),
+            [one] => format!("; this machine has {one:?} for the same agent: move with --as {one}"),
+            [first, ..] => format!(
+                "; this machine has {} for the same agent: move with --as {first}",
+                same.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ")
+            ),
+        };
+        return Err(missing(source, hint));
+    };
+    let Some(theirs) = cfg.family(name) else {
+        return Err(missing(name, String::new()));
+    };
+    if name == source {
+        return Ok(());
+    }
+    // A source that does not say which agent runs its harness: judged by the same name here.
+    let Some(ours) = family.map(str::to_owned).or_else(|| cfg.family(source)) else {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "the source does not say which agent {source:?} runs, so --as {name} is not checked: update its acpmux"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name})));
+    };
+    if ours != theirs {
+        let e = transfer_error(
+            "harness",
+            format!(
+                "--as {name}: {name:?} runs {theirs} here and the chat's {source:?} runs {ours}; a chat moves only onto a harness for the same agent"
+            ),
+        );
+        return Err(e.with_data(json!({"harness": source, "as": name, "family": ours})));
+    }
+    Ok(())
 }

@@ -267,6 +267,8 @@ pub(crate) struct MoveArgs {
     /// `--from-snapshot`: the chats start on the target from this machine's copy of them
     /// (`session_move_snapshot.rs`), for a machine that does not answer.
     pub from_snapshot: bool,
+    /// `--as HARNESS`: the chats land on the target's harness HARNESS, one for the same agent.
+    pub as_harness: Option<String>,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -526,6 +528,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         resume_there,
         from: None,
         from_snapshot: false,
+        as_harness: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -720,13 +723,15 @@ async fn move_steps(
         super::transfer::precopy(src, &dst, &dst_init, &id),
     )
     .await;
-    let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
+    let mut begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await
+    {
         // The log changed under the prefix (a compaction): given back, and moved in full.
         Err(e) if super::transfer::refused_diverged(&e) => {
             begin_waiting(src, &id, &name, watch, args, None).await?
         }
         begun => begun?,
     };
+    begun.as_harness = args.as_harness.clone();
     let prepared = waiting(
         &name,
         "making its folder on the target",
