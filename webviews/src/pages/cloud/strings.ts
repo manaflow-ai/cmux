@@ -286,6 +286,19 @@ export const L = {
   capTeamSpend: "cap.teamSpend",
   budgetReached: "budget.reached",
   budgetSpent: "budget.spent",
+  poolTitle: "pool.title",
+  poolUsed: "pool.used",
+  poolResets: "pool.resets",
+  poolNear: "pool.near",
+  poolNearBody: "pool.nearBody",
+  poolPaused: "pool.paused",
+  poolPausedBody: "pool.pausedBody",
+  poolOverage: "pool.overage",
+  poolLimit: "pool.limit",
+  poolLimitHint: "pool.limitHint",
+  poolLimitBuys: "pool.limitBuys",
+  poolLimitInvalid: "pool.limitInvalid",
+  poolLimitAdminOnly: "pool.limitAdminOnly",
 } as const;
 
 export type StringKey = (typeof L)[keyof typeof L];

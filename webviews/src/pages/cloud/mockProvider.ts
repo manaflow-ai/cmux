@@ -26,6 +26,8 @@ import {
   type TransferChanged,
 } from "./ops";
 
+import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
+
 export { sampleMachines } from "./mockData";
 
 /**
@@ -160,6 +162,10 @@ export class MockCloudProvider implements PageClient {
    * create answers `spend_cap_reached`. Unset: a server without the cap.
    */
   spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The plan's hours and the spend limit past them as `cloud.plan.get` answers them (RFD 0081, pool.ts). */
+  pool?: PoolStanding;
+  /** The spend limit's setter answers `cmux.cloud.forbidden` (the caller is not a team admin). */
+  spendLimitForbidden = false;
   /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
   memberBudget?: { spent_usd: number; limit_usd: number };
   /**
@@ -276,7 +282,8 @@ export class MockCloudProvider implements PageClient {
       },
       ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
       ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
-    };
+      ...(this.pool ? { pool: { ...this.pool } } : {}),
+    } as CloudPlan;
   }
 
   /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
@@ -714,8 +721,21 @@ export class MockCloudProvider implements PageClient {
   }
 
   /** The host's native confirmation: on yes it runs the op as origin user and answers its result. */
+  /** The spend limit's setter, as the platform answers it: an admin's, parsed like PoolLimit.ts, the new standing. */
+  private setSpendLimit(args: Params): unknown {
+    if (!this.pool) throw pageError("cmux.cloud.unknown_op", `${SPEND_LIMIT_SET} is not a Cloud op`);
+    if (this.spendLimitForbidden) throw pageError("cmux.cloud.forbidden", "only a team admin sets the spend limit");
+    const limit = parseSpendLimit(String(args.spend_limit_usd));
+    if (limit === null) throw pageError("cmux.cloud.invalid_args", "spend_limit_usd must be 0 to 10000");
+    const pool = this.pool;
+    const mayRun = pool.percent < 100 || pool.overage_usd < limit;
+    this.pool = { ...pool, spend_limit_usd: limit, may_run: mayRun };
+    return { confirmed: true, pool: this.pool };
+  }
+
   private runAction(p: Params): unknown {
     const action = String(p.action);
+    if (action === SPEND_LIMIT_SET) return this.setSpendLimit((p.args ?? {}) as Params);
     if (action === HostActions.browserTabOpen) {
       if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
       if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");

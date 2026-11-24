@@ -416,6 +416,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.pool) provider.pool = { ...state.pool };
+  if (state.spendLimitForbidden) provider.spendLimitForbidden = true;
   if (state.surge) provider.surge = JSON.parse(JSON.stringify(state.surge));
   if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
   if (state.planId) provider.account.plan.plan_id = state.planId;
@@ -449,6 +451,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   document.documentElement.dataset.cmuxPage = "cloud";
   document.documentElement.dataset.cmuxWebviewKind = "cloud";
   document.documentElement.dataset.cloudMachinesLayout = state.layout ?? "rows";
+  document.documentElement.dataset.cloudSpendLimit = state.pool ? "on" : "off";
   if (state.hash) location.hash = state.hash;
   await import("../../pages/cloud/main");
   if (state.action === "select-machine") clickLater(".cloud-machine");
