@@ -295,6 +295,7 @@ import {
 } from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
+import { useListedSubagents } from "./backgroundTasks/useListedSubagents";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
@@ -3292,6 +3293,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [backgroundOpen, processRegistry, transcriptTasks],
   );
   const backgroundDismissed = backgroundPanel?.dismissed;
+  // Every subagent acpmux lists for the chat, which the panel's rows (the page's newest records)
+  // may not hold (backgroundTasks/listedSubagents.ts).
+  const listSubagents = useCallback(() => directClient.current?.listSubagents() ?? Promise.resolve(undefined), []);
+  const listedSubagents = useListedSubagents(
+    connected && clientEpoch > 0 ? listSubagents : undefined,
+    backgroundOpen,
+    shownSessionId,
+  );
   const backgroundList = useMemo(
     () =>
       backgroundOpen
@@ -3304,6 +3313,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               chatName,
               sessionId: shownSessionId,
               dismissed: backgroundDismissed,
+              listed: listedSubagents.list,
             },
             backgroundCache.current,
           )
@@ -3317,6 +3327,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       chatName,
       shownSessionId,
       backgroundDismissed,
+      listedSubagents.list,
     ],
   );
   // A workflow agent's transcript in the panel reads as the workflow pane's does (Labs only).
@@ -10374,6 +10385,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     saveDocumentNatively,
     backgroundPanel,
     backgroundList,
+    backgroundListing: listedSubagents.loading,
     clientEpoch,
     backgroundFocus,
     stopSubagent,

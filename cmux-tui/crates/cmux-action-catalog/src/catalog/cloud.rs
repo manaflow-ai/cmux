@@ -836,7 +836,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudPauseMachine",
         group: GROUP,
         title: Text::raw("Pause Machine"),
-        description: Some("Pauses the machine (--target machine:<id>); the run answers machine_id, target and status once the server has paused it, or pending: true past 30 s while the pause goes on. `cmux cloud resume-machine --target machine:<id>` starts it again."),
+        description: Some("Pauses the machine (--target machine:<id>); the run ends when the server has paused it, answering machine_id, target and status `paused`. A pause that takes longer than 30 s answers `pending: true` with status `pausing` and goes on; `cmux vm status` shows when it lands. `cmux cloud resume-machine --target machine:<id>` starts it again."),
         keywords: &["vm", "cloud tree", "pause", "sleep"],
         category: "cloud",
         symbol: "pause.circle",
@@ -847,6 +847,8 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         palette_target_source: Some("cloud"),
         cli_name: "cloud pause-machine",
+        // A server round trip the caller awaits: the 40 s result deadline, never the 2 s
+        // control-plane one that answered `timeout` while the pause was still in flight.
         waits_for_result: true,
         ..Action::DEFAULT
     },
@@ -854,7 +856,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudResumeMachine",
         group: GROUP,
         title: Text::raw("Resume Machine"),
-        description: Some("Resumes a paused machine (--target machine:<id>); the run answers machine_id, target and status once the server has resumed it, or pending: true past 30 s while the resume goes on."),
+        description: Some("Resumes a paused machine (--target machine:<id>); the run ends when the server has resumed it, answering machine_id, target and status `running`. A resume that takes longer than 30 s answers `pending: true` with status `starting` and goes on; `cmux vm status` shows when it lands."),
         keywords: &["vm", "cloud tree", "resume", "wake", "start"],
         category: "cloud",
         symbol: "play.circle",
