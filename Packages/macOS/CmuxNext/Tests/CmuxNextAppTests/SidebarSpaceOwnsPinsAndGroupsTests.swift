@@ -175,7 +175,7 @@ import Testing
     }
 
     /// A Pinned group can list in a window because its workspace is open there, while each link, tab and app member
-    /// keeps its own space. Legacy members with no `extra.room` belong to Default, and a daemon with no profile
+    /// keeps its stored space. An unstamped member follows the group and a deleted space falls back to Default. No profile
     /// capability leaves the list unfiltered because the window has no active space.
     @Test func aPinnedGroupFiltersMixedRoomMembers() {
         let records = SidebarDocRecords(sections: [
@@ -186,7 +186,7 @@ import Testing
             "itm_ws": SidebarDocItem(id: "itm_ws", section: Self.pinned, parent: "itm_g", body: .workspace(Self.ref("ws-1"))),
             "itm_link": SidebarDocItem(id: "itm_link", section: Self.pinned, parent: "itm_g", body: .url("https://work.example", title: nil), room: Self.work),
             "itm_tab": SidebarDocItem(id: "itm_tab", section: Self.pinned, parent: "itm_g", body: .tab("tab-home"), room: Self.home),
-            "itm_app": SidebarDocItem(id: "itm_app", section: Self.pinned, parent: "itm_g", body: .app("acme.weather")),
+            "itm_app": SidebarDocItem(id: "itm_app", section: Self.pinned, parent: "itm_g", body: .app("acme.weather"), room: "deleted-space"),
             "itm_legacy": SidebarDocItem(id: "itm_legacy", section: Self.pinned, parent: "itm_g", body: .url("https://legacy.example", title: nil)),
         ])
         let rows = [
@@ -211,7 +211,7 @@ import Testing
                 return group.items.map(\.item.id)
             })
         }
-        #expect(members(room: Self.work, spaces: Self.spaces) == ["itm_link"], "Work members leaked: \(members(room: Self.work, spaces: Self.spaces))")
+        #expect(members(room: Self.work, spaces: Self.spaces) == ["itm_link", "itm_legacy"], "Work members leaked: \(members(room: Self.work, spaces: Self.spaces))")
         #expect(members(room: Self.home, spaces: Self.spaces) == ["itm_app", "itm_legacy", "itm_tab"], "Default members missing: \(members(room: Self.home, spaces: Self.spaces))")
         #expect(members(room: nil, spaces: nil) == ["itm_app", "itm_legacy", "itm_link", "itm_tab"], "A daemon without profiles filtered members: \(members(room: nil, spaces: nil))")
     }
