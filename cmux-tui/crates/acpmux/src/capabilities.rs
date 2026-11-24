@@ -153,6 +153,11 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // `session/new` with `_meta.acpmux.placeRedirect: 1`: a create this lane host has no room
+    // for starts on the peer the placement engine picks, answered with that peer's session and
+    // `_meta.acpmux.placedOn` (`hub/admission_redirect.rs`). Older daemons ignore the opt-in and
+    // start it here, warned; a client that sends none gets that from this one too.
+    Capability { id: crate::hub::admission_redirect::CAPABILITY, wire: &[method::SESSION_NEW] },
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
@@ -340,6 +345,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every running subagent of a chat and its latest ended ones, whatever a page of the chat
+    // holds (`hub/subagent_list.rs`): the Background tasks panel's list.
+    Capability { id: "subagent-list-v1", wire: &[method::MUX_SUBAGENT_LIST] },
     // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
     // past the newest page its log was seeded with (`hub/native_history.rs`).
     Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
