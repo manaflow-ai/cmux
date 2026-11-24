@@ -21,7 +21,8 @@ type Props = {
 };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
-const count = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent ?? "";
+const count = (ctx: PlayContext) =>
+  ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count ?? "";
 
 export const composerHatScript = [
   {
@@ -81,7 +82,7 @@ export default componentEntry<Props>({
       props: { start: 7 },
     },
     "line-many": {
-      note: "128 run (^ 99+): the widest pill, and the gap in the line is as wide.",
+      note: "128 run (^ 128, never 99+): a three-digit pill, and the gap in the line is as wide.",
       props: { start: 128 },
     },
     "line-left": {
@@ -128,7 +129,7 @@ export default componentEntry<Props>({
       props: { start: 7, surface: "queue" },
     },
     "line-queue-many": {
-      note: "128 run (^ 99+) over a queue: the queue's gap is the widest pill's width.",
+      note: "128 run (^ 128) over a queue: the queue's gap is the pill's width.",
       props: { start: 128, surface: "queue" },
     },
     "line-queue-narrow-left": {

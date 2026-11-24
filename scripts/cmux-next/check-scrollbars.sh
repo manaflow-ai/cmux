@@ -72,7 +72,12 @@ ALLOWED_RULES = {
     # no track, its thumb drawn only while it scrolls). Under `auto` WebKit adds that scroller's
     # lane over rows laid out without it, so a row's trailing 8 px took no press (cmuxterm-hq#7707);
     # `scroll` keeps the lane, as MINIMAL_SCROLLER_CSS does, and draws nothing at rest.
-    "webviews/src/agent-session/acpmux/quickModelColumns.css": {"overflow": "card scroller keeps its lane"},
+    # Its harness rail scrolls with no scrollbar (Lucas 2026-11-22): the system scroller drew a wide
+    # track over the tiles on hover. Hidden the same way as the session rail's list.
+    "webviews/src/agent-session/acpmux/quickModelColumns.css": {
+        "overflow": "card scroller keeps its lane",
+        "custom": "harness rail scrollbar hidden",
+    },
     "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/agent-session/acpmux/conversation/usePierreCode.ts": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/agent-session/acpmux/conversation/CodeToolbarButtons.gallery.tsx": {"overflow-style": "@pierre/diffs option"},
