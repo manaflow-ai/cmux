@@ -465,6 +465,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.backgroundColor = base
         overrideUserInterfaceStyle = theme.interfaceStyle
         composerHost?.overrideUserInterfaceStyle = theme.interfaceStyle
+        jumpRowHost?.overrideUserInterfaceStyle = theme.interfaceStyle
+        lastSentHost?.overrideUserInterfaceStyle = theme.interfaceStyle
         bottomBacking.backgroundColor = base
         tuiBelowCover.backgroundColor = base
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
@@ -554,7 +556,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // 2026-11-22: "dont draw unnecessary attention by making it light"),
         // so its text and hairline take the theme's look, light or dark.
         composer.overrideUserInterfaceStyle = terminalInterfaceStyle
-        jumpRow.overrideUserInterfaceStyle = .dark
+        // The pills take the theme too (`TerminalPillLook`): their glass and
+        // hairline follow its light or dark look.
+        jumpRow.overrideUserInterfaceStyle = terminalInterfaceStyle
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
         bottomStack.addSubview(keyBarClip)
@@ -3775,7 +3779,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let host = UIHostingController(rootView: TerminalLastSentStrip(model: model))
         host.safeAreaRegions = []
         host.sizingOptions = [.intrinsicContentSize]
-        host.overrideUserInterfaceStyle = .dark
+        host.overrideUserInterfaceStyle = terminalInterfaceStyle
         host.view.backgroundColor = .clear
         host.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(host)
