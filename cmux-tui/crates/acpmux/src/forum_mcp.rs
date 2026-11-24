@@ -31,6 +31,34 @@ fn tools() -> Value {
             }
         },
         {
+            "name": "post",
+            "description": "Post to a forum topic, e.g. a tip to \"tips\" for the team. A tip is not a rule: no session is told it, it only shows when someone reads the topic. Use announce for a rule.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "e.g. \"tips\"."},
+                    "kind": {"type": "string", "enum": ["tip", "status", "question", "decision", "claim"], "description": "Default tip."},
+                    "key": {"type": "string", "description": "The title (required for a tip)."},
+                    "body": {"type": "string"},
+                    "links": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["topic", "body"]
+            }
+        },
+        {
+            "name": "read",
+            "description": "Read a topic's posts, newest first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "since": {"type": "integer", "description": "Only posts created after this many ms since the epoch."},
+                    "limit": {"type": "integer", "description": "Default 50, at most 200."}
+                },
+                "required": ["topic"]
+            }
+        },
+        {
             "name": "rules",
             "description": "The current rules, newest per key, with author and how many sessions read each; structuredContent also lists open proposals. A person's rule is an instruction; an agent's is information.",
             "inputSchema": {"type": "object", "properties": {}}
@@ -85,6 +113,33 @@ pub fn announce_text(r: &Value) -> String {
         n("pushed"),
         n("pending")
     )
+}
+
+/// A topic's posts as one paragraph each.
+pub fn list_text(r: &Value) -> String {
+    let rows = r["posts"].as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        return format!("No posts on {}.", r["topic"].as_str().unwrap_or("this topic"));
+    }
+    rows.iter()
+        .map(|p| {
+            let a = &p["author"];
+            let who = a["account"].as_str().or(a["handle"].as_str()).or(a["name"].as_str());
+            let links = p["links"].as_array().map(|l| {
+                l.iter().filter_map(Value::as_str).map(|l| format!("\n  {l}")).collect::<String>()
+            });
+            format!(
+                "[{}] {} ({}, {}):\n{}{}",
+                p["kind"].as_str().unwrap_or(""),
+                p["key"].as_str().unwrap_or(""),
+                who.unwrap_or("?"),
+                p["id"].as_str().unwrap_or(""),
+                p["body"].as_str().unwrap_or(""),
+                links.unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// The rules as an agent reads them: one paragraph per key.
@@ -142,6 +197,20 @@ async fn call(daemon: &Client, params: &Value) -> Value {
                 Err(e) => error_result(format!("{e:#}")),
             }
         }
+        "post" => {
+            let mut args = args;
+            if let Some(o) = args.as_object_mut() {
+                o.remove("account");
+            }
+            match daemon.request(method::MUX_FORUM_POST, args).await {
+                Ok(r) => ok(format!("Posted {}.", r["post"]["id"].as_str().unwrap_or("")), r),
+                Err(e) => error_result(format!("{e:#}")),
+            }
+        }
+        "read" => match daemon.request(method::MUX_FORUM_LIST, args).await {
+            Ok(r) => ok(list_text(&r), r),
+            Err(e) => error_result(format!("{e:#}")),
+        },
         "rules" => match daemon.request(method::MUX_FORUM_RULES, json!({})).await {
             Ok(r) => ok(rules_text(&r), r),
             Err(e) => error_result(format!("{e:#}")),

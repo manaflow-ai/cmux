@@ -839,7 +839,7 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     let tools = ask(2, "tools/list", json!({})).await;
     let names: Vec<&str> =
         tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["announce", "rules", "ack"], "{tools}");
+    assert_eq!(names, ["announce", "post", "read", "rules", "ack"], "{tools}");
 
     // An `account` argument does not make the agent a person.
     let posted = ask(
@@ -858,6 +858,18 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     assert!(text.contains("[merges]") && text.contains("gh-merge-green"), "{text}");
     assert!(text.contains("information"), "{text}");
 
+    let tip = ask(
+        6,
+        "tools/call",
+        json!({"name": "post", "arguments": {"topic": "tips", "key": "Use wt new", "body": "One checkout per lane.", "links": ["https://example.com/wt"]}}),
+    )
+    .await;
+    assert_eq!(tip["isError"], false, "{tip}");
+    assert_eq!(tip["structuredContent"]["post"]["kind"], "tip", "{tip}");
+    let read = ask(7, "tools/call", json!({"name": "read", "arguments": {"topic": "tips"}})).await;
+    let text = read["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("Use wt new") && text.contains("https://example.com/wt"), "{text}");
+
     let post_id = post["id"].as_str().unwrap();
     let acked =
         ask(5, "tools/call", json!({"name": "ack", "arguments": {"postId": post_id}})).await;
@@ -865,4 +877,47 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     let rule = app.rule("merges").await.unwrap();
     assert_eq!(rule["acks"][0]["sessionId"], id.as_str(), "{rule}");
     let _ = std::fs::remove_file(&socket);
+}
+
+/// A tip posts and lists on any topic, never becomes a rule, and never reaches a prompt.
+#[tokio::test]
+async fn tips_post_and_list_by_topic_without_becoming_rules() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let id = app.new_session().await;
+    let t1 = app
+        .ok(
+            "_acpmux/forum/post",
+            json!({"topic": "tips", "kind": "tip", "key": "first", "body": "one"}),
+        )
+        .await;
+    assert_eq!(t1["post"]["kind"], "tip", "{t1}");
+    app.ok(
+        "_acpmux/forum/post",
+        json!({"topic": "tips", "key": "second", "body": "two", "links": ["https://x.y"]}),
+    )
+    .await;
+    app.ok("_acpmux/forum/post", json!({"topic": "other", "key": "o", "body": "three"})).await;
+    let list = app.ok("_acpmux/forum/list", json!({"topic": "tips"})).await;
+    let keys: Vec<&str> =
+        list["posts"].as_array().unwrap().iter().filter_map(|p| p["key"].as_str()).collect();
+    assert_eq!(keys, ["second", "first"], "{list}");
+    assert_eq!(list["posts"][0]["links"][0], "https://x.y", "{list}");
+    let one = app.ok("_acpmux/forum/list", json!({"topic": "tips", "limit": 1})).await;
+    assert_eq!(one["posts"].as_array().unwrap().len(), 1, "{one}");
+
+    let rules = app.ok("_acpmux/forum/rules", json!({})).await;
+    assert!(rules["rules"].as_array().unwrap().is_empty(), "{rules}");
+    let reply = app.prompt(&id, "hello").await;
+    assert!(!reply.contains("cmux-rules-context") && !reply.contains("first"), "{reply}");
+
+    // Rules go through announce; a tip needs a title and a body.
+    app.refused(
+        "_acpmux/forum/post",
+        json!({"topic": "tips", "kind": "announce", "key": "k", "body": "b"}),
+    )
+    .await;
+    app.refused("_acpmux/forum/post", json!({"topic": "tips", "body": "no title"})).await;
+    app.refused("_acpmux/forum/post", json!({"topic": "tips", "key": "k", "body": " "})).await;
+    app.refused("_acpmux/forum/post", json!({"key": "k", "body": "no topic"})).await;
 }

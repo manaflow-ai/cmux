@@ -55,6 +55,19 @@ fn storage(e: anyhow::Error) -> RpcError {
     RpcError::internal(format!("forum log: {e:#}"))
 }
 
+/// Posts a `list` returns unless it asks for fewer or more.
+const DEFAULT_LIST: usize = 50;
+const MAX_LIST: usize = 200;
+
+/// What a `post` asks for.
+pub struct PostRequest {
+    pub topic: String,
+    pub kind: String,
+    pub key: Option<String>,
+    pub body: String,
+    pub links: Vec<String>,
+}
+
 /// What an `announce` asks for.
 pub struct AnnounceRequest {
     pub key: String,
@@ -250,6 +263,7 @@ impl Hub {
             body,
             supersedes: None,
             proposes: None,
+            links: Vec::new(),
             urgent: req.urgent,
             retired: req.retire,
             created: now_ms(),
@@ -284,6 +298,97 @@ impl Hub {
         let (pushed, pending) =
             if post.urgent { self.forum_push(&post).await } else { Default::default() };
         Ok(json!({"post": post, "proposed": proposed, "pushed": pushed, "pending": pending}))
+    }
+
+    /// `_acpmux/forum/post`: a post of any non-rule kind on any topic (a team
+    /// tip). Never an announcement, so it is not a rule and no prompt carries it.
+    pub async fn forum_post(
+        self: &Arc<Self>,
+        author: Author,
+        req: PostRequest,
+    ) -> Result<Value, RpcError> {
+        let kind = match req.kind.as_str() {
+            "tip" => Kind::Tip,
+            "status" => Kind::Status,
+            "question" => Kind::Question,
+            "decision" => Kind::Decision,
+            "claim" => Kind::Claim,
+            other => {
+                return Err(refused(
+                    "forum.bad_kind",
+                    format!(
+                        "kind {other:?} cannot be posted: use tip, status, question, decision or claim (rules go through announce)"
+                    ),
+                ));
+            }
+        };
+        let one_line =
+            |s: &str| !s.is_empty() && s.len() <= MAX_KEY_BYTES && !s.contains(['\n', '\r']);
+        let topic = req.topic.trim().to_owned();
+        if !one_line(&topic) {
+            return Err(refused(
+                "forum.bad_topic",
+                format!("topic must be one line of 1 to {MAX_KEY_BYTES} bytes"),
+            ));
+        }
+        let key = req.key.map(|k| k.trim().to_owned()).filter(|k| !k.is_empty());
+        if key.as_deref().is_some_and(|k| !one_line(k)) {
+            return Err(refused(
+                "forum.bad_key",
+                format!("key must be one line of 1 to {MAX_KEY_BYTES} bytes"),
+            ));
+        }
+        if kind == Kind::Tip && key.is_none() {
+            return Err(refused("forum.bad_key", "a tip needs a key: its title"));
+        }
+        let body = req.body.trim().to_owned();
+        if body.is_empty() {
+            return Err(refused("forum.empty", "body must not be empty"));
+        }
+        if body.len() > MAX_BODY_BYTES {
+            return Err(refused("forum.too_long", format!("body is over {MAX_BODY_BYTES} bytes")));
+        }
+        if req.links.len() > 16 || req.links.iter().any(|l| !one_line(l.trim())) {
+            return Err(refused("forum.bad_links", "links: at most 16, each one line"));
+        }
+        let links = req.links.iter().map(|l| l.trim().to_owned()).collect();
+        if let Author::Agent { session_id, .. } = &author {
+            let reaches = match self.resolve(session_id) {
+                Ok(session) => self.forum_reaches(&session).await,
+                Err(_) => false,
+            };
+            if !reaches {
+                return Err(refused(
+                    "forum.no_rules",
+                    "this session gets no cmux tools, so it cannot post",
+                ));
+            }
+        }
+        let post = Post {
+            id: uuid::Uuid::now_v7().to_string(),
+            topic,
+            author,
+            kind,
+            key,
+            body,
+            supersedes: None,
+            proposes: None,
+            links,
+            urgent: false,
+            retired: false,
+            created: now_ms(),
+        };
+        let hub = self.clone();
+        let stored = tokio::task::spawn_blocking(move || hub.forum().post_with(post, |_, p| p))
+            .await
+            .map_err(|e| RpcError::internal(format!("forum log: {e}")))?;
+        Ok(json!({"post": stored.map_err(storage)?}))
+    }
+
+    /// `_acpmux/forum/list`: a topic's posts, newest first.
+    pub fn forum_list(&self, topic: &str, since: Option<u64>, limit: Option<usize>) -> Value {
+        let limit = limit.unwrap_or(DEFAULT_LIST).clamp(1, MAX_LIST);
+        json!({"topic": topic, "posts": self.forum().posts(topic, since, limit)})
     }
 
     /// `_acpmux/forum/rules`: the current rule per key, with who got and acked

@@ -5,6 +5,9 @@
 //!   the person (the proven app; `account` names them, else the OS user) or an
 //!   agent session proven by its caller token. A request field never names an
 //!   agent author.
+//! - `_acpmux/forum/post {topic, kind, key?, body, links?}`: a tip or other
+//!   non-rule post, as the same authors; `_acpmux/forum/list {topic, since?,
+//!   limit?}`: the topic's posts, newest first.
 //! - `_acpmux/forum/rules`: the current rules, with deliveries and acks.
 //! - `_acpmux/forum/ack {postId}`: the calling session has read the post.
 //!
@@ -13,7 +16,7 @@
 use super::{Conn, str_param};
 use crate::forum::{Author, MAX_KEY_BYTES};
 use crate::hub::Hub;
-use crate::hub::forum::AnnounceRequest;
+use crate::hub::forum::{AnnounceRequest, PostRequest};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -65,16 +68,42 @@ async fn handle(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let flag = |k: &str| params.get(k).and_then(Value::as_bool).unwrap_or(false);
+    let author = || -> Result<Author, RpcError> {
+        if conn.is_person() {
+            Ok(Author::Person { account: account(params)? })
+        } else if let Some(caller) = conn.caller() {
+            let session = hub.resolve(caller)?;
+            Ok(hub.forum_agent(&session))
+        } else {
+            Err(author_required())
+        }
+    };
     match m {
-        method::MUX_FORUM_ANNOUNCE => {
-            let author = if conn.is_person() {
-                Author::Person { account: account(params)? }
-            } else if let Some(caller) = conn.caller() {
-                let session = hub.resolve(caller)?;
-                hub.forum_agent(&session)
-            } else {
-                return Err(author_required());
+        method::MUX_FORUM_POST => {
+            let text = |k: &str| str_param(params, k).unwrap_or_default().to_owned();
+            let links = params
+                .get("links")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
+            let req = PostRequest {
+                topic: text("topic"),
+                kind: str_param(params, "kind").unwrap_or("tip").to_owned(),
+                key: str_param(params, "key").map(str::to_owned),
+                body: text("body"),
+                links,
             };
+            hub.forum_post(author()?, req).await
+        }
+        method::MUX_FORUM_LIST => {
+            let topic = str_param(params, "topic")
+                .ok_or_else(|| RpcError::invalid_params("topic is required"))?;
+            let since = params.get("since").and_then(Value::as_u64);
+            let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
+            Ok(hub.forum_list(topic, since, limit))
+        }
+        method::MUX_FORUM_ANNOUNCE => {
+            let author = author()?;
             let text = |k: &str| str_param(params, k).unwrap_or_default().to_owned();
             let req = AnnounceRequest {
                 key: text("key"),

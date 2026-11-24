@@ -3,7 +3,7 @@
 //! rules. One primitive, several views; slice 1 serves the Rules view.
 //!
 //! - A post is `{id, topic, author, kind, key?, body, supersedes?, created}`.
-//!   `kind` is `announce | claim | status | question | decision | dm`;
+//!   `kind` is `announce | claim | status | question | decision | dm | tip`;
 //!   `author` is a person (`{kind: "person", account}`) or an agent session
 //!   (`{kind: "agent", sessionId, name}`).
 //! - An `announce` post with a `key` supersedes the current one of that key:
@@ -43,6 +43,9 @@ pub enum Kind {
     Question,
     Decision,
     Dm,
+    /// A team tip: title in `key`, a body, optional `links`. Never a rule:
+    /// not in the Rules view and never put in a prompt.
+    Tip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +111,9 @@ pub struct Post {
     /// A proposal: the rule this post asks to replace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposes: Option<String>,
+    /// Links a post points at (`tip` and the like).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<String>,
     /// Pushed as a prompt to every live session, not only read at its next prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub urgent: bool,
@@ -314,6 +320,19 @@ impl Forum {
         Ok(post)
     }
 
+    /// A topic's live posts, newest first: those created after `since`
+    /// (milliseconds), at most `limit`; retired posts left out.
+    pub fn posts(&self, topic: &str, since: Option<u64>, limit: usize) -> Vec<PostView> {
+        let s = self.lock();
+        s.posts
+            .iter()
+            .rev()
+            .filter(|p| p.topic == topic && !p.retired && since.is_none_or(|t| p.created > t))
+            .take(limit)
+            .map(|p| s.view(p))
+            .collect()
+    }
+
     /// The Rules view: the newest live announce per key, oldest first.
     pub fn rules(&self) -> Vec<PostView> {
         let s = self.lock();
@@ -444,6 +463,7 @@ mod tests {
             body: body.into(),
             supersedes: None,
             proposes: None,
+            links: Vec::new(),
             urgent: false,
             retired: false,
             created: 1,
@@ -526,5 +546,30 @@ mod tests {
             assert_eq!(mode & 0o077, 0);
         }
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn posts_lists_a_topic_newest_first_without_touching_the_rules() {
+        let forum = Forum::memory();
+        let keep = |_: Option<&Post>, p: Post| p;
+        let tip = |id: &str, topic: &str, created: u64| {
+            let mut p = post(id, "title", "body", leo());
+            p.kind = Kind::Tip;
+            p.topic = topic.into();
+            p.created = created;
+            p
+        };
+        forum.post_with(tip("t1", "tips", 10), keep).unwrap();
+        forum.post_with(tip("t2", "tips", 20), keep).unwrap();
+        forum.post_with(tip("o", "other", 30), keep).unwrap();
+        let mut gone = tip("t3", "tips", 40);
+        gone.retired = true;
+        forum.post_with(gone, keep).unwrap();
+        let ids = |v: Vec<PostView>| v.into_iter().map(|p| p.post.id).collect::<Vec<_>>();
+        assert_eq!(ids(forum.posts("tips", None, 10)), ["t2", "t1"]);
+        assert_eq!(ids(forum.posts("tips", Some(10), 10)), ["t2"]);
+        assert_eq!(ids(forum.posts("tips", None, 1)), ["t2"]);
+        assert!(forum.rules().is_empty());
+        assert!(forum.undelivered("s", true).is_empty());
     }
 }
