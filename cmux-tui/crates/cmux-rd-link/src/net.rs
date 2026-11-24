@@ -468,12 +468,6 @@ fn grow_udp_buffers(socket: &UdpSocket) {
 
 /// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
 /// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
-/// `CMUX_RD_BRAID_PATHS=0`: the path code before RFD 0164 B10
-/// ([`Endpoint::set_braid_paths`]), for one release.
-fn braid_paths() -> bool {
-    std::env::var("CMUX_RD_BRAID_PATHS").map_or(true, |v| v.trim() != "0")
-}
-
 fn keep_awake_us() -> Option<u64> {
     match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
         Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
@@ -519,7 +513,6 @@ impl Net {
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
         endpoint.set_local_networks(cmux_transport::local_networks());
         endpoint.set_keep_awake(keep_awake_us());
-        endpoint.set_braid_paths(braid_paths());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
