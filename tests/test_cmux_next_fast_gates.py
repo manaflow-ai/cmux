@@ -354,6 +354,10 @@ class WorkflowShape(unittest.TestCase):
             # restore step, so they are the one kind of step allowed to keep going; no gate is.
             if step.get("uses") == "./.github/actions/cache-restore" and step.get("with", {}).get("backend") == "r2":
                 continue
+            # The GitHub store's Bun restore is bounded and best-effort too: past its bound the gates install cold,
+            # and the next step drops what it half extracted.
+            if step.get("id") == "bun-cache" and step.get("uses", "").startswith("actions/cache/restore@"):
+                continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
         self.assertIn("scripts/ci/cmux_next_fast_gates.py run", run["run"])
@@ -565,12 +569,33 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             self.assertFalse(step.get("uses", "").startswith("actions/cache@"), step.get("name"))
         # #51750 reads R2 first (./.github/actions/cache-restore, backend r2), then the GitHub store's restore step.
+        restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], "Restore the Bun package cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
         for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
-            restore = step_named([s for s in steps if not s["name"].endswith(" from R2")], name)
-            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             r2 = step_named(steps, f"{name} from R2")
             self.assertEqual(r2["uses"], "./.github/actions/cache-restore", name)
             self.assertEqual(r2["with"]["backend"], "r2", name)
+        # The lint tools never change per PR and are off the GitHub store (RFD 0148 row 19): R2 only, and a miss
+        # is prepush-gate.py's sha256-checked download.
+        self.assertEqual([s["name"] for s in steps if s["name"].startswith("Restore the pinned lint tools")],
+                         ["Restore the pinned lint tools from R2"])
+
+    def test_the_bun_cache_restore_is_bounded_and_never_left_half_done(self):
+        # 2026-11-23: on a Freestyle VM the 710 MB restore ran at about 1 MB/s, and at 600 s its link expired.
+        # It failed every time, adding 605 s (median) to a job whose gates then installed cold anyway.
+        steps = job(workflow())["steps"]
+        restore = next(s for s in steps if s.get("id") == "bun-cache")
+        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
+        self.assertLessEqual(restore["timeout-minutes"], 3)
+        self.assertIs(restore["continue-on-error"], True)
+        drop = step_named(steps, "Drop a partly restored Bun package cache")
+        self.assertIn(f"steps.{restore['id']}.outcome == 'failure'", drop["if"])
+        self.assertIn(f"steps.{restore['id']}.outcome == 'cancelled'", drop["if"])
+        self.assertIn("steps.bun-r2.outcome == 'failure'", drop["if"])
+        self.assertIn("~/.bun/install/cache", drop["run"])
+        self.assertEqual(steps.index(drop), steps.index(restore) + 1)
+        gates = step_named(steps, "Fast gates on the merge")
+        self.assertLess(steps.index(drop), steps.index(gates))
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
@@ -1822,6 +1847,14 @@ class WebviewsChecksGate(unittest.TestCase):
         known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
