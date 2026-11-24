@@ -279,7 +279,7 @@ async fn a_guarded_import_never_resumes_a_race_or_keeps_its_authority() {
         "races": [race("running-race", "running"), race("cancelled-race", "cancelled")],
     });
     std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-    let guard = Guard { control: Control::Peer, roots: vec![work] };
+    let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
     hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
     let guarded = GuardedImport { guard: &guard, replace_native: false };
     let session =

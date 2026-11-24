@@ -90,6 +90,27 @@ impl C {
 }
 
 impl C {
+    /// [`C::call`] for a request that may be refused: its result, or its error.
+    async fn try_call(&mut self, m: &str, p: Value) -> Result<Value, Value> {
+        self.next += 1;
+        let id = self.next;
+        self.tx.send(Message::request(id, m, p).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+                .await
+                .expect("timeout")
+                .expect("closed");
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id
+            {
+                return match error {
+                    Some(e) => Err(serde_json::to_value(e).unwrap()),
+                    None => Ok(result.unwrap_or(Value::Null)),
+                };
+            }
+        }
+    }
+
     /// A request whose answer nobody waits for (a turn that runs until it is stopped).
     async fn send(&mut self, m: &str, p: Value) {
         self.next += 1;
@@ -3317,9 +3338,12 @@ mod move_out;
 /// chat are taken and run, never refused: the ring run of 2026-11-24 saw `acpmux send --no-wait`
 /// on the target refused "this harness has no reviewed asking mode for a remote WebSocket
 /// connection" for about a second after the move reported the chat landed, each refusal a lost
-/// message: the target took a chat whose agent may not start there. `asking`: whether the target
-/// names a reviewed asking mode for the chat's harness (a bench harness names none); with none
-/// the move is refused before it lands and the chat's prompt runs on the source. Each send goes
+/// message: the hub move landed the chat as a remote one. A hub move is between two daemons of
+/// the same person (op `move` only comes from a `sameUser` daemon), so it lands as the owner's
+/// own chat and the asking-mode rule for remote chats does not apply. `asking`: whether the
+/// target names a reviewed asking mode for the chat's harness (a bench harness names none); the
+/// move lands and runs either way. With none, a guarded receive that really lands remote is
+/// still refused before a page is sent, and the chat stays on the source. Each send goes
 /// the CLI's way (`_acpmux/send_queue` on the local socket) as soon as the target answered the
 /// move, before and after the source commits it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3413,6 +3437,25 @@ async fn send_as_a_move_lands(asking: bool) {
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "before the move"}]}),
     )
     .await;
+    if !asking {
+        // A move that really lands remote (another person's daemon, Move to Cloud: a guarded
+        // receive no same-person pull made) still needs the asking mode, and with none it is
+        // refused before a page is sent; the chat stays on the source.
+        let mut cb = client(b.clone()).await;
+        let begin = ca.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+        let guard = json!({"control": "peer", "roots": [root_text]});
+        let refused = cb
+            .try_call("_acpmux/transfer_receive", json!({"manifest": begin, "guard": guard}))
+            .await;
+        let refused = refused.expect_err("a remote landing with no asking mode is refused");
+        assert!(refused.to_string().contains("cannot start here for a moved chat"), "{refused}");
+        assert!(refused.to_string().contains("webAskingModes"), "{refused}");
+        ca.call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
+        )
+        .await;
+    }
     let begin = ca
         .call(
             "_acpmux/transfer_begin",
@@ -3431,39 +3474,10 @@ async fn send_as_a_move_lands(asking: bool) {
     .unwrap();
     let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
     let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
-    if !asking {
-        // A chat whose agent may not start here is refused before it lands (it would refuse
-        // every prompt): the move gives it back and a prompt sent then runs on the source.
-        assert_ne!(ack["state"], "delivered", "{ack}");
-        assert!(ack.to_string().contains("cannot start here for a moved chat"), "{ack}");
-        ca.call(
-            "_acpmux/transfer_abort",
-            json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
-        )
-        .await;
-        let queued = ca
-            .call(
-                method::MUX_SEND_QUEUE,
-                json!({"request": {"sessionId": id,
-                                   "prompt": [{"type": "text", "text": "sent as it was refused"}]}}),
-            )
-            .await;
-        let delivery = queued["deliveryId"].as_str().expect("a delivery id").to_owned();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        loop {
-            let status = ca
-                .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 2000}))
-                .await;
-            assert_ne!(status["status"], "failed", "refused on the source: {status}");
-            if status["status"] == "delivered" {
-                break;
-            }
-            assert!(tokio::time::Instant::now() < deadline, "{status}");
-        }
-        let _ = std::fs::remove_dir_all(&root);
-        return;
-    }
     assert_eq!(ack["state"], "delivered", "{ack}");
+    // A move between the same person's daemons lands the chat as the owner's own, not remote.
+    let landed = b.resolve(&id).expect("the chat is on B");
+    assert!(!landed.meta().remote_origin, "asking {asking}: landed as a remote chat");
 
     // The move answered: the chat is on B. B's own sends, at once, then after the commit.
     let mut cb = client(b.clone()).await;

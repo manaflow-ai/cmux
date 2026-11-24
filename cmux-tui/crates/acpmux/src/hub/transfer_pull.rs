@@ -254,9 +254,15 @@ impl Hub {
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
         let dial_ms = dialing.elapsed().as_millis() as u64;
         let paging = std::time::Instant::now();
+        // Op `move` comes only from this person's own daemons (`sameUser`,
+        // `mesh_relay_config.rs`), so the chat keeps the origin it had there: their own chat
+        // stays theirs, and its local prompts here are owner prompts.
         let received = self
-            .transfer_receive(&json!({"manifest": manifest, "guard": guard_value,
-                                      "stageId": body.get("stageId")}))
+            .receive_guarded(
+                &json!({"manifest": manifest, "guard": guard_value,
+                        "stageId": body.get("stageId")}),
+                true,
+            )
             .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
         let (page_count, page_bytes) =
