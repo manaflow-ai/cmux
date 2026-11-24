@@ -237,12 +237,76 @@ fn harness_in(env: impl Fn(&str) -> Option<String>) -> bool {
     harness_of(env).is_some()
 }
 
-/// The harness whose shell this is, by the variable each sets in its commands' environment.
+/// The harness whose shell this is, by the variable each sets in its commands' environment, or
+/// the agent session an ssh hop carried ([`carried_agent`]).
 fn harness_of(env: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
     [("CLAUDECODE", "claude"), ("CODEX_THREAD_ID", "codex")]
         .into_iter()
         .find(|(key, _)| env(key).is_some_and(|v| !v.trim().is_empty()))
         .map(|(_, harness)| harness)
+        .or_else(|| carried_agent(&env).map(|carried| carried.family))
+}
+
+/// `CMUX_AGENT_SESSION_ID`: the agent session an ssh hop carried. An ssh login has none of a
+/// harness's own variables, so `reach HOST 'acpmux send …'` from a Claude Code chat acpmux did
+/// not start sent as no one, and the far daemon recorded another agent's message as the
+/// person's own words (Leo, 2026-11-22, of interim-coord's message drawn as his bubble "you ·
+/// via CLI on cosmic-gray": "not sure why this happened displaying this way"). `reach` exports
+/// the caller's session as `CMUX_AGENT_SESSION_ID`, `CMUX_AGENT_HARNESS` and `CMUX_AGENT_HOST`
+/// (leo-workspace `tools/reach` `agent_identity_env`), so that names the sender here too.
+pub const CARRIED_SESSION_ENV: &str = "CMUX_AGENT_SESSION_ID";
+/// The harness of [`CARRIED_SESSION_ENV`]'s session (`claude`, `codex`, `opencode`, `cmux`).
+pub const CARRIED_HARNESS_ENV: &str = "CMUX_AGENT_HARNESS";
+/// The machine [`CARRIED_SESSION_ENV`]'s session runs on.
+pub const CARRIED_HOST_ENV: &str = "CMUX_AGENT_HOST";
+
+/// The agent session an ssh hop carried ([`CARRIED_SESSION_ENV`]).
+struct Carried {
+    family: &'static str,
+    label: &'static str,
+    session: String,
+    host: Option<String>,
+}
+
+fn carried_agent(env: &impl Fn(&str) -> Option<String>) -> Option<Carried> {
+    let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let session = set(CARRIED_SESSION_ENV)?;
+    let harness = set(CARRIED_HARNESS_ENV).unwrap_or_default().to_ascii_lowercase();
+    let (family, label) = if harness.starts_with("claude") {
+        ("claude", "Claude Code")
+    } else if harness.starts_with("codex") {
+        ("codex", "Codex")
+    } else if harness.starts_with("opencode") {
+        ("opencode", "OpenCode")
+    } else {
+        ("agent", "An agent")
+    };
+    Some(Carried { family, label, session, host: set(CARRIED_HOST_ENV) })
+}
+
+/// `_meta.acpmux` flag of a send that names no sender and runs under an ssh login
+/// (`SSH_CONNECTION` or `SSH_CLIENT` set) that no daemon's ssh carry started: nobody typed it at
+/// this machine's terminal, so the daemon records it as an unverified sender's, never the
+/// person's (`server/requests/prompt_sender.rs` `owner_terminal`). Any script or agent that
+/// lost its identity on the way (an ssh hop drops every harness variable) otherwise posted as
+/// the person.
+pub const OVER_SSH_META: &str = "cliOverSsh";
+/// Set by a daemon's own ssh carry of the person's send (`server/ssh_carry.rs` `script`): that
+/// login carries the person's terminal send from the other machine, so it is not
+/// [`OVER_SSH_META`]'s.
+pub const SSH_CARRY_ENV: &str = "ACPMUX_SSH_CARRY";
+
+/// Whether an unnamed send from this process runs under an ssh login no carry started.
+pub fn over_ssh(named: bool) -> bool {
+    over_ssh_in(named, |key| std::env::var(key).ok())
+}
+
+fn over_ssh_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
+    !named
+        && !in_session(&env)
+        && !set(SSH_CARRY_ENV)
+        && (set("SSH_CONNECTION") || set("SSH_CLIENT"))
 }
 
 fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
@@ -290,6 +354,12 @@ fn harness_name(
         (harness.to_owned(), set("CLAUDE_CODE_SESSION_ID"))
     } else if let Some(thread) = set("CODEX_THREAD_ID") {
         ("Codex".to_owned(), Some(thread))
+    } else if let Some(carried) = carried_agent(&env) {
+        // Named for the machine its session runs on, not the one the hop landed on.
+        let host = carried.host.unwrap_or_else(host);
+        let mut name = format!("{} on {host} · ", carried.label);
+        name.extend(carried.session.chars().take(8));
+        return Some(name);
     } else {
         // `AI_AGENT` is `<tool>_<version>_<mode>` (`claude-code_2-1-310_agent`): the tool.
         let agent = set("AI_AGENT")?;
@@ -359,6 +429,50 @@ mod tests {
         let other = [("AI_AGENT", "grokbot_1-2_agent")];
         assert_eq!(implicit(env(&other)).as_deref(), Some("grokbot on my-mac"));
         assert_eq!(implicit(env(&[("AI_AGENT", "_x")])), None);
+    }
+
+    /// interim-coord, a Claude Code chat acpmux did not start, sent through `reach huge-blue
+    /// 'acpmux send …'`: the ssh login had none of Claude Code's variables, only the session
+    /// `reach` carried, and the send was recorded as the person's.
+    #[test]
+    fn a_session_an_ssh_hop_carried_names_the_sender_and_its_machine() {
+        let carried = [
+            (CARRIED_SESSION_ENV, "6e0bad7d-9798-49c2-8d14-00d3d5ffeb25"),
+            (CARRIED_HARNESS_ENV, "claude"),
+            (CARRIED_HOST_ENV, "cosmic-gray"),
+            ("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22"),
+        ];
+        assert_eq!(
+            implicit(env(&carried)).as_deref(),
+            Some("Claude Code on cosmic-gray · 6e0bad7d")
+        );
+        assert_eq!(harness_of(env(&carried)), Some("claude"));
+        assert!(harness_in(env(&carried)), "its send is an agent's message: it queues");
+        let codex = [(CARRIED_SESSION_ENV, "019a2b3c-4d5e"), (CARRIED_HARNESS_ENV, "codex")];
+        assert_eq!(implicit(env(&codex)).as_deref(), Some("Codex on my-mac · 019a2b3c"));
+        let unknown = [(CARRIED_SESSION_ENV, "s-1234567890")];
+        assert_eq!(implicit(env(&unknown)).as_deref(), Some("An agent on my-mac · s-123456"));
+        let mut named = carried.to_vec();
+        named.push((FROM_ENV, "interim-coord"));
+        assert_eq!(implicit(env(&named)).as_deref(), Some("interim-coord"), "ACPMUX_FROM wins");
+        assert_eq!(implicit(env(&[(CARRIED_SESSION_ENV, " ")])), None);
+    }
+
+    #[test]
+    fn an_unnamed_send_under_an_ssh_login_no_carry_started_is_over_ssh() {
+        let ssh = [("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22")];
+        assert!(over_ssh_in(false, env(&ssh)));
+        assert!(over_ssh_in(false, env(&[("SSH_CLIENT", "100.81.77.9 50022 22")])));
+        assert!(!over_ssh_in(true, env(&ssh)), "a named send says who it is");
+        assert!(!over_ssh_in(false, env(&[])), "the person at this machine's terminal");
+        let carry = [("SSH_CONNECTION", "a b c d"), (SSH_CARRY_ENV, "1")];
+        assert!(!over_ssh_in(false, env(&carry)), "a daemon's carry of the person's send");
+        let session = [
+            ("SSH_CONNECTION", "a b c d"),
+            ("ACPMUX_SESSION_ID", "s1"),
+            ("ACPMUX_SESSION_TOKEN", "t"),
+        ];
+        assert!(!over_ssh_in(false, env(&session)), "the daemon proves the session");
     }
 
     #[test]

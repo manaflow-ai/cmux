@@ -78,6 +78,20 @@ pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
         && conn.unproven_caller.get().is_none()
         && conn.may_be_owner_terminal()
         && !claims_a_sender(params)
+        && !over_ssh(params)
+}
+
+/// Whether an unnamed send ran under an ssh login that no daemon's carry started
+/// (`cli/sender.rs` `OVER_SSH_META`): nobody typed it at this machine's terminal, so it is an
+/// unverified sender's, never the person's. Leo, 2026-11-22, of another agent's message that
+/// came over `reach huge-blue 'acpmux send ...'` and was drawn as his own bubble: "not sure why
+/// this happened displaying this way".
+fn over_ssh(params: &Value) -> bool {
+    params
+        .pointer("/_meta/acpmux")
+        .and_then(|m| m.get(crate::cli::sender::OVER_SSH_META))
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 /// Whether an unnamed prompt is the app's own agent pane's (`Origin::LocalApp`, proven by this

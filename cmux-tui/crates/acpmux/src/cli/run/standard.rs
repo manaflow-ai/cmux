@@ -835,6 +835,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.from_harness =
                 crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
+            // An unnamed send under an ssh login is nobody's typing at this machine: the daemon
+            // records it as an unverified sender's, never the person's (`owner_terminal`).
+            prompt_id.over_ssh = prompt_id.cli_host.is_some()
+                && crate::cli::sender::over_ssh(prompt_id.from_agent.is_some());
             // This host's sender token, which proves a named sender is one the owner set up
             // (`sender_token.rs`). Read before connecting, so a missing file fails the send at once.
             prompt_id.sender_token =

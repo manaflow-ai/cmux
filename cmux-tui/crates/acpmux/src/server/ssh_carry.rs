@@ -152,7 +152,8 @@ pub(super) fn script(key: &str, flags: &[String]) -> String {
     send.push_str(&q(key));
     send.push_str(" -");
     format!(
-        "for a in \"$HOME/.local/bin/acpmux\" acpmux; do if command -v \"$a\" >/dev/null 2>&1; then exec \"$a\" {send}; fi; done; echo 'acpmux: not found on this machine' >&2; exit 127"
+        "export {carry}=1; for a in \"$HOME/.local/bin/acpmux\" acpmux; do if command -v \"$a\" >/dev/null 2>&1; then exec \"$a\" {send}; fi; done; echo 'acpmux: not found on this machine' >&2; exit 127",
+        carry = crate::cli::sender::SSH_CARRY_ENV,
     )
 }
 
@@ -179,6 +180,7 @@ pub(super) enum Sender {
 /// The `_meta.acpmux` fields that make a send a program's and never the owner's terminal's, as
 /// `prompt_sender.rs` `claims_a_sender` reads them on a direct send.
 const SENDER_CLAIMS: &[&str] = &[
+    crate::cli::sender::OVER_SSH_META,
     crate::prompt_provenance::FROM_HARNESS,
     crate::sender_harness::META_KEY,
     crate::prompt_provenance::FROM_RELAY,
@@ -416,7 +418,14 @@ mod tests {
         assert!(s.contains(r"'--from=co'\''ord'"), "{s}");
         assert!(s.contains(r"'--relayed-from=vm-1/co'\''ord'"), "{s}");
         assert!(s.contains("'lane x' -;"), "{s}");
-        assert!(s.starts_with("for a in \"$HOME/.local/bin/acpmux\" acpmux;"), "{s}");
+        // The far CLI knows a daemon's carry started this login: the person's carried send is
+        // not an ssh login's unnamed send (`cli/sender.rs` `over_ssh`).
+        assert!(
+            s.starts_with(
+                "export ACPMUX_SSH_CARRY=1; for a in \"$HOME/.local/bin/acpmux\" acpmux;"
+            ),
+            "{s}"
+        );
     }
 
     #[test]

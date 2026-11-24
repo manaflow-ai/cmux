@@ -91,6 +91,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "chunkDeltas",
     "class",
     "cliHost",
+    "cliOverSsh",
     "compression",
     "context",
     "createKey",
