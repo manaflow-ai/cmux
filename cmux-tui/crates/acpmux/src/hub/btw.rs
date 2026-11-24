@@ -255,7 +255,13 @@ impl Hub {
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
             // including when it lives in a separate agent-host process.
-            if target_harness.is_none() && is_claude && session.turn().is_some() {
+            // The callback takes only the question's words, so a question that names an `@` tool
+            // goes to the side session below, which adds the tools note (`tool_mentions.rs`).
+            if target_harness.is_none()
+                && is_claude
+                && session.turn().is_some()
+                && crate::tool_mentions::mentioned(question).is_empty()
+            {
                 match with_inline_deadline(
                     inline_deadline,
                     Box::pin(self.btw_inline_claude(session, question)),
@@ -526,6 +532,8 @@ impl Hub {
                 json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
             );
         }
+        // An `@computer-use` / `@browser-use` in the question gets its note (`tool_mentions.rs`).
+        crate::tool_mentions::add_note(&mut blocks);
         // Answer once the prompt is recorded; the turn runs on.
         let (accepted_tx, accepted) = oneshot::channel();
         let mut opts = opts;

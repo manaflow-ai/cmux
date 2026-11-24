@@ -214,10 +214,13 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
     }
 }
 
-/// The background task id a `run_wait` call gives instead of a repo: a `bg-` value under
-/// `id`, `task`, `taskId`, `task_id` or `run`.
+/// The background task id a `run_wait` call gives: a `bg-` value under `id`, `task`, `taskId`,
+/// `task_id` or `run`, with a repo or without one. A `bg-` id names only a task this server
+/// started, so a repo beside it changes nothing: the census of 2026-11-23 (cmuxterm-hq
+/// docs/findings/2026-11-23-mcp-tool-error-census.md) counted 58 run_wait refusals "give run or
+/// pr" in 48 h on one VM, nearly all `{"repo": ..., "id": "bg-...", "timeoutSeconds": ...}`.
 fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
-    if name != "run_wait" || params.get("repo").is_some_and(|r| !r.is_null()) {
+    if name != "run_wait" {
         return None;
     }
     ["id", "task", "taskId", "task_id", "run"].iter().find_map(|k| {
@@ -476,8 +479,18 @@ mod tests {
             of(json!({"repo": "o/r", "pr": "12", "sha": "ABCDEF1", "description": "CI"})).unwrap();
         assert_eq!(pr.target, Target::Pr { number: 12, sha: Some("abcdef1".into()) });
         assert_eq!(pr.description, "CI");
+        // An id that names a run or a pull request is that run or pull request.
+        for (id, want) in [
+            (json!(4120), Target::Run(4120)),
+            (json!("4120"), Target::Run(4120)),
+            (json!("https://github.com/o/r/actions/runs/4120/job/9"), Target::Run(4120)),
+            (json!("https://github.com/o/r/pull/12"), Target::Pr { number: 12, sha: None }),
+        ] {
+            assert_eq!(of(json!({"repo": "o/r", "id": id.clone()})).unwrap().target, want, "{id}");
+        }
         for bad in [
             json!({"run": 7}),
+            json!({"repo": "o/r", "id": "nope"}),
             json!({"repo": "o/r; rm -rf /", "run": 7}),
             json!({"repo": "o/r"}),
             json!({"repo": "o/r", "run": 7, "pr": 1}),
@@ -830,6 +843,28 @@ fn number(params: &Value, key: &str) -> Result<Option<u64>, String> {
     }
 }
 
+/// The run or pull request an `id` names when the call gives neither `run` nor `pr`: an Actions
+/// run id (digits), a run URL (`.../actions/runs/N[/job/M]`) or a pull request URL
+/// (`.../pull/N`). A `bg-` id never comes here (`bg_task_given_to_run_wait`).
+fn run_or_pr_of_id(params: &Value) -> (Option<u64>, Option<u64>) {
+    let Some(id) = ["id", "url", "target"].iter().find_map(|k| match params.get(*k) {
+        Some(Value::Number(n)) => n.as_u64().map(|n| n.to_string()),
+        Some(Value::String(s)) => Some(s.trim().to_owned()),
+        _ => None,
+    }) else {
+        return (None, None);
+    };
+    let after = |marker: &str| -> Option<u64> {
+        let (_, rest) = id.split_once(marker)?;
+        rest.split(['/', '?', '#']).next()?.parse().ok().filter(|n| *n > 0)
+    };
+    if let Some(run) = id.parse::<u64>().ok().filter(|n| *n > 0).or_else(|| after("/actions/runs/"))
+    {
+        return (Some(run), None);
+    }
+    (None, after("/pull/"))
+}
+
 impl RunWait {
     fn of(params: &Value) -> Result<Self, String> {
         let s = |k: &str| {
@@ -849,7 +884,11 @@ impl RunWait {
         {
             return Err(format!("sha must be a commit sha (7 to 40 hex digits), not {sha:?}"));
         }
-        let target = match (number(params, "run")?, number(params, "pr")?) {
+        let (run, pr) = match (number(params, "run")?, number(params, "pr")?) {
+            (None, None) => run_or_pr_of_id(params),
+            given => given,
+        };
+        let target = match (run, pr) {
             (Some(run), None) if sha.is_none() => Target::Run(run),
             (Some(_), None) => return Err("sha goes with pr, not run".to_owned()),
             (None, Some(number)) => Target::Pr { number, sha },
