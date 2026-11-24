@@ -371,6 +371,86 @@ select {
   color: var(--cloud-text-2);
 }
 
+.cloud-disk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--grid-half-step) var(--ds-space-2);
+  margin-bottom: var(--grid-half-step);
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-disk-bar-track {
+  display: flex;
+  flex: 1 1 160px;
+  max-width: 320px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+.cloud-disk-bar-segment {
+  height: 100%;
+}
+
+.cloud-disk-bar-system {
+  background: color-mix(in srgb, var(--cloud-text-2) 75%, transparent);
+}
+
+.cloud-disk-bar-project,
+.cloud-disk-bar-used {
+  background: var(--cmux-app-accent, #3b82f6);
+}
+
+.cloud-disk-bar-caches {
+  background: color-mix(in srgb, var(--cmux-app-accent, #3b82f6) 45%, transparent);
+}
+
+.cloud-disk-bar-free {
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+.cloud-disk-bar-almost-full .cloud-disk-bar-project,
+.cloud-disk-bar-almost-full .cloud-disk-bar-used,
+.cloud-disk-bar-warning {
+  color: var(--cloud-bad);
+}
+
+.cloud-disk-bar-almost-full .cloud-disk-bar-project,
+.cloud-disk-bar-almost-full .cloud-disk-bar-used {
+  background: var(--cloud-bad);
+}
+
+.cloud-disk-bar-legend {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+.cloud-disk-bar-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.cloud-disk-bar-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.cloud-disk-bar-details {
+  flex-basis: 100%;
+}
+
+.cloud-disk-bar-details summary {
+  cursor: default;
+}
+
 .cloud-disk-health-user code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-caption);
@@ -519,7 +599,7 @@ select {
 
 .cloud-inline-form {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .cloud-stats {
@@ -544,7 +624,7 @@ select {
 
 .cloud-meter-track {
   height: 4px;
-  border-radius: 2px;
+  border-radius: 4px;
   background: var(--cloud-separator);
   overflow: hidden;
 }
@@ -604,7 +684,7 @@ select {
 .cloud-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   margin: 10px 0 0;
   min-width: 0;
   border: 0;

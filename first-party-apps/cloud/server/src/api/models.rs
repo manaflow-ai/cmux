@@ -17,6 +17,7 @@
 //! backend, not an older one; an older backend omits only optional fields.
 
 use super::{CloudError, decode_answer};
+use cmux_cloud_disk::{self as disk, DiskReport};
 use cmux_cloud_wire::{CloudConnectInfo, CloudMachine, CloudMachineConnectInfoOp, Op};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -111,12 +112,46 @@ fn disk_health_state(value: &Value) -> &'static str {
     if free <= floor { "warning" } else { "healthy" }
 }
 
-fn annotate_disk_health(mut value: Value) -> Value {
+/// The report with its `state` and its `bar` (cmux-cloud-disk [`disk::view`]:
+/// used over allocated split system / project / caches, the Cloud page draws
+/// it as it is). A report the state calls `unknown` gives a bar of the
+/// allocation alone, as a guest that reports nothing would.
+///
+/// The split's names are assumed until the guest reports them (RFD 0068
+/// "What to build next" 2 and 3): `system_mb`, `project_mb`, `caches_mb`, in
+/// MiB as the report's other fields; `*_bytes` names win when present.
+fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
     let state = disk_health_state(&value);
     if let Value::Object(object) = &mut value {
+        let report = if state == "unknown" { DiskReport::default() } else { disk_report(object) };
+        let allocated = allocated_mb.and_then(|mb| disk::mib(Some(mb as f64)));
+        if let Some(bar) =
+            disk::view(allocated, &report).and_then(|bar| serde_json::to_value(bar).ok())
+        {
+            object.insert("bar".into(), bar);
+        }
         object.insert("state".into(), Value::String(state.into()));
     }
     value
+}
+
+/// The guest's report as cmux-cloud-disk reads it: each field in bytes
+/// (`total_bytes`), else in MiB (`total_mb`).
+fn disk_report(object: &serde_json::Map<String, Value>) -> DiskReport {
+    let field = |name: &str| {
+        object
+            .get(&format!("{name}_bytes"))
+            .and_then(Value::as_u64)
+            .or_else(|| disk::mib(object.get(&format!("{name}_mb")).and_then(Value::as_f64)))
+    };
+    DiskReport {
+        total_bytes: field("total"),
+        used_bytes: field("used"),
+        free_bytes: field("free"),
+        system_bytes: field("system"),
+        project_bytes: field("project"),
+        caches_bytes: field("caches"),
+    }
 }
 
 /// Non-secret host metadata that an owner may attach to a machine record.
@@ -144,7 +179,7 @@ impl TryFrom<MachineWire> for Machine {
         let MachineWire { mut record, mut extra } = wire;
         record.revision = Revision::try_from(std::mem::take(&mut record.revision))?.into();
         if let Some(value) = extra.disk_health.take() {
-            extra.disk_health = Some(annotate_disk_health(value));
+            extra.disk_health = Some(annotate_disk_health(value, record.size.disk_mb));
         }
         Ok(Self { record, extra })
     }

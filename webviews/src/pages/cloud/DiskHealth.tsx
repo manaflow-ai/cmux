@@ -1,6 +1,7 @@
 import type { Strings } from "../shared/i18n";
 import { useCallback } from "react";
 import { useDeadlineNow } from "../../ui/pageClock";
+import { DiskBar } from "./DiskBar";
 import { DISK_HEALTH_MAX_AGE_MS, diskHealthState, formatMegabytes } from "./model";
 import type { CloudDiskHealth } from "./ops";
 import { L } from "./strings";
@@ -35,6 +36,9 @@ export function DiskHealthSummary({ health, strings, compact = false }: DiskHeal
   const topUsers = (health?.top_users ?? []).slice(0, 3);
   return (
     <span className={`cloud-disk-health cloud-disk-health-${state}`} data-testid="cloud-disk-health">
+      {health?.bar && health.bar.state !== "allocated" && (
+        <DiskBar bar={health.bar} strings={strings} compact={compact} />
+      )}
       <span className="cloud-disk-health-capacity">
         {state === "warning" && <strong>{t(L.diskLowSpace)} · </strong>}
         {t(L.diskFree)} {value(health!.free_mb)} · {t(L.diskUsed)} {value(health!.used_mb)} / {value(health!.total_mb)}

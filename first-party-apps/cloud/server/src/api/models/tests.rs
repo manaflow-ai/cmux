@@ -76,7 +76,9 @@ fn fields_the_catalog_lacks_reach_the_app() {
     let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
-    let encoded = encode(&machine);
+    let mut encoded = encode(&machine);
+    // The relay adds the disk bar (disk_bar_is_computed_by_the_relay); the rest is as it came.
+    assert!(encoded["disk_health"].as_object_mut().expect("disk_health").remove("bar").is_some());
     for key in ["platform", "capabilities", "provider_operations", "disk_health", "idlePause"] {
         assert_eq!(encoded[key], source[key], "{key}");
     }
@@ -145,6 +147,54 @@ fn disk_health_state_is_computed_by_the_relay() {
         }),
     ));
     assert_eq!(encode(&invalid)["disk_health"]["state"], "unknown");
+}
+
+#[test]
+fn disk_bar_is_computed_by_the_relay() {
+    let health = |fields: Value| {
+        with(
+            json!({ "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64 }),
+            fields,
+        )
+    };
+    // A guest that splits its use: system, project, caches and the free rest.
+    let split = decode(with(
+        record("vm-split", "1"),
+        json!({ "disk_health": health(json!({
+            "free_mb": 6963.2, "used_mb": 13516.8, "total_mb": 20480,
+            "system_mb": 5427.2, "project_mb": 6348.8, "caches_mb": 1740.8
+        })) }),
+    ));
+    let bar = &encode(&split)["disk_health"]["bar"];
+    assert_eq!(bar["label"], "13.2 / 20 GB");
+    assert_eq!(bar["text"], "13.2 of 20 GB, 6.8 free");
+    assert_eq!(bar["state"], "ok");
+    let kinds: Vec<&str> = bar["segments"]
+        .as_array()
+        .expect("segments")
+        .iter()
+        .filter_map(|s| s["kind"].as_str())
+        .collect();
+    assert_eq!(kinds, ["system", "project", "caches", "free"]);
+
+    // Totals without a split: one used segment; under 2 GiB free is almost full.
+    let full = decode(with(
+        record("vm-full", "1"),
+        json!({ "disk_health": health(json!({ "free_mb": 1433.6, "used_mb": 19046.4, "total_mb": 20480 })) }),
+    ));
+    let bar = &encode(&full)["disk_health"]["bar"];
+    assert_eq!(bar["state"], "almost_full");
+    assert_eq!(bar["segments"][0]["kind"], "used");
+
+    // A report the relay cannot trust: the allocation alone (the record's 16 GB).
+    let invalid = decode(with(
+        record("vm-invalid", "1"),
+        json!({ "disk_health": health(json!({ "free_mb": 12000, "used_mb": 8000, "total_mb": 16384 })) }),
+    ));
+    let bar = &encode(&invalid)["disk_health"]["bar"];
+    assert_eq!(bar["state"], "allocated");
+    assert_eq!(bar["label"], "16 GB");
+    assert_eq!(bar["segments"], json!([]));
 }
 
 #[test]
