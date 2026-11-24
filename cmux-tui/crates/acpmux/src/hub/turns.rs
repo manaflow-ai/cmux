@@ -244,6 +244,10 @@ impl Hub {
         {
             self.release_protected_hold(session);
         }
+        // The person's own prompt, proven by its connection, lifts a hold (`session_hold.rs`).
+        if opts.human_authenticated && opts.after_turn.is_none() {
+            self.release_session_hold_for_person(session);
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             // `session/prompt` accepts prompts without a client id.  They still need a
             // durable message id when they came from another session, so wrap the
@@ -481,12 +485,15 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // Serialize each prompt's setup through queue admission. In particular, resolving an
         // uploaded block can block in a worker, and a later prompt must not claim the chat while
-        // the earlier one is still on its way to the queue. The guard is dropped immediately
-        // after `queue_slot`, before the admitted prompt reads its uploads for dispatch.
-        let _prompt_admission = match opts.prompt_admission.take() {
+        // the earlier one is still on its way to the queue. The guard is let go when the prompt
+        // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
+        // whole turn ahead of it: held that long, the next prompt would never queue), and at
+        // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
+        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
             Some(guard) => guard,
             None => session.prompt_admission.clone().lock_owned().await,
-        };
+        }));
+        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
         #[cfg(test)]
         {
             let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -531,9 +538,13 @@ impl Hub {
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         }
-        if let Some(receipt) =
-            self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?
-        {
+        // A held chat keeps what is not the person's in its inbox, with no turn
+        // (`session_hold.rs`); else the surge may hold it.
+        let held = match self.hold_for_session_hold(session, &prompt_id, client, &blocks, &opts)? {
+            Some(receipt) => Some(receipt),
+            None => self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?,
+        };
+        if let Some(receipt) = held {
             if let Some(accept) = opts.on_accepted.take() {
                 accept(receipt.clone());
             }
@@ -561,6 +572,7 @@ impl Hub {
         let given =
             session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
+            admitted();
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
@@ -792,12 +804,24 @@ impl Hub {
             after_turn: after_turn.is_some(),
             steer_on_start,
         };
+        // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
+        // `start_restored`) has its place and is not accepted again: it lets the order go
+        // before it waits for its turn.
+        if session
+            .restored
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|(id, _)| *id == prompt_id)
+        {
+            admitted();
+        }
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
-        drop(_prompt_admission);
+        admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -1762,6 +1786,8 @@ impl Hub {
         if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
         {
             self.rate_turn_ok(session);
+            // Nothing its process said before this end explains a later exit (`exit_reason.rs`).
+            session.exit_line.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
         }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());
