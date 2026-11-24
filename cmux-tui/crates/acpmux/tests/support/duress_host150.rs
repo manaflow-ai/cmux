@@ -30,8 +30,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[path = "duress_starved.rs"]
 mod starved;
 
+// The cut-all legs: every peer link cut at once, the dials and the presence gap after.
+#[path = "duress_cutall.rs"]
+pub(super) mod cutall;
+
 /// Legs beside `ALL_LEGS` that a run names on purpose (`all` does not take them).
-pub(super) const EXTRA_LEGS: [&str; 3] = ["host150", "peerscale", starved::LEG];
+pub(super) const EXTRA_LEGS: [&str; 5] =
+    ["host150", "peerscale", starved::LEG, cutall::LEG, cutall::LOAD_LEG];
 /// The peer counts of `peerscale`.
 pub(super) const PEERSCALE: [usize; 4] = [1, 10, 20, 40];
 /// Peers in the host150 leg, at least (Leo's Mac held ~40 links).
@@ -54,15 +59,18 @@ const HOG_MEMORY_HIGH: &str = "256M";
 const HOG_MAX_BYTES: u64 = 16 << 30;
 
 pub(super) fn is_extra(leg: &str) -> bool {
-    leg == "host150" || leg == starved::LEG || peerscale_n(leg).is_some()
+    leg == "host150"
+        || leg == starved::LEG
+        || peerscale_n(leg).is_some()
+        || cutall::n(leg).is_some()
 }
 
 /// `peerscale` names four legs; the rest pass through.
 pub(super) fn expand(legs: Vec<String>) -> Vec<String> {
     legs.into_iter()
         .flat_map(|l| {
-            if l == "peerscale" {
-                PEERSCALE.iter().map(|n| format!("peerscale{n}")).collect()
+            if l == "peerscale" || l == cutall::LEG || l == cutall::LOAD_LEG {
+                PEERSCALE.iter().map(|n| format!("{l}{n}")).collect()
             } else {
                 vec![l]
             }
@@ -79,13 +87,13 @@ pub(super) fn peers_for(leg: &str, knob: usize) -> usize {
     match leg {
         "host150" => knob.max(HOST150_PEERS),
         starved::LEG => knob.max(starved::PEERS),
-        _ => peerscale_n(leg).unwrap_or(knob),
+        _ => peerscale_n(leg).or_else(|| cutall::n(leg)).unwrap_or(knob),
     }
 }
 
 /// What the leg's stressors may run past the knobs' cap: host150's ramp, peerscale's quiet span.
 pub(super) fn extra_cap(leg: &str) -> Duration {
-    if leg == "host150" {
+    if leg == "host150" || cutall::loaded(leg) {
         RAMP_MAX
     } else if peerscale_n(leg).is_some() {
         QUIET
@@ -670,7 +678,8 @@ impl Extras {
                 "bytesPerSec": per_s(5),
             }));
         }
-        if leg != "host150" {
+        // The loaded cut-all legs take host150's load (their own peer count).
+        if leg != "host150" && !cutall::loaded(leg) {
             return x;
         }
         let cores = cores();
@@ -980,7 +989,7 @@ pub(super) fn summary_tail(row: &Value) -> String {
     format!(
         "; load max {} (target {}); presence gap worst {} ({} of {} peers over 2s); link drops \
          {} (stopped-answering {}, dials {}); send p50/p95 local {}/{} peer {}/{}; peer links {} \
-         ({} frames/s); notices peak queue {}; spawns {}/s; tool call p95 {}{}",
+         ({} frames/s); notices peak queue {}; spawns {}/s; tool call p95 {}{}{}",
         n(&row["load"]["max"]),
         n(&row["load"]["target"]),
         ms(row["presenceGapMs"]["worst"].as_f64()),
@@ -1008,6 +1017,16 @@ pub(super) fn summary_tail(row: &Value) -> String {
             s["cgroup"]["memoryHighEvents"],
             s["network"]["stallMs"],
             s["network"]["stallEverySecs"],
+        )),
+        row.get("cutAll").map_or(String::new(), |c| format!(
+            "; cut all: {} dials in the first second (bound {}), {} of {} back by {}, worst gap {}, {} over 2s",
+            c["dialsFirstSecond"],
+            c["dialsFirstSecondBound"],
+            c["reconnected"],
+            c["peers"],
+            ms(c["allBackMs"].as_f64()),
+            ms(c["presenceGapWorstMs"].as_f64()),
+            c["peersOver2s"],
         )),
     )
 }
@@ -1097,5 +1116,11 @@ mod unit {
         assert_eq!(peers_for("peerscale20", 2), 20);
         assert_eq!(peers_for("host150", 2), 40);
         assert_eq!(peers_for("cpu", 2), 2);
+        let cut = expand(vec!["cutall".into(), "cutallload".into()]);
+        assert_eq!(cut[..4], ["cutall1", "cutall10", "cutall20", "cutall40"]);
+        assert_eq!(cut[4..], ["cutallload1", "cutallload10", "cutallload20", "cutallload40"]);
+        assert!(cut.iter().all(|l| is_extra(l)));
+        assert_eq!(peers_for("cutallload40", 2), 40);
+        assert_eq!(extra_cap("cutallload1"), RAMP_MAX);
     }
 }
