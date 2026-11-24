@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from cmux_next_pair_share_host import TaggedShareHost
+from cmux_next_pair_share_phone import PairSharePhone
+from cmux_next_screen_sharing_proof import positive_fps
 
 
 class ShareAuditTests(unittest.TestCase):
@@ -48,3 +50,44 @@ class ShareAuditTests(unittest.TestCase):
         self.append(event="remote_host.share_refused", code="share.bad_signature")
         with self.assertRaisesRegex(RuntimeError, "share.bad_signature"):
             self.host.admission(offset, self.digest, timeout=0)
+
+
+class FakeUI:
+    def __init__(self, nodes):
+        self.nodes = nodes
+
+    def find(self, match):
+        return [n for n in self.nodes if match(n)]
+
+    def control(self, match, what):
+        found = self.find(match)
+        if not found:
+            raise RuntimeError(what)
+        return found[0]
+
+
+class RdViewerTests(unittest.TestCase):
+    """With the Mac app closed the phone views over rd/1, not WebRTC."""
+
+    def phone(self, nodes):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI(nodes)
+        return phone
+
+    def test_reads_the_rd_meter_fps_and_taps_its_stream(self):
+        stream = {"AXIdentifier": "browser.stream", "frame": {"x": 0, "y": 0, "width": 390, "height": 600}}
+        phone = self.phone([stream, {"AXLabel": "phone 17:02:11.204"},
+                            {"AXLabel": "30 fps · 812 kbps · 1280×800 · lan"}])
+        self.assertTrue(positive_fps(phone.stats()))
+        self.assertIs(phone.screen_view(), stream)
+
+    def test_a_still_rd_meter_reads_no_frame(self):
+        phone = self.phone([{"AXLabel": "0 fps · 0 kbps · 0×0 · lan"}])
+        self.assertFalse(positive_fps(phone.stats()))
+
+    def test_webrtc_stats_and_view_still_win(self):
+        view = {"AXIdentifier": "screen.view", "frame": {"x": 0, "y": 0, "width": 1, "height": 1}}
+        phone = self.phone([view, {"AXIdentifier": "screen.stats", "AXLabel": "LAN · 24 fps · 900 KB/s · 9 ms · h264"}])
+        self.assertTrue(positive_fps(phone.stats()))
+        self.assertIs(phone.screen_view(), view)
+

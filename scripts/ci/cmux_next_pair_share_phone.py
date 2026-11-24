@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import re
 import time
 
 from cmux_next_screen_sharing_proof import Phone as ScreenProofPhone, positive_fps
@@ -103,6 +104,10 @@ class PairInputProbe:
 
 
 
+# rd/1's meter line: "30 fps · 812 kbps · 1280×800 · lan".
+RD_METER_LINE = re.compile(r"[0-9]+(?:\.[0-9]+)? fps · [0-9]+ kbps")
+
+
 class PairSharePhone(ScreenProofPhone):
     """Drive the phone's real Settings > Screen Sharing flow."""
 
@@ -114,7 +119,10 @@ class PairSharePhone(ScreenProofPhone):
     def launch(self):
         # PhoneUI.launch passes the SIMCTL_CHILD_* receipt flag through to the
         # app. The app logs only a digest of the signed nonce in DEBUG builds.
-        self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-settings-page", "screenSharing"])
+        # With the Mac app closed the daemon serves the phone over rd/1, whose
+        # view shows its frame rate only with the meter flag (browser.meter).
+        self.ui.launch(["-cmux-mobile-no-restore", "-cmux-mobile-settings-page", "screenSharing",
+                        "-cmux-mobile-browser-meter"])
 
     def request_share(self, name, device_id):
         exact_id = "screenSharing.device." + device_id
@@ -142,11 +150,16 @@ class PairSharePhone(ScreenProofPhone):
         self.ui.tap(button)
 
     def stats(self):
+        """The frame-rate line of whichever viewer is up: WebRTC's screen.stats,
+        or rd/1's browser.meter (its fps line is a child text of the meter)."""
         rows = self.ui.find(lambda node: (node.get("AXIdentifier") == "screen.stats"
                                           or node.get("AXUniqueId") == "screen.stats"))
         if len(rows) > 1:
             raise PairShareFailure("ambiguous phone stats")
-        return str(rows[0].get("AXLabel", "")) if rows else ""
+        if rows:
+            return str(rows[0].get("AXLabel", ""))
+        meter = self.ui.find(lambda node: RD_METER_LINE.search(str(node.get("AXLabel", ""))) is not None)
+        return str(meter[0].get("AXLabel", "")) if meter else ""
 
     def wait_frame(self, timeout=60):
         deadline = time.monotonic() + timeout
@@ -156,8 +169,19 @@ class PairSharePhone(ScreenProofPhone):
             time.sleep(1)
         raise PairShareFailure("phone did not receive a decoded Mac frame")
 
+    def screen_view(self):
+        """WebRTC draws into screen.view; rd/1 (the Mac app closed) into browser.stream."""
+        for identifier in ("screen.view", "browser.stream"):
+            found = self.ui.find(lambda node, i=identifier: (node.get("AXIdentifier") == i
+                                                            or node.get("AXUniqueId") == i))
+            if len(found) > 1:
+                raise PairShareFailure("ambiguous phone screen view")
+            if found:
+                return found[0]
+        return self.control("screen.view")
+
     def tap_center(self):
-        view = self.control("screen.view")
+        view = self.screen_view()
         frame = view.get("frame") or {}
         if frame.get("width", 0) <= 0 or frame.get("height", 0) <= 0:
             raise PairShareFailure("phone screen view has no visible frame")
