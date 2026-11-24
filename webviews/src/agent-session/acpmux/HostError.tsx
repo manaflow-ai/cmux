@@ -169,13 +169,6 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
   );
 }
 
-/// The one quiet chip while the pane gets its agent back by itself: "Reconnecting…", the same chip
-/// HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen.
-function ReconnectingLine({ variant }: { variant?: ConnectionChipVariant }) {
-  const t = useT();
-  return <ConnectionChip kind="reconnecting" words={t("host.reconnecting")} variant={variant} />;
-}
-
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
 /// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
@@ -221,43 +214,22 @@ export function HostWaitingLine({
   );
 }
 
-/// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
-/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
-/// waits on the person. Otherwise
-/// (`otherwise`) the host's other line, if any.
+/// Automatic reconnects and restores never cover the cached chat or an actionable failure: the
+/// pane gets its chat back on its own and says nothing while it does (Leo, 2026-11-16: "pls no
+/// messages like this :("). The host's other line, if any (`otherwise`), shows.
 export function HostRecoveringLine({
-  relinkingSince,
-  restoring,
-  failureShown,
-  waitingSince,
   otherwise = null,
-  now: fixedNow,
-  variant,
 }: {
   /// The chip's look, for the gallery; the pane passes none.
   variant?: ConnectionChipVariant;
   relinkingSince?: number;
   restoring?: HostRestoring;
   failureShown?: boolean;
-  /// When the waiting line's wait began (its `since`): "Reconnecting…" stays until that line shows.
   waitingSince?: number;
   otherwise?: ReactNode;
   now?: number;
 }) {
-  const t = useT();
-  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
-  if (!line) return otherwise;
-  return line.kind === "restoring" ? (
-    <ConnectionChip
-      kind="restoring"
-      variant={variant}
-      words={<ClockedWords text={t("host.restoringSessions", { time: SLOT })} time={waitedText(line.waitedMs)} />}
-    />
-  ) : (
-    <ReconnectingLine variant={variant} />
-  );
+  return otherwise;
 }
 
 /// The translation's time slot, filled with the ticking time.

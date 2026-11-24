@@ -9,7 +9,7 @@
 //   (DaemonGate). No Swift serves Home data.
 // In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
@@ -115,6 +115,7 @@ function DaemonHome({
   owner,
   host,
   strings,
+  carry,
 }: {
   daemon: DaemonSocket;
   /** This build's Chief home's owner, when it serves the local conversations. */
@@ -122,10 +123,9 @@ function DaemonHome({
   /** The app host: it relays the person's click for a Chief's grant and delete (none in a browser). */
   host: PageClient | null;
   strings: Strings;
+  /** The page's unsent messages: one per page mount, so they carry over to every new store. */
+  carry: PendingCarry;
 }) {
-  // DaemonGate preserves this component only for the same endpoints. Pending sends and the
-  // displayed store therefore survive a socket replacement, never an endpoint change.
-  const [carry] = useState(() => new PendingCarry());
   const store = useMemo(
     () => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host),
     [daemon, owner, carry, host],
