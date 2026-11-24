@@ -104,9 +104,11 @@ public struct DaemonHistoryClient: Sendable {
         return params
     }
 
-    public func recordVisit(profile: String, url: String, title: String?, tab: String?, at date: Date, key: String = DaemonHistoryClient.key()) async throws {
+    public func recordVisit(profile: String, url: String, title: String?, tab: String?, actor: String? = nil, sessionID: String? = nil, at date: Date, key: String = DaemonHistoryClient.key()) async throws {
         var params: [String: JSONValue] = ["profile": .string(profile), "url": .string(url), "at_ms": Self.decimal(date)]
         if let tab { params["tab"] = .string(tab) }
+        if let actor { params["actor"] = .string(actor) }
+        if let sessionID { params["session_id"] = .string(sessionID) }
         if let title, !title.isEmpty { params["title"] = .string(title) }
         _ = try await relay.send(operation: "history.visit.record", params: params, idempotencyKey: key)
     }

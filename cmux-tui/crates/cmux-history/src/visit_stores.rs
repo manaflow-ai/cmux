@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
+use crate::query::ActorFilter;
 use crate::query::HistoryQuery;
 use crate::visits::{NewVisit, VisitStore, VisitSummary};
 
@@ -134,7 +135,7 @@ impl VisitStores {
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit, query.actor)?);
         }
         Ok(entries)
     }

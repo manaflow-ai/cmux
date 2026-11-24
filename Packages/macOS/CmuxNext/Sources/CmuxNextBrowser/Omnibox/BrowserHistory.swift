@@ -69,6 +69,10 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
     }
 
     public func recordVisit(url: URL, title: String?, at date: Date) {
+        recordVisit(url: url, title: title, at: date, actor: nil, sessionID: nil)
+    }
+
+    func recordVisit(url: URL, title: String?, at date: Date, actor: String?, sessionID: String?) {
         guard Self.isRecordable(url) else { return }
         let key = BrowserHistoryRanker.dedupeKey(for: url)
         let typed = pendingTyped.remove(key) == nil ? 0 : 1
@@ -79,7 +83,7 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         entry.url = url
         if let title { entry.title = title }
         byKey[key] = entry
-        persistence?.didRecordVisit(url: url, title: title, at: date)
+        persistence?.didRecordVisit(url: url, title: title, at: date, actor: actor, sessionID: sessionID)
         notify(.upsert([entry.omniboxRow]))
     }
 
