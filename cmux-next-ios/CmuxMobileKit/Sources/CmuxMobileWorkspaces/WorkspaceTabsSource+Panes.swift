@@ -38,6 +38,22 @@ extension WorkspaceTabsSource {
         }]
     }
 
+    /// The grid's stacks are the Mac's panes: a pane of several tabs shows as one card (the tab
+    /// it shows on the Mac, or the tab open here) in a glass encasement whose chevron opens it in
+    /// place (CmuxTabsKit `TabsKitStack`). Read from the layout the Mac listed last; one map per
+    /// layout, so the grid asks for every tab in O(1).
+    public func stack(of id: TabsKitTab.ID) -> TabsKitStack? {
+        guard let layout else { return nil }
+        if let cached = paneStacks, cached.layout == layout { return cached.stacks[id] }
+        var stacks: [String: TabsKitStack] = [:]
+        for pane in layout.panes where pane.tabIDs.count > 1 {
+            let stack = TabsKitStack(id: "pane-\(pane.id)", title: layout.title(of: pane), frontTabID: pane.activeTabID)
+            for tab in pane.tabIDs where stacks[tab] == nil { stacks[tab] = stack }
+        }
+        paneStacks = (layout, stacks)
+        return stacks[id]
+    }
+
     /// The pane's name, else "Pane 2".
     public func title(of pane: WorkspaceLayout.Pane) -> String { layout?.title(of: pane) ?? "Pane" }
 

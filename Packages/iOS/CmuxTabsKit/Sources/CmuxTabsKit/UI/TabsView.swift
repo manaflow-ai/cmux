@@ -117,6 +117,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// and the menu opened late while an agent worked. A menu shows what was true when
     /// it opened, as UIKit's do.
     @State private var menuGroups: [[TabsKitMenuItem]] = []
+    /// Stacks shown open in the grid (`TabsKitStack`).
+    @State private var openStacks: Set<String> = []
+    /// Stacks opening or folding: their folded tabs are drawn under the front
+    /// card until the morph settles, so they slide out of it and back in.
+    @State private var morphingStacks: Set<String> = []
+    @State private var morphGeneration = 0
     @Environment(\.tabsKitTheme) private var theme
     @Environment(\.tabsKitOverviewColumns) private var overviewColumns
 
@@ -125,6 +131,25 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private var activeID: String? { source.activeTabID }
     private var activeTab: TabsKitTab? { activeID.flatMap { id in tabs.first { $0.id == id } } }
     private var activeIndex: Int? { activeID.flatMap { id in tabs.firstIndex { $0.id == id } } }
+
+    /// The grid's stacks: which tabs it shows, folded or open.
+    private var stackPlan: TabStackPlan {
+        TabStackPlan(ids: tabs.map(\.id), stack: { source.stack(of: $0) }, active: activeID, open: openStacks,
+                     pinned: source.pinnedTabIDs)
+    }
+    /// The grid's cards in order: every tab, less those a folded stack hides.
+    private var gridTabs: [TabsKitTab] { gridTabs(stackPlan) }
+    private func gridTabs(_ plan: TabStackPlan) -> [TabsKitTab] {
+        guard !plan.stacks.isEmpty else { return tabs }
+        let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return plan.visible.compactMap { byID[$0] }
+    }
+    /// The active tab's grid slot (it is always shown: a folded stack's front is the active tab).
+    private var gridActiveIndex: Int? { activeID.flatMap { id in gridTabs.firstIndex { $0.id == id } } }
+    /// The open or fold of a stack: one spring for its cards, its encasement and the cards it moves.
+    private var stackMorph: Animation { theme.motion.resolve(.spring(response: 0.44, dampingFraction: 0.84)) }
+    /// The grid's reflow while a stack morphs is the morph itself.
+    private var gridMotion: Animation { morphingStacks.isEmpty ? theme.motion.resolve(theme.motion.reflow) : stackMorph }
 
     private var zoomState: TabZoomState { zoomDriver.state }
     /// The grid is on screen (settled, opening, closing or pinched).
@@ -140,7 +165,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
+        let grid = gridTabs.map(\.id)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: grid) ?? grid.count,
                        pinned: pinnedCount, columns: overviewColumns)
     }
 
@@ -264,6 +290,21 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // (cmux-next re-audit 3 #11).
                 .mask { BarCutout(bar: overviewLayout.barRect, shown: overviewShown) }
 
+            // On the grid, and while a zoom heads there (the other cards'
+            // chevrons fade in with their close buttons; the zooming card's
+            // rides the page above until the grid settles).
+            if zoomState.phase == .overview || (overviewVisible && zoomState.headingToOverview) {
+                let plan = stackPlan
+                if !plan.stacks.isEmpty {
+                    StackChevronLayer(stacks: plan.stacks, cardIDs: plan.visible, layout: overviewLayout, scroll: gridScroll,
+                                      excluding: zoomState.phase == .overview ? nil : activeID,
+                                      swipes: cardSwipes, opacity: zoomDriver.chrome.closeOpacity,
+                                      topLimit: gridSafeTop + 4 + theme.metrics.overviewTopControl,
+                                      interactive: zoomState.gridInteractive, onToggle: toggleStack)
+                        .animation(gridMotion, value: plan.visible)
+                }
+            }
+
             if chrome.editing {
                 source.editingBackground(addressEditing)
                     .frame(width: size.width, height: size.height)
@@ -382,7 +423,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // tab's title) does not re-run it (`DormantGate`).
         let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
         DormantGate(dormant: !overviewVisible) {
-        TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
+        let plan = stackPlan
+        let grid = gridTabs(plan)
+        TabOverview(source: source, tabs: grid, stacks: plan, morphingStacks: morphingStacks, gridMotion: gridMotion,
+                    onToggleStack: toggleStack, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                     // On the settled grid the page layer draws the active
                     // tab's card live (the same view as the page); on the
                     // page and in the zoom it is the page itself, so its
@@ -398,7 +442,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     onNewTab: newTabFromOverview,
                     onDone: { closeOverview(selecting: activeID) },
                     onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
-                    pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
+                    pending: newTabSlot?.showsPlaceholder(in: grid.map(\.id)) == true ? pendingNewTab : nil,
                     onScrolling: { source.overviewScrollingChanged($0) },
                     onQueueSelect: { queuedOpen = $0 },
                     onPressChanged: { pressedCard = $0 },
@@ -485,7 +529,19 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Not on a settled page: it is invisible there (opacity 0) and
             // its `accessibilityHidden` did not keep it out of the page's
             // accessibility tree (full verify 2026-10-19 D7, T-TABS-14).
-            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
+            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID,
+               let stack = activeLeadsStack {
+                // The active card leads a stack: its chevron rides the zoom
+                // where the close button would; on the settled grid the
+                // chevron layer above draws it (it stays in its slot while
+                // the stack opens).
+                StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title, action: {})
+                    .padding(2)
+                    .opacity(phase == .overview ? 0 : close)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .id(id)
+            } else if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
                 Button {
                     if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
@@ -510,15 +566,22 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // centre then started from the reflow's in-flight offset (it grew
         // from the top-left corner, re-audit kit D5).
         .animation(phase == .overview && pendingNewTab == nil && !activeChangedOnGrid
-                   ? theme.motion.resolve(theme.motion.reflow) : nil, value: tabs.map(\.id))
+                   ? gridMotion : nil, value: gridTabs.map(\.id))
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
     }
 
+    /// The stack whose first card is the active tab's, if any.
+    private var activeLeadsStack: TabStackPlan.Stack? {
+        let plan = stackPlan
+        guard !plan.stacks.isEmpty, let id = activeID, let i = plan.visible.firstIndex(of: id) else { return nil }
+        return plan.stack(anchoredAt: i)
+    }
+
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
-        let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns).card(index)
+        let index = gridActiveIndex ?? 0
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(gridTabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -587,12 +650,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
+        let cards = gridTabs
         if zoomTabId == TabsScreenSpace.newTabMarker {
-            index = tabs.count
+            index = cards.count
         } else {
-            index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
+            index = zoomTabId.flatMap { id in cards.firstIndex { $0.id == id } } ?? (gridActiveIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(cards.count, index + 1), pinned: pinnedCount, columns: overviewColumns)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -690,7 +754,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         if chrome.editing { endEditing() }
         if zoomState.phase == .page {
             zoomTabId = activeID
-            prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+            prepareOverview(revealing: gridActiveIndex ?? 0, count: gridTabs.count)
         }
         zoomDriver.go(toOverview: true)
     }
@@ -799,7 +863,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             let atMinimumZoom = activeTab?.navigation.isZoomedIn != true
             if sample.scale <= ZoomPinchSession.engageIn, atMinimumZoom || moving <= ZoomPinchSession.decisionWindow {
                 zoomTabId = activeID
-                prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+                prepareOverview(revealing: gridActiveIndex ?? 0, count: gridTabs.count)
                 engage()
             } else if sample.scale > 1.005 || (!atMinimumZoom && moving > ZoomPinchSession.decisionWindow) {
                 session.decision = .rejected
@@ -851,7 +915,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The tab whose card is under `point` (screen coordinates).
     private func cardTab(at point: CGPoint) -> String? {
         let grid = overviewLayout
-        for (i, tab) in tabs.enumerated()
+        for (i, tab) in gridTabs.enumerated()
         where grid.zoomEndpoint(i, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll).contains(point) {
             return tab.id
         }
@@ -867,7 +931,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         if zoomState.phase == .page {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
-            prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
+            prepareOverview(revealing: gridActiveIndex ?? 0, count: gridTabs.count)
             barSwipe = BarSwipe.Tracking(path: zoomPath())
             zoomDriver.beginInteraction()
         }
@@ -911,6 +975,39 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Closing from the grid: the active card is first handed to the grid
     /// (one update), so its removal fades and shrinks the card instead of
     /// the live page vanishing in one frame.
+    /// The chevron (or the encasement) of stack `id`: opens it in place, or
+    /// folds it back under its front card. The folded cards are put under
+    /// the front card first, without animation, so on the next frame the
+    /// morph moves them out from it; the same spring then carries the
+    /// cards, the encasement and the cards after the stack.
+    private func toggleStack(_ id: String) {
+        guard zoomState.phase == .overview else { return }
+        morphGeneration += 1
+        let generation = morphGeneration
+        let opening = !openStacks.contains(id)
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let morph = reduceMotion ? Animation.easeInOut(duration: 0.2) : stackMorph
+        let run = {
+            withAnimation(morph) {
+                if opening { openStacks.insert(id) } else { openStacks.remove(id) }
+            } completion: {
+                guard generation == morphGeneration else { return }
+                morphingStacks = []
+            }
+        }
+        if reduceMotion || morphingStacks.contains(id) {
+            // Already drawn (a morph reversed mid-flight, or a crossfade): turn it around now.
+            morphingStacks.insert(id)
+            run()
+            return
+        }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { morphingStacks.insert(id) }
+        // The folded cards land under the front card in this update; the morph starts on the next.
+        DispatchQueue.main.async { run() }
+    }
+
     private func closeFromGrid(_ id: String) async -> Bool {
         if id == activeID, zoomState.phase == .overview, !activeChangedOnGrid {
             activeChangedOnGrid = true
