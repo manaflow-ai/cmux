@@ -33,7 +33,7 @@
 mod journey_support;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -42,26 +42,6 @@ use serde_json::{Value, json};
 
 /// The largest single prompt the bench sends to grow the chat log.
 const FILLER_PROMPT_BYTES: usize = 256 * 1024;
-
-/// A working copy `name` with a commit pushed to its GitHub remote (`acme/<name>`
-/// under `github`), as `offload_roundtrip_bench.rs` makes one.
-fn repo(at: &Path, github: &Path, name: &str) -> PathBuf {
-    let repo = at.join(name);
-    fs::create_dir_all(repo.join("src")).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    fs::write(repo.join("src/lib.txt"), "committed\n").unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-q", "-m", "first"]);
-    let bare = github.join(format!("acme/{name}.git"));
-    fs::create_dir_all(&bare).unwrap();
-    git(&bare, &["init", "-q", "--bare"]);
-    git(&bare, &["config", "uploadpack.allowFilter", "true"]);
-    git(&repo, &["remote", "add", "origin", &format!("https://github.com/acme/{name}.git")]);
-    let local = format!("url.file://{}/.insteadOf", github.display());
-    git(&repo, &["config", &local, "https://github.com/"]);
-    git(&repo, &["-c", "protocol.file.allow=always", "push", "-q", "-u", "origin", "main"]);
-    repo
-}
 
 /// Every record of `session` on `acpmux`, read in pages.
 fn whole_log(acpmux: &mut Acpmux, session: &str) -> Vec<Value> {
@@ -147,7 +127,6 @@ impl Drop for Load {
 
 struct Bench {
     root: PathBuf,
-    github: PathBuf,
     mac: Machine,
     vm: Machine,
     mb: usize,
@@ -159,28 +138,20 @@ impl Bench {
         let mut mac_acpmux = self.mac.acpmux();
         let mut vm_acpmux = self.vm.acpmux();
         let name = format!("app-{label}");
-        let repo = repo(&self.mac.home(), &self.github, &name);
+        let repo = self.mac.home().join(&name);
+        fs::create_dir_all(&repo).unwrap();
         let synced = self.vm.home().join("work").join(&name);
         let session = chat(&mut mac_acpmux, &repo, label, self.mb, duress);
         let source = whole_log(&mut mac_acpmux, &session);
         let log_bytes: usize = source.iter().map(|e| e.to_string().len() + 1).sum();
         let surface = bound_agent_tab(&self.mac, &session);
         let mac_state = self.mac.dir.join("state");
-        let (ok, push) = run_json(
-            Command::new(bin())
-                .env("CMUX_TUI_STATE_DIR", &mac_state)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .args(["link", "seed", "push", "--socket"])
-                .arg(&self.vm.socket)
-                .arg(&repo)
-                .arg(&synced),
-        );
-        assert!(ok && push["ok"] == json!(true), "seed push: {push}");
+        // The chat's folder on the VM: the move takes the chat alone (no `--sync`).
+        fs::create_dir_all(&synced).unwrap();
 
         let mut command = Command::new(bin());
         command
             .env("CMUX_TUI_STATE_DIR", &mac_state)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env_remove("ACPMUX_MOVE_HISTORY_LATER")
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.mac.socket)
@@ -245,19 +216,17 @@ fn tail_first_bench_moves_a_55_mb_chat_between_two_real_daemons() {
     fs::create_dir_all(&root).unwrap();
     let root = fs::canonicalize(&root).unwrap();
     let _cleanup = Cleanup(root.clone());
-    let github = root.join("github");
     let mac = Machine::start(&root, "mac", Vec::new());
     let vm = Machine::start(
         &root,
         "vm",
         vec![
             ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
-            ("CMUX_TEST_GIT_SEED_GITHUB", github.to_string_lossy().into_owned()),
             ("CMUX_VM_ID", "vm-tail-first-bench".to_owned()),
             ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
         ],
     );
-    let bench = Bench { root: root.clone(), github, mac, vm, mb };
+    let bench = Bench { root: root.clone(), mac, vm, mb };
     let rows = vec![
         bench.run("whole", false, false),
         bench.run("tail_first", true, false),
