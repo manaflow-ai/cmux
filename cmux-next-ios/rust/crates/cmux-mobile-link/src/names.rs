@@ -46,6 +46,7 @@ pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const SITE_DATA_HANDOFF: &str = "site-data-handoff-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
 pub const CONVERSATION_TABS: &str = "conversation-tabs-v1";
@@ -115,6 +116,10 @@ pub const ALL: &[Capability] = &[
     host(
         CLOUD_DESKTOP,
         "(2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`.",
+    ),
+    host(
+        SITE_DATA_HANDOFF,
+        "(2026-11-24) The host serves `site-data`: on Open on iPhone, the tab's cookies and local storage for its own site only (RFD 0089); listed only while the person turned it on on the Mac.",
     ),
     daemon(
         CLOUD_MOBILE_CHAT,

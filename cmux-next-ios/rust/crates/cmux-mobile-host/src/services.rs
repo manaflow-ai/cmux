@@ -171,6 +171,11 @@ pub async fn serve(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        "site-data" => {
+            let (socket, query) = (config.daemon_socket(), crate::site_data::tabs_query());
+            let tabs = daemon_query(&socket, query.as_bytes(), "cmux-mobile-site-data");
+            crate::site_data::serve(tabs, &args, &control::emit, &sender).await
+        }
         "phone-frames" => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -303,6 +308,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.available() {
         out.push(CLOUD_DESKTOP);
+    }
+    if crate::site_data::enabled() && control::enabled() {
+        out.push(names::SITE_DATA_HANDOFF);
     }
     out
 }
@@ -1986,7 +1994,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
-async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
+pub(crate) async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
