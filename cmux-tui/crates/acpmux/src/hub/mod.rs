@@ -154,6 +154,8 @@ mod held_asks;
 mod host_level;
 pub(super) mod idle;
 mod idle_census;
+pub(super) mod residency;
+pub use residency::IdlePolicyKind;
 mod paused_fs;
 mod person_prompt_at;
 pub(crate) mod unattended_presets;
@@ -1267,6 +1269,8 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// Which policy picks each chat's idle period (`residency.rs`, `ACPMUX_IDLE_POLICY`).
+    pub(super) idle_policy: std::sync::atomic::AtomicU8,
     /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
@@ -1748,6 +1752,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_policy: std::sync::atomic::AtomicU8::new(IdlePolicyKind::Static as u8),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
@@ -2419,6 +2424,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
+            idle_rhythm: StdMutex::new(Default::default()),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),

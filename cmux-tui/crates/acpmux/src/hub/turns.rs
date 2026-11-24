@@ -1340,6 +1340,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // The gap it ends joins the chat's rhythm (`residency.rs`).
+        self.rhythm_turn_began(session);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let wire = agent_blocks(self, session, &blocks).await;
@@ -2353,6 +2355,8 @@ impl Hub {
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let last = last_turn_of(turn_result, now_ms());
+        // Its next gap starts (`residency.rs`).
+        self.rhythm_turn_ended(session);
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             session.meta.lock().unwrap().last_turn = Some(last);

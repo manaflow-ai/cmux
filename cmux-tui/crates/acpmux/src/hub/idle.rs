@@ -286,7 +286,7 @@ impl Hub {
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| {
                 std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed))
-                    + self.idle_period(s, idle)
+                    + self.idle_period_for(s, idle)
             })
             .min()
     }
@@ -301,7 +301,8 @@ impl Hub {
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         // Each session's own period: shorter for one whose host moves (`host_level.rs`).
-        let period = |s: &Session| self.idle_period(s, idle).as_nanos() as u64;
+        // And under `adaptive-v1`, its own rhythm's (`residency.rs`).
+        let period = |s: &Session| self.idle_period_for(s, idle).as_nanos() as u64;
         // The live sessions past their deadline, newest first as before: only those are sorted.
         let due = newest_first(
             self.live_session_handles()
@@ -423,6 +424,7 @@ impl Hub {
                 "host-level"
             },
             idle_secs = idle_for / 1_000_000_000,
+            policy = self.idle_policy().name(),
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
              servers running under it; the harness and its MCP servers exited and the session \
