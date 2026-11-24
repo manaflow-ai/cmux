@@ -59,6 +59,8 @@ final class AddMachineDialog {
     let runs: AddMachineRuns
     let panel = CmuxFloatingDialogPanel(identifier: "cmux.addMachine")
     private var isOpen = false
+    /// The pick card's field layout; the gallery sets another (DEBUG captures), the app keeps ``AddMachineCardSpec/Variant/labeled``.
+    var variant = AddMachineCardSpec.Variant.labeled
     /// The opening the fields were filled for (``AddMachineRuns/Request/seq``).
     private var seq: Int?
     private(set) var candidates = Candidates.unavailable
@@ -100,7 +102,7 @@ final class AddMachineDialog {
     func draw() {
         guard isOpen else { return }
         let values = panel.dialogView.flatMap { $0.dialog.values.isEmpty ? nil : $0.dialog.values } ?? initialValues()
-        let spec = AddMachineCardSpec.spec(runs: runs, candidates: candidates, values: values)
+        let spec = AddMachineCardSpec.spec(runs: runs, candidates: candidates, values: values, variant: variant)
         guard panel.dialogView?.spec != spec || !panel.isVisible else { return }
         let card = panel.show(spec) { [weak self] id in self?.pressed(id) }
         card.dialog.onEdit = { [weak self, weak card] values in

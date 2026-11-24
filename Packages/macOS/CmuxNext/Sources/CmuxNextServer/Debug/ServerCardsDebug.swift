@@ -99,12 +99,12 @@ public struct ServerCardsDebug {
                 }
             },
             install: { _, _ in .failed("debug") }, connect: { _, _ in nil }, record: { _, _ in }, openWorkspace: { _ in }, copy: { _ in })
-        AddMachineCardSpec.variant = switch state {
+        let card = AddMachineCard(services: services)
+        card.dialog.variant = switch state {
         case "pickCompact": .compact
         case "pickTailnetFirst": .tailnetFirst
         default: .labeled
         }
-        let card = AddMachineCard(services: services)
         if state.hasPrefix("pick") {
             card.open(destination: "studio", name: nil, over: window)
         } else {

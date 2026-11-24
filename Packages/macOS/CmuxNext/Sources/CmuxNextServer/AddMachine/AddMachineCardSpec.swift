@@ -21,14 +21,9 @@ enum AddMachineCardSpec {
         case tailnetFirst
     }
 
-    #if DEBUG
-    @MainActor static var variant = Variant.labeled
-    #else
-    @MainActor static var variant: Variant { .labeled }
-    #endif
-
     @MainActor
-    static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue]) -> CmuxDialogSpec {
+    static func spec(runs: AddMachineRuns, candidates: AddMachineDialog.Candidates, values: [String: CmuxDialogValue],
+                     variant: Variant = .labeled) -> CmuxDialogSpec {
         let mode = runs.request.mode
         let adding = mode == .add
         // No icon column: the title says what the card is, so the fields take the card's whole width (Leo: "a symbol
