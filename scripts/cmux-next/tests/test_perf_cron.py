@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1247,6 +1247,15 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"])
         self.assertEqual(cwd, "/r/webviews")
 
+    def test_the_power_user_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-power-user"))
+        self.assertEqual(cron.part_for_row("webui.power_user.flick.webkit.frame_p95@linux"), "web-ui-power-user")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-power-user")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"])
+        self.assertEqual(cwd, "/r/webviews")
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
+        self.assertRegex(suite, r'name: "power-user-bursts",\s*file: "power-user-bursts\.bench\.ts"')
+
     def test_the_composer_typing_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-typing"))
         self.assertEqual(cron.part_for_row("webui.composer_typing.l1.webkit.rows60.to_paint@linux"), "web-ui-typing")
@@ -1343,6 +1352,17 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(rows["webui.daemon_restart.god_home.chat_attach_ms"]["floor"], 40.0)
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
+
+    def test_the_coord_sim_script_names_shape_files_that_exist(self):
+        # cmux#47315 renamed shapes/default.json; the script kept the old path and every coord-sim part failed at gen
+        # ("No such file or directory") for days. Each repo path it names under the crate must exist.
+        import re
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        text = open(os.path.join(root, "scripts", "measure", "coord-sim-linux.sh")).read()
+        named = re.findall(r"\$crate/(shapes/[\w.-]+\.json)", text)
+        self.assertTrue(named)
+        for rel in named:
+            self.assertTrue(os.path.isfile(os.path.join(root, "cmux-tui", "crates", "coord-sim", rel)), rel)
 
     def test_the_coord_sim_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("coord-sim"))

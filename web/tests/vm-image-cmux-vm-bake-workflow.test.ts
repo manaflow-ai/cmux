@@ -206,7 +206,7 @@ describe("cloud-vm-image-bake.yml", () => {
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;
       // The team image's bake recorded no inputs key (as a --dev-tree bake would not): its candidate carries none.
-      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : { inputsSha256: "e".repeat(64) }) }));
+      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : { inputsSha256: "e".repeat(64), disk: { schema: 1, source: "bake", root: { used_mib: 5324 } } }) }));
       const smokeReport = path.join(bake.out, `smoke-${tag}.json`);
       writeFileSync(smokeReport, JSON.stringify({ passed: false, checks: { a: { ok: false } } }));
       const refused = await runStep("Dev channel candidate", inputs, dir);
@@ -232,6 +232,9 @@ describe("cloud-vm-image-bake.yml", () => {
       else expect(recorded).not.toHaveProperty("team_files_root");
       if (teamVm) expect(recorded).not.toHaveProperty("inputs_sha256");
       else expect(recorded.inputs_sha256).toBe("e".repeat(64));
+      // The bake's disk record (disk-record.ts) rides into channels/dev.json history; a bake without one adds nothing.
+      if (teamVm) expect(recorded).not.toHaveProperty("disk");
+      else expect(recorded.disk).toEqual({ schema: 1, source: "bake", root: { used_mib: 5324 } });
     });
   }
 });
