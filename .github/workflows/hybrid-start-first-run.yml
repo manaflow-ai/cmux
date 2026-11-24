@@ -183,7 +183,7 @@ jobs:
           # Bounded: the three runs and a move's 20 min wait fit in 90 min.
           log show --last 90m --predicate 'subsystem == "com.cmuxterm.app.next"' --info --debug \
             --style compact 2>/dev/null \
-            | grep -iE 'move|transfer|seed' \
+            | grep -iE 'move|transfer|seed|cloud\.start' \
             | tail -n 20000 > "$RUNNER_TEMP/hfr/out/app-move.log" || true
           wc -l "$RUNNER_TEMP/hfr/out/app-move.log" || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
