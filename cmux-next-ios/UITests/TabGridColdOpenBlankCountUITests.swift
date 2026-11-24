@@ -74,8 +74,10 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
             let blank: Bool
             switch kind {
             case "agent": blank = tab == Self.activeTab ? false : !(face == "lastKnown" || face == "picture")
-            case "terminal": blank = face == "placeholder" || face == "connecting"
-            default: blank = face == "placeholder"
+            // A card with nothing known draws "nothing" (the stand-ins it drew before were
+            // "placeholder" and "connecting"; any of them is a blank card).
+            case "terminal": blank = ["nothing", "placeholder", "connecting"].contains(face)
+            default: blank = face == "nothing" || face == "placeholder"
             }
             if blank {
                 blankCards.append(tab)

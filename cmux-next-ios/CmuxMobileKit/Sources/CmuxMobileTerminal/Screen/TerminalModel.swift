@@ -619,8 +619,12 @@ public final class TerminalModel {
     #endif
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image

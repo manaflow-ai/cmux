@@ -367,7 +367,7 @@ struct BrowserPage: UIViewRepresentable {
     }
 }
 
-/// A browser tab's grid card: its last snapshot, else a blank page.
+/// A browser tab's grid card: its last snapshot, else its last-known picture, else the page's background.
 struct BrowserCard: View {
     let model: BrowserTabModel?
     var insets: EdgeInsets
@@ -384,16 +384,12 @@ struct BrowserCard: View {
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                 }
-            } else {
-                Image(systemName: "globe")
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // No picture yet: the page's background, never a stand-in glyph (Leo, 2026-11-24, on
+            // a grid of globes: "wer need to chase all these placeholders doen and prevent them").
         }
         .modifier(TabCardFaceRecord(tabID: tabID,
-                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "nothing"))
     }
 }
 #endif

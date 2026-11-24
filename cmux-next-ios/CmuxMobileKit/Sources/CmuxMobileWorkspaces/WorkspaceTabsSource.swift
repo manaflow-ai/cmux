@@ -2760,14 +2760,14 @@ struct WorkspaceTabCard: View {
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
-                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true,
+                    StreamedBrowserCard(model: model, fit: true,
                                         lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage)
                 } else if let image = source.snapshotEntry(tab.id)?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
                 } else {
-                    Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // No picture yet: the card's background, never a stand-in glyph.
+                    Color.cmuxMobileBackground
                 }
             }
     }
