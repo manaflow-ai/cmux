@@ -9,6 +9,7 @@ import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { KnownPaths } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { setExperimentSwitches } from "../src/experiments/switches";
 import {
   useAttachmentIntake,
   useSendWhenAttached,
@@ -44,6 +45,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  setExperimentSwitches({});
   restoreInput?.();
   act(() => root?.unmount());
   root = undefined;
@@ -89,7 +91,20 @@ function mount(upload: AttachmentIntakeOptions["upload"], localPaths?: Attachmen
   return handle;
 }
 
+test("a delayed native lookup keeps the loading mark while Attachment Type Icons is off (the default)", async () => {
+  const lookup = Promise.withResolvers<KnownPaths>();
+  const handle = mount(
+    () => Promise.resolve({ paths: [] }),
+    () => lookup.promise,
+  );
+  await act(() => void handle.current!.attach([new File(["bytes"], "local.txt")], true, "drop"));
+  expect(handle.current!.pending.map((chip) => chip.resolvingPath)).toEqual([undefined]);
+  await act(async () => lookup.resolve([{ path: "/tmp/local.txt", folder: false }]));
+  expect(handle.current!.attachments.map((chip) => chip.path)).toEqual(["/tmp/local.txt"]);
+});
+
 test("a delayed native lookup keeps its chips local until one file actually needs bytes", async () => {
+  setExperimentSwitches({ attachmentTypeIcons: true });
   const lookup = Promise.withResolvers<KnownPaths>();
   const upload = Promise.withResolvers<UploadResult>();
   const batches: string[][] = [];

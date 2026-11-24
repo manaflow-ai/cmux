@@ -27,6 +27,7 @@ import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } 
 import { isVideoName, useVideoInfo } from "./videoAttachments";
 import { draftShapeOf, localDraftShape, type LocalDraftShape } from "./draftMediaShape";
 import { videoShapeOf } from "./videoShape";
+import { experimentSwitchOn } from "../../../experiments/switches";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -132,12 +133,18 @@ export function appendAttachments(
 /// be attached stays, saying why (`failed`), with Retry (Leo, 2026-10-24: "why don't you put a
 /// spinner on the attachment rather than this placeholder that doesn't do anything... I can't even
 /// cancel these").
+/// The `experiments.*` switch that shows a file or image icon on a chip while its path resolves.
+export const ATTACHMENT_TYPE_ICONS = "attachmentTypeIcons";
+
 export type PendingAttachment = {
   [localDraftShape]?: LocalDraftShape;
   id: string;
   name: string;
   image: boolean;
   /// The host is looking up this local gesture in its path records. No bytes are being transferred.
+  /// Set only while Settings > Advanced > Experiments > Attachment Type Icons
+  /// (`experiments.attachmentTypeIcons`, off by default) is on: the chip then shows a file or image
+  /// icon instead of the loading mark. Off, a resolving chip keeps the loading mark.
   resolvingPath?: boolean;
   /// The browser already knows the file's byte count before the host returns its path.
   fileSize?: number;
@@ -463,7 +470,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         id: again ?? crypto.randomUUID(),
         name: file.name,
         image,
-        ...(lookup ? { resolvingPath: true } : {}),
+        ...(lookup && experimentSwitchOn(ATTACHMENT_TYPE_ICONS) ? { resolvingPath: true } : {}),
         ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
         ...(video ? { video: true } : {}),
         ...(!isMadeFile(file) && (image || video)
