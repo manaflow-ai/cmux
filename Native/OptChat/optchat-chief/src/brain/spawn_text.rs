@@ -53,12 +53,39 @@ impl Brain {
     }
 }
 
+/// The note's words before and after its ids ([`no_text_note`],
+/// [`no_text_ids`] read the same layout).
+const NO_TEXT_HEAD: &str = " Your last turn started ";
+const NO_TEXT_AFTER_IDS: &str = " and posted no text: the person sees only their chips. \
+Post one short message now (send, or your reply) that says in a line each what you started and why. \
+Do not start them again.";
+
 /// The note: who was started, and what the next turn must post.
 pub fn no_text_note(ids: &[String]) -> String {
     format!(
-        "{NO_TEXT_TAG} Your last turn started {} and posted no text: the person sees only their chips. \
-Post one short message now (send, or your reply) that says in a line each what you started and why. \
-Do not start them again.",
+        "{NO_TEXT_TAG}{NO_TEXT_HEAD}{}{NO_TEXT_AFTER_IDS}",
         ids.join(", ")
     )
+}
+
+/// The ids a [`no_text_note`] names; None for any other text.
+pub(super) fn no_text_ids(note: &str) -> Option<Vec<String>> {
+    let ids = note
+        .strip_prefix(NO_TEXT_TAG)?
+        .strip_prefix(NO_TEXT_HEAD)?
+        .strip_suffix(NO_TEXT_AFTER_IDS)?;
+    Some(ids.split(", ").map(str::to_owned).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_note_gives_back_its_ids() {
+        let ids = vec!["a1".to_owned(), "a12".to_owned()];
+        assert_eq!(no_text_ids(&no_text_note(&ids)), Some(ids));
+        assert_eq!(no_text_ids("[untold] a1"), None);
+        assert_eq!(no_text_ids("[no text] something else"), None);
+    }
 }

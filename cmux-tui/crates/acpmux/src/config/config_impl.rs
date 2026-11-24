@@ -124,13 +124,17 @@ impl Config {
             | "session.sessionstasksmax"
             | "sessions_tasks_max"
             | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
+            "session.lanes" | "lanes" => &mut self.session.lanes,
+            "session.disk_mb" | "session.diskmb" | "disk_mb" | "diskmb" => {
+                &mut self.session.disk_mb
+            }
             _ => anyhow::bail!(
                 "unknown session resource setting `{key}` (use session.memory_mb, \
-                 session.swap_mb, session.tasks_max, session.sessions_tasks_max or \
-                 session.cpu_class)"
+                 session.swap_mb, session.tasks_max, session.sessions_tasks_max, \
+                 session.lanes, session.disk_mb or session.cpu_class)"
             ),
         };
-        let tasks = key.contains("tasks");
+        let tasks = key.contains("tasks") || key.contains("lanes");
         let value = value.trim();
         *slot = match value.to_ascii_lowercase().as_str() {
             "" | "default" | "none" | "clear" => None,
@@ -340,7 +344,7 @@ impl Config {
     }
 
     /// Without a configured default, prefer Claude, then Codex, then another coding ACP harness.
-    /// Terminal and Chief harnesses are chosen only explicitly.
+    /// Terminal, Chief and UniiChat harnesses are chosen only explicitly.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;

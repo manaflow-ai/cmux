@@ -13,7 +13,7 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod board;
 mod permission;
-pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use permission::{Answer, answer_permission, answer_question};
 pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
@@ -25,9 +25,11 @@ mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;
+mod move_end;
 mod parent;
 mod send_async;
-mod session_move;
+pub(crate) mod session_move;
+pub(crate) use session_move::move_auto;
 mod standard;
 pub(crate) mod transfer;
 
@@ -57,9 +59,11 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
-            return Err(match crate::cli::send_relay::listed_row(&key).await {
-                Some(row) => crate::cli::send_relay::listed_refusal(&key, row).into(),
-                None => e,
+            use crate::cli::send_relay::{Lookup, listed_refusal, listed_row, unknown_refusal};
+            return Err(match listed_row(&key).await {
+                Lookup::Listed(row) => listed_refusal(&key, row).into(),
+                Lookup::NotListed => e,
+                Lookup::Unknown(why) => unknown_refusal(&key, e, &why),
             });
         }
         Err(e) => return Err(e),

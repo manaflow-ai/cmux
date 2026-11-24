@@ -4,6 +4,7 @@ import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
+import { chatSnapshotTimes } from "./chatSnapshot/live";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
@@ -187,6 +188,7 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
@@ -217,25 +219,30 @@ export function createAcpmuxDebug(
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn" || fixture === "goal"
             ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "incoming"
-              ? incomingRows(Date.now() - 120_000)
-              : fixture === "link" || fixture === "github-link"
-                ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                : fixture === "selection"
-                  ? selectionRows(Date.now() - 60_000)
-                  : fixture === "mermaid"
-                    ? mermaidRows(Date.now() - 60_000)
-                    : fixture === "organization"
-                      ? organizationRows(Date.now() - 120_000)
-                      : fixture === "tool-summary"
-                        ? toolSummaryRows(Date.now() - 60_000)
-                        : fixture === "shared"
-                          ? sharedRows(Date.now() - 1_020_000)
-                          : fixture === "waiting-steers"
-                            ? waitingSteersRows(Date.now() - 90_000)
-                            : fixture === "subagent-report"
-                              ? subagentReportRows(Date.now() - 5_000_000)
-                              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+            : fixture === "worked-turn-page"
+              ? workedTurnPageRows(Date.now() - 60_000)
+              : fixture === "incoming"
+                ? incomingRows(Date.now() - 120_000)
+                : fixture === "link" || fixture === "github-link"
+                  ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                  : fixture === "selection"
+                    ? selectionRows(Date.now() - 60_000)
+                    : fixture === "mermaid"
+                      ? mermaidRows(Date.now() - 60_000)
+                      : fixture === "organization"
+                        ? organizationRows(Date.now() - 120_000)
+                        : fixture === "tool-summary"
+                          ? toolSummaryRows(Date.now() - 60_000)
+                          : fixture === "shared"
+                            ? sharedRows(Date.now() - 1_020_000)
+                            : fixture === "waiting-steers"
+                              ? waitingSteersRows(Date.now() - 90_000)
+                              : fixture === "subagent-report"
+                                ? subagentReportRows(Date.now() - 5_000_000)
+                                : syntheticRows(
+                                    Math.max(3, Math.floor(count)),
+                                    fixture === "short" ? "short" : "mixed",
+                                  );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(
@@ -345,7 +352,8 @@ export function createAcpmuxDebug(
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
         start_state_shown: acpmuxPerf.startStateShown() ?? null,
-        launch: acpmuxPerf.launchTimeline(),
+        start_state_trail: acpmuxPerf.startStateTrail(),
+        launch: { ...acpmuxPerf.launchTimeline(), ...copyTimeline() },
       };
     },
 
@@ -601,4 +609,14 @@ function summaryCardState() {
       current: row.getAttribute("aria-current") === "true",
     })),
   };
+}
+
+/// When this document drew the chat's saved copy and when the live page took over from it, on the wall clock
+/// (`perf_stats` `launch`, beside the page's launch marks): the relaunch bench's `copyPainted` and `copySwapped`.
+function copyTimeline(): Record<string, number> {
+  const times = chatSnapshotTimes();
+  if (!times || !Number.isFinite(performance.timeOrigin)) return {};
+  const out: Record<string, number> = { copyPainted_epoch_ms: Math.round(performance.timeOrigin + times.painted_ms) };
+  if (times.swapped_ms !== null) out.copySwapped_epoch_ms = Math.round(performance.timeOrigin + times.swapped_ms);
+  return out;
 }

@@ -175,13 +175,15 @@ export interface InstallClaims {
   readonly vm?: true
   /** A team VM install (kind team-vm): claim `tvm`, so every entry point refuses it except its team VM ops. */
   readonly team_vm?: true
+  /** Only with `vm`: minted by cmux-platform's GitHub egress (claim `edge`), the one bearer an edge machine mints with. */
+  readonly edge?: true
 }
 
 export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}), ...(isDevSpace(env.BUILD_SPACE) ? { bsp: env.BUILD_SPACE } : {}) })
+  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.vm && c.edge ? { edge: true } : {}), ...(c.team_vm ? { tvm: true } : {}), ...(isDevSpace(env.BUILD_SPACE) ? { bsp: env.BUILD_SPACE } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -200,7 +202,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, tvm, scope: rawScope, bsp } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; tvm?: unknown; scope?: unknown; bsp?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm, edge, tvm, scope: rawScope, bsp } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown; edge?: unknown; tvm?: unknown; scope?: unknown; bsp?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
     // A token works only in the build space that minted it (build-space.ts): no claim is the base space.
     if ((bsp === undefined ? BASE_SPACE : bsp) !== spaceOfEnv(env)) return undefined
@@ -218,6 +220,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
       ...(typeof agt === "string" ? { agent: agt } : {}),
       ...(vm === true ? { install_kind: "vm" } : tvm === true ? { install_kind: "team-vm" } : {}),
+      ...(vm === true && edge === true ? { edge: true } : {}),
       ...(isDevSpace(env.BUILD_SPACE) ? { build_space: env.BUILD_SPACE } : {})
     }
   } catch {

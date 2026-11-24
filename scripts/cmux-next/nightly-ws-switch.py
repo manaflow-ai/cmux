@@ -31,7 +31,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fresh_home_launch_smoke as smoke  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 SLOW_S = 1.0
 
@@ -69,6 +71,7 @@ class Journey:
         self.pings = []
         self.stop = threading.Event()
         self.watchers = []
+        self.probes = 0
 
     # -- the app -----------------------------------------------------------------------------
     def action(self, name, args=None, timeout=60.0):
@@ -91,6 +94,31 @@ class Journey:
             if focus == target and target in visible:
                 return True
             time.sleep(0.02)  # measurement harness polling the live app
+        return False
+
+    def tab_count(self, workspace):
+        """How many tabs the workspace has in the topology (None while it is not there)."""
+        for ws in self.topology().get("workspaces") or []:
+            if isinstance(ws, dict) and ws.get("id") == workspace:
+                return sum(len(p.get("tabs") or []) for sc in ws.get("screens") or [] for p in sc.get("panes") or [])
+        return None
+
+    def wait_tab_added(self, workspace, before, what):
+        if not wait_until(lambda: (self.tab_count(workspace) or 0) > before, what, timeout=15, interval=0.05,
+                          raise_on_timeout=False):
+            print(f"SETUP {what}: not in the topology after 15 s", flush=True)
+
+    def wait_shell(self, what):
+        """Until the focused terminal's shell runs a line: `: > PROBE` sent (again every 2 s, a line typed before the
+        shell is up can be lost) until PROBE exists. Best effort, as the fixed wait it replaces."""
+        self.probes += 1
+        probe = self.root / f"shell-ready-{self.probes}"
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            self.action("terminal.sendText", {"text": f": > {probe}\r"})
+            if wait_until(probe.exists, what, timeout=2, interval=0.02, raise_on_timeout=False):
+                return True
+        print(f"SETUP {what}: the shell ran no line in 20 s", flush=True)
         return False
 
     # -- sampling ----------------------------------------------------------------------------
@@ -163,7 +191,7 @@ class Journey:
         if not current or current == before or current in ids:
             print(f"SETUP workspace not created: {reply}", flush=True)
             return None
-        time.sleep(1.0)  # harness: let the shell start before typing into it
+        self.wait_shell("the new workspace's shell")
         return current
 
     def make_workspaces(self):
@@ -183,12 +211,14 @@ class Journey:
             if self.opts.heavy:
                 for verb, text in (("splitRight", loop), ("splitDown", "echo ready\r")):
                     self.action(verb)
-                    time.sleep(0.6)  # harness: the split's shell starts
+                    self.wait_shell(f"the {verb} shell")
                     self.action("terminal.sendText", {"text": text})
+                tabs = self.tab_count(current) or 0
                 self.action("newSurface")
-                time.sleep(0.4)  # harness: the tab opens
+                self.wait_tab_added(current, tabs, "the new terminal tab")
+                tabs = self.tab_count(current) or 0
                 self.action("openBrowser", {"url": "https://example.com"})
-                time.sleep(0.4)  # harness: the browser tab opens
+                self.wait_tab_added(current, tabs, "the browser tab")
         typing = self.new_workspace(ids)
         if typing:
             self.action("terminal.sendText", {"text": "echo ready\r"})
@@ -219,7 +249,7 @@ class Journey:
     def __call__(self, process, socket_path, env, app, out, report):
         self.sock, self.pid, self.out = socket_path, process.pid, Path(out)
         self.t0 = time.monotonic()
-        root = Path(env["HOME"]).parent
+        root = self.root = Path(env["HOME"]).parent
         Path(env["HOME"], ".zshrc").touch()
         pinger = threading.Thread(target=self.pinger, daemon=True)
         pinger.start()
@@ -228,7 +258,9 @@ class Journey:
             ids, roles, prompt = self.make_workspaces()
             report["workspaces"], report["roles"] = ids, roles
             print(f"SETUP {len(ids)} workspaces: {ids}", flush=True)
-            time.sleep(2.0)  # harness: the printing loops run before the switches
+            # sleep-ok: a warm-up window, the printing loops' output runs for 2 s before the first measured switch so
+            # every switch is timed under the same background load; a load that runs on has no "ready" event.
+            time.sleep(2.0)
             switches, failed_in_row = [], 0
             if len(ids) >= 2:
                 # Every workspace in turn.
@@ -260,7 +292,9 @@ class Journey:
             if prompt:
                 self.action("goToWorkspace", {"workspace": prompt})
                 self.wait_shown(prompt)
-                time.sleep(0.5)
+                # The switch done: the topology's focus reads the same several times before the typing.
+                wait_stable(lambda: json.dumps(self.topology().get("focus"), sort_keys=True), "the focus on the typing workspace",
+                            timeout=10, interval=0.05, reads=4, raise_on_timeout=False)
             report["typing"] = self.typing(root, self.opts.typing) if prompt else []
         finally:
             self.stop.set()

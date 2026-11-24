@@ -57,9 +57,7 @@ Leo and every agent:
 - Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
   that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
-  to speed up a proof. A queued nightly waits its turn; the sign yield
-  (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
-  one without cancelling anything.
+  to speed up a proof. A queued nightly waits its turn.
 - When a signing Mac is short of capacity or a nightly is slow, report it and
   fix that Mac or the workflow on it. Do not reroute the nightly.
 
@@ -165,7 +163,9 @@ Where things are:
 - Checks: `cmux-next checks (...)` and `cmux-next CI guard group` are the repo's lint and policy guards;
   `tooling-tests` the script tests; `web / ...` the webview typecheck and test shards; `cmux-next/compile`
   the app compile. Which suites run is chosen from your diff ([PR CI coverage](../../skills/cmux-testing/references/pr-ci-coverage.md)).
-- Runners: Linux jobs run on the fleet's Linux pool and Blacksmith, Mac jobs on our own Mac minis by
+- Runners: most Linux jobs on our own branches run on the one `cmux-linux` label since 2026-11-22
+  (cmux#48644; fork PRs use `CI_FORK_LINUX_RUNNER` or `ubuntu-24.04`), and the rest pick from the fleet's
+  Linux pool (`RUNNER_POOLS`). Mac jobs on our own Mac minis by
   capability label ([runner labels](../ci-runner-capability-labels.md), [runners](../ci-runners.md)).
   A job queued for long is a capacity problem, not your PR's.
 - Rerun one job from its page or with `gh run rerun RUN --failed`. Don't push an empty commit to rerun CI.

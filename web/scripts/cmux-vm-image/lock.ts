@@ -33,12 +33,15 @@ export const KNOWN_PROGRAMS = [
   "workerd",
   "gh",
   "juicefs",
+  // The compiler cache shared across one person's machines (RFD 0068 item 6). The image only installs it: a
+  // machine's RUSTC_WRAPPER and cache settings come from the platform, and only when the cache is configured.
+  "sccache",
 ] as const;
 /**
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -97,6 +100,8 @@ export type LockedProgram = Artifact & {
   readonly checksumsName?: string;
   readonly source?: string;
   readonly roles?: readonly RoleName[];
+  /** cmux-rd only: the crate version whose release is not published yet (the pin may trail the crate by that one release); cleared by the PR that pins it. */
+  readonly pendingRelease?: string;
   /** Installed into the store the first time one of its (first-use) roles starts; never baked. */
   readonly firstUse?: boolean;
   /** License and notice files (relative to the store entry) the install must find. */
@@ -280,6 +285,10 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
     if (raw.checksumsUrl !== shape.checksumsUrl || raw.checksumsName !== shape.checksumsName) problems.push(`${where}.checksumsUrl: must be ${shape.checksumsUrl} naming ${shape.checksumsName}`);
     if (!Array.isArray(raw.roles) || !raw.roles.includes("desktop")) problems.push(`${where}.roles: cmux-rd is in the desktop role`);
     if (raw.firstUse === true) problems.push(`${where}.firstUse: cmux-rd is baked (its socket unit starts it on the first desktop connection)`);
+  }
+  if (raw.pendingRelease !== undefined) {
+    if (name !== "cmux-rd") problems.push(`${where}.pendingRelease: only cmux-rd has a pending release`);
+    else if (typeof raw.pendingRelease !== "string" || !/^\d+\.\d+\.\d+$/.test(raw.pendingRelease)) problems.push(`${where}.pendingRelease: must be a version X.Y.Z`);
   }
 }
 
@@ -719,7 +728,12 @@ export function storeEntry(sha256: string): string {
 /** What an install needs from a lock program or a roles.json first-use program. */
 export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
 
-/** Download, verify (sha256 and size) and unpack one program into its immutable store entry. */
+/**
+ * Download, verify (sha256 and size) and unpack one program into its immutable store entry. The download resumes:
+ * a run the guest's 5-minute exec cap stopped (status 124) leaves its partial file in /tmp/cmux-dl, and the next run
+ * continues it (`curl -C -`) or skips it once it is whole; a whole file whose sha256 is wrong is removed, so the next
+ * run starts over. installStoreProgram runs the command again.
+ */
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
   const dl = `/tmp/cmux-dl/${program.sha256}`;
@@ -736,8 +750,8 @@ export function programInstallCommand(program: InstallableProgram): string {
   return [
     `mkdir -p /tmp/cmux-dl ${STORE_DIR}`,
     `rm -rf ${stage} && mkdir -p ${stage}`,
-    `curl -fsSL --retry 3 -o ${dl} ${sq(program.url)}`,
-    `${checksums}printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet -`,
+    `{ test "$(stat -c %s ${dl} 2>/dev/null)" = ${program.size} || curl -fsSL --retry 3 -C - -o ${dl} ${sq(program.url)}; }`,
+    `${checksums}{ printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet - || { rm -f ${dl}; false; }; }`,
     `test "$(stat -c %s ${dl})" = ${program.size}`,
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",
     unpack,

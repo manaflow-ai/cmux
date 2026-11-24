@@ -17,6 +17,8 @@ public nonisolated struct AgentWatchPage: Sendable {
     public var lanes: [String: AgentActivityLane] = [:]
     public var startedBy: [String: String] = [:]
     public var sessionNames: [String: String] = [:]
+    /// Each session's identity (acpmux `displayName`, `formerNames`, `icon`), when it has one.
+    public var identities: [String: AgentSessionIdentity] = [:]
     /// Each peer's row of a session id (chats of other machines), by session id, then by peer.
     public var peers: [String: [String: AgentPeerRow]] = [:]
     /// Where the rest of the list starts; nil on its last page.
@@ -39,6 +41,7 @@ public nonisolated struct AgentWatchPage: Sendable {
         lanes = AgentTurnStateFeed.Message.lanes(result)
         startedBy = AgentTurnStateStore.startedBy(result)
         sessionNames = AgentTurnStates.sessionNames(result)
+        identities = AgentSessionIdentity.identities(result)
         peers = AgentPeerRow.rows(result)
         next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         listSeq = Self.listSeq(result["listSeq"])
@@ -57,6 +60,7 @@ public nonisolated struct AgentWatchPage: Sendable {
         lanes.merge(later.lanes) { $1 }
         startedBy.merge(later.startedBy) { $1 }
         sessionNames.merge(later.sessionNames) { $1 }
+        identities.merge(later.identities) { $1 }
         peers.merge(later.peers) { $0.merging($1) { $1 } }
         next = later.next
     }
