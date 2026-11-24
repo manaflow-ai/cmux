@@ -4168,6 +4168,26 @@ public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction
 public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+    func altPan(rows: Double)  -> ProjectionAltPan
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+    func altReturnLive()  -> Data
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+    func altRowsBack()  -> UInt32
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
@@ -4176,6 +4196,8 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      * Paints what unpainted feeds changed, once (nothing on the alternate screen).
      */
     func flush()  -> [ProjectionSegment]
+    
+    func held()  -> ProjectionHeld
     
     func isAlternate()  -> Bool
     
@@ -4292,6 +4314,45 @@ public convenience init(hostCols: UInt32, hostRows: UInt32) {
 
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+open func altPan(rows: Double) -> ProjectionAltPan  {
+    return try!  FfiConverterTypeProjectionAltPan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_pan(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(rows),$0
+    )
+})
+}
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+open func altReturnLive() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_return_live(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+open func altRowsBack() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_rows_back(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
 open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
@@ -4310,6 +4371,14 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
 open func flush() -> [ProjectionSegment]  {
     return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func held() -> ProjectionHeld  {
+    return try!  FfiConverterTypeProjectionHeld_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_held(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -5647,6 +5716,128 @@ public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
     return FfiConverterTypePredictionLayout.lower(value)
+}
+
+
+/**
+ * What a vertical pan over a full-screen app does: bytes the phone's
+ * surface paints itself (nothing sent), then rows of wheel for the app on
+ * the Mac (0: nothing goes).
+ */
+public struct ProjectionAltPan: Equatable, Hashable {
+    public var paint: Data
+    /**
+     * Rows of wheel, positive toward older content.
+     */
+    public var forwardRows: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(paint: Data, 
+        /**
+         * Rows of wheel, positive toward older content.
+         */forwardRows: Double) {
+        self.paint = paint
+        self.forwardRows = forwardRows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionAltPan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionAltPan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionAltPan {
+        return
+            try ProjectionAltPan(
+                paint: FfiConverterData.read(from: &buf), 
+                forwardRows: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionAltPan, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.paint, into: &buf)
+        FfiConverterDouble.write(value.forwardRows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lift(_ buf: RustBuffer) throws -> ProjectionAltPan {
+    return try FfiConverterTypeProjectionAltPan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lower(_ value: ProjectionAltPan) -> RustBuffer {
+    return FfiConverterTypeProjectionAltPan.lower(value)
+}
+
+
+/**
+ * Rows held for a pan over a full-screen app, and their bytes.
+ */
+public struct ProjectionHeld: Equatable, Hashable {
+    public var rows: UInt64
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: UInt64, bytes: UInt64) {
+        self.rows = rows
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionHeld: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionHeld: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionHeld {
+        return
+            try ProjectionHeld(
+                rows: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionHeld, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.rows, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lift(_ buf: RustBuffer) throws -> ProjectionHeld {
+    return try FfiConverterTypeProjectionHeld.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lower(_ value: ProjectionHeld) -> RustBuffer {
+    return FfiConverterTypeProjectionHeld.lower(value)
 }
 
 
@@ -9498,10 +9689,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_pan() != 43197) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_return_live() != 60034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_rows_back() != 12910) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_flush() != 56682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_held() != 8249) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
