@@ -342,6 +342,14 @@ impl Mux {
                 Ok(local) => self.carry_admitted(id, local, events, credit).await,
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::CmuxTuiResume { port }) => {
+                match resume::open(&incoming, from, port).await {
+                    Ok((local, serving)) => {
+                        tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                    }
+                    Err(refusal) => refuse(refusal).await,
+                }
+            }
             Ok(CircuitService::CmuxTuiSession) => {
                 let local = match incoming.admit_session(from).await {
                     Ok(socket) => connect_session(&socket).await.map_err(|e| {
@@ -650,6 +658,9 @@ impl KeptCircuits {
             .collect()
     }
 }
+
+#[path = "hub_carrier_resume.rs"]
+mod resume;
 
 #[cfg(test)]
 mod live {

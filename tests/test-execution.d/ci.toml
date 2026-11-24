@@ -915,6 +915,10 @@ path = "tests/test_ci_upload_artifact_retention.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_vm_image_qcow2.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_warm_distance.py"
 lane = "linux-guard"
 

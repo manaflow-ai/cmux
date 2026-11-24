@@ -201,7 +201,7 @@ import Testing
         #expect(model.composerNotice == nil)
     }
 
-    /// Sent during a blip and held past the 10 s hold: dropped, never typed late, and given back.
+    /// Sent during a blip and the Mac offline past the hold: dropped, never typed late, and given back.
     @Test func aSendHeldPastTheHoldGivesTheDraftBack() async throws {
         let channels = ChannelLog()
         var clock: TimeInterval = 1000
@@ -212,7 +212,10 @@ import Testing
         model.composerText = Self.draft
         model.send()
         #expect(model.composerText.isEmpty)
+        // The reconnect gives up: the Mac stays offline past the hold.
+        session.setMacOffline(true)
         clock += DaemonTerminalSession.inputHoldLimit + 0.5
+        session.setMacOffline(false)
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { model.composerNotice != nil }
