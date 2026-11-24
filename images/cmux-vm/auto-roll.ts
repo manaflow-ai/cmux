@@ -76,10 +76,12 @@ export type BootImage = {
 export type LargeVariant = { snapshotId: string; vcpus: number; memoryMib: number; diskMib: number };
 type Env = keyof typeof SERVICES;
 /**
- * The environments whose entry lists a roll's large image: staging only (the cmux-vm development and staging share),
- * until booting it there has been watched. Production's entry never carries one, so production creates are unchanged.
+ * The environments whose entry lists a roll's large image: staging (the cmux-vm development and staging share) and
+ * production (RFD 0133 item 10: boot the image already at the default shape). Listing it changes nothing alone: the Worker
+ * boots it only for a service in its CMUX_VM_SIZED_IMAGE_SERVICE_IDS (wrangler.jsonc), and only for a create that asks for
+ * exactly its size. Removing the id from that variable is the rollback, with no roll.
  */
-export const LARGE_ENVS: ReadonlyArray<Env> = ["staging"];
+export const LARGE_ENVS: ReadonlyArray<Env> = ["staging", "production"];
 
 // ---- wrangler.jsonc: the VM_BOOT_IMAGES value of one environment ----
 

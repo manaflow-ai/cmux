@@ -152,7 +152,7 @@
         // resize follows. No entry of VM_BOOT_IMAGES above carries `large` yet, so this changes nothing until a roll
         // publishes one. No reads: a first attempt sends no exact-slug read and no boot image read before the create.
         // Rollback: remove the line.
-        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev",
+        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging",
         "CMUX_VM_CREATE_NO_READS_SERVICE_IDS": "cloud-platform-dev"
       }
     },
@@ -229,7 +229,11 @@
         "CMUX_VM_MESH_TENANT_IDS": "",
         "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-production",
         // Mesh ACL scopes added to that service key, as on staging (only acl:read and acl:write may be granted here).
-        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-production\":[\"acl:read\",\"acl:write\"]}"
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-production\":[\"acl:read\",\"acl:write\"]}",
+        // Sized image (RFD 0133 item 10): cmux-platform production's creates and spares, which ask for the chat start size
+        // (2 vCPU / 4 GiB / 20 GiB), boot the image's `large` snapshot when the listed entry has one, so no resize follows.
+        // An entry without `large` (all of them until the next roll with large_image) boots as before. Rollback: remove the line.
+        "CMUX_VM_SIZED_IMAGE_SERVICE_IDS": "cloud-platform-production"
       }
     }
   }

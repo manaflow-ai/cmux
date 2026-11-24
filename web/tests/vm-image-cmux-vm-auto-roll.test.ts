@@ -164,8 +164,8 @@ describe("auto-roll approve", () => {
   // The large image (bake.ts --large): the same bake at the default Cloud chat start size, which the cmux-vm Worker
   // boots for a create that asks for exactly that size (workers/cmux-vm README, "Approved service boot images").
   const LARGE_ID = `sh-${"b".repeat(32)}`;
-  const LARGE = { snapshotId: LARGE_ID, vcpus: 4, memoryMib: 16384, diskMib: 65536 };
-  const largeCandidate = { ...candidate, large: { snapshot: "x-large", snapshot_id: LARGE_ID, size: { vcpu: 4, mem_gib: 16, disk_gib: 64 }, smoke: { result: "PASSED" } } };
+  const LARGE = { snapshotId: LARGE_ID, vcpus: 2, memoryMib: 4096, diskMib: 20480 };
+  const largeCandidate = { ...candidate, large: { snapshot: "x-large", snapshot_id: LARGE_ID, size: { vcpu: 2, mem_gib: 4, disk_gib: 20 }, smoke: { result: "PASSED" } } };
   const withLarge = (run: string): BootImage => rolledImage(largeCandidate, `ci-${run}-1`, tui, run, "1");
 
   test("the entry carries the candidate's large image only when it passed its smoke and is well formed", () => {
@@ -184,12 +184,11 @@ describe("auto-roll approve", () => {
       expect(rolledImage({ ...candidate, large: bad as typeof base }, "ci-1-1", tui, "1", "1")).not.toHaveProperty("large");
   });
 
-  test("lists the large image on staging's entry only, never production's", () => {
+  test("lists the large image on staging's and production's entries", () => {
     const { text, large } = approve(wrangler, withLarge("20"));
     expect(large).toBe(true);
     expect(locate(text, "staging").images.at(-1)).toEqual({ ...withLarge("20"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
-    expect(locate(text, "production").images[0]).toEqual({ ...entry("20"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
-    expect(locate(text, "production").images.some((i) => "large" in i)).toBe(false);
+    expect(locate(text, "production").images[0]).toEqual({ ...withLarge("20"), services: ["cloud-platform-production", "ci-product-smoke", "ci-product-smoke-platform"] });
     expect(approve(wrangler, entry("21")).large).toBe(false);
   });
 
@@ -202,7 +201,7 @@ describe("auto-roll approve", () => {
     const third = locate(approve(second, withLarge("32")).text, "staging").images;
     expect(third.at(-1)!.large).toEqual(LARGE);
     expect(third.find((i) => i.id === id30)?.large).toEqual(LARGE);
-    expect(locate(approve(second, withLarge("32")).text, "production").images.some((i) => "large" in i)).toBe(false);
+    expect(locate(approve(second, withLarge("32")).text, "production").images[0]!.large).toEqual(LARGE);
   });
 
   test("a large image that would put staging over the text binding limit is left out, and the roll goes on", () => {
