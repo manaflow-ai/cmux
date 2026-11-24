@@ -634,7 +634,22 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         arriving = false
         // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
         // lands above a reader who is still scrolling into it).
-        let used = anchor.flatMap { restore($0) }
+        var used = anchor.flatMap { restore($0) }
+        // The rows on screen may size themselves after that restore, in the pass it triggers (an
+        // arrival measuring from its estimate): settle them and restore once more, at most once.
+        // Only where PagedListSettle can say yes (it never does for a .down list, at rest or under a
+        // scroll), so no other update gets the extra layout pass: an infinite drift reads as "maybe".
+        var settle = PagedListSettle.State(up: direction == .up, sliding: follows && (spring.isRunning || arrivals > 0),
+                                           scrolling: collectionView.isTracking || collectionView.isDecelerating,
+                                           anchored: used != nil, drift: .infinity)
+        if let anchor, let kept = used, PagedListSettle.again(settle) {
+            collectionView.layoutIfNeeded()
+            settle.drift = windowY(of: kept.id, bottom: anchor.fromBottom).map { $0 - kept.windowY } ?? 0
+            if PagedListSettle.again(settle) {
+                note("s", settle.drift)
+                used = restore(anchor) ?? used
+            }
+        }
         keepReader()
         if !loaded, direction == .up { scrollToNewest() }
         updating = false
@@ -698,7 +713,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// Where a row that changes height stops moving what the reader sees (``PagedListKeepLine``).
     private var keepLine: CGFloat {
-        PagedListKeepLine.line(.init(follows: followsNewest, sliding: spring.isRunning,
+        PagedListKeepLine.line(.init(up: direction == .up, follows: followsNewest, sliding: spring.isRunning,
                                      scrolling: collectionView.isTracking || collectionView.isDecelerating,
                                      readerTop: readerTop, bottomEdge: bottomEdgeY))
     }

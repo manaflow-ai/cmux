@@ -6,6 +6,8 @@ import CoreGraphics
 /// the measure's account of it).
 enum PagedListKeepLine {
     struct State {
+        /// An `.up` list (newest row at the bottom). A `.down` list keeps the reader's top edge always.
+        var up: Bool
         /// The list follows its newest row (an `.up` list at its bottom, a `.down` one at its top).
         var follows: Bool
         /// The list's own slide to its newest row is running (``PagedListScrollSpring``).
@@ -27,7 +29,7 @@ enum PagedListKeepLine {
     /// arriving at its top size themselves on the way in. At rest the layout pass keeps the newest row
     /// (`stayOnNewest`), and a list read mid-list keeps the reader's row, as before.
     static func line(_ state: State) -> CGFloat {
-        state.follows && state.sliding && !state.scrolling ? state.bottomEdge : state.readerTop
+        state.up && state.follows && state.sliding && !state.scrolling ? state.bottomEdge : state.readerTop
     }
 }
 #endif

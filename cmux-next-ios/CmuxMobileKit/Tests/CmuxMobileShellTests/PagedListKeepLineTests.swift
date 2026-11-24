@@ -6,8 +6,15 @@ import Testing
 /// Which rows that change height move the offset with them (``PagedListKeepLine``), as plain data.
 /// A row whose top is above the line is corrected (the rows under it stay); below it, it pushes them.
 struct PagedListKeepLineTests {
-    private func line(follows: Bool, sliding: Bool, scrolling: Bool = false) -> CGFloat {
-        PagedListKeepLine.line(.init(follows: follows, sliding: sliding, scrolling: scrolling, readerTop: 1000, bottomEdge: 1700))
+    private func line(up: Bool = true, follows: Bool, sliding: Bool, scrolling: Bool = false) -> CGFloat {
+        PagedListKeepLine.line(.init(up: up, follows: follows, sliding: sliding, scrolling: scrolling, readerTop: 1000, bottomEdge: 1700))
+    }
+
+    /// A `.down` list following its top: the rows above the reader are the rows arriving there, so the
+    /// line stays the reader's top edge (the bottom edge corrected them twice: af47eab9 down-medium-flood
+    /// and down-fast-flood 146.3 pt, `m+54.3, m+34.3, r'+66.3`).
+    @Test func aDownListKeepsTheReadersTopEdgeWhileSliding() {
+        #expect(line(up: false, follows: true, sliding: true) == 1000)
     }
 
     /// The follow slide runs and a row on screen (top at 1400, between the reader's top edge and the
