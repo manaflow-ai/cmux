@@ -19,6 +19,7 @@ enum DebugFocus {
             "gate_allowed": .number(Double(gate.allowed)),
             "gate_refused": .number(Double(gate.refused)),
             "gate_last_refusal": gate.lastRefusal.map(JSONValue.string) ?? .null,
+            "keys_taken_back": .number(Double(gate.keysTakenBack)),
             "in_tree_guards": .object(InTreeRetiredGuards.shared.counts.mapValues { .number(Double($0)) }),
         ])
     }

@@ -155,4 +155,30 @@ import Testing
         #expect(!InTreePages.shared.isActive)
         #expect(InTreePages.shared.status == "unsupported_fork: api 34 < 36")
     }
+
+    /// sweep-06675353 D1: Chromium's SetFocus inside a grant made the in-tree page's headless window key, and every key
+    /// then went to a window no cmux window owns (no cmux shortcut matched, the page got nothing) until a click. The
+    /// cmux window takes the keys back from such a window, never from itself, its child or sheet windows, and never
+    /// when the grant did not change the key window.
+    @Test func aGrantThatMadeAForeignWindowKeyGivesTheKeysBackToTheCmuxWindow() {
+        func window() -> NSWindow {
+            let made = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+            made.isReleasedWhenClosed = false
+            return made
+        }
+        let owner = window(), headless = window(), child = window(), grandchild = window(), other = window()
+        defer { [owner, headless, child, grandchild, other].forEach { $0.closeAfterTest() } }
+        owner.addChildWindow(child, ordered: .above)
+        child.addChildWindow(grandchild, ordered: .above)
+        // The headless page window became key in the grant: from the cmux window, or from no key window at all.
+        #expect(InTreePageFocus.takesKeysBack(from: headless, before: owner, owner: owner))
+        #expect(InTreePageFocus.takesKeysBack(from: headless, before: nil, owner: owner))
+        // The cmux window or a window it owns holds the keys: nothing to take back.
+        #expect(!InTreePageFocus.takesKeysBack(from: owner, before: nil, owner: owner))
+        #expect(!InTreePageFocus.takesKeysBack(from: child, before: owner, owner: owner))
+        #expect(!InTreePageFocus.takesKeysBack(from: grandchild, before: owner, owner: owner))
+        // The grant changed nothing (another app's or panel's key window from before): left alone.
+        #expect(!InTreePageFocus.takesKeysBack(from: other, before: other, owner: owner))
+        #expect(!InTreePageFocus.takesKeysBack(from: nil, before: owner, owner: owner))
+    }
 }
