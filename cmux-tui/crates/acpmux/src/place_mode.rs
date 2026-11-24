@@ -86,7 +86,7 @@ pub struct LeftBehind {
     pub detail: String,
 }
 
-/// A process, as `ps -A -o pid=,ppid=,command=` lists it.
+/// A process of the chat's tree, from a source that knows which processes a chat owns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Proc {
     pub pid: u32,
@@ -94,7 +94,7 @@ pub struct Proc {
     pub command: String,
 }
 
-/// A TCP listener, as `lsof -nP -iTCP -sTCP:LISTEN -F pn` lists it.
+/// A TCP listener on this machine and the process holding it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listener {
     pub pid: u32,
@@ -127,35 +127,6 @@ pub fn descendants(procs: &[Proc], root: u32) -> BTreeSet<u32> {
         }
     }
     found
-}
-
-/// `ps -A -o pid=,ppid=,command=` output.
-pub fn parse_ps(text: &str) -> Vec<Proc> {
-    text.lines()
-        .filter_map(|line| {
-            let mut it = line.split_whitespace();
-            let pid = it.next()?.parse().ok()?;
-            let ppid = it.next()?.parse().ok()?;
-            let command = it.collect::<Vec<_>>().join(" ");
-            Some(Proc { pid, ppid, command })
-        })
-        .collect()
-}
-
-/// `lsof -nP -iTCP -sTCP:LISTEN -F pn` output: a `p<pid>` line, then `n<addr>:<port>` lines.
-pub fn parse_lsof(text: &str) -> Vec<Listener> {
-    let mut pid = None;
-    let mut out = Vec::new();
-    for line in text.lines() {
-        if let Some(p) = line.strip_prefix('p') {
-            pid = p.trim().parse().ok();
-        } else if let (Some(addr), Some(pid)) = (line.strip_prefix('n'), pid)
-            && let Some(port) = addr.rsplit(':').next().and_then(|p| p.parse().ok())
-        {
-            out.push(Listener { pid, port });
-        }
-    }
-    out
 }
 
 /// `-L 8080:host:80` and the like in an `ssh` command line; the forward as typed.

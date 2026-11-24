@@ -7,7 +7,6 @@
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
 mod control_asks;
-mod place_pid;
 
 mod account_usage;
 mod activity;

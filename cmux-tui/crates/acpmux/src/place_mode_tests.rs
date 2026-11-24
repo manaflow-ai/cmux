@@ -33,30 +33,36 @@ fn a_chat_with_no_stored_mode_is_pinned_to_the_machine_it_is_on() {
     assert_eq!(PlaceMode::effective(Some(PlaceMode::Auto), here()), PlaceMode::Auto);
 }
 
+fn proc(pid: u32, ppid: u32, command: &str) -> Proc {
+    Proc { pid, ppid, command: command.into() }
+}
+
 #[test]
-fn the_process_tree_and_listeners_are_read_from_ps_and_lsof() {
-    let procs = parse_ps(
-        "  1     0 /sbin/init\n 10     1 claude\n 11    10 node server.js\n 12    10 \
-         /usr/bin/ssh -N -L 5432:db:5432 box\n 99     1 other\n",
-    );
-    assert_eq!(procs.len(), 5);
+fn the_process_tree_is_what_hangs_under_the_agent() {
+    let procs = [
+        proc(1, 0, "init"),
+        proc(10, 1, "claude"),
+        proc(11, 10, "node"),
+        proc(12, 11, "x"),
+        proc(99, 1, "o"),
+    ];
     assert_eq!(descendants(&procs, 10), BTreeSet::from([11, 12]));
-    let listeners = parse_lsof("p11\nn127.0.0.1:3000\nn[::1]:3000\np99\nn*:8080\n");
     assert_eq!(
-        listeners,
-        vec![
-            Listener { pid: 11, port: 3000 },
-            Listener { pid: 11, port: 3000 },
-            Listener { pid: 99, port: 8080 }
-        ]
+        ssh_tunnel("/usr/bin/ssh -N -L 5432:db:5432 box").as_deref(),
+        Some("-L 5432:db:5432")
     );
+    assert_eq!(ssh_tunnel("ssh box"), None);
+    assert_eq!(ssh_tunnel("scp -L x y"), None);
 }
 
 #[test]
 fn what_stays_behind_is_named_by_kind() {
-    let procs = parse_ps(
-        "10 1 claude\n11 10 node server.js\n12 10 ssh -R9000:localhost:9000 box\n99 1 x\n",
-    );
+    let procs = [
+        proc(10, 1, "claude"),
+        proc(11, 10, "node server.js"),
+        proc(12, 10, "ssh -R9000:localhost:9000 box"),
+        proc(99, 1, "x"),
+    ];
     let listeners = [Listener { pid: 11, port: 3000 }, Listener { pid: 99, port: 8080 }];
     let cwd = Path::new("/repo");
     let left = left_behind(&Inputs {

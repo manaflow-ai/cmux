@@ -240,12 +240,7 @@ async fn one(
         return refused(&id, &current, "this chat is already moving");
     }
     let running = matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting);
-    let left = if pm::needs_left(want, here) {
-        let pid = hub.agent_pid(&session).await;
-        gather(&meta.cwd, pid).await
-    } else {
-        Vec::new()
-    };
+    let left = if pm::needs_left(want, here) { gather(&meta.cwd).await } else { Vec::new() };
     let plan = pm::plan(want, here, running, &left, confirm);
     if plan.store
         && let Err(e) = write_pin(&id, Some(want))
@@ -262,16 +257,20 @@ async fn one(
     );
     let (hub, sid, why) = (hub.clone(), id.clone(), why.to_owned());
     let wait = plan.state == State::AfterTurn;
-    tokio::spawn(async move {
-        let outcome = run_move(&hub, &sid, &to, &why, cwd, wait).await;
-        match outcome {
-            Ok(()) => set_stand(&sid, None),
-            Err(reason) => {
-                fail_line(&hub, &sid, &to, &reason);
-                set_stand(&sid, Some(Stand::Failed(reason)));
+    let owner = hub.scope.clone();
+    owner.spawn_named(
+        "place-move",
+        Box::pin(async move {
+            let outcome = run_move(&hub, &sid, &to, &why, cwd, wait).await;
+            match outcome {
+                Ok(()) => set_stand(&sid, None),
+                Err(reason) => {
+                    fail_line(&hub, &sid, &to, &reason);
+                    set_stand(&sid, Some(Stand::Failed(reason)));
+                }
             }
-        }
-    });
+        }),
+    );
     chat(&id, plan.state, &current, &left, None)
 }
 
@@ -342,9 +341,11 @@ fn fail_line(hub: &Arc<Hub>, id: &str, to: &str, reason: &str) {
     );
 }
 
-/// What the move would leave behind, read off this machine now. A source that is not there
-/// (no `ps`, no `lsof`, no agent process) reports nothing for what it would have told.
-async fn gather(cwd: &std::path::Path, root: Option<u32>) -> Vec<LeftBehind> {
+/// What the move would leave behind, read off this machine now. Only the chat's folder is read
+/// today: a localhost server or an ssh tunnel needs the processes under the chat's agent, and
+/// cmux-next never scans processes (`plans/cmux-next/pty-holder.md`), so those two kinds report
+/// nothing until the holder registry can say which processes a chat owns.
+async fn gather(cwd: &std::path::Path) -> Vec<LeftBehind> {
     let in_repo = tokio::process::Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(cwd)
@@ -354,29 +355,12 @@ async fn gather(cwd: &std::path::Path, root: Option<u32>) -> Vec<LeftBehind> {
         .map(|o| o.status.success())
         // No git: nothing says it is outside a repo.
         .unwrap_or(true);
-    let (mut procs, mut listeners) = (Vec::new(), Vec::new());
-    if root.is_some() {
-        if let Ok(o) = tokio::process::Command::new("ps")
-            .args(["-A", "-o", "pid=,ppid=,command="])
-            .output()
-            .await
-        {
-            procs = pm::parse_ps(&String::from_utf8_lossy(&o.stdout));
-        }
-        if let Ok(o) = tokio::process::Command::new("lsof")
-            .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pn"])
-            .output()
-            .await
-        {
-            listeners = pm::parse_lsof(&String::from_utf8_lossy(&o.stdout));
-        }
-    }
     pm::left_behind(&pm::Inputs {
         cwd,
         in_repo,
-        root,
-        procs: &procs,
-        listeners: &listeners,
+        root: None,
+        procs: &[],
+        listeners: &[],
         outside: &[],
     })
 }
