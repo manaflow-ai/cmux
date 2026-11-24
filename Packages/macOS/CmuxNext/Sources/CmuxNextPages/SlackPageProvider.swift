@@ -54,7 +54,8 @@ public struct SlackOwnBot: Sendable {
 }
 
 /// The platform's Allow-page return link, `cmux://slack/connected` (or this build's scheme).
-public enum SlackConnectedLink {
+public struct SlackConnectedLink {
+    public init() {}
     /// Shows Settings > Accounts with a one-shot hint to re-read the connection, and reports whether `url` was the link.
     /// The link carries nothing the page trusts: the page asks Cloud which workspace is connected.
     @MainActor
