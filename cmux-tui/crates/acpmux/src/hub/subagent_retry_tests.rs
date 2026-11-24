@@ -748,6 +748,11 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
         "prompt": [{"type": "text", "text": "Resume it"}],
         "_meta": {"provenance": {"kind": PROVENANCE_KIND, "subagentId": "s/t2", "attempt": 1}}});
     hub.append(&session, "mux", "queued", queued);
+    // A spawn logged after the open entry (a resume) names it; its `running` is no state to settle.
+    let respawn = json!({"method": "session/update", "params": {"update":
+        {"sessionUpdate": "subagent_spawned"}, "_meta": {"acpmux": {"subagents":
+        [{"id": "s/t2", "parent": null, "name": "Push relay", "state": "running"}]}}}});
+    hub.append(&session, "in", "subagent_spawned", respawn);
     hub.shutdown_all().await;
     drop((hub, session, conn));
 

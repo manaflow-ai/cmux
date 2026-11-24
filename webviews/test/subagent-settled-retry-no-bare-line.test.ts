@@ -153,3 +153,18 @@ test("a settle of a subagent the fold read keeps its line, named, with nothing l
   expect(agent.retry).toBeUndefined();
   expect(agent.retryable).toBe(false);
 });
+
+test("a nameless harness end that carries its failure still draws where the spawn is not loaded", () => {
+  // The translator forgot the task (a restart between spawn and end): the end names only its error.
+  const { fold, feed } = feeder();
+  feed(7_000, "subagent_state_update", [{ id: LAPTOP, parent: null, state: "failed", error: ERROR }]);
+  const agent = fold.all().find((entry) => entry.id === LAPTOP);
+  expect(agent?.state).toBe("failed");
+  expect(agent?.error).toContain("529");
+});
+
+test("a nameless completed end with a result still draws where the spawn is not loaded", () => {
+  const { fold, feed } = feeder();
+  feed(7_000, "subagent_state_update", [{ id: JOURNEY, parent: null, state: "completed", result: "Done." }]);
+  expect(fold.all().find((entry) => entry.id === JOURNEY)?.state).toBe("completed");
+});

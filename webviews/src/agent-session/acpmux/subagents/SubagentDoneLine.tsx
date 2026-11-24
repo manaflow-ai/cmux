@@ -352,7 +352,7 @@ function DoneLine({
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
-          aria-label={quietOpen ? `${openLabel} · ${reason}` : whole}
+          aria-label={quietOpen ? `${openLabel} · ${whole}` : whole}
           onOpen={quietOpen ? () => quietOpen(agent.id) : undefined}
         >
           <span className="cv-tool__icon">

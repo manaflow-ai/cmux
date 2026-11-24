@@ -545,11 +545,16 @@ impl Hub {
                 for entry in entries.into_iter().flatten() {
                     let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
                     let sub = subs.entry(id.to_owned()).or_default();
+                    // A spawn only names the subagent: its `running` is no state to settle.
+                    let spawn = e.kind == "subagent_spawned";
                     for (key, slot) in [
                         ("state", &mut sub.state),
                         ("agentId", &mut sub.agent_id),
                         ("error", &mut sub.error),
                     ] {
+                        if spawn && key != "agentId" {
+                            continue;
+                        }
                         if let Some(v) = entry.get(key).filter(|v| v.is_string()) {
                             *slot = v.clone();
                         }
@@ -983,7 +988,8 @@ impl Hub {
             if let Some(name) = name {
                 fields.insert("task".into(), Value::String(name));
             }
-            if !failure.error.is_empty() {
+            // Only a failed entry names the failure: a resumed `running` one must not carry it.
+            if state == "failed" && !failure.error.is_empty() {
                 fields.insert("error".into(), Value::String(failure.error.clone()));
             }
         }

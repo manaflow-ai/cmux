@@ -1583,9 +1583,14 @@ const recoveredEnd = (change: any): boolean =>
   (typeof change?.reason === "string" && RECOVERED_REASONS.has(change.reason) && change.state !== "running");
 
 /// Whether `change` ends a subagent (any state but running) and says nothing that names it.
+// acpmux's own retry bookkeeping (`retryable` set) that names neither the subagent nor its failure:
+// a harness end that carries an error or a result still draws, named by its id.
 const endsNamingNothing = (change: any): boolean =>
   typeof change?.state === "string" &&
   change.state !== "running" &&
+  change.retryable !== undefined &&
+  !text(change.error) &&
+  change.result === undefined &&
   !text(change.name) &&
   !text(change.task) &&
   !text(change.prompt);
