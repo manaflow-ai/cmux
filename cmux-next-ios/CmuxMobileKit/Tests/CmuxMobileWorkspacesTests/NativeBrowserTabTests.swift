@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTransport
 import CmuxTabsKit
@@ -111,9 +112,11 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         for _ in 0..<400 where !check() { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
-    /// The workspace `ws-cmux` linked to a Mac whose page for `t-docs` is at `macURL`.
+    /// The workspace `ws-cmux` linked to a Mac whose page for `t-docs` is at `macURL`,
+    /// mirrored (Settings → Browser Tabs Open on iPhone off, so the tab starts on the Mac's page).
     func linked(at macURL: String, native: NativeBrowserTabs) async throws
         -> (source: WorkspaceTabsSource, mac: MacBrowser, mirror: StreamedBrowserModel) {
+        native.opensOnPhone = { false }
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         let directory = StreamedBrowserDirectory()
         let mac = MacBrowser()
@@ -363,6 +366,82 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
 
         relaunched.drop(tab: tab, macID: "mac-studio")
         #expect(!NativeBrowserTabs(defaults: saved).isNative(tab: tab, macID: "mac-studio"))
+    }
+
+    // MARK: On the phone by default (Lawrence and Leo, 2026-11-24: "default shouldnt even be
+    // browser streaming. just safari tabs. on ios. in our app.")
+
+    /// The workspace `ws-cmux` linked to a Mac, with the default setting (tabs open on the phone).
+    func linkedByDefault(tabURL: String? = nil, native: NativeBrowserTabs) throws -> (source: WorkspaceTabsSource, mac: MacBrowser) {
+        let store = AppStore.mock(tabMemory: .inMemory([:]))
+        if let tabURL {
+            _ = store.updateWorkspace("ws-cmux") { workspace in
+                guard let index = workspace.tabs.firstIndex(where: { $0.id == tab }) else { return }
+                workspace.tabs[index].url = URL(string: tabURL)
+            }
+        }
+        let directory = StreamedBrowserDirectory()
+        let mac = MacBrowser()
+        directory.opener = { mac }
+        return (WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", native: native, streamed: directory), mac)
+    }
+
+    @Test func aLinkedTabOpensOnThePhoneAndMirrorStaysAChoice() async throws {
+        let saved = defaults()
+        let native = NativeBrowserTabs(defaults: saved)
+        let (source, mac) = try linkedByDefault(native: native)
+        let docs = try #require(source.workspace?.tabs.first { $0.id == tab })
+        let phone = try #require(try page(source) as? BrowserTabModel, "the page loads on the phone, no stream")
+        #expect(phone.url == docs.url, "at the Mac's address")
+        #expect(try menuIDs(source).contains("browser.mirrorFromMac"), "real pixels from the Mac stay one tap away")
+        #expect(!(try menuIDs(source).contains("browser.openOnPhone")))
+
+        source.mirrorFromMac(tab)
+        #expect(try page(source) is StreamedBrowserModel, "mirrored on request")
+        #expect(try menuIDs(source).contains("browser.openOnPhone"))
+        // The choice is the tab's: a relaunch keeps it mirrored while other tabs open on the phone.
+        let relaunched = NativeBrowserTabs(defaults: saved)
+        #expect(relaunched.model(tab: tab, macID: "mac-studio", linked: true, at: docs.url) == nil)
+        #expect(relaunched.model(tab: "t-other", macID: "mac-studio", linked: true, at: docs.url) != nil)
+
+        source.openOnPhone(tab)
+        #expect(try page(source) is BrowserTabModel, "and back on the phone")
+        #expect(NativeBrowserTabs(defaults: saved).isNative(tab: tab, macID: "mac-studio"))
+    }
+
+    @Test func settingOffKeepsTabsMirrored() throws {
+        let saved = defaults()
+        saved.set(false, forKey: CmuxMobilePreferences.Key.browserOpensOnPhone)
+        let (source, _) = try linkedByDefault(native: NativeBrowserTabs(defaults: saved))
+        #expect(try page(source) is StreamedBrowserModel)
+        #expect(try menuIDs(source).contains("browser.openOnPhone"))
+    }
+
+    @Test func unlinkedTabsAreNotAdopted() {
+        let native = NativeBrowserTabs(defaults: defaults())
+        #expect(native.model(tab: tab, macID: "mac-studio", linked: false, at: URL(string: "https://example.com")) == nil)
+        #expect(!native.isNative(tab: tab, macID: "mac-studio"))
+    }
+
+    /// A dev server on the Mac (`localhost:<port>`) opens on the phone through the link
+    /// when the Mac forwards `localhost`; an older Mac's, or a `file:` page, stays mirrored.
+    @Test func aMacsDevServerOpensOnThePhoneWhenTheMacForwardsIt() throws {
+        let forwarding = NativeBrowserTabs(defaults: defaults())
+        forwarding.forwarder = LocalhostForwarder { _, _ in DevServerChannel(page: "x") }
+        forwarding.macForwardsLocalhost = { $0 == "mac-studio" }
+        let (source, _) = try linkedByDefault(tabURL: "http://localhost:3000/", native: forwarding)
+        #expect(try page(source) is BrowserTabModel)
+        forwarding.drop(tab: tab, macID: "mac-studio")
+
+        let older = NativeBrowserTabs(defaults: defaults())
+        older.forwarder = LocalhostForwarder { _, _ in DevServerChannel(page: "x") }
+        older.macForwardsLocalhost = { _ in false }
+        let (olderSource, _) = try linkedByDefault(tabURL: "http://localhost:3000/", native: older)
+        #expect(try page(olderSource) is StreamedBrowserModel)
+
+        let file = NativeBrowserTabs(defaults: defaults())
+        let (fileSource, _) = try linkedByDefault(tabURL: "file:///Users/me/index.html", native: file)
+        #expect(try page(fileSource) is StreamedBrowserModel)
     }
 
     @Test(arguments: [
