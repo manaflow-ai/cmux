@@ -10,6 +10,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { settleReact } from "./support/domTeardown";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -118,7 +119,7 @@ function mount() {
   const inView = () => {
     const node = scroller();
     const top = node.scrollTop;
-    const placed = [...node.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+    const placed = [...node.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)]
       .map((element) => ({ id: element.dataset.rowId!, at: parseFloat(element.style.top) }))
       .filter((entry) => Number.isFinite(entry.at))
       .sort((a, b) => a.at - b.at);

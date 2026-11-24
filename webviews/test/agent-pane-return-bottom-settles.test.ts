@@ -15,13 +15,13 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// How soon after the return the view must sit at the end, and how long it must stay there.
-const SETTLE_MS = 500;
-const WATCH_MS = 1_500;
-
 await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () => {
+  /// How soon after the return the view must sit at the end, and how long it must stay there.
+  const SETTLE_MS = 500;
+  const WATCH_MS = 1_500;
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
@@ -46,6 +46,7 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
 
   test("a reader wheeling back to the latest row as the turn ends sits at the end and stays there", async () => {
     const page = await browser!.newPage({ viewport: { width: 1100, height: 1000 } });
+    await installPaintedFrames(page);
     // A notched wheel glides through the motion clock; the reader's scroll here is the browser's own.
     await page.emulateMedia({ reducedMotion: "reduce" });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -183,17 +184,23 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
           const back = performance.now();
           w.__settleBack = { distance: distance() };
           w.__settlePush([w.__settleChunk(), w.__settleLine(), w.__settleCallDone()]);
+          // Each painted frame is read once it has painted; the reply's last words go in the second frame after the
+          // return and the turn's end in the third, each in that frame's callbacks.
           let frame = 0;
-          const sample = () => {
-            const at = performance.now() - back;
-            samples.push({ at: Math.round(at), distance: distance(), following: client.following as boolean });
-            frame += 1;
-            if (frame === 1) w.__settlePush([w.__settleChunk(), w.__settleChunk()]);
-            if (frame === 2) w.__settlePush([w.__settleEnd()]);
-            if (at < watchMs) requestAnimationFrame(sample);
-            else w.__settleDone = true;
-          };
-          requestAnimationFrame(sample);
+          w.cmuxAfterPaint(
+            () => {
+              const at = performance.now() - back;
+              samples.push({ at: Math.round(at), distance: distance(), following: client.following as boolean });
+              if (at < watchMs) return true;
+              w.__settleDone = true;
+              return false;
+            },
+            () => {
+              frame += 1;
+              if (frame === 2) w.__settlePush([w.__settleChunk(), w.__settleChunk()]);
+              if (frame === 3) w.__settlePush([w.__settleEnd()]);
+            },
+          );
         };
         scroller.addEventListener("scroll", onScroll);
       },
