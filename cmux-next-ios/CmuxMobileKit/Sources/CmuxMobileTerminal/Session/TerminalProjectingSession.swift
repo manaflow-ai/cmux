@@ -109,6 +109,14 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func send(_ bytes: Data) { inner.send(bytes) }
     public func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
+    /// The composer's Send goes to the Mac's session as one request. Without
+    /// this the protocol's default (false) sent every projected terminal's
+    /// Send through the mirror: the paste, then Return as a separate send
+    /// 60 ms later, which a link blip could split (Leo, 2026-11-23: "the
+    /// text goes through. But then the send doesn't go through").
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        inner.sendPasteAndSubmit(text, notSent: notSent, maybeSent: maybeSent)
+    }
     public func stop() {
         claimHoldDeadline?.cancel()
         claimHoldDeadline = nil

@@ -139,7 +139,7 @@ extension PaletteModel {
             PaletteScopeChip(levelIndex: index, scope: level.scope, title: chipTitle(scope: level.scope, page: pages[level.id]),
                              symbol: chipSymbol(scope: level.scope, page: pages[level.id]))
         }
-        keywordHint = navigation.config.keywordEntry
+        keywordHint = usesScopeShortcuts && navigation.config.keywordEntry
             ? navigation.graph.child(of: top.scope, keyword: top.query).map {
                 PaletteScopeChip(levelIndex: nav.depth, scope: $0.id, title: $0.title, symbol: $0.symbol)
             }

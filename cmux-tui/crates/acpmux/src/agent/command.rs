@@ -347,6 +347,13 @@ fn build_harness_command(
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
     }
+    // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
+    // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
+    #[cfg(unix)]
+    if session.is_some() && crate::github_session_env::lent() {
+        let current = command_env_with(&cmd, !remote_environment);
+        crate::github_session_env::apply(&mut cmd, &current);
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
@@ -394,6 +401,12 @@ fn build_harness_command(
             cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
         }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
+        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
