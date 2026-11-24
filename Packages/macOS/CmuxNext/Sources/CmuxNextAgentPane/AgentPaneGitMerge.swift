@@ -12,10 +12,10 @@ extension AgentPaneGitPullRequest {
     typealias GitHubCall = @Sendable (_ params: [String: any Sendable]) async -> AgentPaneGitHubREST.Answer
 
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
-    private static let required = "!"
+    private nonisolated static let required = "!"
     /// What a merge reads first: the pull request's state, merge state, head and checks, and the
     /// repository's default merge method for the viewer.
-    static let mergeQuery = """
+    nonisolated static let mergeQuery = """
         query($owner: String\(required), $name: String\(required), $number: Int\(required)) { repository(owner: $owner, name: $name) {
           viewerDefaultMergeMethod
           pullRequest(number: $number) { url number state isDraft mergeStateStatus headRefOid
@@ -25,17 +25,17 @@ extension AgentPaneGitPullRequest {
 
     /// A merge's first read: the pull request as `gh pr view --json` names its fields (its checks
     /// as `statusCheckRollup`), and the method to merge with.
-    struct MergeView {
+    nonisolated struct MergeView {
         var pullRequest: [String: Any]
         var method: String
     }
 
-    struct MergeRefusal: Error {
+    nonisolated struct MergeRefusal: Error {
         var message: String
     }
 
     /// ``mergeQuery`` for pull request `number` of `repository`.
-    static func mergeView(_ repository: String, _ number: Int, github: GitHubCall = AgentPaneGitHubREST.call) async -> Result<MergeView, MergeRefusal> {
+    nonisolated static func mergeView(_ repository: String, _ number: Int, github: GitHubCall = AgentPaneGitHubREST.call) async -> Result<MergeView, MergeRefusal> {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return .failure(MergeRefusal(message: mergeChangedMessage)) }
         let answer = await github(["op": "graphql", "repo": repository, "query": mergeQuery,

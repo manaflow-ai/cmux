@@ -81,6 +81,31 @@
           ]
         },
         {
+          "key": "experiments.seeThroughDock",
+          "note": "Leo, 2026-11-17 (ask-cbb09912f6): the agent chat's \"Needs your input\" stack and the notice lines above the composer (switch notice, managed banner, host line, host-error cards, dictation, ui-notice) hide only what they draw, so the conversation stays visible beside and between them (webviews experimentSwitchOn(\"seeThroughDock\"), conversation/useBesideStack.ts, besideStack.ts bandMask). Off by default; off keeps today's mask, which ends the rows at the stack's top.",
+          "title": {
+            "key": "settings.experiments.seeThroughDock",
+            "text": "See-Through Dock"
+          },
+          "help": {
+            "key": "settings.experiments.seeThroughDock.help",
+            "text": "The conversation stays visible behind the notices and the Needs your input row above the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "dock",
+            "notice",
+            "input",
+            "dismiss",
+            "transcript",
+            "mask"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
