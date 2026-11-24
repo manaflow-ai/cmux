@@ -31,6 +31,13 @@
    "family": "action"
   },
   {
+   "name": "action.add.circle",
+   "meaning": "Add (in a circle)",
+   "sf": "plus.circle",
+   "family": "action.add",
+   "alias": false
+  },
+  {
    "name": "action.close",
    "meaning": "Close / dismiss / stop loading",
    "sf": "xmark",
@@ -119,6 +126,13 @@
    "meaning": "Remove / declined / forget",
    "sf": "minus.circle",
    "family": "action"
+  },
+  {
+   "name": "action.remove.line",
+   "meaning": "Remove, decrease (a bare minus)",
+   "sf": "minus",
+   "family": "action.remove",
+   "alias": false
   },
   {
    "name": "action.reset",
@@ -272,6 +286,13 @@
    "meaning": "Agent session as a history kind (History page and palette rows, next to terminal/browser kinds).",
    "sf": "sparkles",
    "family": "agent"
+  },
+  {
+   "name": "alarm",
+   "meaning": "Alarm",
+   "sf": "alarm",
+   "family": "alarm",
+   "alias": false
   },
   {
    "name": "app.cmux",
@@ -721,6 +742,20 @@
    "denseStyle": "solid"
   },
   {
+   "name": "calendar",
+   "meaning": "Calendar, date",
+   "sf": "calendar",
+   "family": "calendar",
+   "alias": false
+  },
+  {
+   "name": "calendar.clock",
+   "meaning": "Calendar event time",
+   "sf": "calendar.badge.clock",
+   "family": "calendar",
+   "alias": false
+  },
+  {
    "name": "checkbox.off",
    "meaning": "Unchecked box in a multiple-choice list",
    "sf": "square",
@@ -1010,6 +1045,13 @@
    "family": "filter"
   },
   {
+   "name": "flag",
+   "meaning": "Flag, important",
+   "sf": "flag",
+   "family": "flag",
+   "alias": false
+  },
+  {
    "name": "folder",
    "meaning": "Folder / directory / reveal in Finder.",
    "sf": "folder",
@@ -1093,6 +1135,13 @@
    "meaning": "Ungroup workspaces",
    "sf": "square.stack.3d.up.slash",
    "family": "group"
+  },
+  {
+   "name": "heart",
+   "meaning": "Favorite, health",
+   "sf": "heart",
+   "family": "heart",
+   "alias": false
   },
   {
    "name": "history",
@@ -1459,6 +1508,26 @@
    "sf": "questionmark.square.dashed",
    "family": "profile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "sf": "questionmark.square.dashed",
+   "family": "prompt"
+  },
+  {
+   "name": "radio.off",
+   "meaning": "Option not chosen, todo not done (an empty ring)",
+   "sf": "circle",
+   "family": "radio",
+   "alias": false
+  },
+  {
+   "name": "radio.on",
+   "meaning": "Chosen option (filled dot in a ring)",
+   "sf": "largecircle.fill.circle",
+   "family": "radio",
+   "alias": false
   },
   {
    "name": "remote.display",
@@ -2244,6 +2313,132 @@
    "meaning": "Open in trailing tab",
    "sf": "questionmark.square.dashed",
    "family": "view.tab"
+  },
+  {
+   "name": "weather.cloud.bolt",
+   "meaning": "Thunderstorm",
+   "sf": "cloud.bolt",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.bolt.rain",
+   "meaning": "Thunderstorm with rain",
+   "sf": "cloud.bolt.rain",
+   "family": "weather.cloud.bolt",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.drizzle",
+   "meaning": "Drizzle",
+   "sf": "cloud.drizzle",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.fog",
+   "meaning": "Fog",
+   "sf": "cloud.fog",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.heavyrain",
+   "meaning": "Heavy rain",
+   "sf": "cloud.heavyrain",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.moon",
+   "meaning": "Partly cloudy (night)",
+   "sf": "cloud.moon",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.rain",
+   "meaning": "Rain",
+   "sf": "cloud.rain",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.sleet",
+   "meaning": "Sleet",
+   "sf": "cloud.sleet",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.snow",
+   "meaning": "Snow",
+   "sf": "cloud.snow",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.sun",
+   "meaning": "Partly cloudy (day)",
+   "sf": "cloud.sun",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.humidity",
+   "meaning": "Humidity",
+   "sf": "humidity",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.moon.stars",
+   "meaning": "Clear night",
+   "sf": "moon.stars",
+   "family": "weather.moon",
+   "alias": false
+  },
+  {
+   "name": "weather.snowflake",
+   "meaning": "Snow, freezing",
+   "sf": "snowflake",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.sunrise",
+   "meaning": "Sunrise",
+   "sf": "sunrise",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.sunset",
+   "meaning": "Sunset",
+   "sf": "sunset",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.thermometer",
+   "meaning": "Temperature",
+   "sf": "thermometer.medium",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.umbrella",
+   "meaning": "Chance of rain",
+   "sf": "umbrella",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.wind",
+   "meaning": "Wind",
+   "sf": "wind",
+   "family": "weather",
+   "alias": false
   },
   {
    "name": "window.new",

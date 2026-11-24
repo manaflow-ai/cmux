@@ -1,0 +1,129 @@
+/* The Environment card (EnvironmentCard.tsx; `agentPane.display.environmentCard`, off by default): at
+   the chat's top right, under the header, in the gutter beside the column, as the Codex app's
+   Environment panel. App.tsx draws it only when the gutter holds it (environmentCardModel.ts
+   environmentCardFits), so it never lies over the transcript and the column keeps its place: no
+   reserve, nothing reflows when it comes or goes. Session Info's own card sits in the same place, so
+   the card hides while Session Info shows. Its edge is Session Info's hairline at 22% of the text.
+   A look paints it with `--acpmux-env-card-bg`, `--acpmux-env-card-edge` and
+   `--acpmux-env-card-radius`. */
+.acpmux-env-card {
+  --acpmux-env-card-edge-default: color-mix(in srgb, var(--agent-text) 22%, transparent);
+  position: absolute;
+  top: calc(var(--acpmux-header-height, var(--ds-space-48)) + var(--ds-space-3));
+  right: 12px;
+  z-index: var(--layer-sticky);
+  box-sizing: border-box;
+  width: 220px;
+  padding: var(--ds-space-1);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-env-card-edge, var(--acpmux-env-card-edge-default));
+  border-radius: var(--acpmux-env-card-radius, calc(var(--ds-radius-control, 8px) + 6px));
+  background: var(--acpmux-env-card-bg, var(--agent-page-bg));
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+:root[data-borders="none"] .acpmux-env-card {
+  --acpmux-env-card-edge-default: transparent;
+}
+@media (prefers-contrast: more) {
+  .acpmux-env-card {
+    --acpmux-env-card-edge-default: var(--agent-text);
+  }
+}
+.acpmux-env-card__title {
+  margin: var(--grid-half-step) var(--ds-space-2) var(--ds-space-1);
+  font: inherit;
+  font-weight: 400;
+  color: var(--agent-muted);
+}
+.acpmux-env-card__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-env-card__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 28px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  appearance: none;
+}
+.acpmux-env-card__row > :first-child {
+  flex: none;
+  color: var(--agent-muted);
+}
+button.acpmux-env-card__row:hover:not(:disabled) {
+  background: var(--agent-control-hover, color-mix(in srgb, currentColor 7%, transparent));
+}
+button.acpmux-env-card__row:active:not(:disabled) {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+button.acpmux-env-card__row:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+button.acpmux-env-card__row:disabled {
+  color: var(--agent-muted);
+}
+.acpmux-env-card__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-env-card__end {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-env-card__note {
+  color: var(--agent-muted);
+}
+.acpmux-env-card .acpmux-git-status {
+  margin: var(--ds-space-1) var(--ds-space-2) var(--grid-half-step);
+}
+
+/* The changes pill (`agentPane.display.changesPill`, off by default): centered over the composer, the
+   Codex app's "1 file changed +2 -2". A look paints it with `--acpmux-changes-pill-bg`. */
+.acpmux-changes-pill-row {
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--cv-inset, 16px) 8px;
+  pointer-events: none;
+}
+.acpmux-changes-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  padding: var(--ds-space-1) var(--ds-space-3);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  border-radius: 999px;
+  background: var(--acpmux-changes-pill-bg, color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)));
+  color: var(--agent-text);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  pointer-events: auto;
+  appearance: none;
+}
+.acpmux-changes-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg));
+}
+.acpmux-changes-pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
