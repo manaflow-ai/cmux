@@ -31,7 +31,8 @@ final class ComposerTypingLagUITests: XCTestCase {
     static let maxLayoutUnitsPerKey = 4_096.0
     /// SwiftUI asks a field's size a few times per pass (several widths); a key is one pass.
     static let maxSizeQuestionsPerKey = 8.0
-    static let keys = "the quick brown fox jumps over the lazy dog "
+    /// Two phrases keep every cell above the requested 50 key samples.
+    static let keys = "the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog "
 
     override func setUp() {
         continueAfterFailure = false
@@ -52,6 +53,55 @@ final class ComposerTypingLagUITests: XCTestCase {
     @MainActor func testBefore20000Characters() throws { try typing(chars: 20_000, wholeDraft: true) }
     @MainActor func testBefore5000CharactersNoAttachments() throws { try typing(chars: 5_000, wholeDraft: true, attachments: false) }
     @MainActor func testBefore5000CharactersNotLowPower() throws { try typing(chars: 5_000, wholeDraft: true, lowPower: false) }
+
+    /// The ask's complete matrix. Each cell launches the same demo and types the same
+    /// 88-key sequence, so the trace's p95 is comparable across draft sizes and surfaces.
+    @MainActor func testLongTextMatrixAfter() throws { try matrix(wholeDraft: false) }
+    @MainActor func testLongTextMatrixBefore() throws { try matrix(wholeDraft: true) }
+
+    @MainActor
+    private func matrix(wholeDraft: Bool) throws {
+        for surface in ["chat", "terminal"] {
+            for chars in [100, 1_000, 5_000, 10_000, 20_000] {
+                for lowPower in [false, true] {
+                    try matrixCell(surface: surface, chars: chars, lowPower: lowPower, wholeDraft: wholeDraft)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func matrixCell(surface: String, chars: Int, lowPower: Bool, wholeDraft: Bool) throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
+        app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "chars:\(chars):bare"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-term-no-intro"]
+        if surface == "chat" {
+            app.launchEnvironment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"] = "chars:\(chars)"
+            app.launchArguments += ["-cmux-mobile-demo", "kbd-chat"]
+        } else {
+            app.launchArguments += ["-cmux-mobile-demo", "ws-terminal-composer"]
+        }
+        if lowPower { app.launchArguments.append("-cmux-mobile-low-power") }
+        if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
+        app.launch()
+        let identifier = surface == "chat" ? "chat.composer.field" : Self.field
+        let field = app.textViews[identifier]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "\(surface) composer \(chars)\n\(app.debugDescription)")
+        if !app.keyboards.firstMatch.exists { field.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard for \(surface) \(chars)")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        app.typeText(Self.keys)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let board = summary(app)
+        let commit = stats(board, "\(identifier)_key_commit")
+        let cpu = stats(board, "\(identifier)_key_cpu")
+        let hitches = stats(board, "\(identifier)_key_frame")
+        let units = stats(board, "\(identifier)_key_layout_units")
+        print("TYPINGMATRIX {\"surface\":\"\(surface)\",\"chars\":\(chars),\"duress\":\"\(lowPower ? "heavy" : "off")\",\"before\":\(wholeDraft),\"commit_p50\":\(commit[\"p50\"] ?? -1),\"commit_p95\":\(commit[\"p95\"] ?? -1),\"cpu_p95\":\(cpu[\"p95\"] ?? -1),\"frame_p95\":\(hitches[\"p95\"] ?? -1),\"layout_units_p95\":\(units[\"p95\"] ?? -1)}")
+        app.terminate()
+    }
 
     @MainActor
     private func typing(chars: Int, wholeDraft: Bool = false, attachments: Bool = true, lowPower: Bool = true) throws {

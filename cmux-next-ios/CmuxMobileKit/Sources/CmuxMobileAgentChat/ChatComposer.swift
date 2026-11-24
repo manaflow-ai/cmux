@@ -71,6 +71,9 @@ struct ChatComposer: View {
     private var collapsed: Bool { shownCollapsed ?? collapsedTarget }
     /// `collapsible` as last placed: it flips when the chat's first turns come.
     @State private var placedCollapsible: Bool?
+    #if DEBUG
+    @State private var didFillTypingDemo = false
+    #endif
 
     var body: some View {
         #if DEBUG
@@ -120,7 +123,18 @@ struct ChatComposer: View {
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
-        .onAppear { if expandOnAppear { expand() } }
+        .onAppear {
+            if expandOnAppear { expand() }
+            #if DEBUG
+            guard !didFillTypingDemo,
+                  let mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"],
+                  mode.hasPrefix("chars:"), text.isEmpty,
+                  let count = Int(mode.dropFirst("chars:".count)) else { return }
+            didFillTypingDemo = true
+            text = Self.demoTypingText(count)
+            focus.wrappedValue = true
+            #endif
+        }
         #if DEBUG
         .task {
             let arguments = ProcessInfo.processInfo.arguments
@@ -168,6 +182,13 @@ struct ChatComposer: View {
             }
         }
     }
+
+    #if DEBUG
+    private static func demoTypingText(_ count: Int) -> String {
+        let seed = "The quick brown fox jumps over the lazy dog. "
+        return String(String(repeating: seed, count: max(1, count / seed.count + 1)).prefix(count))
+    }
+    #endif
 
     /// A copied image or file pasted into the field: attached as Photos or
     /// Files would attach it (`UIPasteboard.composerImages`).
