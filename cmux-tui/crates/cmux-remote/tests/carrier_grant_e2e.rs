@@ -251,6 +251,7 @@ async fn raw_link(
                 generation: 0,
                 connection_attempt: attempt,
                 resume: Lane::ALL.into_iter().map(|lane| (lane, 0)).collect(),
+                daemon_takes_ik: false,
                 handshake_timeout: CONNECT_TIMEOUT,
             },
         ),
