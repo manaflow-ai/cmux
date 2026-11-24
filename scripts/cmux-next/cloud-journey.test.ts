@@ -15,7 +15,7 @@ import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn,
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
-import { idleHeldBy } from "./cloud-journey";
+import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("a missed idle pause names what held the machine", async () => {
@@ -26,6 +26,16 @@ describe("cloud journey", () => {
       .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
     const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
     expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
+  });
+
+  test("the default idle walk waits out the machine's own policy, not 900 s", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await machineIdleSeconds(api({ idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(1800);
+    expect(await machineIdleSeconds(api({ idle_seconds: 120 }), "vm_x")).toBe(120);
+    expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
+    expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
+    expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
+    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
