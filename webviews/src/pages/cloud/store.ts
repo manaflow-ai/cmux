@@ -7,7 +7,7 @@ import { isPageError, pageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
-import { SPEND_LIMIT_SET } from "./pool";
+import { SPEND_LIMIT_SET, spendLimitRefusal } from "./pool";
 import { connectionFailure } from "./connectionFailure";
 import { clearCachedMachines, readCachedMachines, writeCachedMachines, type CacheStorage } from "./machineCache";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -820,21 +820,24 @@ export class CloudStore {
     const session = this.session;
     this.set({ spendLimit: { saving: true } });
     try {
+      // `cloud.plan.spend_limit.set {spend_limit_usd}` answers `{pool}`; the plan is read again for the rest of it.
       const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
         action: SPEND_LIMIT_SET,
-        args: { spend_limit_usd: usd, idempotency_key: this.key() },
+        args: { spend_limit_usd: usd },
       });
       if (session !== this.session) return;
       this.set({ spendLimit: undefined });
       if (result?.confirmed !== false) await this.account.readPlan(session);
     } catch (error) {
       if (session !== this.session) return;
-      if (isUnsupported(error)) {
+      const refusal = spendLimitRefusal(error);
+      if (isUnsupported(error) || refusal === "off") {
         this.set({ spendLimit: undefined });
         return this.markUnavailable(SPEND_LIMIT_SET);
       }
-      const forbidden = isPageError(error) && error.code === "cmux.cloud.forbidden";
-      this.set({ spendLimit: { saving: false, ...(forbidden ? { forbidden } : { error: message(error) }) } });
+      this.set({
+        spendLimit: { saving: false, ...(refusal === "forbidden" ? { forbidden: true } : { error: message(error) }) },
+      });
     }
   }
 

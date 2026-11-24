@@ -101,6 +101,24 @@ describe("pool (RFD 0081 spend limit)", () => {
     expect(render(store, standing())).toContain("pool.limitAdminOnly");
   });
 
+  test("the setter's refusals are read from the app server's code or the backend's upstream code", async () => {
+    const { spendLimitRefusal } = await import("./pool");
+    expect(spendLimitRefusal({ code: "cmux.cloud.spend_limit_forbidden" })).toBe("forbidden");
+    expect(spendLimitRefusal({ code: "cmux.cloud.protocol_error", upstream_code: "cloud.spend_limit.off" })).toBe(
+      "off",
+    );
+    expect(spendLimitRefusal({ code: "cmux.cloud.spend_limit_invalid" })).toBe("invalid");
+    expect(spendLimitRefusal({ code: "cmux.cloud.forbidden" })).toBe("forbidden");
+    expect(spendLimitRefusal(new Error("x"))).toBeUndefined();
+  });
+
+  test("a server with the switch off hides nothing and marks the setter not available", async () => {
+    const provider = new MockCloudProvider({ signedIn: true, unsupported: [] });
+    const store = await open(provider);
+    await store.setSpendLimit(5);
+    expect(store.getSnapshot().spendLimit).toBeUndefined();
+  });
+
   test("the panel words each state the backend sends", async () => {
     const store = await open(new MockCloudProvider({ signedIn: true, unsupported: [] }));
     const ok = render(store, standing());

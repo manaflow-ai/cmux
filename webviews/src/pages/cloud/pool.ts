@@ -4,7 +4,8 @@
 // the person set. Warnings at 80% and 100%.").
 //
 // The backend decides every number: cmux-platform PoolLimit.ts `poolStanding` answers `cloud.plan.get`'s `pool`
-// (the shape agreed with the enforce lane, rfd-0081-0135-build-enforce; until it lands the mock serves it). The page
+// (the shape agreed with the enforce lane, cmux-platform lane/rfd-0081-0135-build-spend-limit: present only while the
+// server's CLOUD_SPEND_LIMIT_ENFORCE is on, null for a non-NEXT plan or an unread month; until it lands the mock serves it). The page
 // computes no limit and no warning: it shows the record in hours of the standard machine, and parses what the person
 // types the way the server will (PoolLimit.ts parseSpendLimitUsd), so a typo is caught before the confirm sheet.
 //
@@ -34,8 +35,26 @@ export interface PoolStanding {
   period_end?: number | null;
   /** USD per vCPU-hour past the pool (Margin.ts NEXT_OVERAGE_VCPU_HOUR_USD, 0.02). */
   overage_vcpu_hour_usd?: number;
-  /** vCPUs of the machine hours are counted in (Plan.ts NEXT_STANDARD_MACHINE_VCPUS, 4). */
+  /** vCPUs of the machine hours are counted in (Plan.ts NEXT_STANDARD_MACHINE_VCPUS, 4; the server may omit it). */
   machine_vcpus?: number;
+  /** The warnings already sent this month. */
+  warnings_sent?: (80 | 100)[];
+}
+
+/**
+ * The setter's refusals (enforce lane): `cloud.spend_limit.forbidden` (not a team admin), `cloud.spend_limit.off`
+ * (the server's CLOUD_SPEND_LIMIT_ENFORCE switch is off) and `cloud.spend_limit.invalid`. Read from the app server's
+ * `cmux.cloud.*` code or, from a server that does not declare them yet, from `upstream_code`.
+ */
+export function spendLimitRefusal(error: unknown): "forbidden" | "off" | "invalid" | undefined {
+  const e = (error && typeof error === "object" ? error : {}) as { code?: unknown; upstream_code?: unknown };
+  const codes = [e.code, e.upstream_code].filter((code): code is string => typeof code === "string");
+  for (const code of codes) {
+    if (code === "cmux.cloud.forbidden" || /spend_limit[._]forbidden$/.test(code)) return "forbidden";
+    if (/spend_limit[._]off$/.test(code)) return "off";
+    if (/spend_limit[._]invalid$/.test(code)) return "invalid";
+  }
+  return undefined;
 }
 
 /** The setter, run as a native action: a money change, so the host confirms it (ops.ts NATIVE_ACTIONS rule). */
