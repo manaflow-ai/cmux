@@ -91,10 +91,11 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
 }
 
 /// Every session gets the Computer Use bridge, whether or not a worker runs:
-/// nothing on disk decides it, only `computerUse.mode: "off"` in cmux.json
-/// (and no acpmux binary to run it, in a test without one).
+/// nothing on disk decides it, not even `computerUse.mode: "off"` (a chat
+/// keeps its tools when the person turns Computer Use on later), only no
+/// acpmux binary to run it, in a test without one.
 #[test]
-fn every_session_gets_computer_use_unless_the_mode_is_off() {
+fn every_session_gets_computer_use_even_when_the_mode_is_off() {
     let root = std::env::temp_dir().join(format!("acpmux-cu-server-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let exe = std::path::PathBuf::from("/usr/local/bin/acpmux");
@@ -115,11 +116,14 @@ fn every_session_gets_computer_use_unless_the_mode_is_off() {
         Some(r#"{"computerUse":{"mode":"fullAccess"}}"#),
         Some(r#"{"computerUse":{"mode":"lookOnly"}}"#),
         Some(r#"{"computerUse.mode":"askEveryTime"}"#),
+        Some(r#"{"computerUse":{"mode":"off"}}"#),
+        Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}"),
     ] {
         assert!(has(json), "{json:?}");
     }
-    assert!(!has(Some(r#"{"computerUse":{"mode":"off"}}"#)));
-    assert!(!has(Some("{\n// mine\n\"computerUse.mode\": \"off\",\n}")));
+    // Off still lists the cmux-computer-use skill beside the server.
+    let off = super::resolve(&inputs(Some(r#"{"computerUse":{"mode":"off"}}"#)));
+    assert!(off.lists_skill("cmux-computer-use"));
     // The session's own key, this daemon and nothing inherited.
     let tools = super::resolve(&inputs(None)).for_session("s-cu");
     let cu =
@@ -1327,6 +1331,43 @@ fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
         resolve(&memory_inputs(&root, Some(r#"{"agents":{"mcpServers":{"enabled":false}}}"#)));
     assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The per-agent switch (cmux#49395): a Claude Code or Codex chat the person switched off gets the
+/// answer `off` (so `scoped` leaves `cmux` out under a yes); the other agent, another harness and
+/// an answer the chat already carries (another Mac's) are left alone.
+#[test]
+fn an_agent_switched_off_gets_the_answer_off() {
+    use std::collections::BTreeMap;
+    let settings = Some(r#"{"agents": {"cmuxMcp": "on", "cmuxMcpCodex": false}}"#);
+    assert!(super::agent_switched_off(settings, "codex"));
+    assert!(!super::agent_switched_off(settings, "claude"));
+    assert!(!super::agent_switched_off(settings, "gemini"));
+    assert!(!super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": "no"}"#), "claude"));
+    assert!(super::agent_switched_off(Some(r#"{"agents.cmuxMcpClaude": false}"#), "claude"));
+    assert!(!super::agent_switched_off(None, "claude"));
+    let answer = |agent: Option<&str>, mut env: BTreeMap<String, String>| {
+        super::agent_switch_answer(&mut env, settings, agent);
+        env.get(super::TOOLS_ANSWER_ENV).cloned()
+    };
+    assert_eq!(answer(Some("codex"), BTreeMap::new()).as_deref(), Some("off"));
+    assert_eq!(answer(Some("claude"), BTreeMap::new()), None);
+    assert_eq!(answer(None, BTreeMap::new()), None);
+    let from_another_mac = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "on".to_owned())]);
+    assert_eq!(answer(Some("codex"), from_another_mac).as_deref(), Some("on"));
+    // The answer `off` leaves cmux's server out of the chat's tools, as a no does.
+    let tools = super::AgentTools {
+        servers: vec![super::McpServer {
+            name: super::CMUX_SERVER.into(),
+            command: "/bin/cmux".into(),
+            args: vec![],
+            env: vec![],
+        }],
+        cmux_for_agents: true,
+        ..Default::default()
+    };
+    let off = BTreeMap::from([(super::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned())]);
+    assert!(tools.scoped(&off).servers.is_empty());
 }
 
 /// acpmux's own servers' instructions go in Claude Code's appended system prompt, the prefix
