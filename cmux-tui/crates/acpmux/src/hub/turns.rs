@@ -3,6 +3,7 @@
 use super::exit_reason::explains_exit;
 use super::transcript::REPLAY_CHARS;
 use super::*;
+use crate::close_why::{CloseActor, CloseRecord, CloseWhy};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -200,6 +201,15 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        let mut blocks = blocks;
+        // A check that went red between turns rides the next real prompt, hidden (`verify.rs`).
+        if client != "acpmux"
+            && let Some(text) = super::verify::take_held(&session.id)
+        {
+            blocks.push(
+                json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
@@ -2084,6 +2094,11 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
+                        if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
+                        {
+                            o.insert("harnessMagic".into(), hm.clone());
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
@@ -2763,11 +2778,50 @@ impl Hub {
         Ok(())
     }
 
+    /// Writes the close's record (`close_why.rs`): `mux/closed` in its log, `close` on its meta,
+    /// and one INFO line. A chat already closed keeps the record of its first close.
+    fn record_close(&self, session: &Arc<Session>, purge: bool, why: CloseWhy) {
+        let record = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if m.status == SessionStatus::Closed {
+                return;
+            }
+            let record = CloseRecord::new(why, &m, now_ms());
+            m.close = Some(record.clone());
+            record
+        };
+        tracing::info!(
+            session = %session.id,
+            name = %session.meta().name,
+            actor = %record.actor.kind,
+            actor_session = ?record.actor.session,
+            actor_host = ?record.actor.host,
+            actor_pid = ?record.actor.pid,
+            reason = %record.reason,
+            outcome = %record.outcome,
+            purge,
+            "closed"
+        );
+        self.append(session, "mux", "closed", serde_json::to_value(&record).unwrap_or_default());
+    }
+
     /// Stop the child. The log stays. `purge` also deletes the log.
+    /// A close with no closer named is recorded `daemon`/`unrecorded` (`close_why.rs`); every
+    /// path that knows who asked calls [`Self::kill_why`].
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        self.kill_why(session, purge, CloseWhy::actor(CloseActor::new("daemon"))).await
+    }
+
+    /// `kill`, recording who closed it and why (`close_why.rs`).
+    pub async fn kill_why(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        why: CloseWhy,
+    ) -> Result<(), RpcError> {
         // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
         let using = session.harness_use.read().await;
-        self.kill_held(session, purge, using).await
+        self.kill_held(session, purge, using, why).await
     }
 
     /// `kill`, with `_using`, a lease of `harness_use` (shared, or exclusive for a conditional
@@ -2777,6 +2831,7 @@ impl Hub {
         session: &Arc<Session>,
         purge: bool,
         _using: impl Send,
+        why: CloseWhy,
     ) -> Result<(), RpcError> {
         // Transfer retirement also closes this exact instance before replacing it.
         // Keep it registered until all cleanup by ID finishes, even across awaits.
@@ -2869,6 +2924,9 @@ impl Hub {
         self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
+        // Who closed it, why, and whether its work was done: one record in its log and on its
+        // meta, before the status (a lane's tags are still on it: `lane_retire` runs after).
+        self.record_close(session, purge, why);
         self.set_status(session, NotWaiting::Closed);
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);
@@ -2876,6 +2934,11 @@ impl Hub {
         self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
+        // A stop frees its temporary folder (`closed_tmp.rs`); a purge removes it below.
+        #[cfg(unix)]
+        if !purge && !session.replaced.load(Ordering::SeqCst) {
+            self.free_closed_tmp_soon(session);
+        }
         if purge {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
@@ -3102,3 +3165,7 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
         .replace('"', "'");
     json!({"type": "text", "text": format!("<restored_transcript note=\"{note}\">\n{transcript}\n</restored_transcript>\n")})
 }
+
+#[cfg(test)]
+#[path = "close_why_tests.rs"]
+mod close_why_tests;
