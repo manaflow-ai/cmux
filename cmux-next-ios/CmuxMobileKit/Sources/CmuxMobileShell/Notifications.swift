@@ -6,6 +6,7 @@ import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
+import CmuxMobileTerminal
 import Foundation
 import OSLog
 import Observation
@@ -194,6 +195,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
 
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // A terminal page turns with the phone.
+        TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
@@ -383,11 +386,6 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
-    }
-
-    func openPairingCode(_ text: String) -> Bool {
-        guard let live, let invite = PairInvite(text: text) else { return false }
-        return live.accept(invite)
     }
 }
 #endif
