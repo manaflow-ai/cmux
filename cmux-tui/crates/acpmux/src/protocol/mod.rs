@@ -258,6 +258,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::McpReconnectParams>(method::MUX_MCP_RECONNECT, Request),
         keyed::<params::SubagentStopParams>(method::MUX_SUBAGENT_STOP, Request),
         keyed::<params::SubagentTranscriptParams>(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        keyed::<params::SubagentListParams>(method::MUX_SUBAGENT_LIST, Request),
         keyed::<params::NativeHistoryParams>(method::MUX_NATIVE_HISTORY, Request),
         untyped(method::MUX_WORKFLOWS, Request),
         keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
