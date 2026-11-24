@@ -1,3 +1,0 @@
-cmux-ci: waiting for job 1605be5681314963824820cd4f8de731 up to 86400 s (deadline 2026-11-25T16:29Z) at http://100.89.225.106:18765
-cmux-ci: Invalid job ID '1605be5681314963824820cd4f8de731': use the 24-character ID or a unique prefix of at least 6 hex characters
-Repair: https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md#builds-from-a-host-outside-the-company-tailnet
