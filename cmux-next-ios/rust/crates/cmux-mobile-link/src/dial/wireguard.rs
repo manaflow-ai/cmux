@@ -438,6 +438,10 @@ fn diagnose_gather(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnC
     }
 }
 
+/// The reason of the quiet end of an answer that an early `wg-relay` opened and no
+/// `wg-init` followed (`dial::answer` sends no bye for it).
+pub(super) const EARLY_CUE_STALE: &str = "no wg-init after an early wg-relay";
+
 /// This session's relay, when this side has one and the peer offered it
 /// (`relay` in its `wg-init` / `wg-resp`); else the diagnosis says the peer
 /// cannot relay.
@@ -2732,17 +2736,26 @@ impl Dialer for WireGuardDialer {
                         ticket,
                     ));
                 }
-                first = loop {
-                    match events.next().await? {
-                        SessionEvent::Signal(envelope) => match envelope.payload {
-                            SignalPayload::WgInit { .. } => break envelope,
-                            SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
-                            _ => {}
-                        },
-                        SessionEvent::Disconnected => {
-                            return Err(DialError::Signaling("disconnected".into()));
+                // No `wg-init` within the dial timeout (a little under it, so this
+                // ends first): a stale cue. End quietly: a bye could end something the
+                // phone still holds. Dropping `early_join` closes the join.
+                let wait = async {
+                    loop {
+                        match events.next().await? {
+                            SessionEvent::Signal(envelope) => match envelope.payload {
+                                SignalPayload::WgInit { .. } => return Ok(envelope),
+                                SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                                _ => {}
+                            },
+                            SessionEvent::Disconnected => {
+                                return Err(DialError::Signaling("disconnected".into()));
+                            }
                         }
                     }
+                };
+                first = match tokio::time::timeout(options.timeout.mul_f32(0.9), wait).await {
+                    Ok(envelope) => envelope?,
+                    Err(_) => return Err(DialError::Bye(EARLY_CUE_STALE.into())),
                 };
             }
             // This side's relay ticket comes stamped on the phone's `wg-init` (`relayTicket`).

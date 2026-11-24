@@ -383,6 +383,10 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// Whether a `wg-relay` for an unknown session opens one (relay first on this
+    /// side; and the server stamped a relay ticket on it): the phone's early cue to
+    /// join the relay. Else it is dropped, as a Mac before relay first drops it.
+    early_relay_cue: std::sync::atomic::AtomicBool,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -510,6 +514,7 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -727,6 +732,13 @@ impl SignalingClient {
     }
 
     /// Whether this socket still sends `link_stat`: false once an older Worker refused one.
+    /// Let a `wg-relay` that arrives for an unknown session, with a relay ticket
+    /// stamped, open it (default off: it is dropped). The answer then joins the relay
+    /// at once and waits for the `wg-init` ([`crate::dial::answer`]).
+    pub fn accept_early_relay_cue(&self, accept: bool) {
+        self.shared.early_relay_cue.store(accept, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn sends_link_stats(&self) -> bool {
         !self.shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -834,12 +846,15 @@ impl Shared {
                     }
                     return;
                 }
-                if !matches!(
-                    envelope.payload,
-                    SignalPayload::WebrtcOffer { .. }
-                        | SignalPayload::WgInit { .. }
-                        | SignalPayload::WgRelay { .. }
-                ) {
+                let early_cue = matches!(envelope.payload, SignalPayload::WgRelay { .. })
+                    && envelope.relay_ticket.is_some()
+                    && self.early_relay_cue.load(std::sync::atomic::Ordering::Relaxed);
+                if !early_cue
+                    && !matches!(
+                        envelope.payload,
+                        SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    )
+                {
                     tracing::debug!(
                         session = envelope.session_id,
                         "dropping a signal for an unknown session"
@@ -883,6 +898,7 @@ mod tests {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }

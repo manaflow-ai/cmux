@@ -37,6 +37,7 @@ fn spawn_mac(
     with_relay: bool,
 ) -> std::sync::Arc<std::sync::Mutex<Vec<tokio::sync::watch::Receiver<LinkPath>>>> {
     let paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    mac.accept_early_relay_cue(mac_options.relay_first);
     let slot = std::sync::Arc::clone(&paths);
     let endpoint = if with_relay { relay(server, mac_id) } else { None };
     tokio::spawn(async move {
@@ -769,4 +770,70 @@ async fn a_mac_without_relay_first_ignores_early_wg_relay() {
     let (_, mac_joined, init_at, _) = dial_with_a_slow_gather(true, false, true).await;
     assert!(mac_joined >= init_at, "the Mac joined at {mac_joined:?}, wg-init arrived at {init_at:?}");
     assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
+}
+
+/// A Mac whose `dial::answer` result goes to the returned channel, with a phone that
+/// only sends `wg-relay` (the early cue) and never a `wg-init`; what the phone hears
+/// back, when the Mac joined the relay, and how the answer ended.
+async fn early_cue_alone(
+    relay_first: bool,
+    timeout: Duration,
+) -> (Option<Result<(), DialError>>, Duration, Vec<String>, usize) {
+    let server =
+        FakeSignaling::start(FakeOptions { enforce_signal_kinds: true, ..FakeOptions::default() }).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let mut heard = phone.subscribe(&session_id);
+    mac.accept_early_relay_cue(relay_first);
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let options = DialOptions { relay: relay(&server, &mac_id), relay_first, timeout, ..options() };
+    tokio::spawn(async move {
+        let session = mac.next_session().await.expect("the Mac sees a session");
+        let events = SessionEvents {
+            backend: mac.events(),
+            session_id: session.first.session_id.clone(),
+            session: session.events,
+        };
+        let result = dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await;
+        let _ = done_tx.send((result.map(|_| ()), std::time::Instant::now()));
+    });
+    let started = std::time::Instant::now();
+    phone.send_signal(&mac_id, &session_id, cmux_mobile_link::signaling::SignalPayload::WgRelay {}).unwrap();
+    // An answer that never opened (the cue was dropped) never ends.
+    let (result, ended) = match tokio::time::timeout(timeout + Duration::from_secs(2), done_rx).await {
+        Ok(Ok((result, ended))) => (Some(result), ended),
+        _ => (None, std::time::Instant::now()),
+    };
+    // Anything the Mac sent the phone meanwhile.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut signals = Vec::new();
+    while let Ok(event) = heard.try_recv() {
+        signals.push(format!("{event:?}"));
+    }
+    let joins = server.relay_joins_of(&mac_id).len();
+    (result, ended.duration_since(started), signals, joins)
+}
+
+/// (a) Without relay first, a `wg-relay` for an unknown session opens nothing: no
+/// join, no bye, as a Mac before relay first drops it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_early_wg_relay_opens_nothing_without_relay_first() {
+    let (result, _, signals, joins) = early_cue_alone(false, Duration::from_secs(1)).await;
+    assert!(result.is_none(), "a session opened: {result:?}");
+    assert!(signals.is_empty(), "the phone heard {signals:?}");
+    assert_eq!(joins, 0, "the Mac joined the relay");
+}
+
+/// (b) With relay first and no `wg-init` after it: the Mac joins early, then ends
+/// the session quietly after the dial timeout, with no bye to the phone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_early_wg_relay_with_no_wg_init_ends_quietly_after_the_timeout() {
+    let (result, took, signals, joins) = early_cue_alone(true, Duration::from_secs(2)).await;
+    assert!(matches!(result, Some(Err(DialError::Bye(_)))), "{result:?}");
+    assert!(took >= Duration::from_millis(1500) && took < Duration::from_secs(4), "ended after {took:?}");
+    assert!(signals.is_empty(), "the phone heard {signals:?}");
+    assert_eq!(joins, 1, "the Mac joined early");
 }

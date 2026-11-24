@@ -725,8 +725,14 @@ pub async fn answer(
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: error.to_string() });
+            // No bye for an early cue that no `wg-init` followed.
+            if !matches!(&error, DialError::Bye(reason) if reason == wireguard::EARLY_CUE_STALE) {
+                let _ = signaling.send_signal(
+                    &peer,
+                    &session_id,
+                    SignalPayload::Bye { reason: error.to_string() },
+                );
+            }
             return Err(error);
         }
         Err(_) => {
