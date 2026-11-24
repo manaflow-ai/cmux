@@ -33,13 +33,15 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `moss` | A forest floor: deep green blocks with no lines, a lichen accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Dark Hard"`, a darker `appearance.surfaces.sidebar.color` |
 | `meadow` | Moss in daylight: sage and cream blocks, a fern-green accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Light Med"`, a sage `appearance.surfaces.sidebar.color` |
 | `lily-pond` | See-through teal blocks over Monet's water lilies, a lily-pink accent | `appearance.chromeStyle: "blocks"`, `appearance.background: "monet-water-lilies"`, `appearance.backgroundBlur: "glass"`, `appearance.surfaces.*.opacity` |
+| `minimal-sessions` | Only the sidebar: one line per session, its status first, then its name; your colors stay | `sidebar.workspaceRow.statusPlacement: "leading"`, `appearance.statusIndicator.iconSet`, `sidebar.detailedStatusIcons`, every `sidebar.workspaceRow.*` element off but `working` and `progress` (the spinners), `sidebar.showColors: false` |
 
 ## What a theme file can and can't change
 
 A theme file is a pit of success: it can only set how cmux looks, never what it does.
 
-- It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font and the
-  sidebar's shape. A key that does something (a shortcut, a command, an agent setting) is refused
+- It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font, the
+  sidebar's shape, how its rows draw (density, text size, status icons and where they sit, which
+  row elements show, the row layout) and its grouping. A key that does something (a shortcut, a command, an agent setting) is refused
   with "a theme file sets only look settings".
 - Each value gets the same check as `cmux settings set`. A bad one is dropped and the rest still
   applies.
