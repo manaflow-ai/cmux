@@ -2302,7 +2302,6 @@ async fn receive_upload(
                 Ok(Some(ChannelEvent::Data(bytes))) => bytes,
                 ended => {
                     file.flush().await.map_err(io_error)?;
-                    file.sync_data().await.map_err(io_error)?;
                     send_upload_ack(sender, received).await;
                     return Err(if ended.is_err() {
                         Refusal::new("stalled", "upload stalled waiting for data")
@@ -2317,19 +2316,15 @@ async fn receive_upload(
             }
             file.write_all(&bytes).await.map_err(io_error)?;
             received += bytes.len() as u64;
-            // An ack means durable: each MiB is synced as it lands, so a Mac that crashes or loses
-            // power never loses bytes the phone was told it has, and the final answer below waits on
-            // the last MiB at most instead of syncing the whole file.
             if received < size && received - last_ack >= UPLOAD_ACK_BYTES {
                 file.flush().await.map_err(io_error)?;
-                file.sync_data().await.map_err(io_error)?;
                 send_upload_ack(sender, received).await;
                 last_ack = received;
             }
         }
         file.flush().await.map_err(io_error)?;
-        file.sync_data().await.map_err(io_error)?;
         send_upload_ack(sender, received).await;
+        file.sync_all().await.map_err(io_error)?;
         return Ok((publish_upload(&folder, &name, &part)?, size));
     }
     let folder = upload_folder(config, peer, cwd, false).await?;
