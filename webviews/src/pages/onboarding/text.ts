@@ -164,7 +164,9 @@ export function agentDetail(strings: Strings, row: AgentRow): string {
 export function agentsStatus(strings: Strings, agents: OnboardingState["agents"]): string | null {
   if (agents?.signInFailed) return strings.t("onboarding.agents.signIn.failed");
   if (agents == null || !agents.loaded) return strings.t("onboarding.agents.checking");
-  if (agents.rows.length === 0) return strings.t("onboarding.agents.none");
+  // None found: say where to add one, so the person is not left at a dead end.
+  if (agents.rows.length === 0)
+    return `${strings.t("onboarding.agents.none")} ${strings.t("onboarding.agents.none.next")}`;
   if (agents.signingIn != null) return strings.t("onboarding.agents.signIn.running");
   return null;
 }

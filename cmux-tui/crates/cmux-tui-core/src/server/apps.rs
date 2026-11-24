@@ -106,6 +106,7 @@ enum Command {
     },
     /// Safe mode (apps/safe_mode.rs): `op` is `safe_mode.get`,
     /// `safe_mode.set {on}` (leaving needs origin user),
+    /// `safe_mode.bisect {step}` (start, good and bad never from an agent),
     /// `safe_mode.launch_began` or `safe_mode.launch_settled {reason?}` (the
     /// launch ops from the verified app connection only).
     #[serde(rename = "apps-safe-mode")]
@@ -492,6 +493,22 @@ pub(super) fn try_handle(
             Err(crate::apps::ApiError::new(
                 "apps.origin_forbidden",
                 "only the verified cmux app connection reports its launches",
+            )),
+        ));
+    }
+    // A bisect step runs extensions in safe mode: never an agent's call
+    // (apps/safe_mode_bisect.rs).
+    if let Command::SafeMode { op, args } = &request.command
+        && op.ends_with("safe_mode.bisect")
+        && crate::apps::bisect_step_runs_extensions(args)
+        && origin_claim.agent
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.safe_mode.origin",
+                "an agent cannot run extensions in safe mode: run the bisect yourself",
             )),
         ));
     }

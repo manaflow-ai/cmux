@@ -247,8 +247,10 @@ impl State {
         decision: Value,
         out: &mut input::Output<'_>,
     ) {
-        let approval =
-            matches!(decision["kind"].as_str(), Some("allowed" | "allowedAlways" | "fullAccess"));
+        let approval = matches!(
+            decision.get("kind").and_then(Value::as_str),
+            Some("allowed" | "allowedAlways" | "fullAccess")
+        );
         let call =
             row.fields.get("toolCallId").and_then(|s| serde_json::from_str::<String>(s).ok());
         let tool = call

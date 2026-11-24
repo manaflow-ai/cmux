@@ -63,7 +63,8 @@ fn approve(
         approved: bool,
     }
     // Decode just the object at body_at. Unrelated fields, including output, are skipped.
-    let mut reader = serde_json::Deserializer::from_slice(&text[head.body_at..]);
+    let body_bytes = text.get(head.body_at..).ok_or(ChatError::Closed)?;
+    let mut reader = serde_json::Deserializer::from_slice(body_bytes);
     let body: Facts =
         serde::Deserialize::deserialize(&mut reader).map_err(|_| ChatError::Closed)?;
     if body.call_id.as_deref() != Some(call) {
