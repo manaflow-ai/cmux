@@ -26,6 +26,10 @@ struct TerminalComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
+    /// The + menu's Autocorrect toggle, remembered across launches (off by
+    /// default; Settings → Terminal shows the same key).
+    @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
+    private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
     var body: some View {
         #if DEBUG
@@ -54,7 +58,7 @@ struct TerminalComposer: View {
             }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
-                    if model.attachmentsAvailable { attachMenu }
+                    attachMenu
                     if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
                     fieldContainer
                 }
@@ -114,22 +118,33 @@ struct TerminalComposer: View {
     /// + as in Messages, Slack, ChatGPT, Claude and Discord: the menu adds
     /// photos, files, a paste and the camera, not only files (a paperclip
     /// reads as "attach a file", Mail's meaning). Classic's order: Photo
-    /// Library, Choose Files, Paste; then Camera.
+    /// Library, Choose Files, Paste; then Camera. Last, the Autocorrect
+    /// toggle (Leo, 2026-11-24: "an autocorect toggle in the terminal
+    /// composer would be good"), so the menu shows even with no Mac to take
+    /// attachments.
     private var attachMenu: some View {
         Menu {
-            Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
-            Button("Choose Files", systemImage: "folder") { model.showFileImporter = true }
-            Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
-            Section {
-                if TerminalCameraPicker.isAvailable {
-                    Button("Camera", systemImage: "camera") { showCamera = true }
-                } else {
-                    Button {} label: {
-                        Label("Camera", systemImage: "camera")
-                        Text("No camera on this device")
+            if model.attachmentsAvailable {
+                Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
+                Button("Choose Files", systemImage: "folder") { model.showFileImporter = true }
+                Button("Paste", systemImage: "doc.on.clipboard") { pasteFromClipboard() }
+                Section {
+                    if TerminalCameraPicker.isAvailable {
+                        Button("Camera", systemImage: "camera") { showCamera = true }
+                    } else {
+                        Button {} label: {
+                            Label("Camera", systemImage: "camera")
+                            Text("No camera on this device")
+                        }
+                        .disabled(true)
                     }
-                    .disabled(true)
                 }
+            }
+            Section {
+                Toggle(isOn: $autocorrect) {
+                    Label("Autocorrect", systemImage: "textformat.abc")
+                }
+                .accessibilityIdentifier("terminal.composer.autocorrect")
             }
         } label: {
             ComposerCircleLabel(systemImage: "plus")
@@ -212,7 +227,8 @@ struct TerminalComposer: View {
                 },
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
-                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
+                autocorrect: autocorrect
             )
             primaryButton
                 .padding(.vertical, TerminalDockMetrics.fieldPadding)
