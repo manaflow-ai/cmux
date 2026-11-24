@@ -35,8 +35,8 @@ import Testing
             let title = radius.map { "radius \(Int($0)), padding \(Int(padding ?? 0))" } ?? "unset (defaults)"
             shots.append((title, try Self.render()))
         }
-        let sheet = PaneMoreShotsTests.contactSheet(shots)
-        let out = PaneMoreShotsTests.packageRoot.appending(path: ".build/concentric-surfaces.png")
+        let sheet = ShotSheet.contactSheet(shots)
+        let out = ShotSheet.packageRoot.appending(path: ".build/concentric-surfaces.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try #require(NSBitmapImageRep(cgImage: sheet).representation(using: .png, properties: [:])).write(to: out)
         print("concentric-surfaces: wrote \(out.path)")

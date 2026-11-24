@@ -7,6 +7,8 @@
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//!                      [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME
+//!                      [--advertise URL] [--zone ZONE]]
 //! ```
 //!
 //! `git-lower` mounts commit REV's tree read only at PATH (every write answers EROFS) for many
@@ -31,7 +33,16 @@
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
-//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
+//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains, answering busy while a
+//! `--yield-lock` is held or a GitHub Actions job runs on the host. With `--heartbeat` (the
+//! controller's `POST /v1/seeds/heartbeat`) it tells the controller's seed index every minute that
+//! it holds `--repo`, reachable at `--advertise` (default `http://ADDR`), in `--zone`. The
+//! environment fills what the flags leave out: `CMUX_PROJECTION_SEED_RATE`,
+//! `CMUX_PROJECTION_SEED_YIELD_LOCKS` (colon-separated), `CMUX_PROJECTION_SEED_HEARTBEAT_URL`,
+//! `CMUX_PROJECTION_SEED_TOKEN_FILE` (the heartbeat's bearer token), `CMUX_PROJECTION_SEED_REPO`
+//! and `CMUX_PROJECTION_ZONE`.
+//! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
+//! the configured store keys, skips blobs already held, and prints one JSON result line.
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -67,7 +78,9 @@ mod linux {
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
-                         [--conns N]";
+                         [--conns N] [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME \
+                         [--advertise URL] [--zone ZONE]]\n       \
+                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]";
 
     #[derive(Default)]
     struct Args {
@@ -83,6 +96,12 @@ mod linux {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        to: Option<String>,
+        yield_locks: Vec<PathBuf>,
+        heartbeat: Option<String>,
+        advertise: Option<String>,
+        zone: Option<String>,
+        repo: Option<String>,
         fresh: bool,
         allow_other: bool,
     }
@@ -116,6 +135,12 @@ mod linux {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                "--to" => parsed.to = Some(value.clone()),
+                "--yield-lock" => parsed.yield_locks.push(value.into()),
+                "--heartbeat" => parsed.heartbeat = Some(value.clone()),
+                "--advertise" => parsed.advertise = Some(value.clone()),
+                "--zone" => parsed.zone = Some(value.clone()),
+                "--repo" => parsed.repo = Some(value.clone()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -128,6 +153,9 @@ mod linux {
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
+        }
+        if command == "s3-push" {
+            return s3_push(&args);
         }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
@@ -157,14 +185,159 @@ mod linux {
             !addr.ip().is_unspecified(),
             "--listen takes the tailnet or VPC address, never every interface (0.0.0.0, 0, [::])"
         );
+        let env = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
         let mut limits = SeedLimits::default();
-        if let Some(rate) = args.rate {
+        if let Some(rate) =
+            args.rate.or_else(|| env("CMUX_PROJECTION_SEED_RATE")?.trim().parse().ok())
+        {
             limits.rate = rate;
         }
         if let Some(conns) = args.conns {
             limits.conns = conns;
         }
-        peers::serve(&git_dir.canonicalize()?, &listen, limits)
+        limits.yield_locks.clone_from(&args.yield_locks);
+        if let Some(locks) = env("CMUX_PROJECTION_SEED_YIELD_LOCKS") {
+            limits
+                .yield_locks
+                .extend(locks.split(':').filter(|lock| !lock.is_empty()).map(PathBuf::from));
+        }
+        let git_dir = git_dir.canonicalize()?;
+        if let Some(url) =
+            args.heartbeat.clone().or_else(|| env("CMUX_PROJECTION_SEED_HEARTBEAT_URL"))
+        {
+            let repo =
+                args.repo.clone().or_else(|| env("CMUX_PROJECTION_SEED_REPO")).ok_or_else(
+                    || anyhow::anyhow!("--heartbeat needs --repo OWNER/NAME\n{USAGE}"),
+                )?;
+            let seed_url = args.advertise.clone().unwrap_or_else(|| format!("http://{addr}"));
+            let zone =
+                args.zone.clone().or_else(|| env("CMUX_PROJECTION_ZONE")).unwrap_or_default();
+            let token = env("CMUX_PROJECTION_SEED_TOKEN_FILE")
+                .and_then(|file| std::fs::read_to_string(file).ok())
+                .map(|token| token.trim().to_owned());
+            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|host| host.trim().to_owned())
+                .unwrap_or_default();
+            let beat = || peers::Beat {
+                host: host.clone(),
+                seed_url: seed_url.clone(),
+                zone: zone.clone(),
+                repos: vec![peers::beat_repo(&git_dir, &repo)],
+            };
+            // Bound first, so a port already taken fails the seed before it is advertised.
+            let listener = std::net::TcpListener::bind(&listen)?;
+            std::thread::scope(|scope| {
+                scope.spawn(|| peers::heartbeat(&url, token.as_deref(), &beat));
+                peers::serve_on(&git_dir, listener, &limits);
+            });
+            return Ok(());
+        }
+        peers::serve(&git_dir, &listen, limits)
+    }
+
+    /// How many blobs `s3-push` reads and sends at once.
+    const PUSH_WORKERS: usize = 8;
+
+    fn s3_push(args: &Args) -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+
+        use cmux_projection::git::ObjectReader;
+        use cmux_projection::s3::{Config, Pushed, Store};
+
+        let started = Instant::now();
+        let git_dir = args
+            .git_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?
+            .canonicalize()?;
+        let to = args.to.clone().ok_or_else(|| anyhow::anyhow!("--to is required\n{USAGE}"))?;
+        let store = Store::new(Config::push_target_from_env(&to).map_err(anyhow::Error::msg)?)?;
+        let mut oids: Vec<String> = match &args.commit {
+            Some(rev) => {
+                let (commit, _) = git::resolve(&git_dir, rev)?;
+                git::ls_tree(&git_dir, &commit)?
+                    .into_iter()
+                    .filter(|item| item.mode != 0o160_000)
+                    .map(|item| item.oid)
+                    .collect()
+            }
+            None => std::io::read_to_string(std::io::stdin())?
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        };
+        oids.sort_unstable();
+        oids.dedup();
+        let (next, stored, had, failed, bytes) = (
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicU64::new(0),
+        );
+        let denied = AtomicBool::new(false);
+        // Every reader starts before any work, so a store that can't be read fails the push
+        // instead of leaving blobs unsent behind a count of zero failures.
+        let readers = (0..PUSH_WORKERS.min(oids.len()))
+            .map(|_| ObjectReader::spawn(&git_dir))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        std::thread::scope(|scope| {
+            for mut reader in readers {
+                let (next, stored, had, failed, bytes, denied, oids, store) =
+                    (&next, &stored, &had, &failed, &bytes, &denied, &oids, &store);
+                scope.spawn(move || {
+                    while !denied.load(Ordering::Relaxed) {
+                        let Some(oid) = oids.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                            return;
+                        };
+                        let result = reader
+                            .blob(oid)
+                            .ok_or_else(|| anyhow::anyhow!("{oid}: not in the mirror"))
+                            .and_then(|blob| Ok((store.push(oid, &blob)?, blob.len())));
+                        match result {
+                            Ok((Pushed::Stored, len)) => {
+                                stored.fetch_add(1, Ordering::Relaxed);
+                                bytes.fetch_add(
+                                    u64::try_from(len).unwrap_or(u64::MAX),
+                                    Ordering::Relaxed,
+                                );
+                            }
+                            Ok((Pushed::Had, _)) => {
+                                had.fetch_add(1, Ordering::Relaxed);
+                            }
+                            // Keys that may not write refuse every blob: stop on the first.
+                            Ok((Pushed::Denied(status), _)) => {
+                                failed.fetch_add(1, Ordering::Relaxed);
+                                if !denied.swap(true, Ordering::Relaxed) {
+                                    eprintln!(
+                                        "cmux-projection: s3-push: {} answered {status}; stopped",
+                                        store.config.base
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                if failed.fetch_add(1, Ordering::Relaxed) < 5 {
+                                    eprintln!("cmux-projection: s3-push: {error:#}");
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let (stored, had, failed) = (stored.into_inner(), had.into_inner(), failed.into_inner());
+        let unsent = oids.len().saturating_sub(stored + had + failed);
+        println!(
+            "{{\"blobs\":{},\"stored\":{stored},\"had\":{had},\"failed\":{failed},\
+             \"unsent\":{unsent},\"bytes\":{},\"ms\":{}}}",
+            oids.len(),
+            bytes.into_inner(),
+            ms(started)
+        );
+        anyhow::ensure!(failed + unsent == 0, "{} blobs were not stored", failed + unsent);
+        Ok(())
     }
 
     /// FNV-1a: a short stable name for a mount path.
