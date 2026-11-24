@@ -67,7 +67,7 @@ const PUSHED = /^\s*[+ ]?\s*[0-9a-f]{7,40}\.\.\.?([0-9a-f]{7,40})\s+\S+\s+->\s+\
 const PUSHED_TO = /^To\s+(?:https:\/\/|ssh:\/\/git@|git@)?github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?\s*$/m;
 /// A reply's own claim: a verb, then what it produced.
 const SAID =
-  /\b(opened|filed|merged|landed)\s+(?:(?:the\s+)?PR\s+|issue\s+)?\[?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+|[\w-][\w.-]*\/[\w.-]+#\d+|(?:PR\s*)?#\d+)/gi;
+  /\b(opened|filed|merged|landed)\s+((?:the\s+)?PR\s+|issue\s+)?\[?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+|[\w-][\w.-]*\/[\w.-]+#\d+|(?:PR\s*)?#\d+)/gi;
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const parse = (text: string | undefined): unknown => {
@@ -187,7 +187,9 @@ function replyFindings(text: string): Finding[] {
   const found: Finding[] = [];
   for (const match of text.replace(/```[\s\S]*?(?:```|$)/g, " ").matchAll(SAID)) {
     const verb = match[1]!.toLowerCase();
-    const target = match[2]!;
+    // "Opened PR #12": the word before the target says what it is, as a target that starts with PR does.
+    const named = match[2]?.trim().toLowerCase();
+    const target = match[3]!;
     const merged = verb === "merged" || verb === "landed" ? { merged: true as const } : {};
     const url = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(target);
     if (url) {
@@ -196,7 +198,8 @@ function replyFindings(text: string): Finding[] {
       continue;
     }
     const ref = /^([\w-][\w.-]*\/[\w.-]+)#(\d+)$/.exec(target);
-    const pr = verb !== "filed" && (verb !== "opened" || /^PR/i.test(target) || !!merged.merged);
+    const pr =
+      verb !== "filed" && (verb !== "opened" || named?.endsWith("pr") || /^PR/i.test(target) || !!merged.merged);
     if (ref)
       found.push({
         kind: verb === "filed" ? "issue" : pr ? "pullRequest" : "either",
