@@ -959,7 +959,7 @@ impl Peer {
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                        Err(_) => break Err(self.deadline_passed(stopped_reading(WAKE_PROBE))),
                     }
                 }
             };
@@ -1075,7 +1075,7 @@ impl Peer {
                         match tokio::time::timeout(budget, sink.send(refusal)).await {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => break $link Err(e.to_string()),
-                            Err(_) => break $link Err(stopped_reading(budget)),
+                            Err(_) => break $link Err(self.deadline_passed(stopped_reading(budget))),
                         }
                     }
                 }
@@ -1109,10 +1109,10 @@ impl Peer {
                     if request_probe {
                         self.with_silence(SilenceBudget::probe_dropped);
                     }
-                    break Err(match probe_cause {
+                    break Err(self.deadline_passed(match probe_cause {
                         Some(why) => why,
                         None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
-                    });
+                    }));
                 }
                 // This computer's network changed (`peer_network.rs`): the link may ride a route that
                 // is gone. A ping goes out at once and the link is dropped and redialed when nothing
@@ -1131,7 +1131,7 @@ impl Peer {
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                            Err(_) => break Err(self.deadline_passed(stopped_reading(network::NETWORK_PROBE))),
                         }
                     }
                 }
@@ -1175,7 +1175,7 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
-                    break Err(timed_out(handshake_started));
+                    break Err(self.deadline_passed(timed_out(handshake_started)));
                 }
                 _ = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
@@ -1200,8 +1200,7 @@ impl Peer {
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
-                        self.went_down(Some(crate::protocol::peer_state::DialFail::Timeout));
-                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
                     }
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
@@ -1212,7 +1211,7 @@ impl Peer {
                     match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     let now = tokio::time::Instant::now();
                     if self.link().is_ready() && health::health_due(health_asked, now) {
@@ -1226,7 +1225,7 @@ impl Peer {
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
                     // the handshake (or move the deadline on past its cap).
                     if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
-                        break Err(timed_out(handshake_started));
+                        break Err(self.deadline_passed(timed_out(handshake_started)));
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
@@ -1421,7 +1420,7 @@ impl Peer {
                             match tokio::time::timeout(budget, sink.send(refusal)).await {
                                 Ok(Ok(())) => {}
                                 Ok(Err(e)) => break Err(e.to_string()),
-                                Err(_) => break Err(stopped_reading(budget)),
+                                Err(_) => break Err(self.deadline_passed(stopped_reading(budget))),
                             }
                         }
                     }
@@ -1459,7 +1458,7 @@ impl Peer {
                             }
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     // A request on a link silent for a ping interval: a network gone without a
                     // reset takes the write into the kernel's buffer and answers nothing. A ping
@@ -1481,7 +1480,7 @@ impl Peer {
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
                                 self.with_silence(SilenceBudget::probe_dropped);
-                                break Err(stopped_reading(network::NETWORK_PROBE));
+                                break Err(self.deadline_passed(stopped_reading(network::NETWORK_PROBE)));
                             }
                         }
                     }

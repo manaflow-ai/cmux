@@ -60,6 +60,14 @@ impl super::Peer {
         }
     }
 
+    /// The open link ended because a deadline of acpmux's own passed (the silence budget, a
+    /// send the peer never read, a probe or handshake with no answer): `timeout`. Returns
+    /// `text`, the link's error.
+    pub(super) fn deadline_passed(&self, text: String) -> String {
+        self.went_down(Some(DialFail::Timeout));
+        text
+    }
+
     /// The link's whole state now, as the peer's state notes carry it.
     pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
         let error = self.last_error.lock_or_recover().clone();
