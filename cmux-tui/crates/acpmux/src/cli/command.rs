@@ -857,7 +857,9 @@ pub enum Command {
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
-    #[command(hide = true)]
+    // Built only by flattening `session hold` / `session release`; its fields carry no #[arg], so it
+    // is no subcommand of its own (clap's debug build refused the positional `held` switch).
+    #[command(skip)]
     SessionHold {
         session: Option<String>,
         held: bool,
