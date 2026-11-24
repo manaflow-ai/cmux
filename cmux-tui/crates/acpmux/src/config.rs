@@ -1150,7 +1150,8 @@ pub struct WebSocketConfig {
     pub allowed_origins: Vec<String>,
     /// `Host` names allowed besides loopback (a proxy that keeps a public
     /// name, or the name peers dial on a non-loopback `listen`, where every
-    /// other name is refused). Both lists are read when the listener starts.
+    /// other name is refused). Both lists apply from the next connection after
+    /// `_acpmux/reload_config` (`acpmux config --set` and `acpmux web --tailnet` send it).
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
     /// `tokenRotated`: the saved token was replaced at the first start of a
@@ -1972,7 +1973,7 @@ pub use nested_env::{
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
-pub(crate) use launchers::{which, which_in};
+pub(crate) use launchers::{user_program, which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
