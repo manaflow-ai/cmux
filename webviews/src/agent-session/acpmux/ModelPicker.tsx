@@ -34,7 +34,7 @@ import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery, matchingModels } from "./modelQuery";
+import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
@@ -66,8 +66,8 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
-import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
+import { focusRoute } from "../../ui/focusRoute";
 type ModelChoice = {
   id: string;
   name: string;

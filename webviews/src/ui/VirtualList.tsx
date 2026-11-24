@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEventHandler,
   type ReactNode,
+  type KeyboardEventHandler,
 } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
@@ -74,9 +74,9 @@ export function VirtualList({
   scrollParent,
   fade = false,
   measureRows = false,
+  itemKey,
   tabIndex,
   onKeyDown,
-  itemKey,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();

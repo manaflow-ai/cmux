@@ -223,7 +223,6 @@
         "schemas/layout-grid/**",
         "schemas/layout-motion/**",
         "schemas/transcript-look/**",
-        "schemas/keymap/**",
         "schemas/theme/slots.json",
         "schemas/sync-motion/**",
         "schemas/settings/settings-schema.json",

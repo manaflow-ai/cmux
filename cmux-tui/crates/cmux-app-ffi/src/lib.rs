@@ -34,8 +34,6 @@
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
-//! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
-//! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
 //! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
 //! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
 //! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
@@ -46,6 +44,8 @@
 //! the validation and the defaults; include/cmux_settings.h).
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
+//! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
+//! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 

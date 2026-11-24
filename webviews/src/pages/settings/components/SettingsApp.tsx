@@ -1,6 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
-import { useRowState, useSettingsRouter, useSettingsState, useStore } from "../context";
+import { useSettingsRouter, useSettingsState, useStore, useRowState } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";

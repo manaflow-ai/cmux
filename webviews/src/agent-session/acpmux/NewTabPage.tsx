@@ -5,11 +5,11 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import type { ListCommand } from "../../ui/keyStyle";
-import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 // AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
 // would pull this New Tab screen into the chat page's first script.
 import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
@@ -24,7 +24,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";

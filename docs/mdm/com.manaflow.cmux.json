@@ -842,17 +842,6 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
-    "app.keyStyle" : {
-      "default" : "standard",
-      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
-      "enum" : [
-        "standard",
-        "vim",
-        "emacs"
-      ],
-      "title" : "Key Style",
-      "type" : "string"
-    },
     "app.language" : {
       "default" : "system",
       "description" : "The language of cmux's menus, pages and messages.",
@@ -881,6 +870,17 @@
         "zh-Hant"
       ],
       "title" : "Language",
+      "type" : "string"
+    },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
       "type" : "string"
     },
     "app.quitBehavior" : {
@@ -5306,14 +5306,17 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "title" : "Group Background",
       "type" : "string"

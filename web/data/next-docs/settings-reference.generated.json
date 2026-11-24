@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 689,
+  "count": 692,
   "sections": [
     {
       "id": "general",
@@ -5696,6 +5696,14 @@
           "group": "Saving"
         },
         {
+          "key": "editor.vimMode",
+          "title": "Vim Keys in the Editor",
+          "help": "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Editing"
+        },
+        {
           "key": "editor.wordBasedSuggestions",
           "title": "Suggest Words from the File",
           "help": "",
@@ -6664,6 +6672,31 @@
       "id": "keyboard",
       "title": "Keyboard",
       "rows": [
+        {
+          "key": "app.keyStyle",
+          "title": "Key Style",
+          "help": "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+          "kind": "choice",
+          "default": "standard",
+          "group": "Key Style",
+          "values": [
+            "standard",
+            "vim",
+            "emacs"
+          ]
+        },
+        {
+          "key": "app.shortcutLayout",
+          "title": "Keyboard Layout",
+          "help": "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+          "kind": "choice",
+          "default": "followLayout",
+          "group": "Key Style",
+          "values": [
+            "followLayout",
+            "qwertyPositions"
+          ]
+        },
         {
           "key": "macScreen.shareWithoutAsking",
           "title": "Share This Mac Without Asking",

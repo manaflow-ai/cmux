@@ -1,4 +1,8 @@
 {
+  "settingsPage.chiefContact.slack": {
+    "class": "brand",
+    "source": "Slack"
+  },
   "settings.choice.keyStyleVim": {
     "class": "brand",
     "source": "Vim"
@@ -23,10 +27,6 @@
         ]
       }
     }
-  },
-  "settingsPage.chiefContact.slack": {
-    "class": "brand",
-    "source": "Slack"
   },
   "argument.value.dev": {
     "class": "brand",

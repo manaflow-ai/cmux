@@ -14,10 +14,10 @@ import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import { Keycap } from "./Keycap";
 import {
-  type PaletteSection,
-  filterPaletteSections,
   type PaletteReturnLook,
+  type PaletteSection,
   descriptionRestatesName,
+  filterPaletteSections,
 } from "./paletteMenuModel";
 import { focusRoute } from "../../ui/focusRoute";
 type Props = {

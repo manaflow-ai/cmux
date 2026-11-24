@@ -9,12 +9,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
@@ -38,9 +38,9 @@ import {
   isAgentHome,
   projectLabel,
   sessionMark,
+  isTemporaryFolder,
   SessionsBy,
   FolderRecency,
-  isTemporaryFolder,
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
@@ -96,6 +96,7 @@ import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices } from "./startedProject";
 import {
+  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -110,7 +111,6 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
-  exactMatch,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
@@ -1905,6 +1905,13 @@ export function NewTabScreen(props: Props) {
   // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
   // the listbox owns its keys).
   const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const stepRows = (step: 1 | -1) => {
+    const leaving = rows[current];
+    if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
+    const strip = rows.filter(inStrip);
+    const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
+    pick(arrowStep(rows, current, step, Math.max(0, column)));
+  };
   const fieldKeys = useListKeys({
     onCommand: (command) => {
       if (command !== "list.leave" || !rows.length || !list.current) return false;
@@ -1916,11 +1923,9 @@ export function NewTabScreen(props: Props) {
       if (!rows.length) return false;
       switch (command) {
         case "list.next":
-          pick(stepRows(current, 1));
-          return;
+          return stepRows(1);
         case "list.previous":
-          pick(stepRows(current, -1));
-          return;
+          return stepRows(-1);
         case "list.first":
           return pick(0);
         case "list.last":
@@ -2083,7 +2088,7 @@ export function NewTabScreen(props: Props) {
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      pick(stepSelection(current, step, rows.length));
+      stepRows(step);
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();

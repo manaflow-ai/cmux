@@ -166,8 +166,8 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
-    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
+    "crates/cmux-keymap",
     "crates/cmux-palette-eval",
     "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
@@ -312,8 +312,8 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
+    "crates/cmux-keymap",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
@@ -416,8 +416,8 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
-cmux-keymap = { path = "crates/cmux-keymap" }
 cmux-terminal-find = { path = "crates/cmux-terminal-find" }
+cmux-keymap = { path = "crates/cmux-keymap" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
@@ -697,6 +697,20 @@ lto = "off"
 codegen-units = 16
 
 [profile.gate.package.acpmux]
+codegen-units = 16
+
+# A custom profile inherits its parent's package overrides too, so every
+# `[profile.release.package.X]` above that sets codegen-units = 1 needs its
+# line here. cmux-tui-core at one unit (from #47836) made its gate test build
+# take 35 minutes, and the v2 gate step ran out its limit before the last group
+# (acpmux-v2-connection, the `v2.pr04.*` rows) started. cmux-tui gets opt-level
+# 3 too: the gates time optimized code, not release's "z".
+# test_gate_profile_overrides_every_single_unit_release_package keeps this whole.
+[profile.gate.package.cmux-tui-core]
+codegen-units = 16
+
+[profile.gate.package.cmux-tui]
+opt-level = 3
 codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the

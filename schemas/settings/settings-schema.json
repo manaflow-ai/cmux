@@ -934,6 +934,7 @@
           {
             "key" : "settings.group.editorEditing",
             "rows" : [
+              "editor.vimMode",
               "editor.autoClosingBrackets",
               "editor.autoClosingQuotes",
               "editor.linkedEditing",
@@ -1789,6 +1790,17 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.keyStyle",
+            "rows" : [
+              "app.keyStyle",
+              "app.shortcutLayout"
+            ],
+            "title" : {
+              "key" : "settings.group.keyStyle",
+              "text" : "Key Style"
+            }
+          },
+          {
             "key" : "settings.shortcuts.hintsGroup",
             "rows" : [
               "shortcuts.showModifierHoldHints"
@@ -1799,7 +1811,7 @@
             }
           },
           {
-            "key" : "keyboard.1",
+            "key" : "keyboard.2",
             "rows" : [
               "tabs.commandDigits",
               "sidebar.numbering",
@@ -9372,6 +9384,321 @@
       "title" : {
         "key" : "settings.layout.closeFocus",
         "text" : "Focus After Closing a Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keyStyleStandard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keyStyleVim",
+            "text" : "Vim"
+          },
+          "value" : "vim"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keyStyleEmacs",
+            "text" : "Emacs"
+          },
+          "value" : "emacs"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "standard",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.keyStyle",
+        "text" : "Key Style"
+      },
+      "help" : {
+        "key" : "settings.app.keyStyle.help",
+        "text" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.keyStyle",
+      "keywords" : [
+        "vim",
+        "vi",
+        "emacs",
+        "hjkl",
+        "keys",
+        "keymap",
+        "navigation",
+        "keyboard"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "keyStyle"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "keyboard",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.keyStyle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.keyStyle",
+        "text" : "Key Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.shortcutLayoutFollow",
+            "text" : "Follow My Layout"
+          },
+          "value" : "followLayout"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.shortcutLayoutQwerty",
+            "text" : "Keep QWERTY Positions"
+          },
+          "value" : "qwertyPositions"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "followLayout",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.keyStyle",
+        "text" : "Key Style"
+      },
+      "help" : {
+        "key" : "settings.app.shortcutLayout.help",
+        "text" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.shortcutLayout",
+      "keywords" : [
+        "dvorak",
+        "colemak",
+        "azerty",
+        "qwertz",
+        "qwerty",
+        "layout",
+        "input source",
+        "shortcuts",
+        "keyboard"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "shortcutLayout"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "keyboard",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.shortcutLayout"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.shortcutLayout",
+        "text" : "Keyboard Layout"
       },
       "validation" : "portable"
     },
@@ -66045,6 +66372,143 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : {
+        "key" : "settings.editor.vimMode.help",
+        "text" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.vimMode",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "vim",
+        "vi",
+        "modal",
+        "hjkl",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "vimMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:editor.vimMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.editor.vimMode",
+        "text" : "Vim Keys in the Editor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -73292,7 +73756,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "folder",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",

@@ -48,9 +48,9 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
-import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
   DEFAULT_RESOLVED_TRANSCRIPT_LOOK,

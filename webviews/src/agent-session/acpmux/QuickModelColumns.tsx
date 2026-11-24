@@ -16,7 +16,6 @@ import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { asPlainKey, useListKeys } from "../../ui/useListKeys";
 import type { ListCommand } from "../../ui/keyStyle";
@@ -24,7 +23,7 @@ import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon } from "./ComposerPickers";
-import { reasoningChoices, type Choice, nearestLevel } from "./composerPickerModel";
+import { nearestLevel, reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
@@ -66,6 +65,7 @@ import {
 } from "./quickModelMenuModel";
 import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 import "./quickModelColumns.css";
+import { focusRoute } from "../../ui/focusRoute";
 
 type Column = 0 | 1 | 2;
 
