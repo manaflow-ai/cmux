@@ -1106,6 +1106,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/controls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
@@ -2764,6 +2770,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/control",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harness_inventory",
       "params": true
     },
@@ -2870,6 +2881,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createKey": true,
         "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
@@ -2906,6 +2918,7 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "personVerified": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -2915,6 +2928,7 @@
         "provenance": true,
         "reportTo": true,
         "requestId": true,
+        "requireAsking": true,
         "requireFullAccess": true,
         "resend": true,
         "restricted": true,

@@ -40,6 +40,17 @@ fn protocol_registry_names_are_unique() {
     }
 }
 
+#[test]
+fn controls_snapshot_is_a_request_and_control_updates_are_notifications() {
+    let registry = registry();
+    for (name, kind) in [
+        (crate::rpc::method::MUX_CONTROLS, super::Kind::Request),
+        (crate::rpc::method::MUX_CONTROL, super::Kind::Notification),
+    ] {
+        assert_eq!(registry.iter().find(|d| d.name == name).unwrap().kind, kind, "{name}");
+    }
+}
+
 /// Every name the dispatcher and its notifications use is in the registry:
 /// the constants in `rpc::method` and the literal names in the server.
 #[test]
@@ -153,7 +164,15 @@ fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
         meta["properties"].as_object().expect("properties").keys().map(String::as_str).collect();
     let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
     assert_eq!(keys, listed);
-    assert!(keys.contains("localAppToken") && keys.contains("personKey"), "{keys:?}");
+    for key in [
+        "localAppToken",
+        "personKey",
+        crate::prompt_provenance::PERSON_VERIFIED,
+        crate::hub::require_asking::FIELD,
+        crate::hub::create_key::FIELD,
+    ] {
+        assert!(keys.contains(key), "request metadata lacks {key}");
+    }
 }
 
 /// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
