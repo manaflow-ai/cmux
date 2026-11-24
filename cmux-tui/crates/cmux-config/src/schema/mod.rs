@@ -431,6 +431,50 @@ impl Schema {
     pub fn rows_in<'a>(&'a self, section: Option<&'a str>) -> impl Iterator<Item = &'a Row> + 'a {
         self.rows.iter().filter(move |row| section.is_none_or(|id| row.section == id))
     }
+
+    /// Rows `settings.reset_group` resets for `name`: a section id
+    /// (`appearance`, the Settings page's left column) takes every row of
+    /// the section; `<section>.<group>` (`appearance.sidebar`, a heading on
+    /// that page, [`Row::group_id`]) takes the rows of that group. Empty for
+    /// an unknown name.
+    pub fn rows_in_group(&self, name: &str) -> Vec<&Row> {
+        self.rows.iter().filter(|row| row.section == name || row.group_id() == name).collect()
+    }
+
+    /// Every name [`Schema::rows_in_group`] knows, in schema order: each
+    /// section with rows, then its groups.
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for row in &self.rows {
+            for name in [row.section.clone(), row.group_id()] {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+}
+
+impl Row {
+    /// The row's group as `settings.reset_group` names it: its section and
+    /// the last part of the group's localization key
+    /// (`settings.group.sidebar` in section `appearance` is
+    /// `appearance.sidebar`), or the group's title in lowercase letters and
+    /// digits when it has no key.
+    pub fn group_id(&self) -> String {
+        let slug = match &self.group.key {
+            Some(key) => key.rsplit('.').next().unwrap_or(key).to_string(),
+            None => self
+                .group
+                .text
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect(),
+        };
+        format!("{}.{slug}", self.section)
+    }
 }
 
 fn row(raw: Value, text: RowText) -> Result<Row, String> {
