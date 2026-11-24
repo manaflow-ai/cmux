@@ -44,6 +44,7 @@ final class CaptureSceneRegistry {
         let name = params["scene"]?.stringValue ?? "main-showcase"
         // A cloud-agent-machines or cloud-machine-disconnected picture stays for the capture's
         // stills; any next render ends it.
+        await endSpacesSwitcher()
         endAgentCloudMachines()
         endCloudMachineDisconnected()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
@@ -69,6 +70,9 @@ final class CaptureSceneRegistry {
         }
         if definition.name.hasPrefix("permission-feed-peer") { return await renderPermissionFeedPeer(params, scene: definition.name, windowID: targetWindowID) }
         if definition.name == Self.sessionInfoNativeScene { AgentPaneSessionInfoDebugState.widenCaptureWindow(targetWindow.window) }
+        if definition.name == "spaces-switcher" {
+            return await renderSpacesSwitcher(params, original: targetWindow)
+        }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -269,6 +273,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "main-showcase", description: "Main window with the real showcase fixture."),
         CaptureSceneDefinition(name: "composer", description: "Agent composer fixture with the real context controls."),
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
+        CaptureSceneDefinition(name: "spaces-switcher", description: "Space switcher showing the Space open in a second window."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
         CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it
