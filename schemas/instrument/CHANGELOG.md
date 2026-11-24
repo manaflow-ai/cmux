@@ -7,6 +7,16 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
+## 0.2.0 (2026-11-24)
+
+A minor: one default moves.
+
+- `ink.activity` is the theme's secondary ink (`var(--agent-muted)`), not the text at 58% over clear. The
+  fixed mix fell under 4.5:1 under 18 of 22 golden looks in light and the three plush looks in dark (2.43:1
+  at worst, cmuxterm-hq `docs/findings/2026-11-24-looks-text-contrast.md`); the secondary ink holds 4.5:1
+  on every fill. In the default theme the rows move from about #6b6b6b to #616161 on white and from about
+  #a1a1a1 to #aaaaaa on #1e1e1e.
+
 ## 0.1.1 (2026-11-24)
 
 A patch: one token added at the value the app draws, no pixel moves.

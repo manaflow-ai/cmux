@@ -27,7 +27,7 @@
       "name": "--cv-activity-text",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "Tool-call rows, Worked for, notices and background activity lines. Unset: the theme's text at 58% (Instrument's ink.activity). A look on a tinted page sets it to hold 4.5:1 there."
+      "about": "Tool-call rows, Worked for, notices and background activity lines. Unset: the theme's secondary ink, --agent-muted (Instrument's ink.activity), which holds 4.5:1 on every fill."
     },
     {
       "name": "--cv-link",
