@@ -28,21 +28,27 @@ extension AcpmuxHub {
         let read: AcpmuxSessionSource.CatchUpRead
         let connection: AcpmuxConnection
         let id: Int
+        /// Asked the sudo-card kinds in `kinds` (this Mac's last `initialize` serves them and
+        /// does not fold `alsoKinds`), not in `alsoKinds`.
+        var whole = false
     }
 
     /// Writes each open chat's coming read on `connection` (at most ``earlyAttachLimit``).
     func submitEarlyAttaches(on connection: AcpmuxConnection, timeout: Duration) async {
         dropEarlyAttaches()
-        // This Mac's last `initialize` said its pages would be drained (sudo cards, no
-        // `alsoKinds` fold): reading them again on every reconnect costs a whole page each.
-        guard capabilities.isEmpty || earlyAttachesHold else { return }
+        // A Mac whose last `initialize` served sudo cards without folding `alsoKinds` is asked
+        // them in `kinds`, as its later attach would be (a Mac that changed since answers with
+        // a refusal, and the chat attaches as before).
+        let whole = !earlyAttachesHold
         var written: [String: EarlyAttach] = [:]
         for source in liveSources where written.count < Self.earlyAttachLimit {
             guard let read = source.earlyRead(), written[read.sessionID] == nil else { continue }
-            let params = AcpmuxSessionSource.attachParams(read, kinds: AcpmuxSessionSource.chatKinds,
-                                                          alsoKinds: AcpmuxSessionSource.elevationKinds)
+            let params = whole
+                ? AcpmuxSessionSource.attachParams(read, kinds: AcpmuxSessionSource.chatKindsWithElevation)
+                : AcpmuxSessionSource.attachParams(read, kinds: AcpmuxSessionSource.chatKinds,
+                                                   alsoKinds: AcpmuxSessionSource.elevationKinds)
             guard let id = try? await connection.submit("_acpmux/attach", .object(params), timeout: timeout) else { break }
-            written[read.sessionID] = EarlyAttach(read: read, connection: connection, id: id)
+            written[read.sessionID] = EarlyAttach(read: read, connection: connection, id: id, whole: whole)
             source.holdForEarlyAttach()
         }
         guard self.connection === connection else {
@@ -58,11 +64,17 @@ extension AcpmuxHub {
         !capabilities.contains(AcpmuxSessionSource.elevationCapability) || capabilities.contains(Self.alsoKindsCapability)
     }
 
+    /// The early page lacks this Mac's sudo-card records: it serves them but ignored
+    /// `alsoKinds`. The page is kept, and ``AcpmuxSessionSource`` reads them after it.
+    func earlyPageLacksElevation(_ early: EarlyAttach) -> Bool {
+        !early.whole && !earlyAttachesHold
+    }
+
     /// `sessionID`'s early page on the current connection, taken (nil: none, or one that no
     /// longer holds).
     func takeEarlyAttach(_ sessionID: String) -> EarlyAttach? {
         guard let early = earlyAttaches.removeValue(forKey: sessionID) else { return nil }
-        guard earlyAttachesHold, early.connection === connection else {
+        guard early.connection === connection else {
             Self.drop(early)
             return nil
         }

@@ -1767,6 +1767,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// A catch-up from kept records found more than one page since them: nothing was read past
         /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
         var keptTooOld = false
+        /// Sudo-card records newer than the reply's `lastSeq`, read after an early page that
+        /// lacked them: applied among the held live records, in seq order.
+        var late: [JSONValue] = []
     }
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
@@ -1874,6 +1877,38 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let reply = await hub.earlyReply(early, for: read, timeout: pageTimeout), current() {
                 // Written behind `initialize`: the page came in the connection's first round trip.
                 out.result = reply
+                if let early, hub.earlyPageLacksElevation(early) {
+                    // The Mac serves sudo cards but ignored `alsoKinds`: its page and stream
+                    // carry the chat's kinds only. Widen the stream without a read (a hold
+                    // attach), then read the sudo-card records since the page's start, both in
+                    // one round trip; the page is kept, not read again.
+                    var hold = params
+                    for key in ["limit", "afterSeq", "beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
+                        hold.removeValue(forKey: key)
+                    }
+                    hold["hold"] = .bool(true)
+                    let first = (reply["events"]?.arrayValue ?? []).first?["seq"]?.numberValue ?? 1
+                    async let held = request("_acpmux/attach", hold)
+                    async let cards = request("_acpmux/events", [
+                        "sessionId": .string(read.sessionID), "afterSeq": .number(max(0, first - 1)),
+                        "limit": .number(Double(pageSize)), "kinds": .array(elevationKinds),
+                    ])
+                    _ = try await held
+                    let records = try await cards["events"]?.arrayValue ?? []
+                    let boundary = stateSeq(reply)
+                    let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
+                    let inPage = records.filter { seq($0) <= boundary }
+                    out.late = records.filter { seq($0) > boundary }
+                    if !inPage.isEmpty, var events = reply["events"]?.arrayValue {
+                        events = (events + inPage).enumerated()
+                            .sorted { (seq($0.element), $0.offset) < (seq($1.element), $1.offset) }
+                            .map(\.element)
+                        if case .object(var object) = reply {
+                            object["events"] = .array(events)
+                            out.result = .object(object)
+                        }
+                    }
+                }
             } else {
                 out.result = try await request("_acpmux/attach", params)
             }
@@ -1998,7 +2033,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
         hub?.forgetStartedHere(sessionID)
         keptRestored = false
-        let pending = held
+        let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
+        let pending = pages.late.isEmpty ? held : (held + pages.late).enumerated()
+            .sorted { (seq($0.element), $0.offset) < (seq($1.element), $1.offset) }.map(\.element)
         held = []
         for record in pending { apply(record: record) }
         startGapFill()
