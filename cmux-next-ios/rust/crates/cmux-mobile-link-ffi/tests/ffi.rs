@@ -554,7 +554,9 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
 /// nothing: the hub races it instead of going first, and the service link wins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stale_local_ad_does_not_delay_the_service_dial() {
-    use cmux_mobile_link_ffi::local_link::{LocalEndpoint, LocalTxt, local_link_observe, local_link_remove};
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
 
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -579,14 +581,19 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
         }
     });
     let instance = format!("stale-{mac_id}");
+    // A paired Mac's ad with its key's tag: the one kind of ad a dial trusts.
+    let key = b"stale-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
     assert!(local_link_observe(
         instance.clone(),
         vec![
             LocalTxt { key: "id".into(), value: mac_id.clone() },
-            LocalTxt { key: "v".into(), value: "1".into() }
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
         ],
         vec![LocalEndpoint { host: "127.0.0.1".into(), port }],
     ));
+    assert!(local_link_nearby(mac_id.clone()), "the dial below must race the stale hub");
 
     let started = std::time::Instant::now();
     let raced = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
@@ -599,5 +606,6 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
     );
     raced.close();
     local_link_remove(instance);
+    local_link_pair(mac_id, None);
     pool.reset().await;
 }

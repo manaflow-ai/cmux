@@ -167,12 +167,13 @@ pub fn local_link_matches(
     ad_of(&txt).is_some_and(|ad| ad.matches(&mac_device_id, tag.as_deref()))
 }
 
-/// The hub addresses of Mac `mac_device_id`, best first, while its ad is live and matches the key
-/// it was paired with. Empty: not nearby.
+/// The hub addresses of Mac `mac_device_id`, best first, while its ad is live and carries the tag
+/// of the key it was paired with. Empty: not nearby. A Mac with no pinned key is never nearby: an
+/// ad naming its id with no key to check it against could be anybody's.
 pub fn nearby(mac_device_id: &str) -> Vec<SocketAddr> {
     with_state(|state| {
-        let tag = state.tags.get(&mac_device_id.to_lowercase()).cloned();
-        state.peers.addresses(mac_device_id, tag.as_deref(), Instant::now())
+        let Some(tag) = state.tags.get(&mac_device_id.to_lowercase()) else { return Vec::new() };
+        state.peers.addresses(mac_device_id, Some(tag), Instant::now())
     })
 }
 
@@ -326,6 +327,9 @@ mod tests {
         assert!(!local_link_observe("junk".into(), txt(&[("x", "y")]), here.clone()));
         assert!(!local_link_observe("noaddr".into(), ad.clone(), vec![]));
         assert!(local_link_observe("Mac A".into(), ad.clone(), here));
+        // Not paired yet: an ad naming the Mac with nothing to check it against is not dialed.
+        assert!(!local_link_nearby("mac-A".into()));
+        local_link_pair("mac-A".into(), Some(b"mac-key".to_vec()));
         assert!(local_link_nearby("mac-A".into()));
         assert!(!local_link_nearby("mac-B".into()));
         // Paired with another key: the ad is somebody else's.

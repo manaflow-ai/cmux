@@ -18,16 +18,22 @@ public final class LocalLinkBrowser: @unchecked Sendable {
     // Confined to `queue`.
     private var browser: NWBrowser?
     private var resolving: [String: NWConnection] = [:]
+    /// Between start() and stop(): a failed browse restarts only while browsing is wanted.
+    private var wanted = false
 
     private init() {}
 
     /// Start browsing; a second call while browsing does nothing.
     public func start() {
-        queue.async { self.startOnQueue() }
+        queue.async {
+            self.wanted = true
+            self.startOnQueue()
+        }
     }
 
     public func stop() {
         queue.async {
+            self.wanted = false
             self.browser?.cancel()
             self.browser = nil
             for connection in self.resolving.values { connection.cancel() }
@@ -64,9 +70,18 @@ public final class LocalLinkBrowser: @unchecked Sendable {
                     for connection in self.resolving.values { connection.cancel() }
                     self.resolving.removeAll()
                 }
-            case .failed, .cancelled:
-                // A failed browse (the Local Network prompt refused, the radio reset) starts again at the next start().
-                self?.queue.async { self?.browser = nil }
+            case .failed:
+                // A failed browse (the radio reset, mDNS restarted) starts again by itself after a
+                // pause, not only at the next dial's start(): the Mac stays findable meanwhile.
+                self?.queue.async {
+                    self?.browser = nil
+                    self?.queue.asyncAfter(deadline: .now() + .seconds(5)) {
+                        if self?.wanted == true { self?.startOnQueue() }
+                    }
+                }
+            case .cancelled:
+                // stop(), or a failed browse being replaced; the next start() browses again.
+                break
             default:
                 break
             }
