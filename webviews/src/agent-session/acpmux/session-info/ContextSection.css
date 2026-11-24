@@ -148,12 +148,10 @@
 .acpmux-context-breakdown .acpmux-session-info-row__end {
   margin-left: auto;
 }
-/* Groups, spaced as Claude's: a row's height before the buffer and free space, a gap before the
-   deferred categories and before the folds. */
-.acpmux-context-breakdown .acpmux-session-info-row[data-gap="group"] {
-  margin-top: var(--grid-row);
-}
-.acpmux-context-breakdown .acpmux-session-info-row[data-gap="deferred"],
+/* Groups, one grid gap apart: the used categories, the buffer and free space, the deferred ones, the
+   folds. Claude's card puts a whole row before the buffer; it read as a hole (Lucas, 2026-11-23: "i
+   don't like the fact that we have this big spacing here"). */
+.acpmux-context-breakdown .acpmux-session-info-row:is([data-gap="group"], [data-gap="deferred"]),
 .acpmux-context-breakdown > .acpmux-session-info-list + [data-list] {
   margin-top: var(--grid-gap);
 }
