@@ -411,7 +411,7 @@ struct Driver {
     watchdog: Watchdog,
     /// Resends a lost initiation while data waits for the session.
     handshake_retry: HandshakeRetry,
-    /// Give a crossed handshake one REKEY_TIMEOUT to finish before the queue starts another.
+    /// Give a crossed handshake time to finish before the queue starts another (`initiation_pending`).
     wait_for_handshake_until: Option<Instant>,
     /// When the peer's last authenticated data arrived, and whether it came
     /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
@@ -440,15 +440,20 @@ struct Driver {
 /// boringtun's handshake in progress, which already refuses a second
 /// initiation until the retry (`tests/crossed_initiation.rs`).
 ///
-/// The hold lasts until this side's own answer is overdue: max(250 ms,
-/// 2 x smoothed RTT), the wait [`crate::handshake_retry`] gives an
-/// initiation, not boringtun's fixed 5 s. A fixed 5 s held a failover's
-/// new path behind an initiation the watchdog had sent on the dead one.
-/// A rebind clears it: an initiation on the old underlay has no answer
-/// coming.
+/// With a measured round trip the hold lasts until this side's own answer
+/// is overdue: max(250 ms, 2 x smoothed RTT), the wait
+/// [`crate::handshake_retry`] gives an initiation. With none yet (a fresh
+/// tunnel's first dial, where the crossing above happens) it stays
+/// boringtun's 5 s, since a shorter guess could fall inside a long round
+/// trip. A fixed 5 s held a failover's new path behind an initiation the
+/// watchdog had sent on the dead one. A rebind clears it: an initiation on
+/// the old underlay has no answer coming.
 fn initiation_pending(srtt: Option<Duration>) -> Duration {
-    crate::handshake_retry::first_wait(srtt)
+    srtt.map_or(HANDSHAKE_HOLD_UNMEASURED, |srtt| crate::handshake_retry::first_wait(Some(srtt)))
 }
+
+/// A handshake hold with no measured round trip: boringtun's REKEY_TIMEOUT.
+const HANDSHAKE_HOLD_UNMEASURED: Duration = Duration::from_secs(5);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -662,8 +667,11 @@ impl Driver {
                     let kind = classify(packet);
                     let cookie = kind == DatagramClass::WireGuardCookieReply;
                     if kind == DatagramClass::WireGuardResponse {
-                        self.wait_for_handshake_until
-                            .get_or_insert_with(|| Instant::now() + Duration::from_secs(5));
+                        // Until the initiator's first data under the new
+                        // session is overdue; the same bound as this side's
+                        // own initiation (`initiation_pending`).
+                        let hold = initiation_pending(self.pacer.srtt());
+                        self.wait_for_handshake_until.get_or_insert_with(|| Instant::now() + hold);
                     }
                     if !cookie {
                         self.underlay.authenticated(origin);
@@ -885,8 +893,10 @@ impl Driver {
                     }
                     Rebind::Keep | Rebind::PeerMoved => {}
                 }
-                // An initiation sent on the old underlay has no answer coming.
+                // An initiation sent, or a response given, on the old
+                // underlay has no answer coming.
                 self.initiated_at = None;
+                self.wait_for_handshake_until = None;
                 // A held peer is suspended: a send now would wake it (or be
                 // lost), so this side's own move waits for the release.
                 if self.stack.hold().is_some() && !moved_peer {
