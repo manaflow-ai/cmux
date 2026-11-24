@@ -148,7 +148,7 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-g"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
 
@@ -171,13 +171,23 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
         self.assertIn("${{ }}", steps["tt-e"].reason)
         self.assertTrue(steps["tt-f"].run)
         self.assertIn('runs $t', steps["tt-f"].reason)
+
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "webviews/package.json"]))
+        self.assertTrue(steps["tt-f"].run)
+        steps = self.verdicts(self.route(["web/app/data.json"]))
+        self.assertTrue(steps["tt-f"].run)
 
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
@@ -262,7 +272,7 @@ class RealWorkflow(unittest.TestCase):
         self.assertLess(setup_python, index)
         self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
         # No routing job of its own: tooling-tests waits only on coalesce.
-        self.assertEqual(self.job["needs"], "coalesce")
+        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
         self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
 
