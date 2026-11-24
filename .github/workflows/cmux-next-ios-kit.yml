@@ -203,6 +203,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -331,6 +333,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -404,6 +407,10 @@ jobs:
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
         id: ios-sim
+        # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
+        # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
+        # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
@@ -471,9 +478,14 @@ jobs:
       # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
       # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
       # and the report step names each bench step that missed as a warning.
+      # On a pull request, a red step before the bench is already the verdict: the bench there is advisory, so it is
+      # skipped rather than holding the red PR check longer (2026-11-24: all 7 readable kit jobs of Aziz's newest iOS
+      # heads were red before the bench, at Connection notices or swift test, and then ran it for 3.3-10.3 min more;
+      # goal ios-ci-under-5min in cmuxterm-hq). Base pushes and dispatches still bench after a red step, so base's numbers
+      # never go missing (tests/test_ios_kit_bench_runs_after_red_step.py).
       - name: Instant list bench (macOS swift test)
         id: bench-macos
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) }}
         continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
@@ -483,7 +495,7 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         id: bench-ios
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # Advisory, as the macOS bench above.
         continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.
