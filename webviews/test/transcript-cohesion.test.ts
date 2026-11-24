@@ -9,10 +9,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import {
-  TRANSCRIPT_LINE_ROW,
-  TRANSCRIPT_LINE_WORDS,
+  TRANSCRIPT_LIVE_LINE_BOX,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_HEIGHT,
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_WORDS,
 } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
@@ -107,15 +108,25 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
                   height: live.getBoundingClientRect().height,
-                  // The box transcriptGrid.ts gives it, as drawn (transcriptLiveVars on the scroller, resolved in place).
-                  box: (() => {
-                    const probe = document.createElement("div");
-                    probe.style.cssText =
-                      "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-height)";
-                    live.parentElement!.append(probe);
-                    const value = probe.getBoundingClientRect().height;
-                    probe.remove();
-                    return value;
+                  row: live.closest(".acpmux-row")!.getBoundingClientRect().height,
+                  // The boxes transcriptGrid.ts gives it, as drawn (transcriptLiveVars on the scroller, resolved in
+                  // place): its row is the live step's box, its words the live line's box at the top of that row
+                  // (#48701, TRANSCRIPT_LIVE_LINE_BOX).
+                  ...(() => {
+                    const resolve = (height: string) => {
+                      const probe = document.createElement("div");
+                      probe.style.cssText = `position:absolute;visibility:hidden;width:0;height:${height}`;
+                      live.parentElement!.append(probe);
+                      const value = probe.getBoundingClientRect().height;
+                      probe.remove();
+                      return value;
+                    };
+                    return {
+                      box: resolve("var(--cv-live-step-height)"),
+                      lineBox: resolve(
+                        "min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))",
+                      ),
+                    };
                   })(),
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
@@ -131,9 +142,14 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
                 // The live line's gap and box in a run come from one place (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
                 expect(measured.gap).toBeCloseTo(TRANSCRIPT_LIVE_STEP_GAP * interfaceScale, 1);
-                expect(measured.height).toBeCloseTo(measured.box, 1);
-                // At Interface Size 1 the drawn box is the grid's number.
-                if (interfaceScale === 1) expect(measured.box).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT, 1);
+                // Its row takes the step's box; its words the line's box at the top of it.
+                expect(measured.row).toBeCloseTo(measured.box, 1);
+                expect(measured.height).toBeCloseTo(measured.lineBox, 1);
+                // At Interface Size 1 the drawn boxes are the grid's numbers.
+                if (interfaceScale === 1) {
+                  expect(measured.box).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT, 1);
+                  expect(measured.lineBox).toBeCloseTo(TRANSCRIPT_LIVE_LINE_BOX, 1);
+                }
               }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {

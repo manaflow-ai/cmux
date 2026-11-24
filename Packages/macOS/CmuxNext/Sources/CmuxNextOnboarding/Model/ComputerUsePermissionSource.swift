@@ -20,6 +20,10 @@ public protocol ComputerUsePermissionSource: AnyObject {
     func enable()
     /// Restarts the helper and reads its grants again.
     func restart()
-    /// Reads the grants again now (the helper app was dropped into a list).
+    /// Reads the grants again now.
     func recheck()
+    /// The helper app was dropped into a list, so a grant may be landing: reads the grants again,
+    /// and restarts the helper once if it stops answering while this window shows (macOS's
+    /// "Quit & Reopen" after a grant quits it).
+    func recheckAfterGrant()
 }

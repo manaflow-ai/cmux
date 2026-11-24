@@ -5,12 +5,13 @@
 // and the notice draw from its report.
 import type { DoctorFinding, DoctorFix, DoctorReport } from "./ops";
 
-/** Where the one-line notice draws (gallery `pages.settings-customize-doctor`): `chip`, a dot and the
- * line at the bottom of the Settings sidebar (shipped); `banner`, a warning Notice across the top of
- * the Settings column; `inline`, the line and a count in the card's own header only. */
-export type DoctorTreatment = "chip" | "banner" | "inline";
+/** Where the one-line notice draws (gallery `pages.settings-customize-doctor`): `inline`, the line and
+ * a count in the card's own header only (shipped); `banner`, a warning Notice across the top of the
+ * Settings column. The sidebar draws none (Lawrence 2026-11-23: the "29 things change your
+ * customization" chip under the categories, "remove this thing"). */
+export type DoctorTreatment = "banner" | "inline";
 
-let treatment: DoctorTreatment = "chip";
+let treatment: DoctorTreatment = "inline";
 
 /** The treatment the page draws. Choosing another is this one line (or the gallery's variant). */
 export function doctorTreatment(): DoctorTreatment {
