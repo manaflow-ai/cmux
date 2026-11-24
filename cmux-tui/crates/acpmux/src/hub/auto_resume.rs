@@ -160,6 +160,18 @@ pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
 /// continuation never runs out of attempts: past the configured waits it waits this long.
 pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 
+/// Whether a continuation for `reason` never runs out of attempts: a capacity outage (the
+/// provider's 529, the SR2 gateway's 503 "no non-exhausted accounts ... next account frees up in
+/// Nm") and an account's rate limit (HTTP 429) both end by themselves, so the chat waits them out
+/// (Leo, 2026-11-24: "didn't we build auto retries for this? why do they fail instead of waiting
+/// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
+/// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
+/// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
+/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
+    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit) && !delays.is_empty()
+}
+
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
 /// [`CAPACITY_MAX_WAIT_MS`] (a longer configured wait would hold a chat past capacity's return);
 /// past the configured waits the last one doubling per attempt, at most the same. Jittered per
@@ -698,9 +710,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage is waited out, however long it lasts: never used up.
+            // A capacity outage or an account's rate limit is waited out, however long it
+            // lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = reason == RetryReason::Capacity && !delays.is_empty();
+            let unbounded = waits_it_out(reason, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {
@@ -928,6 +941,63 @@ impl Hub {
             return;
         }
         self.stop_auto_resume_by(session, None);
+    }
+
+    /// A plain log load's read of the chat's stop records (`log_load.rs`): those the restore
+    /// point carries (`point_stops`, through `after`), and the ones past it. The first prompt
+    /// after a restart then finds the set read, not a scan of every segment's kind copy under
+    /// its turn's start (goal infinite-chats: `start_turn` 63 ms of a 1 GB chat's 68 ms first
+    /// send, 0.2 ms at 1 MB). A load that cannot read them leaves the set to the first prompt.
+    pub(super) fn seed_prompt_stops(
+        &self,
+        session: &Session,
+        after: u64,
+        point_stops: Option<&[String]>,
+    ) {
+        // The load holds the chat's `log_load` lock here: never wait on the set under it. A set
+        // someone holds is theirs to read (`prompt_stop_set`); this read is only a head start.
+        let mut stopped = match session.auto_resume.stopped_prompts.try_lock() {
+            Ok(stopped) => stopped,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if stopped.is_some() {
+            return;
+        }
+        // A point that carries none (one saved before this) is read past: the whole log.
+        let (after, mut roots) = match point_stops {
+            Some(stops) => (after, stops.iter().cloned().collect::<HashSet<_>>()),
+            None => (0, HashSet::new()),
+        };
+        let read = self.store.scan_kinds_after(
+            &session.id,
+            after,
+            &["prompt_stop_requested"],
+            &mut |event| {
+                if event.dir == "mux"
+                    && event.kind == "prompt_stop_requested"
+                    && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                {
+                    roots.insert(prompt.to_owned());
+                }
+                true
+            },
+        );
+        if read.is_ok() {
+            *stopped = Some(roots);
+        }
+    }
+
+    /// The chat's stop records as a restore point carries them, sorted; none while unread.
+    pub(super) fn prompt_stops_carry(&self, session: &Session) -> Option<Vec<String>> {
+        let stopped = session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut roots: Vec<String> = stopped.as_ref()?.iter().cloned().collect();
+        roots.sort();
+        Some(roots)
     }
 
     /// Read durable exact-prompt tombstones once per restored session. Callers hold

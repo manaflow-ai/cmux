@@ -205,6 +205,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { ComposerCustomizer } from "./ComposerCustomizer";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -3669,6 +3670,8 @@ function ComposerFrame({
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // The Customize button under the chat box, when its experiment is on (ComposerCustomizer.tsx).
+        footCenter={<ComposerCustomizer />}
         // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
         // when the location strip goes. After that it keeps its place before the chat reports
         // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the
