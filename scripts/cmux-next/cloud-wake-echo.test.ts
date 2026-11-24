@@ -85,10 +85,12 @@ test("prefetch A/B: even cycles are on, tables split by arm, and slow restores s
   expect(arms[0]!.prefetch).toMatchObject({ n: 1, pages_p50: 1000, ms_p50: 300 });
   expect(arms[1]!.prefetch).toBeNull();
   const st = serverTimingSplit([on, off]);
-  expect(st.slow).toEqual([{ i: 0, restore: 4000, answered: 1, server_timing: on.server_timing, ours: 2200 }]);
+  expect(st.slow).toEqual([{ i: 0, restore: 4000, answered: 1, server_timing: on.server_timing, ours: 2200, outside: -5199, after_answer: 3999 }]);
+  expect(st.slowest.map((r) => r.i)).toEqual([0]);
   const md = wakeEchoMarkdown([on, off], { machine: "m" });
   expect(md).toContain("### By prefetch arm");
   expect(md).toContain("| #0 | 4.00 |");
+  expect(md).toContain("The slowest 10% of restores (1)");
   // A run without the A/B prints no arm table.
   expect(wakeEchoMarkdown([cycle(0, true, { resumed: 1, echo: 2 })], {})).not.toContain("By prefetch arm");
 });
@@ -107,10 +109,10 @@ test("the on arm's arm file names the prefetch and every cycle records a plan be
     guest: "", netHost: "h", netPort: 443, holdMs: 0, log: () => {}, onCycle: () => {}, prefetchBin: "/tmp/wake-echo/cmux-resume-prefetch",
     status: async () => status,
     pause: async () => { status = "paused"; return 1; },
-    wake: async () => { status = "running"; return { retries: [], serverTiming: { provider: 5, total: 9 } }; },
+    wake: async () => { status = "running"; return { retries: [], serverTiming: { provider: 5, total: 9 }, serverTimingHeader: "provider;dur=5, total;dur=9" }; },
     sleep: async () => {},
   }, 2);
-  expect(cycles.map((c) => [c.arm, c.ok, c.plan?.pages, c.server_timing?.total])).toEqual([["on", true, 10, 9], ["off", true, 10, 9]]);
+  expect(cycles.map((c) => [c.arm, c.ok, c.plan?.pages, c.server_timing?.total, c.server_timing_header])).toEqual([["on", true, 10, 9, "provider;dur=5, total;dur=9"], ["off", true, 10, 9, "provider;dur=5, total;dur=9"]]);
   const arms = cmds.filter((c) => c.includes("> /tmp/wake-echo/arm"));
   expect(arms[0]).toContain('"prefetch":"/tmp/wake-echo/cmux-resume-prefetch"');
   expect(arms[1]).not.toContain('"prefetch"');

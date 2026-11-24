@@ -69,6 +69,8 @@ export type WakeCycle = {
   start_retries?: string[];
   /** cloud.machine.start's Server-Timing, ms by name (the last answer's when it was retried). */
   server_timing?: Record<string, number> | null;
+  /** That Server-Timing header as sent; null when the answer had none. */
+  server_timing_header?: string | null;
   /** The prefetch A/B arm (--wake-echo-prefetch); absent without it. */
   arm?: Arm;
   /** The plan recorded before this cycle's pause ({procs, pages}). */
@@ -78,7 +80,7 @@ export type WakeCycle = {
 export type Arm = "on" | "off";
 export const armOf = (i: number): Arm => (i % 2 === 0 ? "on" : "off");
 /** What `wake` answers: the retries it took and the landed answer's Server-Timing. */
-export type WakeAnswer = { retries: string[]; serverTiming?: Record<string, number> | null };
+export type WakeAnswer = { retries: string[]; serverTiming?: Record<string, number> | null; serverTimingHeader?: string | null };
 
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
 export function phasesOf(m: WakeCycle["marks_ms"]): { phases: Partial<Record<Phase, number>>; warnings: string[] } {
@@ -138,8 +140,18 @@ export function serverTimingSplit(cycles: WakeCycle[]) {
   const ours = (c: WakeCycle) => (c.server_timing && typeof c.server_timing.provider === "number" && typeof c.server_timing.total === "number" ? c.server_timing.total - c.server_timing.provider : null);
   const names = [...new Set(timed.flatMap((c) => Object.keys(c.server_timing ?? {})))].sort();
   const p50 = Object.fromEntries(names.map((k) => [k, percentile(timed.map((c) => c.server_timing![k]).filter((x): x is number => typeof x === "number"), 50)]));
-  const slow = cycles.filter((c) => (c.phases.restore ?? 0) >= SLOW_RESTORE_MS).map((c) => ({ i: c.i, restore: c.phases.restore!, answered: c.answered_ms, server_timing: c.server_timing ?? null, ours: ours(c) }));
-  return { timed: timed.length, of: cycles.length, p50, slow };
+  // outside: the start answer's ms the platform did not count (client, network, retries); after_answer: the restore's
+  // part that landed after the answer, which is the guest's, not the platform's.
+  const row = (c: WakeCycle) => ({
+    i: c.i, restore: c.phases.restore!, answered: c.answered_ms, server_timing: c.server_timing ?? null, ours: ours(c),
+    outside: c.answered_ms !== null && typeof c.server_timing?.total === "number" ? c.answered_ms - c.server_timing.total : null,
+    after_answer: c.answered_ms !== null ? Math.max(0, c.phases.restore! - c.answered_ms) : null,
+  });
+  const restored = cycles.filter((c) => typeof c.phases.restore === "number");
+  const slow = restored.filter((c) => c.phases.restore! >= SLOW_RESTORE_MS).map(row);
+  // The slowest 10% (at least one), each on its own line whatever the threshold.
+  const slowest = [...restored].sort((a, b) => b.phases.restore! - a.phases.restore!).slice(0, Math.max(1, Math.ceil(restored.length / 10))).map(row);
+  return { timed: timed.length, of: cycles.length, p50, slow, slowest };
 }
 
 export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unknown>): string {
@@ -164,10 +176,12 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
   const st = serverTimingSplit(cycles);
   if (st.timed) {
     lines.push("", `### cloud.machine.start Server-Timing (${st.timed} of ${st.of} cycles)`, "", `p50 ms: ${Object.entries(st.p50).map(([k, v]) => `${k} ${v}`).join(", ")}.`);
-    if (st.slow.length) {
-      lines.push("", `Restores of ${SLOW_RESTORE_MS / 1000} s or more; ours = total - provider:`, "", "| cycle | restore | start answered | total | provider | ours | all |", "|---|---|---|---|---|---|---|");
-      for (const r of st.slow) lines.push(`| #${r.i} | ${f(r.restore)} | ${f(r.answered)} | ${f(r.server_timing?.total ?? null)} | ${f(r.server_timing?.provider ?? null)} | ${f(r.ours)} | ${r.server_timing ? Object.entries(r.server_timing).map(([k, v]) => `${k} ${v}`).join(", ") : "-"} |`);
-    }
+    const table = (title: string, rows: typeof st.slow) => {
+      lines.push("", title, "", "| cycle | restore | start answered | total | provider | ours | answered - total | restore after answer | all |", "|---|---|---|---|---|---|---|---|---|");
+      for (const r of rows) lines.push(`| #${r.i} | ${f(r.restore)} | ${f(r.answered)} | ${f(r.server_timing?.total ?? null)} | ${f(r.server_timing?.provider ?? null)} | ${f(r.ours)} | ${f(r.outside)} | ${f(r.after_answer)} | ${r.server_timing ? Object.entries(r.server_timing).map(([k, v]) => `${k} ${v}`).join(", ") : "-"} |`);
+    };
+    if (st.slow.length) table(`Restores of ${SLOW_RESTORE_MS / 1000} s or more; ours = total - provider, answered - total is outside the platform's count, restore after answer is the guest's:`, st.slow);
+    if (st.slowest.length) table(`The slowest 10% of restores (${st.slowest.length}):`, st.slowest);
   }
   if (meta.stopped) lines.push("", `Stopped early: ${meta.stopped}.`);
   const bad = cycles.filter((c) => !c.ok);
@@ -366,7 +380,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       const woke = await d.wake();
       c.answered_ms = Date.now() - wakeAt;
       const retries = Array.isArray(woke) ? woke : woke ? woke.retries : undefined;
-      if (woke && !Array.isArray(woke)) c.server_timing = woke.serverTiming ?? null;
+      if (woke && !Array.isArray(woke)) { c.server_timing = woke.serverTiming ?? null; c.server_timing_header = woke.serverTimingHeader ?? null; }
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
