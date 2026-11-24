@@ -1123,6 +1123,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
     }
 
+    /// A card is one accessibility element ("build, tab"), so its split map's
+    /// "Pane 1 of 2 in a split" is the card's value, not the badge's own label.
+    public func cardAccessibilityValue(for id: TabsKitTab.ID) -> String? {
+        guard TabSplitMapBadge.isEnabled, let map = listedWorkspace?.layout?.splitMap(ofTab: id) else { return nil }
+        return TabSplitMapBadge.label(map)
+    }
+
     public func accessory(for kit: TabsKitTab, context: TabsKitContentContext) -> some View {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
     }
@@ -2692,10 +2699,15 @@ struct WorkspaceTabCard: View {
                 // in page points so it reads like the card's title.
                 // Under the group chip: which of the Mac's screens the tab is on, when the workspace
                 // has more than one (the card shows only the top of the page).
+                // Under those, gallery variant (off by default): where the tab sits among its screen's
+                // splits. Here, not top-trailing: the kit's close button covers that corner.
                 .overlay(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let group = tab.group { TabGroupChip(group: group) }
                         if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen) }
+                        if TabSplitMapBadge.isEnabled, let map = workspace.layout?.splitMap(ofTab: tab.id) {
+                            TabSplitMapBadge(map: map)
+                        }
                     }
                     .padding(.leading, 16).padding(.top, 14)
                 }
