@@ -76,7 +76,7 @@ class OneLinuxLabelTest(unittest.TestCase):
         # Frozen to the label each resolves to today (LINUX_RUNNER is not listed, so linux_8 answers).
         out, report = rewrite(job(mirror))
         self.assertEqual(out, job(f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || "
-                                  "'cmux-fleet-linux-x64' }} # ephemeral-required: credentialed job, frozen to today's label"))
+                                  "'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label"))
         self.assertEqual(len(report.exceptions), 1)
         # The comment keeps it an exception on the next run, with no variable left to mark it.
         again, report = rewrite(out)
@@ -85,7 +85,7 @@ class OneLinuxLabelTest(unittest.TestCase):
         text = job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}", "sign")
         out, report = rewrite(text, signing={"sign"})
         self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
-                                  " # ephemeral-required: holds signing material", "sign"))
+                                  " # frozen-label: holds signing material", "sign"))
         self.assertEqual(len(report.exceptions), 1)
 
     def test_ephemeral_only_route_keeps_its_ephemeral_label_as_a_literal(self) -> None:
@@ -95,7 +95,7 @@ class OneLinuxLabelTest(unittest.TestCase):
                    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && "
                    "vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         out, report = rewrite(job(trusted))
-        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: credentialed job, frozen to today's label"))
+        self.assertEqual(out, job("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: credentialed job, frozen to today's label"))
         self.assertEqual(len(report.exceptions), 1)
         # A PR-control job: CI_PR_CONTROL_SKIP_FLEET is '1' today, and the trusted runner is listed.
         control = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && "

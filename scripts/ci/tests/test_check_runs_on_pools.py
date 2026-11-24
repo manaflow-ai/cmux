@@ -91,7 +91,7 @@ class WorkflowTests(unittest.TestCase):
             on: push
             jobs:
               deploy:
-                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # ephemeral-required: credentialed job
+                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # frozen-label: credentialed job
                 steps: []
               publish:
                 runs-on: ubuntu-latest # github-hosted-required: npm provenance

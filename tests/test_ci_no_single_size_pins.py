@@ -70,7 +70,7 @@ SELECTIONS_KEPT_LITERAL = {
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
 import workflow_jobs  # noqa: E402
-# A job whose runs-on line says `# ephemeral-required: <why>` (or owned-pool-unfit) was frozen by
+# A job whose runs-on line says `# frozen-label: <why>` (or ephemeral-required, owned-pool-unfit) was frozen by
 # scripts/ci/one_linux_label.py to the one label it resolved to: a credentialed, provenance or signing job that a
 # shared pool must not run. The literal is its trust rule, like a signing job's; scripts/ci/check_runs_on_pools.py
 # reads the same comment and allows only a Blacksmith label there.
@@ -226,7 +226,7 @@ class NoSingleSizePins(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "w.yml").write_text(
                 "jobs:\n"
-                f"  deploy:\n    runs-on: {line} # ephemeral-required: credentialed job\n    steps: []\n"
+                f"  deploy:\n    runs-on: {line} # frozen-label: credentialed job\n    steps: []\n"
                 f"  plain:\n    runs-on: {line}\n    steps: []\n", encoding="utf-8")
             found = violations(Path(tmp))
         self.assertEqual([f.split(" routes")[0] for f in found], ["w.yml: jobs.plain.runs-on"])

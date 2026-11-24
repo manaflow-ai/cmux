@@ -17,7 +17,9 @@ GitHub-hosted Ubuntu, a literal (cmuxterm-hq docs/design/ci-v2.md step 8; no rep
 caller's `inputs.*` override) keep their branch, after the fork branch; only the size fallback goes.
 
 Left unchanged, and printed as exceptions: a line whose comment marks it `ephemeral-required`,
-`github-hosted-required` or `owned-pool-unfit` (a job that failed on the owned pool), and a provenance or npm publish job. macOS, Windows and arm64 pickers are not
+`github-hosted-required`, `owned-pool-unfit` (a job that failed on the owned pool) or `frozen-label` (an exception this
+script froze), and a provenance or npm publish job. A job that leads with a GCP JIT label behind its `*_SKIP_FLEET`
+switch keeps that switch. macOS, Windows and arm64 pickers are not
 Linux x64; inside a mixed expression (a macOS job that takes Linux on one branch) only the Linux
 `(fork && '<size>' || pool)` group is rewritten. `${{ matrix.* }}` runs-on lines are not touched; the
 matrix values that feed them are rewritten like any other value line.
@@ -88,8 +90,7 @@ FRESH_VM_JOBS = {
     **{key: _SIGNING for key in (("ios-appstore-upload.yml", "set-testflight-notes"), ("ios-appstore-upload.yml", "assign-internal"),
                                  ("ios-testflight.yml", "set-testflight-notes"), ("ios-testflight.yml", "assign-internal-group"))},
     ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it reads none (signing keychain rule 7)",
-    ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337); a `# ephemeral-required` tag would "
-                                         "need a JIT lead (tests/test_ci_write_token_jit_label.py)",
+    ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337)",
     ("cmux-next-dev-kick.yml", "kick"): "holds a write token; tests/test_cmux_next_dev_kick.py keeps it on the ephemeral_only pool",
     ("device-hub-logs.yml", "read"): "holds the Cloudflare API token; keeps the ephemeral_only linux_4 pool",
     ("cmux-next-web-pieces.yml", "switch"): "holds the R2 keys and the web OTA signing key; keeps the ephemeral_only linux_4 pool",
@@ -99,14 +100,18 @@ FRESH_VM_JOBS = {
         "app-compile-placement", "dev-daily-place", "dev-daily-tree-wait", "dev-landing-place", "fast-tier-handback-placement",
         "fast-tier-rerun-placement", "macos-placement", "release-compile-fast-admission", "same-tree-cmux-tui",
         "same-tree-status-daemon", "same-tree-status-scheme", "swift-exports-cache")},
-    ("machine-join-e2e.yml", "e2e"): "account secrets; tests/test_machine_join_e2e_workflow.py keeps it on an ephemeral VM",
+    ("machine-join-e2e.yml", "e2e"): "holds account secrets; frozen to the linux_8 label it read (tests/test_machine_join_e2e_workflow.py)",
     ("cmux-next-web-perf.yml", "validate"): "validates head output with base code; tests/test_web_perf_validation_boundary.py "
                                             "keeps it off any runner the measuring job may have touched",
 }
 # A runner whose label is what it measures: it probes the vendor runner pool, so it keeps its picker.
 PROBE_JOBS = {("ci-cloud-overflow-probe.yml", "probe")}
 NOT_LINUX_X64 = re.compile(r"'(?:macos|windows)[\w.-]*'|-arm'|ubuntu-latest|RUNNER_POOLS\)\.provenance")
-EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required|owned-pool-unfit")
+EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required|owned-pool-unfit|frozen-label")
+# A credentialed job that leads with its one-job GCP JIT label behind that label's switch
+# (tests/test_ci_write_token_jit_label.py: Blacksmith is the overflow behind `=1`). Freezing it to today's switch value
+# would drop the JIT label and pin the overflow, so it keeps its switch.
+JIT_LEAD = re.compile(r"vars\.CI_[A-Z_]+_SKIP_FLEET != '1' && 'cmux-gcp-[a-z-]+-jit-x64'")
 # A route that admits only an ephemeral vendor runner (`contains(fromJSON('["<vendor sizes>"]'), vars.X) && vars.X`):
 # a credentialed job the guard tests keep off persistent hosts. cmux-linux is a persistent pool, so it stays.
 EPHEMERAL_ONLY = re.compile(r"contains\(fromJSON\('\[[^\]]*\"blacksmith-")
@@ -421,14 +426,14 @@ def freeze_into(lines: list[str], n: int, m: re.Match, frozen: str | None, repor
                 reason: str = "") -> bool:
     """Write FROZEN over line N (keeping its key, anchor and comment) and report it; False when there is none.
 
-    An exception frozen for REASON says so in an `# ephemeral-required:` comment, so a later run keeps it (EXCEPTION_COMMENT):
+    An exception frozen for REASON says so in a `# frozen-label:` comment, so a later run keeps it (EXCEPTION_COMMENT):
     with its variable gone, nothing else in the line marks it, and the next run would move it to the one label."""
     if frozen is None:
         return False
     # A comment that names the variable it no longer reads ("CI_TRUSTED_RUNNER picks the Blacksmith size") says so.
     tail = STALE_PICKER_NOTE.sub("", m["tail"])
     if reason and not EXCEPTION_COMMENT.search(tail):
-        tail = f"{tail.rstrip()}; ephemeral-required: {reason}" if tail.strip() else f" # ephemeral-required: {reason}"
+        tail = f"{tail.rstrip()}; frozen-label: {reason}" if tail.strip() else f" # frozen-label: {reason}"
     lines[n - 1] = f"{m['lead']}{m['key']}:{m['sp']}{m['anchor'] or ''}{frozen}{tail}"
     report.changed.append((where.split(":")[0], n, f"{where} (frozen to today's label)"))
     return True
@@ -445,6 +450,9 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
         if not m or m["key"] not in VALUE_KEYS:
             continue
         where = f"{name}:{n} ({job}.{m['key']})"
+        if JIT_LEAD.search(m["expr"]):
+            report.exceptions.append((name, n, f"{job}: leads with a JIT label behind its switch; keeps the switch"))
+            continue
         frozen = freeze_line(m["expr"]) if (name, job) not in PROBE_JOBS else None
         if not TRIGGER.search(m["expr"]):
             # Not a Linux x64 size (a provenance publish job's GitHub-hosted runner): only its variable goes.

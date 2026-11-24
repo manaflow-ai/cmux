@@ -530,7 +530,7 @@ jobs:
     needs:
       - validate-release
       - revalidate-tags
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the release app's signing key (#48337); a `# ephemeral-required` tag would need a JIT lead (tests/test_ci_write_token_jit_label.py)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: holds the release app's signing key (#48337)
     timeout-minutes: 10
     permissions: {}
     environment:

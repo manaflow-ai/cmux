@@ -58,7 +58,7 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
 # A runs-on line frozen to the literal it resolved to (scripts/ci/one_linux_label.py freeze_line, 2026-11-24: "no
 # runs-on line that reads a variable") keeps its reason in a comment: a credentialed, signing or write-token job on its
 # ephemeral vendor label, a provenance job on GitHub-hosted Ubuntu. MARK names which comment admits which kind.
-EPHEMERAL_MARK = re.compile(r"#.*\b(?:ephemeral-required|owned-pool-unfit):")
+EPHEMERAL_MARK = re.compile(r"#.*\b(?:ephemeral-required|owned-pool-unfit|frozen-label):")
 HOSTED_MARK = re.compile(r"#.*\bgithub-hosted-required:")
 JOB_HEADER = re.compile(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$")
 RUNS_ON_LINE = re.compile(r"^    runs-on:")

@@ -118,7 +118,7 @@ jobs:
     needs: build
     # Same-repository pull requests only (build is skipped for a fork, so this was already); said here so a fork can never reach the pool read below.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # ephemeral-required: credentialed job, frozen to today's label
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
