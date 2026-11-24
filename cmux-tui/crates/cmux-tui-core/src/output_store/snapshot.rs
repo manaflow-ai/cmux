@@ -1,5 +1,5 @@
 //! Snapshot files of the output store: one per terminal, the screen plus
-//! up to [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
+//! about [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
 //! gzip-compressed, replaced atomically (temporary file, fsync, rename).
 //!
 //! A terminal's snapshot is written only when its content changed: the
@@ -761,9 +761,8 @@ fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
     Some(hasher.finish())
 }
 
-/// Bytes for the screen plus up to [`SNAPSHOT_HISTORY_LINES`] lines. The VT
-/// replay remains bounded by the configured per-terminal byte cap and keeps
-/// the newest rows that fit.
+/// Bytes for the screen plus about [`SNAPSHOT_HISTORY_LINES`] lines (a VT
+/// replay is bounded in bytes; it keeps the newest rows that fit).
 fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     let lines = SNAPSHOT_HISTORY_LINES + usize::from(rows);
     let estimate = lines.saturating_mul(usize::from(cols).max(1)).saturating_mul(3);
