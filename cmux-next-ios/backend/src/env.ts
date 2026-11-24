@@ -15,6 +15,8 @@ export interface Env {
   readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
   /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
   readonly LINK_RELAY_MODE?: string
+  /** What one user may relay per minute across all sessions, MiB (default 480: src/relay-access.ts). */
+  readonly LINK_RELAY_USER_MIB_PER_MIN?: string
   /** Absent in tests: the memory store is used instead. */
   /** PlanetScale MySQL cmux-next-vitess (readwriter) through Hyperdrive; absent in tests (memory store). */
   readonly PS_MYSQL?: Hyperdrive
