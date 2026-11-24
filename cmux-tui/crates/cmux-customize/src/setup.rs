@@ -148,17 +148,21 @@ impl Setup {
 
 pub mod check;
 mod export;
+mod history;
 pub mod layers;
 pub mod looks;
 mod reference;
 mod secrets;
+mod variant;
 pub use check::{
     CheckOptions, Deprecated, Finding, NoHistory, Report, RetiredKeys, SettingsHistory, Severity,
     check_dir, codes,
 };
 pub use export::readme_text;
+pub use history::{SetupState, SetupStep, SetupSteps};
 pub use reference::Reference;
 use reference::plain;
+pub use variant::THEME_FILE_KEY;
 
 /// The id rule every repo listing follows: `OWNER/NAME`, lowercase, starting
 /// with the repo's owner; `cmux/` and `manaflow-ai/` only from manaflow-ai.
@@ -1281,6 +1285,12 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Removed, Error> {
+        // The files its layer held: a theme file among them that the
+        // settings still name once it is gone is cleared below.
+        let layer_files = match &receipt.library {
+            Some(name) => self.library_entry_files(name)?.unwrap_or_default(),
+            None => Vec::new(),
+        };
         let library = match &receipt.library {
             Some(name) if self.library_names()?.contains(name) => {
                 self.library_take_off_locked(name, receipt.library_created, origin, now_ms)?;
@@ -1293,10 +1303,10 @@ impl Customize {
         let mut actions = Vec::new();
         let mut kept_actions = Vec::new();
         let mut shared_actions = Vec::new();
+        let mut changed = false;
         if !receipt.actions.is_empty() {
             let mut text = settings_text(self)?;
             let settings = jsonc::parse(&text).unwrap_or(Value::Null);
-            let mut changed = false;
             for (name, value) in &receipt.actions {
                 let path = action_path(name);
                 let current = cmux_config::value::value_at(&settings, &path);
@@ -1328,9 +1338,13 @@ impl Customize {
             }
             if changed {
                 tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
-                let label = format!("setup {}: removed", receipt.id);
-                self.apply_locked(Some(&label), origin, now_ms)?;
             }
+        }
+        // A theme file its layer took away that the settings still name.
+        let cleared_theme = self.clear_removed_theme_file(&layer_files)?;
+        if changed || cleared_theme {
+            let label = format!("setup {}: removed", receipt.id);
+            self.apply_locked(Some(&label), origin, now_ms)?;
         }
         self.write_setup_receipts(&file)?;
         if let Some(layer) = &receipt.layer {
