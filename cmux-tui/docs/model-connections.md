@@ -1,7 +1,55 @@
-# Model connections (Settings > Models, Cloud threads)
+# Model connections in Settings
 
 Status: contract for the `cloud-models-connections` integration branch (off `cloud-multiplayer`).
 Every lane builds against this file; change it here first, in the same commit as the code.
+
+## Revision 3: owner-supplied endpoints on Cloud
+
+A Cloud start can carry an endpoint credential alongside the existing launch credentials.
+The owner's Mac reads the key from its existing Keychain reference. The machine's
+daemon relays the credential to acpmux over its own Unix socket.
+
+```json
+{
+  "env": { "CMUX_BYO_API_KEY": "<key>" },
+  "endpoint": {
+    "kind": "openai",
+    "baseUrl": "https://api.deepseek.com",
+    "models": ["deepseek-chat"]
+  }
+}
+```
+
+- `openai` takes exactly `CMUX_BYO_API_KEY`. The machine launches `opencode` with the
+  model ID `byo/<model>`. In OpenCode's inline configuration the key is an environment reference.
+- `anthropic` takes exactly `ANTHROPIC_AUTH_TOKEN`. The machine launches `claude` with the
+  provider's model ID and derives the Anthropic model and slot variables. This
+  launch excludes user and project settings that can replace its provider and
+  refuses a conflicting managed provider configuration.
+- The machine validates the endpoint and constructs the environment after clearing inherited
+  provider routes. Cloud URLs require HTTPS with a public host. Loopback, private IP literals
+  and local names are refused. At spawn, acpmux also checks that the machine's DNS
+  answers are public. URLs cannot contain user info, credentials or substitutions.
+  The harness owns subsequent DNS resolution and redirects.
+- Only the owner's Mac can supply a launch credential to their own Cloud machine. The key is
+  held in memory on the machine and passed in the agent's environment. An adopted agent's
+  environment supplies both the key and endpoint metadata after a daemon restart. Neither
+  is included in diagnostics, argv, journals, events or mirrored state.
+- The Mac sends this shape after the machine advertises
+  `agent-session-start-endpoint-credentials-v1`. For a named connection, it also checks
+  `agent-session-credential-reattach-v1`. The session records the connection ID and model
+  so the Mac can send the credential again when the chat reattaches.
+
+A native key uses the existing `env` object with `GEMINI_API_KEY` for Gemini or
+`XAI_API_KEY` for xAI. A Cloud launch with either name also requires
+`agent-session-start-endpoint-credentials-v1`. The native launch clears alternate
+keys and routing variables for its provider before setting the saved key.
+
+An owner machine reports the endpoint harnesses it has installed. Cloud Settings
+uses that answer to offer compatible providers. The composer can select a
+configured endpoint while it is still choosing a machine. It reports that
+profile as pending until a named machine confirms its harness. The start
+checks the live link again before sending the credential.
 
 ## Goal
 
@@ -10,8 +58,7 @@ shows on the Mac, with nothing to set up. Cloud machines hold no provider token:
 the coderouter edge with a placeholder key; the edge's team Durable Object hands the request to a
 gateway (this Mac's personal gateway, or the team's gateway machine) that holds the logins,
 refreshes them, and forwards upstream. When nothing can serve the chosen model, the person is
-asked once to set up Cloud in Settings > Models (Capy's "Models" page is the reference: ordered
-connections, an Add a connection sheet with Subscriptions and API keys).
+asked to open Settings > Cloud > Cloud models and connect a subscription or API key.
 
 ## Concepts
 
@@ -41,13 +88,18 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   ```
   `Connection`:
   ```json
-  { "id": "codex-login", "kind": "codex-login|claude-login|subscription|chatgpt-plan|api-key",
+  { "id": "codex-login", "kind": "codex-login|claude-login|subscription|chatgpt-plan|claude-token|grok-plan|copilot-plan|api-key|endpoint",
     "provider": "openai|anthropic|openrouter|google|xai", "families": ["codex"],
     "label": "ChatGPT", "email": "a@b.c|null", "plan": "pro|null", "signed_in": true,
-    "enabled": true, "default_for": ["codex"], "serves_cloud": true }
+    "enabled": true, "default_for": ["codex"], "serves_cloud": false, "can_serve_cloud": false }
   ```
-  `id` is the route id. `enabled` is the existing routing switch. `serves_cloud` is false only when
-  the connection cannot be served through the gateway (none today; reserved).
+  `id` is the route id. `enabled` is the general routing switch. `can_serve_cloud` is eligibility,
+  and `serves_cloud` also reflects the saved Cloud preference. The credential operation checks
+  Cloud use again before resolving a key.
+- `_acpmux/connections/key.add` accepts an optional `servesCloud` boolean when creating a key.
+  `_acpmux/account/set` takes `{id, servesCloud}` to change an existing API-key route.
+  The preference is stored as `cloud_enabled` in the existing route file. Editable endpoint
+  profiles store the same field, set through the revision-checked harness edit.
 - `_acpmux/connections/order.set` `{ "ids": ["..."] }` -> state. Unknown ids are an error; missing
   ids keep their default order after the listed ones. Stored in `<acpmux home>/routes/bindings.json`
   as `connection_order`, `spread`.
@@ -60,6 +112,14 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   "connection": Connection|null, "error": "access_denied|no_plan_scope|...|null" }` (long-poll up to
   25 s; the app re-calls while pending). Completion also fires `_acpmux/connections.changed`.
 - `_acpmux/connections/chatgpt.cancel` `{ "attempt": "..." }`.
+- `_acpmux/connections/chatgpt.device.begin` `{ "id": "optional chatgpt-plan route to reconnect" }`
+  -> `{ "attempt": "opaque", "user_code": "...", "verification_url": "...", "expires_at": unix, "interval": seconds }`.
+  The Cloud state uses this flow. The person opens the link and enters the code.
+  The daemon polls OpenAI and allows 15 minutes. Another window starting the same sign-in
+  joins the running attempt.
+- `_acpmux/connections/chatgpt.device.wait` and `_acpmux/connections/chatgpt.device.cancel` take
+  `{ "attempt": "..." }`. Wait answers like `chatgpt.wait`. Cancel stops polling and returns the final
+  status. All three device methods require person proof on the local Unix socket.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
@@ -71,9 +131,10 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
   (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.
-- `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
-  The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
-  only the reference.
+- `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"?, "replace"? }` -> state.
+  The app stores the pasted key in the Keychain first and passes its reference. The optional
+  `replace` id updates a matching provider's existing key route in place. A route with
+  `can_replace_key: true` supports this operation.
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
@@ -92,6 +153,15 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
   api.connectors.invoke`, `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`,
   `originator=codex_cli_rs`, fresh `state`, `nonce`, PKCE S256. Reauth adds `login_hint`.
 - Callback: check `state`; `error=access_denied` stops.
+- Cloud device sign-in follows [the upstream implementation](https://github.com/openai/codex/blob/main/codex-rs/login/src/device_code_auth.rs).
+  POST `client_id` as JSON to `https://auth.openai.com/api/accounts/deviceauth/usercode` for
+  `device_auth_id`, `user_code` (also `usercode`), and an interval in seconds as a string.
+  The verification page is `https://auth.openai.com/codex/device`. POST `device_auth_id` and
+  `user_code` to `/api/accounts/deviceauth/token` at that interval. HTTP 403 and 404 indicate
+  pending approval unless an explicit terminal error is present. Slow-down responses add
+  five seconds per [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628.html#section-3.5).
+  Approval returns `authorization_code`, `code_challenge`, and `code_verifier`. Exchange the
+  code with its verifier and redirect URI `https://auth.openai.com/deviceauth/callback`.
 - Token `https://auth.openai.com/oauth/token`: the code exchange as a form (`client_id`, `code`,
   `code_verifier`, same `redirect_uri`); a refresh as Codex's JSON body (`client_id`,
   `grant_type=refresh_token`, `refresh_token`, `scope=openid profile email`). Refresh tokens
@@ -102,12 +172,17 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
   `chatgpt_account_id`, else `no_chatgpt_account`. Identity is `sub`.
 - The daemon owns this login, never the Mac's `~/.codex`: refreshing it never signs the person out
   of Codex on the Mac.
-- Store one record per (client_id, sub): `<acpmux home>/chatgpt/<route id>.json`, 0600, atomic
-  write. Route file kind `chatgpt-plan`, family `codex`, `openai_base_url` the Codex backend.
-- `_acpmux/connections/credential` answers it as `CMUX_CHATGPT_ACCESS_TOKEN` (ten minutes left at
-  least); the machine runs Codex on the `openai_chatgpt_plan` provider to the ChatGPT Codex backend (agent_credentials.rs).
-- UI must say "Using ChatGPT plan" with a Manage usage link to https://chatgpt.com/settings/usage,
-  and the sign-in button reads "Continue with ChatGPT".
+- On macOS, ChatGPT and Kimi Code subscription grants use the existing `cmux-vault`
+  login Keychain service. The per-provider index contains a reference, identity and
+  expiry metadata. A legacy ChatGPT file is replaced by metadata only after the vault
+  accepts the grant. A locked or unavailable Keychain leaves the file intact.
+- Non-Mac ChatGPT connections retain the existing private JSON format. Other supported
+  subscriptions use the base vault's OS secret store or daemon memory. The owner's
+  Cloud machine receives the launch credential through its authenticated owner link.
+- The ChatGPT route uses kind `chatgpt-plan`, family `codex`, and the Codex backend.
+  `_acpmux/connections/credential` delivers `CMUX_CHATGPT_ACCESS_TOKEN` to the owner link.
+  The Cloud session records the connection ID and selected model, and the Mac resends the
+  credential when the person reopens the chat.
 
 ## Gateway (`cmux-tui/crates/cmux-tui/src/cli/inference_gateway*.rs`), lane B
 
@@ -125,6 +200,36 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
 - The machine side never changes per connection: Codex on a Cloud machine talks Responses to the
   edge with a placeholder key (`requires_openai_auth=false`, `supports_websockets=false`).
 
+## Connect from Models on this Mac
+
+Models offers ChatGPT, Claude and Kimi Code. It shows the supported local sign-ins
+already on this Mac. The Mac login uses the shared account sign-in card. The ChatGPT
+connection for Cloud has a separate device approval because the Mac supplies that
+grant to launches on the owner's Cloud machine. Claude on Cloud signs in on the
+machine that runs the chat.
+
+### SuperGrok and GitHub Copilot
+
+Connect shows these subscriptions as unavailable. Their native launch adapters
+require new credential cache files. The existing CLI sign-ins remain available
+on their own machines.
+
+### Key and endpoint connections
+
+Anthropic and OpenAI API keys use Claude Code and Codex. Google and xAI keys use Gemini CLI
+and Grok Build. The OpenRouter key can also launch OpenCode for non-Claude models. The
+existing Claude route uses Anthropic Messages. The OpenCode route uses Chat Completions.
+
+The OpenAI-compatible endpoint presets use OpenCode on both hosts. The model picker uses
+the endpoint's saved model IDs. Morph starts with the two Morph Ultra models. OpenCode Go
+uses its documented model-list URL and puts a stable session ID on inference requests.
+Bedrock defaults to its Mantle endpoint and Azure accepts a v1 resource URL with deployment
+model IDs. Newly added Meta connections use the Model API endpoint.
+
+Cloud models accepts setup before a machine reports its harnesses. An exact image revision
+can supply the installed runners for older daemons. The live owner-link credential checks
+still apply when starting a chat.
+
 ## App (Swift) and Settings webview, lanes C and D
 
 Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.swift`):
@@ -140,6 +245,11 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
     };
     members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
     chatgpt: { attempt: string | null; error: string | null };
+    chatgptDevice:
+      | { phase: "idle" | "starting" | "cancelling" }
+      | { phase: "waiting"; userCode: string; verificationURL: string; expiresAt: number }
+      | { phase: "connected"; id: string }
+      | { phase: "failed"; error: string };
   };
   type ModelConnection = { id: string; kind: "codex-login" | "claude-login" | "subscription" | "chatgpt-plan" | "api-key";
     provider: "openai" | "anthropic" | "openrouter" | "google" | "xai"; families: string[]; label: string;
@@ -147,21 +257,30 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
   ```
 - `cmux.settings.models.run` with `ModelsRun`:
   `{action:"order", ids}`, `{action:"spread", on}`, `{action:"enable", id, on}`, `{action:"remove", id}`,
-  `{action:"connectChatGPT", id?}`, `{action:"cancelChatGPT"}`, `{action:"connectClaude"}`
+  `{action:"connectChatGPTDevice", id?}`, `{action:"openChatGPTDevice"}`, `{action:"cancelChatGPTDevice"}`,
+  `{action:"connectClaude"}`
   (existing Claude account sign-in), `{action:"addKey", provider, key, label?}` (the app moves `key`
   into the Keychain; it never reaches acpmux or disk otherwise), `{action:"orgKey", agent, key|null}`
   (existing `team.agent_key.set|remove`), `{action:"members", ownConnections?, chooseRunout?}`.
 - Stream `cmux.settings.models.changed` -> `ModelsState`.
-- Settings layout: new sidebar category `models` ("Models"), card `models`, in
-  `schemas/settings/source/page-layout.json`, placed right after Agents. Route
-  `cmux://settings/models` opens it; `cmux://settings/models/add` opens the Add a connection sheet.
-- Settings > Cloud (category `cloud`, after Models; 2026-11-12): card `cloudModels` ("Models for
-  Cloud") lists Claude, ChatGPT and API key, each "Connected for Cloud" when an enabled, signed-in
-  `serves_cloud` connection of that family exists (or the team's shared key), else "Not set up for
-  Cloud" with Set Up (the same Add a connection steps) and a plain note when only a This Mac only
-  login exists. The Cloud Environments card and the Cloud Workspaces rows live there too. Routes:
-  `cmux://settings/cloud`, `/cloud/claude`, `/cloud/chatgpt`, `/cloud/api-key`
-  (`#/settings/cloud?focus=cloud.<row>`); the chat's Set up Cloud card opens the row its button names.
+- **Settings > Models** shows local sign-ins, keys and endpoints, in connection order.
+  Existing Claude Code, Codex, Gemini CLI, Grok Build and Cursor sign-ins appear automatically. Connect offers
+  direct subscriptions, provider API keys and endpoints. Spread usage, team keys and the members
+  policy live here.
+- **Settings > Cloud > Cloud models** shows Claude setup tokens, ChatGPT device sign-ins and
+  eligible API keys and endpoints. A key or endpoint added in Models starts with Cloud use off.
+  Adding it from Cloud models enables it for Cloud. Use the row menu to change Cloud use for a
+  key or an editable endpoint. Existing connections keep their Cloud eligibility until changed.
+- Cloud setup links from the model picker and from a held send open
+  `#/settings/cloud?focus=card.cloudModels&provider=<family-or-provider>&open=<visit-id>`.
+  A held send adds `fromSend=1` and resumes when the requested family gets a usable connection.
+  Claude opens browser approval. ChatGPT uses the device code flow. A held Codex send opens
+  an OpenAI key when ChatGPT sign-in for Cloud is unavailable for that flow.
+- `cmux://settings/models` and `cmux://settings/models/add` open Models and its Connect picker.
+  `cmux://settings/cloud/models` opens Cloud models. `cmux://settings/cloud/models/add` opens
+  its Connect picker. Older Cloud setup paths and provider or Cloud focus links under Models
+  still resolve. The Settings action accepts `setting=card.cloudModels`, `cloud.claude`,
+  `cloud.chatgpt`, or `cloud.apiKey`; the same action is available from the palette, CLI and MCP.
 
 Members policy (backend `backend/apps/api`, lane D): `team.models_policy.get|set` beside
 `team.agent_key.*`, owner/admin write, defaults above. Enforcement in the platform route is
@@ -193,19 +312,27 @@ and no Mac gateway in the path. This supersedes the "Gateway" section and the
 `x-cmux-connection` header seam above (lane B's gateway work is not part of the integration).
 
 Connections (all held on the Mac: acpmux routes + Keychain references):
-- **Claude**: `claude-token`, the long-lived token from Claude Code's own `claude setup-token`
-  (the person runs it; cmux never implements Claude's OAuth). Settings > Models > Claude Code opens
-  a cmux terminal tab running `claude setup-token` and a paste field; the pasted value is checked
-  (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
-  acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
-  provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
+- **Claude**: Models and Cloud models run the installed Claude Code's own
+  sign-in on the selected machine. The owner can also sign in from the first
+  Cloud chat. acpmux starts `claude auth login --claudeai` and opens the
+  approval link. Cloud opens it in a Mac browser tab whose localhost reaches
+  Claude Code on that machine. The person can paste Claude's approval code
+  when the CLI provides only the manual link. Claude Code manages its login
+  and runs `claude auth logout` when the person signs out. An API key in Claude
+  Code's settings takes precedence over the Claude plan.
+- **Legacy Claude rows**: an existing `claude-token` appears with “Sign in
+  again with Claude.” New chats use the machine's own sign-in or a configured
+  API route. A chat already running on a legacy token can finish its turn.
+  After successful Claude Code sign-in, cmux removes the migrated route and
+  its Keychain item and restarts affected harnesses between turns. Cancelled
+  and expired attempts leave the legacy connection in place.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.
 - The existing Mac CLI logins (`codex-login`, `claude-login`) stay listed for local chats but do not
   serve Cloud (`serves_cloud: false`) in this revision.
 
 Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {NAME: value},
 "expires_at": unix|null }`, local unix socket only, never logged):
-- claude-token -> `CLAUDE_CODE_OAUTH_TOKEN`; anthropic key -> `ANTHROPIC_API_KEY`;
+- Anthropic key -> `ANTHROPIC_API_KEY`;
   openai key -> `OPENAI_API_KEY`; chatgpt-plan -> `CMUX_CHATGPT_ACCESS_TOKEN` (fresh, >= 10 min left).
 - At Cloud chat start the app picks the connection (picker's account if it serves Cloud, else the
   first enabled Cloud-serving connection of that family in order), reads its credential, and sends
@@ -224,8 +351,11 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   (`agent/credentials.update` on the machine's acpmux); the machine's acpmux restarts that Codex
   app-server with the new token and resumes the thread (`thread/resume`), as OpenAI documents. If
   the Mac is away past expiry, the chat says it needs this Mac to reconnect ChatGPT.
-- With no Cloud-serving connection for the family, the chat shows the Set up Cloud card
-  (Continue with ChatGPT / Set up Claude / Add an API key / Open Settings) and starts by itself
-  once one is added. Without a credential the machine falls back to today's coderouter path.
+- An owner Cloud machine can open Claude's sign-in card without a model
+  connection. Other Cloud setup paths can open Settings to add a connection
+  for the requested family.
+- Before any send (CMUX-662): a new chat with Cloud picked reads `cloud.setup.state`
+  (`{families: {claude?, codex?}}`, the same `CloudSetup` read a start makes), and the model picker
+  shows a Connect row on each family nothing serves. Connect runs that family's way in.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
