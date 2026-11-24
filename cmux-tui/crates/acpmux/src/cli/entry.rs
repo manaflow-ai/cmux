@@ -111,7 +111,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::install_github_source();
         let rest: Vec<String> =
             args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
-        std::process::exit(i32::from(cmux_host::github_cli::run(&rest)));
+        let code = cmux_host::github_cli::run(&rest);
+        // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
+        std::process::exit(i32::from(code));
     }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
