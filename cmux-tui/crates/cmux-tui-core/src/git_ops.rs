@@ -92,6 +92,9 @@ pub(crate) const REVIEW_CAPABILITY: &str = pr_review::CAPABILITY;
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
 
+/// Advertised in identify: the session host keeps review threads.
+pub(crate) const DIFF_COMMENTS_THREADS_CAPABILITY: &str = diff_comments::THREADS_CAPABILITY;
+
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
 
