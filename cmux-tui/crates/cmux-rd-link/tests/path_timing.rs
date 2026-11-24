@@ -110,6 +110,8 @@ fn run(rtt_us: u64) -> Timing {
     let mut sent_at: HashMap<u64, u64> = HashMap::new();
     let mut arrived: HashMap<u64, u64> = HashMap::new();
     let mut next_frame: Option<u64> = None;
+    // When media started: the drop comes CUT_US after it.
+    let mut media_start: Option<u64> = None;
     let mut frame_no = 0u64;
     let mut sprayed = 0usize;
     let mut cut_at = None;
@@ -138,8 +140,9 @@ fn run(rtt_us: u64) -> Timing {
         }
         if host.link().is_established() && next_frame.is_none() {
             next_frame = Some(now);
+            media_start = Some(now);
         }
-        if cut_at.is_none() && next_frame.is_some_and(|start| now >= start + CUT_US) {
+        if cut_at.is_none() && media_start.is_some_and(|start| now >= start + CUT_US) {
             wire.direct = false;
             cut_at = Some(now);
         }
@@ -166,7 +169,7 @@ fn run(rtt_us: u64) -> Timing {
         viewer_events.extend(viewer.take_events().into_iter().map(|e| (now, e)));
         host_events.extend(host.take_events().into_iter().map(|e| (now, e)));
     }
-    let cut = cut_at.unwrap();
+    let cut = cut_at.expect("the direct path was never cut: media never started");
     let viewer_up = established(&viewer_events).unwrap();
     let host_up = established(&host_events).unwrap();
     let mut arrivals: Vec<u64> = arrived.values().copied().filter(|at| *at >= cut).collect();
