@@ -6,14 +6,14 @@ import CmuxNextPages
 import CmuxNextWakeups
 
 /// One that painted and is shown again waits for its frame at the size it
-/// shows at (`AgentPageRedraw`).
+/// shows at (`AgentPageRedraw`, a moved Chromium page: `AgentPaneView.movedPageWaits`).
 extension AgentPaneView: PaneFirstPaintGated {
-    public var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) }
+    public var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) || movedPageWaits }
 
     public func whenFirstPainted(_ body: @escaping () -> Void) {
         guard model.hasPainted else { return model.whenPainted(body) }
         // It may answer from this view's own layout(): the hold ends once the window's pass is done.
-        redraw.when(self) { [weak self] in
+        whenDrawnAtItsSize { [weak self] in
             if let window = self?.window as? ShellWindow { window.afterLayoutPass(body) } else { body() }
         }
     }
