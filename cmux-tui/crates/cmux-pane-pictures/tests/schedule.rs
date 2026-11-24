@@ -150,3 +150,19 @@ fn zero_work_when_idle() {
     assert_eq!(s.take_due(u64::MAX), None);
     assert_eq!(s.generation(), 0);
 }
+
+#[test]
+fn a_stale_failure_does_not_raise_the_backoff() {
+    let mut s = watched();
+    s.note(Event::Damaged, 0);
+    let g = s.take_due(0).unwrap();
+    s.finish(g, Outcome::Done, 1);
+    s.note(Event::Damaged, 1);
+    let g2 = s.take_due(GAP).unwrap();
+    // A late or repeated Failed for the finished generation is not the capture in flight.
+    s.finish(g, Outcome::Failed, GAP + 1);
+    s.finish(g, Outcome::Failed, GAP + 2);
+    // The real one fails once: the first backoff step, not the third.
+    // (the backoff counts from the capture's start at GAP; three counted failures would put it at GAP + 8 * GAP)
+    assert_eq!(s.finish(g2, Outcome::Failed, GAP + 3), Some(GAP + 2 * GAP));
+}

@@ -153,7 +153,9 @@ impl PictureSchedule {
     /// A started capture of `generation` ended. A stale finish (an older generation than the
     /// current one) still keeps a Done picture if it is newer than the kept one.
     pub fn finish(&mut self, generation: u64, outcome: Outcome, _now_ms: u64) -> Option<u64> {
-        if self.in_flight == Some(generation) {
+        // Only the capture in flight moves the backoff: a stale or repeated finish must not.
+        let current = self.in_flight == Some(generation);
+        if current {
             self.in_flight = None;
         }
         match outcome {
@@ -161,7 +163,8 @@ impl PictureSchedule {
                 self.captured = Some(self.captured.map_or(generation, |c| c.max(generation)));
                 self.failures = 0;
             }
-            Outcome::Failed => self.failures = self.failures.saturating_add(1),
+            Outcome::Failed if current => self.failures = self.failures.saturating_add(1),
+            Outcome::Failed => {}
             Outcome::Unavailable => {
                 self.unavailable = Some(generation);
                 self.failures = 0;
