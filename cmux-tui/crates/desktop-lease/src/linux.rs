@@ -18,8 +18,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const MB: f64 = 1024.0 * 1024.0;
-/// How long an input action lets the app repaint before its screenshot.
-const INPUT_SETTLE: Duration = Duration::from_millis(300);
 
 /// The display numbers this process holds, so two spawns never pick the same.
 static DISPLAYS: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
@@ -367,7 +365,7 @@ impl Desktop for LinuxDesktop {
                 let (x, y, n) = (x.to_string(), y.to_string(), amount.to_string());
                 self.xdotool(&["mousemove", "--sync", &x, &y, "click", "--repeat", &n, button])?;
             }
-            Action::OpenUrl { url, wait_ms } => {
+            Action::OpenUrl { url, .. } => {
                 self.xdotool(&["key", "ctrl+l"])?;
                 // The omnibox takes focus a moment after ctrl+l; keys typed before it are lost
                 // (a run typed "7.0.0.1" for "127.0.0.1").
@@ -375,19 +373,12 @@ impl Desktop for LinuxDesktop {
                 self.xdotool(&["key", "ctrl+a"])?;
                 self.xdotool(&["type", "--delay", "4", "--", url])?;
                 self.xdotool(&["key", "Return"])?;
-                std::thread::sleep(Duration::from_millis((*wait_ms).min(30_000)));
             }
-            Action::Wait { ms } => std::thread::sleep(Duration::from_millis((*ms).min(30_000))),
+            Action::Wait { .. } => {}
         }
-        if matches!(
-            action,
-            Action::Click { .. }
-                | Action::TypeText { .. }
-                | Action::PressKey { .. }
-                | Action::Scroll { .. }
-        ) {
-            // The app's repaint after the input, before the screenshot.
-            std::thread::sleep(INPUT_SETTLE);
+        let wait = wait_before_screenshot(action);
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
         }
         let act_ms = ms(t);
         let t = Instant::now();
@@ -461,6 +452,22 @@ impl Desktop for LinuxDesktop {
     }
 }
 
+/// How long an action lets the desktop run before its screenshot. Input actions capture at
+/// once, as computer use does (settle "openai"): nothing reads the screen in between, and a
+/// caller that wants the repaint asks for it with `wait`. Only `open_url` and `wait` wait, and
+/// only because the caller asked: a page load (`wait_ms`), or an explicit `ms`.
+fn wait_before_screenshot(action: &Action) -> Duration {
+    match action {
+        Action::OpenUrl { wait_ms, .. } => Duration::from_millis((*wait_ms).min(30_000)),
+        Action::Wait { ms } => Duration::from_millis((*ms).min(30_000)),
+        Action::Screenshot
+        | Action::Click { .. }
+        | Action::TypeText { .. }
+        | Action::PressKey { .. }
+        | Action::Scroll { .. } => Duration::ZERO,
+    }
+}
+
 impl Drop for LinuxDesktop {
     fn drop(&mut self) {
         self.destroy();
@@ -482,5 +489,34 @@ mod xauthority_tests {
         want.extend_from_slice(&[0, 16]);
         want.extend_from_slice(&cookie);
         assert_eq!(entry, want);
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::wait_before_screenshot;
+    use crate::backend::Action;
+    use std::time::Duration;
+
+    #[test]
+    fn input_actions_capture_at_once() {
+        let inputs = [
+            Action::Screenshot,
+            Action::Click { x: 1, y: 2, button: 1, count: 1 },
+            Action::TypeText { text: "hi".into() },
+            Action::PressKey { key: "Return".into() },
+            Action::Scroll { x: 1, y: 2, direction: "down".into(), amount: 3 },
+        ];
+        for action in &inputs {
+            assert_eq!(wait_before_screenshot(action), Duration::ZERO, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_asked_for_wait_waits() {
+        assert_eq!(wait_before_screenshot(&Action::Wait { ms: 250 }), Duration::from_millis(250));
+        let open = Action::OpenUrl { url: "about:blank".into(), wait_ms: 1500 };
+        assert_eq!(wait_before_screenshot(&open), Duration::from_millis(1500));
+        assert_eq!(wait_before_screenshot(&Action::Wait { ms: 90_000 }), Duration::from_secs(30));
     }
 }

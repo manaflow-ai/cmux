@@ -10,8 +10,8 @@ use super::*;
 async fn initialize_declares_per_task_stop_so_an_interrupt_spares_background_tasks() {
     let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
     let req = Message::request(1, method::INITIALIZE, json!({"protocolVersion": 1}));
-    let Outbound::Lines(lines) = t.outbound(&req).await else {
-        panic!("initialize answered at once")
+    let Outbound::LinesThenReply(lines, _) = t.outbound(&req).await else {
+        panic!("initialize writes Claude Code its own initialize")
     };
     let init = lines
         .iter()

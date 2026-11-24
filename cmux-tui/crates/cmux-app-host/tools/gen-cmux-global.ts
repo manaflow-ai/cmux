@@ -62,6 +62,8 @@ const CLOUD_API_CALLS = [
   "cloud.machine.chat_access",
   "cloud.machine.io",
   "cloud.machine.share_chat",
+  "cloud.machine.chief_start",
+  "cloud.machine.chief_resize",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
@@ -329,6 +331,12 @@ export function generate(): Record<string, string> {
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
+    // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
+    // `<app namespace>:read` scope).
+    "signal.publish": { scope: "none", class: "mutation" },
+    "signal.read": { scope: "none", class: "read" },
+    "signal.sources.list": { scope: "none", class: "read" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
@@ -346,6 +354,11 @@ export function generate(): Record<string, string> {
     "page.read": { scope: "page:read", class: "read" },
     "page.hints": { scope: "page:write", class: "mutation" },
     "page.follow": { scope: "page:write", class: "mutation" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" },
     // The person's system calendar on the Mac (CalendarAppOps in CmuxNextApps, EventKit), apart from the
     // Cloud's Google `calendar.*` family: events
     // never prompts; request_access shows the system prompt, so it needs a gesture.
@@ -463,6 +476,13 @@ ${render(root, "  ")}
     hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
     /** \`page.follow\` (mutation, scope \`page:write\`, needs a gesture): clicks the element of a shown hint, or with \`new_split\` opens its link in a new browser split (the built-in \`F\`), then clears the hints. \`followed\` is false when the label is not shown (any more), or \`new_split\` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, \`cmux.watch("media.now_playing")\`. */
+  media: {
+    /** \`media.get\` (read, scope \`media:read\`): what plays now, or \`{track: null}\` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** \`media.control\` (mutation, scope \`media:control\`, needs a gesture): play or pause, skip, or seek to \`seconds\` in. Throws CmuxError \`media.nothing_playing\` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
   }
   /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google \`calendar.*\` ops. */
   system_calendar: {

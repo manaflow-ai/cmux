@@ -309,6 +309,13 @@ pub fn daemon_info_from_identify(identify: &Value, activity_sender: bool) -> Dae
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Activity {
     pub active_sessions: u64,
+    /// How many of `active_sessions` are a person's attached clients (the daemon's
+    /// `attached_clients`), with no agent and no turn behind them. The Cloud's input-only idle
+    /// policy (cmux-platform `IdlePolicy.ts`, `CLOUD_IDLE_ATTACHED=input`) does not count these as
+    /// in use: an attached client keeps the machine running only through its input
+    /// (`last_user_input_at`), so an app left attached and idle no longer keeps it awake forever.
+    /// Every other policy reads `active_sessions` as before.
+    pub attached_clients: u64,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
     /// acpmux's `phases` block, while every daemon whose count holds sent one
@@ -321,12 +328,20 @@ pub struct Activity {
     /// The agent's workload probe (`workload.rs`), while it reads
     /// ([`ACTIVITY_WORKLOAD_CAPABILITY`]).
     pub workload: Option<Value>,
+    /// The machine's idle window from its applied `.cmux/machine.toml` (cmux-cloud-start-core
+    /// `machine_config::idle`; a lane: 300 s): the Cloud pauses it this long after its last
+    /// activity (cmux-platform `domain/Pause.ts`). None: the file declares none.
+    pub idle_window_seconds: Option<u64>,
 }
 
 impl Activity {
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
         out.insert("active_sessions".to_owned(), json!(self.active_sessions));
+        out.insert(
+            "attached_clients".to_owned(),
+            json!(self.attached_clients.min(self.active_sessions)),
+        );
         if let Some(at) = self.last_user_input_at {
             out.insert("last_user_input_at".to_owned(), json!(at));
         }
@@ -341,6 +356,9 @@ impl Activity {
         }
         if let Some(workload) = &self.workload {
             out.insert("workload".to_owned(), workload.clone());
+        }
+        if let Some(seconds) = self.idle_window_seconds {
+            out.insert("idle_window_seconds".to_owned(), json!(seconds));
         }
         Value::Object(out)
     }
@@ -359,11 +377,13 @@ impl Activity {
     ) -> Activity {
         Activity {
             active_sessions: self.active_sessions.saturating_add(acp_sessions),
+            attached_clients: self.attached_clients,
             last_user_input_at: self.last_user_input_at,
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
             phases: acp_phases,
             last_person_prompt_at: acp_prompt_at,
             workload: self.workload.clone(),
+            idle_window_seconds: self.idle_window_seconds,
         }
     }
 }
@@ -372,6 +392,8 @@ impl Activity {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ActivityChange {
     pub active_sessions: Option<u64>,
+    /// The daemon's attached person clients ([`Activity::attached_clients`]).
+    pub attached_clients: Option<u64>,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
 }
@@ -380,6 +402,9 @@ impl ActivityChange {
     pub fn apply(&self, to: &mut Activity) {
         if let Some(n) = self.active_sessions {
             to.active_sessions = n;
+            // A count that names no attached clients (a socket `activity` line) says nothing
+            // about them: all of it counts as in use, as it always did.
+            to.attached_clients = self.attached_clients.unwrap_or(0).min(n);
         }
         if self.last_user_input_at.is_some() {
             to.last_user_input_at = self.last_user_input_at;
@@ -394,6 +419,7 @@ impl ActivityChange {
     pub fn from_json(v: &Value) -> ActivityChange {
         ActivityChange {
             active_sessions: v.field("active_sessions").as_u64(),
+            attached_clients: None,
             last_user_input_at: v.field("last_user_input_at").as_u64(),
             last_agent_action_at: v.field("last_agent_action_at").as_u64(),
         }
@@ -401,12 +427,14 @@ impl ActivityChange {
 }
 
 /// The daemon's activity (`subscribe-activity`) as a report change:
-/// sessions = attached clients + live agents; only positive times count.
+/// sessions = attached clients + live agents, with the attached clients also counted on their
+/// own ([`Activity::attached_clients`]); only positive times count.
 pub fn activity_from_daemon(a: &Value) -> ActivityChange {
     let count = |key: &str| a[key].as_u64().unwrap_or(0);
     let time = |key: &str| a[key].as_u64().filter(|ms| *ms > 0);
     ActivityChange {
         active_sessions: Some(count("attached_clients") + count("live_agents")),
+        attached_clients: Some(count("attached_clients")),
         last_user_input_at: time("last_user_input_at_ms"),
         last_agent_action_at: time("last_agent_action_at_ms"),
     }

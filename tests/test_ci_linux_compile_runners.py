@@ -76,8 +76,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-next-car-guards.yml", "linux", "runs-on", BIG),
     ("cmux-next-source-archive.yml", "vt-link-graph", "runs-on", BIG),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on", BIG),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
     ("cmux-tui-headless-debug.yml", "build", "runs-on", BIG),
     ("cmux-tui-spec.yml", "acpmux-protocol-ir", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "packages", "runs-on", BIG),
@@ -110,6 +108,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # web-validation.yml's build and tests and gallery-health.yml's health read the live Linux pool
     # (fromJSON(vars.RUNNER_POOLS).linux, tests/test_ci_runner_set.py) instead of one fixed size.
     ("ci-web.yml", "web-typecheck", "runs-on", SMALL),
+    ("ci-web.yml", "webviews-typecheck", "runs-on", SMALL),
     ("ci-web.yml", "web-tests", "runs-on", SMALL),
     ("ci-web.yml", "web-instant-navigation", "runs-on", SMALL),
     ("cmux-next-web-bundles.yml", "webviews-checks", "runs-on", SMALL),
@@ -188,6 +187,7 @@ FORK_PULL_REQUEST = (
 )
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
+    ("ci-web.yml", "webviews-typecheck", "runs-on"): SMALL,
     ("ci-web.yml", "web-production-build", "runs-on"): BIG,
     ("ci-web.yml", "web-tests", "runs-on"): SMALL,
     ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
@@ -215,18 +215,6 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
         OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
-        OWNER + "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
-        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
-        "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
-        OWNER + "(inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || "
-        # Attempt 1 of a nightly-path tree run: a nightly-next push or a tree request takes the nightly-only
-        # runners, a feat-cmux-next push the owned GCP build lanes (cmux-tui-artifacts.yml jobs: comment).
-        "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
-        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || "
-        "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
-        "github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
@@ -294,6 +282,15 @@ def selector(job: dict, where: str) -> str:
     raise AssertionError(f"unknown location {where!r}")
 
 
+# Every other own-branch route that names cmux-linux past its fork branches (cmux#49215 moved the rest of the
+# RUNNER_POOLS reads; tests/test_ci_same_repo_linux_owned_first.py is the rule) takes the same checks.
+CMUX_LINUX |= {
+    (workflow, job_id, where)
+    for workflow, job_id, where, _label in EXPECTED
+    if selector(load(workflow)["jobs"][job_id], where).endswith(CMUX_LINUX_TAIL)
+}
+
+
 class LinuxCompileRunners(unittest.TestCase):
     def test_each_compile_job_runs_on_its_measured_size(self) -> None:
         docs: dict[str, dict] = {}
@@ -305,7 +302,7 @@ class LinuxCompileRunners(unittest.TestCase):
                 value = selector(job, where)
                 if (workflow, job_id, where) in CMUX_LINUX:
                     self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
-                    self.assertNotIn("vars.LINUX_RUNNER", value)
+                    self.assertEqual(SHARED_VARIABLE.findall(value), [], value)
                     self.assertNotIn("inputs.runner", value)
                     continue
                 route = route_ref(label, workflow, job_id)
@@ -342,8 +339,16 @@ class LinuxCompileRunners(unittest.TestCase):
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
                 if (workflow, job_id, where) in CMUX_LINUX:
-                    fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
-                    self.assertEqual(value, "${{ " + OWNER + FORK_PULL_REQUEST.format(label=fork_label) + "'cmux-linux' }}")
+                    self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
+                    prefix = PREFIX.get((workflow, job_id, where), (None, ""))[0]
+                    if prefix is not None:
+                        self.assertTrue(value.startswith("${{ " + prefix), value)
+                    elif (workflow, job_id) in OWNER_ONLY:
+                        self.assertTrue(value.startswith("${{ " + OWNER), value)
+                    else:
+                        # A fork keeps the Blacksmith size it had; only the own-repository run moved.
+                        fork = re.escape(OWNER + FORK_PULL_REQUEST.format(label="LABEL")).replace("LABEL", r"blacksmith-\d+vcpu-ubuntu-2404")
+                        self.assertRegex(value, r"^\$\{\{ " + fork, value)
                     continue
                 # A pool read a fork could reach is wrapped to keep the fork's old label
                 # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.

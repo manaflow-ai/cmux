@@ -66,15 +66,16 @@
 // measured at (`hostGlassPageZoom`, the zoom the page renders at, published on `<html>` before the
 // frame paints), a zoom change alone sends a new report, and the App places each box with that zoom
 // and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
-import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
+import { pageDrawsHover } from "../hoverLook";
+import { GLASS_ATTRIBUTE, GLASS_OFF, LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
 import {
   attachSeeThroughBlur,
-  KEEPS_UNDERLAY_ATTRIBUTE,
-  OVER_ATTRIBUTE,
   type CoveredCandidates,
   type SeeThroughOptions,
+  KEEPS_UNDERLAY_ATTRIBUTE,
+  OVER_ATTRIBUTE,
 } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -161,12 +162,13 @@ const round = (value: number) => Math.round(value * 100) / 100;
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
  * backdrop already takes in the window glass; a page that sets HOST_GLASS_ENGINES_ATTRIBUTE `all` gets
  * it in WebKit too), outside the lens and the live background (whose
- * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
+ * canvases cover what is under the page), Reduce Transparency and Liquid Glass off (every glass is
+ * opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
   if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
-  if (root.hasAttribute("data-reduce-transparency")) return false;
+  if (root.hasAttribute("data-reduce-transparency") || root.getAttribute(GLASS_ATTRIBUTE) === GLASS_OFF) return false;
   if (root.getAttribute(HOST_GLASS_ENGINES_ATTRIBUTE) === "all") return true;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
@@ -386,6 +388,13 @@ export function reportHostGlass(
         if (live) mark(element, "0");
         continue;
       }
+      // A restyled tooltip or hover card (experiments.hoverLook) paints its own glass every frame, not
+      // only when it mounts: no App glass under it, or the two draw a double glass.
+      if (pageDrawsHover(element)) {
+        firstShown.delete(element);
+        if (live) mark(element, "0");
+        continue;
+      }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
       const surface = applies && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
       if (surface && surfaces.length >= HOST_GLASS_MAX) {
@@ -443,6 +452,11 @@ export function reportHostGlass(
     resize?.observe(element);
     watchStyles();
     if (!live) {
+      mark(element, "0");
+      return;
+    }
+    // The restyled tooltips and hover cards (experiments.hoverLook) paint their own glass.
+    if (pageDrawsHover(element)) {
       mark(element, "0");
       return;
     }
@@ -535,6 +549,7 @@ export function reportHostGlass(
       LENS_ATTRIBUTE,
       LIVE_BACKGROUND_ATTRIBUTE,
       "data-reduce-transparency",
+      GLASS_ATTRIBUTE,
       HOST_GLASS_ENDING_ATTRIBUTE,
       KEEPS_UNDERLAY_ATTRIBUTE,
       OVER_ATTRIBUTE,

@@ -96,10 +96,12 @@ esac
 # make the worker's warm clone shallow.
 cron="$root/scripts/cmux-next/perf-cron.py"
 if timeout 300 git fetch --no-tags origin feat-cmux-next 2>/dev/null \
-    && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null; then
+    && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$work/perf-cron-tip.py" 2>/dev/null \
+    && grep -q "\"name\": \"$part\"" "$work/perf-cron-tip.py"; then
   cp "$work/perf-cron-tip.py" scripts/cmux-next/perf-cron-tip.py && cron="$root/scripts/cmux-next/perf-cron-tip.py"
 else
-  echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched; using the commit's own"
+  # A part the measured commit adds (a PR's new bench, measured before it merges) is not in the tip's PARTS yet.
+  echo "perf-cron-linux.sh: the branch tip's perf-cron.py was not fetched or has no part $part; using the commit's own"
 fi
 
 python3 -I "$cron" run-linux-part --part "$part" --runner-class fleet-linux-c4d-32 --out "$work/part"

@@ -8,6 +8,16 @@
       "risk": "destructive",
       "digest": "bbe723a6c9daca22"
     },
+    "chief.automation.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "2ca833e14f2f525b"
+    },
+    "chief.automation.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "bb6dcd1baeb2198e"
+    },
     "chief.continue": {
       "source": "local",
       "class": "mutation",

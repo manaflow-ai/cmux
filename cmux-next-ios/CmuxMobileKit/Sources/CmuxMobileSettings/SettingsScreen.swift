@@ -137,8 +137,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-                    // ask-87d30da8e5: the accent (until one is picked) and the terminals take the Mac's theme;
-                    // the app's own backgrounds stay the stock ones.
+                    // ask-87d30da8e5: on (the default), the chrome, wallpaper, accent (until one is picked) and
+                    // terminals follow the Mac's theme; off, the phone's own stock look. Leo, 2026-11-22: "if you
+                    // want it different, then it's a toggle."
                     Toggle(isOn: $macTheme.matchesMac) {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
@@ -184,9 +185,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
-                    // version, a Mac chip and an install method, none of which an iPhone report has.
-                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                    // The Mac's bug report form, marked so HQ counts the report (FeedbackFormLink); its macOS,
+                    // chip and install fields describe the paired Mac.
+                    LinkRow("Send feedback", symbol: "envelope", url: Self.feedbackURL)
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
@@ -291,7 +292,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
-        case .composer: ComposerPage(settings: settings)
+        case .composer: ComposerPage(settings: settings, voice: callPreferences)
         case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
                                                        permission: notificationPermission)
@@ -306,6 +307,16 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .longPressMenus:
             LongPressMenusPage()
         }
+    }
+
+    /// Settings > Send feedback: the bug report form with HQ's report marker (FeedbackFormLink).
+    static var feedbackURL: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return FeedbackFormLink.url(
+            appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
+            build: info["CFBundleVersion"] as? String ?? "?",
+            osVersion: UIDevice.current.systemVersion
+        ).absoluteString
     }
 }
 
