@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "commands.ts",
-      "sha256": "a5000acde684eb2036f754c75a889e43979f4a407b6118e206d049e77d5d1b3c",
-      "size": 168377
+      "sha256": "3f7ee45261331e8e930518cdd16591a24aef6387193023ac27e39c58997920e2",
+      "size": 169236
     },
     {
       "path": "events.ts",
@@ -17,8 +17,8 @@
     },
     {
       "path": "metadata.ts",
-      "sha256": "e55e63e0f4d0d3efbe5fd8f5bd84b728d0bf71cf1ad152d19c33d3281818ef38",
-      "size": 871276
+      "sha256": "cbc2a3825f9f297e50b496d3ec6ba5794b5a56d50b792635861e8adc10b34f0e",
+      "size": 873871
     },
     {
       "path": "types.ts",
@@ -27,7 +27,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b",
+  "ir_sha256": "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110",
   "language": "typescript",
   "mux_protocol": 12,
   "schema_version": 2
