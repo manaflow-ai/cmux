@@ -55,6 +55,7 @@ function renderCountProbe() {
     alternate: Fiber | null;
     memoizedProps: unknown;
     lanes?: number;
+    memoizedState?: unknown;
   };
   const w = window as unknown as Record<string, unknown>;
   if (w.__cmuxRenderCounts) return;
@@ -169,9 +170,17 @@ function renderCountProbe() {
   const update = (next: Fiber, prev: Fiber, under = false) => {
     const ran = components.has(next.tag) && next.tag !== MemoComponent && (next.flags & PerformedWork) !== 0;
     if (components.has(next.tag) ? (next.flags & PerformedWork) !== 0 : true) rendered(next, false, !under);
-    // An update was scheduled on it (its old fiber carries the lanes) and its render gave the same state:
-    // React ran it and threw the result away (no PerformedWork). Named so an empty commit says who.
-    else if (!under && next.tag !== MemoComponent && (prev.lanes ?? 0) !== 0 && started.length < 6)
+    // Its function ran and gave the same state, so React threw the result away (no PerformedWork; React
+    // clears the old fiber's lanes then). A fiber React skipped keeps its old hook list; one whose function
+    // ran has a new one. Named so an empty commit says who.
+    else if (
+      !under &&
+      next.tag !== MemoComponent &&
+      components.has(next.tag) &&
+      next.memoizedState != null &&
+      next.memoizedState !== prev.memoizedState &&
+      started.length < 6
+    )
       started.push(`${nameOf(next)} bailed`);
     if (next.child === prev.child) return;
     for (let child = next.child; child; child = child.sibling) {
