@@ -153,6 +153,7 @@ pub fn write_record(dir: &Path, record: &Record) -> std::io::Result<()> {
 }
 
 pub fn read_record(dir: &Path, id: &str) -> Option<Record> {
+    bump(&FILE_OPENS);
     serde_json::from_slice(&std::fs::read(file(dir, id, "json")).ok()?).ok()
 }
 
@@ -163,8 +164,25 @@ static RECORD_CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(Default::default);
 /// Record files read from disk by [`list_records`] (tests count them).
 thread_local! { static LIST_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+/// Directory enumerations and file opens this thread made reading records and output (tests and
+/// the bench count them).
+thread_local! { static DIR_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+thread_local! { static FILE_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+fn bump(c: &'static std::thread::LocalKey<std::cell::Cell<usize>>) {
+    c.with(|c| c.set(c.get() + 1));
+}
 /// Tests and benches: read every record each call, as before the cache.
 static LIST_CACHE_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Tests and benches: this thread's directory enumerations and file opens so far.
+#[cfg(test)]
+pub fn io_counts() -> (usize, usize) {
+    (DIR_SCANS.with(|c| c.get()), FILE_OPENS.with(|c| c.get()))
+}
+/// Tests and benches: turn the record and tail caches off (`true`) or on.
+#[cfg(test)]
+pub fn set_cache_off(off: bool) {
+    LIST_CACHE_OFF.store(off, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Every record of the folder `dir`. A record of an ended task is read once: later calls reuse it
 /// while the file's mtime and length stay what they were, so a folder of thousands of ended
@@ -175,6 +193,7 @@ pub fn list_records(dir: &Path) -> Vec<Record> {
     let off = LIST_CACHE_OFF.load(Relaxed);
     let mut seen = Vec::new();
     let mut out = Vec::new();
+    bump(&DIR_SCANS);
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let Ok(name) = e.file_name().into_string() else { continue };
         let Some(id) = name.strip_suffix(".json") else { continue };
@@ -210,23 +229,107 @@ pub fn list_records(dir: &Path) -> Vec<Record> {
     out
 }
 
-/// The task's segments, oldest first, by the start in their names.
 /// The task's segment starts, oldest first; none when the folder is gone.
 fn segments(dir: &Path, id: &str) -> std::io::Result<Vec<u64>> {
-    let prefix = format!("{id}.out.");
+    Ok(scan_segments(dir, Some(id))?.remove(id).unwrap_or_default())
+}
+
+/// One enumeration of `dir`: every task's segment starts, oldest first (only `only`'s when given).
+fn scan_segments(
+    dir: &Path,
+    only: Option<&str>,
+) -> std::io::Result<std::collections::HashMap<String, Vec<u64>>> {
+    bump(&DIR_SCANS);
     let entries = match std::fs::read_dir(dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
         r => r?,
     };
-    let mut starts = Vec::new();
+    let mut by_id: std::collections::HashMap<String, Vec<u64>> = Default::default();
     for e in entries {
-        if let Some(s) = e?.file_name().to_str().and_then(|n| n.strip_prefix(&prefix)?.parse().ok())
-        {
-            starts.push(s);
+        let name = e?.file_name();
+        let Some((id, start)) = name.to_str().and_then(|n| {
+            let (id, start) = n.split_once(".out.")?;
+            Some((id, start.parse::<u64>().ok()?))
+        }) else {
+            continue;
+        };
+        if only.is_none_or(|o| o == id) {
+            by_id.entry(id.to_owned()).or_default().push(start);
         }
     }
-    starts.sort_unstable();
-    Ok(starts)
+    for v in by_id.values_mut() {
+        v.sort_unstable();
+    }
+    Ok(by_id)
+}
+
+/// Every task's segment starts in a folder, from one enumeration: what a list needs to read each
+/// task's tail without enumerating the folder again for it.
+pub struct OutputIndex {
+    dir: PathBuf,
+    starts: std::collections::HashMap<String, Vec<u64>>,
+}
+
+impl OutputIndex {
+    pub fn scan(dir: &Path) -> Self {
+        let starts = scan_segments(dir, None).unwrap_or_default();
+        Self { dir: dir.to_owned(), starts }
+    }
+}
+
+/// What identifies an ended task's output: the first kept segment's start, the newest segment's
+/// start, length and mtime, and the tail length. An ended task's spool no longer changes.
+type TailKey = (u64, u64, u64, std::time::SystemTime, u64);
+static TAIL_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, (TailKey, Output)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// [`read_output`] for the last `max` bytes of a task of `index`'s folder, with no enumeration of
+/// the folder. An ended task's tail is kept: while its newest segment (one stat) is unchanged,
+/// the tail is not read again.
+pub fn read_tail_indexed(
+    index: &OutputIndex,
+    id: &str,
+    ended: bool,
+    max: u64,
+) -> std::io::Result<Output> {
+    let dir = index.dir.as_path();
+    let Some(starts) = index.starts.get(id).filter(|s| !s.is_empty()) else {
+        return Ok(Output::default());
+    };
+    let kept = starts.get(starts.len().saturating_sub(2)..).unwrap_or_default();
+    let key = (!LIST_CACHE_OFF.load(std::sync::atomic::Ordering::Relaxed) && ended)
+        .then(|| {
+            let (first, last) = (*kept.first()?, *kept.last()?);
+            let m = std::fs::metadata(segment_path(dir, id, last)).ok()?;
+            Some((first, last, m.len(), m.modified().ok()?, max))
+        })
+        .flatten();
+    let path = dir.join(id);
+    if let Some(key) = key
+        && let Ok(c) = TAIL_CACHE.lock()
+        && let Some((k, out)) = c.get(&path)
+        && *k == key
+    {
+        return Ok(out.clone());
+    }
+    let out = read_output_in(dir, id, None, max, Some(kept.to_vec()))?;
+    if let Some(key) = key
+        && let Ok(mut c) = TAIL_CACHE.lock()
+    {
+        c.insert(path, (key, out.clone()));
+    }
+    Ok(out)
+}
+
+/// Forget the kept tails of `dir`'s tasks that are not in `ids` (a purge, a pruned task).
+pub fn retain_tails(dir: &Path, ids: &std::collections::HashSet<&str>) {
+    if let Ok(mut c) = TAIL_CACHE.lock() {
+        c.retain(|p, _| {
+            p.parent() != Some(dir)
+                || p.file_name().and_then(|n| n.to_str()).is_some_and(|n| ids.contains(n))
+        });
+    }
 }
 
 /// Output retained as either a bounded rotating tail or one complete workflow file.
@@ -298,7 +401,7 @@ impl Spool {
 }
 
 /// What [`read_output`] read.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Output {
     pub data: Vec<u8>,
     /// Where `data` starts in the whole output.
@@ -313,17 +416,35 @@ pub struct Output {
 /// oldest kept byte reads from it. A spool that rotated under every try is an error, never an
 /// empty read (a reader would take it for no output and start again from 0).
 pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io::Result<Output> {
+    read_output_in(dir, id, from, max, None)
+}
+
+/// [`read_output`], the first try on `known` segment starts when given (one enumeration for many
+/// tasks); a try that finds a segment gone enumerates again.
+fn read_output_in(
+    dir: &Path,
+    id: &str,
+    from: Option<u64>,
+    max: u64,
+    mut known: Option<Vec<u64>>,
+) -> std::io::Result<Output> {
     use std::io::{Read, Seek, SeekFrom};
     // The newest two segments, opened before anything is measured: a rotation meanwhile deletes
     // a name but not an open file, and every segment but the newest no longer grows.
     let mut open = None;
     for _ in 0..3 {
-        let starts = segments(dir, id)?;
+        let starts = match known.take() {
+            Some(k) => k,
+            None => segments(dir, id)?,
+        };
         let opened: std::io::Result<Vec<_>> = starts
             .get(starts.len().saturating_sub(2)..)
             .unwrap_or_default()
             .iter()
-            .map(|&s| std::fs::File::open(segment_path(dir, id, s)).map(|f| (s, f)))
+            .map(|&s| {
+                bump(&FILE_OPENS);
+                std::fs::File::open(segment_path(dir, id, s)).map(|f| (s, f))
+            })
             .collect();
         match opened {
             Ok(files) => {

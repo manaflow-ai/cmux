@@ -372,7 +372,7 @@ impl Hub {
         let records = self.bg_records(&dir);
         let (mine, others): (Vec<&Record>, Vec<&Record>) =
             records.iter().partition(|r| scope.covers(r));
-        let tasks: Vec<Value> = mine.iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
+        let tasks = bg_list_views(&dir, &records, &mine);
         json!({"tasks": tasks, "otherOwners": others.len()})
     }
 
@@ -755,6 +755,29 @@ fn workflow_bg_output(dir: &std::path::Path, record: &Record) -> Result<Value, R
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
+    bg_view_with(dir, r, tail, None)
+}
+
+/// The views of `mine` (of `all`, the folder's records) for a list: the folder's output
+/// segments are enumerated once for all of them, and an ended task's tail is read once.
+pub(super) fn bg_list_views(dir: &std::path::Path, all: &[Record], mine: &[&Record]) -> Vec<Value> {
+    let index = bg_run::OutputIndex::scan(dir);
+    let ids: std::collections::HashSet<&str> = all.iter().map(|r| r.id.as_str()).collect();
+    bg_run::retain_tails(dir, &ids);
+    mine.iter().map(|r| bg_view_with(dir, r, LIST_TAIL, Some(&index))).collect()
+}
+
+/// [`bg_view`], its tails read through `index` when given.
+fn bg_view_with(
+    dir: &std::path::Path,
+    r: &Record,
+    tail: u64,
+    index: Option<&bg_run::OutputIndex>,
+) -> Value {
+    let read_tail = |max: u64| match index {
+        Some(i) => bg_run::read_tail_indexed(i, &r.id, r.ended_at.is_some(), max),
+        None => bg_run::read_output(dir, &r.id, None, max),
+    };
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
     let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
     let state = match (running, r.ended_at, r.stopped, r.signal) {
@@ -764,7 +787,7 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         (_, _, _, Some(_)) => "killed",
         _ => "exited",
     };
-    let read = bg_run::read_output(dir, &r.id, None, tail).unwrap_or_default();
+    let read = read_tail(tail).unwrap_or_default();
     let mut view = json!({
         "id": r.id, "sessionId": r.session_id, "command": r.command, "cwd": r.cwd,
         "description": r.description, "notify": r.notify, "resultLine": r.result_line,
@@ -777,7 +800,8 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         "startedBy": r.subagent,
     });
     if r.result_line {
-        let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
+        let end =
+            if tail == LIST_TAIL { read.clone() } else { read_tail(LIST_TAIL).unwrap_or_default() };
         let text = String::from_utf8_lossy(&end.data);
         let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
         view.set("lastLine", json!(last));
@@ -949,5 +973,86 @@ mod wait_lock_tests {
         let free = crate::fork_tests::free(&path);
         drop(keeper);
         assert!(free, "the wait left the runner's lock held");
+    }
+}
+
+#[cfg(test)]
+mod list_index_tests {
+    use super::*;
+
+    /// `n` ended tasks, each with output over three segments (two kept), and a few unended.
+    fn folder(name: &str, n: usize) -> (cmux_unix_socket::TestDir, Vec<Record>) {
+        let dir = cmux_unix_socket::short_test_dir(name);
+        let mut records = Vec::new();
+        for i in 0..n + 5 {
+            let r = Record {
+                id: format!("t{i}"),
+                ended_at: (i < n).then_some(2),
+                started_at: i as u64,
+                ..Record::default()
+            };
+            bg_run::write_record(dir.path(), &r).unwrap();
+            let mut spool = bg_run::Spool::create(dir.path(), &r.id, 16).unwrap();
+            spool
+                .write(format!("task {i} output line one\nand the last line {i}\n").as_bytes())
+                .unwrap();
+            records.push(r);
+        }
+        (dir, records)
+    }
+
+    #[test]
+    fn indexed_list_equals_per_task_views_and_follows_changes() {
+        bg_run::set_cache_off(false);
+        let (dir, records) = folder("bg-list-index", 20);
+        let mine: Vec<&Record> = records.iter().collect();
+        let want: Vec<Value> = mine.iter().map(|r| bg_view(dir.path(), r, LIST_TAIL)).collect();
+        assert_eq!(bg_list_views(dir.path(), &records, &mine), want);
+        assert_eq!(bg_list_views(dir.path(), &records, &mine), want, "cached");
+        // An ended task whose output changed is read again.
+        let path = dir.path().join("t3.out.0");
+        let more = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut &more, b"late bytes\n").unwrap();
+        let want: Vec<Value> = mine.iter().map(|r| bg_view(dir.path(), r, LIST_TAIL)).collect();
+        assert_eq!(bg_list_views(dir.path(), &records, &mine), want);
+    }
+
+    /// One list of 600 ended tasks with output: enumerations, opens and time, uncached against
+    /// indexed and cached. `cargo test -p acpmux --release list_bench -- --nocapture --ignored`
+    #[test]
+    #[ignore]
+    fn list_bench() {
+        let (dir, records) = folder("bg-list-bench", 600);
+        let mine: Vec<&Record> = records.iter().collect();
+        let lists = 20;
+        for (label, off) in
+            [("before (per-task scan, no cache)", true), ("after (index + cache)", false)]
+        {
+            bg_run::set_cache_off(off);
+            let run = || {
+                if off {
+                    let _ = bg_run::list_records(dir.path());
+                    mine.iter().map(|r| bg_view(dir.path(), r, LIST_TAIL)).collect::<Vec<_>>()
+                } else {
+                    let _ = bg_run::list_records(dir.path());
+                    bg_list_views(dir.path(), &records, &mine)
+                }
+            };
+            run(); // warm: the first list fills the cache
+            let (s0, o0) = bg_run::io_counts();
+            let t = std::time::Instant::now();
+            for _ in 0..lists {
+                assert_eq!(run().len(), mine.len());
+            }
+            let el = t.elapsed() / lists;
+            let (s1, o1) = bg_run::io_counts();
+            println!(
+                "BENCH {label}: {} tasks, per list: {} dir enumerations, {} file opens, {el:?}",
+                mine.len(),
+                (s1 - s0) / lists as usize,
+                (o1 - o0) / lists as usize
+            );
+        }
+        bg_run::set_cache_off(false);
     }
 }
