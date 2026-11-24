@@ -457,15 +457,15 @@ fn next_message(buffer: &mut Vec<u8>) -> Option<Value> {
             Err(_) => Value::Null,
         });
     }
-    let mut stream = serde_json::Deserializer::from_slice(buffer).into_iter::<Value>();
-    match stream.next() {
-        Some(Ok(value)) => {
-            let used = stream.byte_offset();
-            buffer.drain(..used);
-            Some(value)
+    let (value, used) = {
+        let mut stream = serde_json::Deserializer::from_slice(buffer.as_slice()).into_iter::<Value>();
+        match stream.next() {
+            Some(Ok(value)) => (value, stream.byte_offset()),
+            _ => return None,
         }
-        _ => None,
-    }
+    };
+    buffer.drain(..used);
+    Some(value)
 }
 
 async fn read_chat(
