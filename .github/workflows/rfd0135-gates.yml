@@ -53,8 +53,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # A schedule runs main's copy of this file; the gates are feat-cmux-next's code.
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
           persist-credentials: false
           sparse-checkout: |
             scripts/cmux-next
@@ -74,8 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # A schedule runs main's copy of this file; the gates are feat-cmux-next's code.
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
           persist-credentials: false
           submodules: false
       - name: Initialize Ghostty protocol submodules
@@ -141,8 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # A schedule runs main's copy of this file; the gates are feat-cmux-next's code.
-          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
           persist-credentials: false
           sparse-checkout: scripts/cmux-next
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -153,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP"/gates/* --out "$RUNNER_TEMP/summary" || true
-          { echo "## RFD 0135 gates 2 to 4"; echo; cat "$RUNNER_TEMP/summary/summary.md"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## RFD 0135 gates 2 to 4"; echo; cat "$RUNNER_TEMP/summary/summary.md" 2>/dev/null || echo "(no result)"; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rfd0135-gates-${{ github.run_id }}
