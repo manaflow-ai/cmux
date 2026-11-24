@@ -867,6 +867,15 @@ async fn run(row: Row) -> Times {
         outcome,
         why.as_deref().unwrap_or("null")
     );
+    // A black hole ends on acpmux's own deadline: the link says `timeout`, or `pathChanged`
+    // when it moved to another carrier.
+    if matches!(row.cut, Cut::BlackHole) {
+        assert!(
+            matches!(why.as_deref(), Some("timeout" | "pathChanged")),
+            "{}: a black hole read downReason {why:?}",
+            row.tag
+        );
+    }
     assert!(detect <= DETECT_BOUND, "{}: the cut took {detect:?} to notice", row.tag);
     assert!(redial <= REDIAL_BOUND, "{}: the redial took {redial:?}", row.tag);
     Times { detect, failover, total: back - cut_at, down_reason: why }
@@ -948,6 +957,7 @@ async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
         reshow_required: false,
     })
     .await;
+    assert_eq!(times.down_reason.as_deref(), Some("pathChanged"), "wg-to-ssh: downReason");
     assert!(
         times.failover <= WG_TO_SSH_FAILOVER,
         "wg-to-ssh: the link took {:?} to move to ssh (cut noticed after {:?}, {:?} in all)",

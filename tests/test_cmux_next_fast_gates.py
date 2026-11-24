@@ -73,6 +73,10 @@ def workflow() -> dict:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
+def fast_gates_source() -> str:
+    return (ROOT / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+
+
 def triggers(doc: dict) -> dict:
     # PyYAML reads the bare key `on` as the boolean True.
     return doc.get("on", doc.get(True))
@@ -135,6 +139,19 @@ class WorkflowShape(unittest.TestCase):
                 self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
+
+    def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
+        inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
+            "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
+        step = step_named(job(workflow())["steps"], "Checkout")
+        self.assertEqual(step["with"]["filter"], "blob:none")
+        patterns = step["with"]["sparse-checkout"].split()
+        for path in inputs:
+            with self.subTest(input=path):
+                # scripts/ and .github/ are whole; a bare file or a glob is named as it is.
+                self.assertTrue("/" + path in patterns or path.lstrip("*/") in "".join(patterns)
+                                or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
+        self.assertIn("--filter=tree:0", fast_gates_source())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -1036,9 +1053,12 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(re.findall(r"deepened by (\d+)", result.stderr), ["32"])
         merge = git(work, "rev-parse", "HEAD")
         self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), heads)
-        # The commit is here (the base side reaches it); its blob is not, and listing never fetches it.
-        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit, "--", "old.txt").split()
-        self.assertIn(f"?{old}", listed, "the deepen brought a blob no gate read")
+        # The commit is here (the base side reaches it); its tree is not (tree:0), so neither is its blob, and
+        # listing never fetches them.
+        tree = git(seed, "rev-parse", f"{old_commit}^{{tree}}").strip()
+        listed = git(work, "rev-list", "--objects", "--missing=print", "-1", old_commit).split()
+        self.assertIn(f"?{tree}", listed, "the deepen brought a tree no gate read")
+        self.assertNotIn(old, listed, "the deepen brought a blob no gate read")
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
@@ -1227,9 +1247,11 @@ class ScriptBehavior(unittest.TestCase):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
+            # Each gate prints its own line: a runner without /usr/bin/time (timed_gate_argv) adds none, and a
+            # silent gate left an empty log there (tooling-tests on cmux-linux, runs 45339026481, 45350194064).
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print('crash ratchet')"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print('webviews checks')"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
@@ -1752,6 +1774,14 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual([key for key, _ in self.module.findings(output)],
                          ["test/composer-row-layout.test.ts: typescript(TS2339): "
                           "Property 'muted' does not exist on type 'Row'."])
+
+    def test_a_vite_config_stack_names_no_new_finding_on_the_merge(self):
+        def crash(stamp: str, line: int) -> str:
+            return (f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                    f"vite.config.ts.timestamp-{stamp}.mjs:{line}:23)\n")
+        merge, base = crash("1795526354921-166d4b4b7bbf6", 3240), crash("1795526301002-0a1b2c3d4e5f", 3238)
+        self.assertEqual(self.module.added(merge, base), [])
+        self.assertEqual(len(self.module.added(merge + "    at other (x.mjs:1:1)\n", base)), 1)
 
     def test_a_push_with_no_base_charges_every_red(self):
         self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
