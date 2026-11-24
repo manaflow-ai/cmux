@@ -15,7 +15,7 @@
 //! spinning, at the test's own priority, as a build's compilers would be), and the p50 and p95 of
 //! each are printed with the loaded/idle ratio.
 //!
-//! `cargo test -p acpmux --release --test start_under_load_bench -- --ignored --nocapture`
+//! `cargo test -p acpmux --release --test acpmux_all start_under_load_bench -- --ignored --nocapture`
 //! (`START_BENCH_LOAD`, `START_BENCH_SAMPLES` override the load and the sample count;
 //! `START_BENCH_LOAD_NICE` runs the loops at that nice: 0 is load from outside acpmux, 5 (Linux)
 //! the agent tier's, as the tools of other agents run; `START_BENCH_SPARE=1` lets the daemon keep its
@@ -23,17 +23,7 @@
 //! `START_BENCH_ASSERT=1` fails when a loaded p95 is past 1.2x the idle one).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs tests/fake_agent.py only.
-// The knobs below are the bench's own, not the host's: kept through the hermetic re-start.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "START_BENCH_LOAD",
-    "START_BENCH_SAMPLES",
-    "START_BENCH_LOAD_NICE",
-    "START_BENCH_SPARE",
-    "START_BENCH_ASSERT",
-]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

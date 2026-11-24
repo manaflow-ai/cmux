@@ -1,8 +1,6 @@
 //! Close 1012 reconnect behavior, using only public APIs present on the unfixed base.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::HERMETIC;
 
 use acpmux::peer::Peer;
 use acpmux::peer_link::Backoff;

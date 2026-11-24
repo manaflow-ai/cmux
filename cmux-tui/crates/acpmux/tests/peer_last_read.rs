@@ -2,9 +2,7 @@
 //! answers pings but withholds a read must return an error instead of waiting ten minutes.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

@@ -12,11 +12,6 @@
 //! not wait on a timer is decided only by what the host does.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts stand-in agent hosts (python3), no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::agent_host::link::{self, HostLauncher};
 use acpmux::agent_host::{self, HostTimeout, SpawnSpec};
 use std::ffi::OsString;

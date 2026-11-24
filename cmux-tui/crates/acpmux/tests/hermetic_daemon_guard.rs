@@ -7,7 +7,8 @@
 //! `daemon_env::apply` instead.
 //!
 //! Every test process runs hermetic too (cx-s8wux.1): each test binary (a
-//! top-level file in `tests/`) includes `support/daemon_env.rs`, which
+//! top-level file in `tests/`; the modules of `acpmux_all.rs` share its root's)
+//! includes `support/daemon_env.rs`, which
 //! starts the process again with the hermetic environment before `main`, so a
 //! hub run in the test process never sees the host's PATH or HOME (cx-fylng).
 
@@ -75,6 +76,23 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("session_tail_orphan.rs", "let tail_bin = daemon_env::bin();"),
         // Compares an agent's ACPMUX_BIN with the binary; starts nothing.
         ("caller_declared_cli.rs", "canonical(daemon_env::bin())"),
+        // `cli-agent` argv run by the hermetic daemon under test, which passes its own environment.
+        ("start_mode.rs", "let mut argv = vec![daemon_env::bin()"),
+        // A relay script run by the hermetic daemon (the same as cross_host_send_cli).
+        ("ssh_fallback_cli.rs", "exe = daemon_env::sh_quote(daemon_env::bin().display())"),
+        // Copies of the binary; each copy starts only through `command_at`, which calls `apply`.
+        ("duress_daemon.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
+        (
+            "durable_agents/idle_subsessions_restart.rs",
+            "std::fs::copy(daemon_env::bin(), &installed)",
+        ),
+        ("durable_agents/take_over_replaced_binary.rs", "std::fs::copy(daemon_env::bin(),"),
+        ("durable_agents/take_over_under_load.rs", "std::fs::copy(daemon_env::bin(),"),
+        // `spawn_daemon` starts through `command_at`, which calls `apply`; the copies and the
+        // wrapper script are started only that way too.
+        ("supervisor_faults.rs", "spawn_daemon(daemon_env::bin(),"),
+        ("supervisor_faults.rs", "fs::copy(daemon_env::bin(),"),
+        ("supervisor_faults.rs", "let real = daemon_env::bin().display()"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);
@@ -106,7 +124,7 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         binary,
         "unsafe(link_section = \".init_array\")",
         "unsafe(link_section = \"__DATA,__mod_init_func\")",
-        "enter(super::HERMETIC, args)",
+        "enter(crate::HERMETIC, args)",
     ] {
         assert!(helper.contains(needle), "tests/{HELPER} lost `{needle}`");
     }
@@ -115,11 +133,16 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
 #[test]
 fn every_test_binary_runs_in_the_hermetic_environment() {
     let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let shared = std::fs::read_to_string(tests.join("acpmux_all.rs")).unwrap();
     let mut missing = Vec::new();
     for entry in std::fs::read_dir(&tests).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if !name.ends_with(".rs") || name == "hermetic_daemon_guard.rs" {
+            continue;
+        }
+        // A module of the one shared binary uses its crate root's helper and `HERMETIC`.
+        if shared.contains(&format!("#[path = \"{name}\"]")) {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

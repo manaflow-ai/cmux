@@ -6,10 +6,7 @@
 //! authenticated with it as its only credential (Web, Peer) is closed.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use futures::StreamExt;
 use serde_json::{Value, json};

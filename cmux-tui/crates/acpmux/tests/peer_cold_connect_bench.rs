@@ -7,14 +7,9 @@
 //! and shown as its own row. The log is the breakdown: each flight that waits on an answer is
 //! one round trip.
 //!
-//! `cargo test -p acpmux --test peer_cold_connect_bench -- --ignored --nocapture`
+//! `cargo test -p acpmux --test acpmux_all peer_cold_connect_bench -- --ignored --nocapture`
 //! Knobs: `COLD_RTT_MS` (default 50), `COLD_RUNS` (default 5), and `NO_EARLY` for the raw
 //! listener compatibility check. Prints `COLDCONNECT {json}`.
-
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["COLD_RTT_MS", "COLD_RUNS", "NO_EARLY"]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

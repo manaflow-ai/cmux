@@ -11,7 +11,7 @@
 //! - draft: one `_acpmux/draft_set` round trip, what the composer sends as a person types. The
 //!   typed character itself is drawn by the composer and never crosses the network.
 //!
-//! Run: `cargo test -p acpmux --test transfer_cli -- --ignored --nocapture view_latency`.
+//! Run: `cargo test -p acpmux --test acpmux_all transfer_cli -- --ignored --nocapture view_latency`.
 //! `LATENCY_DELAY_MS` is the round trip of the second, delayed link (default 20).
 use super::session_move::prompt;
 use super::session_move_live::{Side, move_to_the_other};
@@ -190,7 +190,7 @@ async fn run(tag: &str, round_trip_ms: u64) -> Value {
 }
 
 #[tokio::test]
-#[ignore = "a measurement: cargo test -p acpmux --test transfer_cli -- --ignored --nocapture view_latency"]
+#[ignore = "a measurement: cargo test -p acpmux --test acpmux_all transfer_cli -- --ignored --nocapture view_latency"]
 async fn view_latency_of_a_chat_local_and_moved_to_the_peer() {
     let delayed: u64 =
         std::env::var("LATENCY_DELAY_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);

@@ -13,11 +13,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// No agent runs here. A disposable-account run points `ACPMUX_TEST_BINARY` at a relocated
-// build the other UID can read (`machine_consent_home::binary`), so it survives the re-start.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX_TEST_BINARY"]);
+use crate::daemon_env;
 
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;

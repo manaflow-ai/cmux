@@ -5,11 +5,6 @@
 //! start has no deadline: `host_start_wave.rs`.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::agent_host::link::{self, Connect};
 use acpmux::agent_host::{self, ControllerFrame, HostFrame, HostRecord, HostTimeout};
 use std::path::PathBuf;

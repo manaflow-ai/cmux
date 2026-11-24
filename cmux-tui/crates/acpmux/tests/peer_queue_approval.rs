@@ -6,10 +6,6 @@
 //! a peer that lists `queueGet`.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

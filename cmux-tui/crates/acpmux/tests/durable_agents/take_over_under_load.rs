@@ -124,6 +124,16 @@ impl Step {
     }
 }
 
+/// Ends the watchdog when the test ends, by a failed assertion too: the watchdog ends the whole
+/// test process, so in a process shared with other tests it must never outlive its own test.
+struct DoneOnDrop(Arc<AtomicBool>);
+
+impl Drop for DoneOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 fn watchdog(step: Arc<Step>, home: PathBuf, done: Arc<AtomicBool>) {
     while !done.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(500));
@@ -176,6 +186,7 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     .unwrap();
     let step = Arc::new(Step(std::sync::Mutex::new(("start".into(), Instant::now()))));
     let done = Arc::new(AtomicBool::new(false));
+    let _done_on_drop = DoneOnDrop(done.clone());
     let dog = {
         let (step, home, done) = (step.clone(), daemon.home.clone(), done.clone());
         std::thread::spawn(move || watchdog(step, home, done))

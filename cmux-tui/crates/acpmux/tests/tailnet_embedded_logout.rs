@@ -1,10 +1,7 @@
 //! Exercise the library's shipped Controller, not a cfg(test) replacement.
 #![cfg(all(unix, feature = "tailnet"))]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// No daemon and no agent: the controller only edits its own state folder.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 mod tailnet {
     mod embedded {

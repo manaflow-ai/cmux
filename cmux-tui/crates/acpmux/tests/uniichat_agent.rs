@@ -2,10 +2,7 @@
 //! over stdio against a fake server that speaks UniiChat's wire protocol
 //! (View.ts wire 2: a WebSocket `/ws` and the `say` act's POST `/api/act`).
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};

@@ -32,23 +32,11 @@
 //! machine:
 //!
 //! ```text
-//! cmux-ci test -- 'cd cmux-tui && cargo test -p acpmux --release --test published_bench -- --ignored --nocapture --test-threads 1'
+//! cmux-ci test -- 'cd cmux-tui && cargo test -p acpmux --release --test acpmux_all published_bench -- --ignored --nocapture --test-threads 1'
 //! ```
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs tests/fake_agent.py only. The knobs are the bench's own.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "PUBLISHED_BENCH_SAMPLES",
-    "PUBLISHED_BENCH_FORK_TURNS",
-    "PUBLISHED_BENCH_SOAK_SECS",
-    "PUBLISHED_BENCH_SOAK_LOAD",
-    "PUBLISHED_BENCH_SOAK_PROBE_SECS",
-    "PUBLISHED_BENCH_SOAK_WINDOW_SECS",
-    "PUBLISHED_BENCH_SOAK_TICKED",
-    "PUBLISHED_BENCH_SOAK_CALIBRATE_SECS",
-]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

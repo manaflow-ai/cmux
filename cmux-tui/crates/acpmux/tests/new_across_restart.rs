@@ -9,10 +9,8 @@
 //! have happened before the close, so the CLI must look the name up again, never create twice.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent: the daemon is the fixture below.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;

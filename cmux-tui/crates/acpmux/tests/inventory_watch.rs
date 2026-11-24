@@ -2,10 +2,6 @@
 //! credentials, registry requests or health checks are needed by a watcher.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::Settings;
 use acpmux::hub::Hub;

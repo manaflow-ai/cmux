@@ -2,11 +2,6 @@
 //! --json` prints, with each session's status from its own hub, and advertises it as
 //! `process-census-v1`. Only this machine's clients get it.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs a stand-in agent (tests/fake_agent.py) for one real session.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

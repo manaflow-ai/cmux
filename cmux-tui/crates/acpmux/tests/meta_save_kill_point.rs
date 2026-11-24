@@ -11,10 +11,7 @@
 //! and nothing writes C again before the kill, so C is lost although it was answered.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Stand-in agents (tests/fake_agent.py).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, ErrorKind, Write};

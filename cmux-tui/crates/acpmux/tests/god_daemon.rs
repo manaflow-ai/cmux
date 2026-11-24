@@ -45,54 +45,16 @@
 //! its heap (dhat) and the test prints its allocation sites: the bytes each held at the heap's
 //! peak and in total, grouped by the first acpmux frame, and the sites of its 640-byte blocks
 //! (serde_json's BTreeMap leaves). Manual, on Linux CI:
-//! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
+//! `cargo test -p acpmux --release --test acpmux_all god_daemon -- --ignored --nocapture`, and the profile:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
-//! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
+//! --features dhat-heap --test acpmux_all god_daemon -- --ignored --nocapture` (line tables name inlined frames).
 
-// The baseline's `json!` has more keys than the default limit expands, as in `lib.rs`.
-#![recursion_limit = "256"]
 #![cfg(unix)]
 
 #[path = "support/chat_size_seed.rs"]
 mod chat_size_seed;
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_GOD_SHAPES",
-    "ACPMUX_GOD_SCALE",
-    // The chat size sweep's sizes (`chat_size_sweep`).
-    "ACPMUX_CHAT_SIZES",
-    "ACPMUX_CHAT_SIM_BIN",
-    // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
-    "FAST_CHECKS_OUT",
-    "ACPMUX_GOD_DHAT",
-    "ACPMUX_GOD_DHAT_TOP",
-    // A control artifact for differential runs; the child still uses the hermetic environment.
-    "ACPMUX_GOD_DAEMON_BIN",
-    // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
-    "ACPMUX_GOD_PEER_ROW_BATCHES",
-    // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
-    "ACPMUX_CHURN_ROWS",
-    "ACPMUX_CHURN_SECS",
-    "ACPMUX_CHURN_EVERY_MS",
-    "ACPMUX_CHURN_CPUS",
-    "ACPMUX_CHURN_BUSY",
-    "ACPMUX_CHURN_FOLLOW",
-    "ACPMUX_CHURN_ARENAS",
-    // The growth lab's knobs (`god_daemon/growth.rs`).
-    "ACPMUX_GROWTH_SECS",
-    "ACPMUX_GROWTH_ROWS",
-    "ACPMUX_GROWTH_STABLE",
-    "ACPMUX_GROWTH_CHURN",
-    "ACPMUX_GROWTH_SSH_DOWN",
-    "ACPMUX_GROWTH_CUT_MS",
-    "ACPMUX_GROWTH_CHATS",
-    "ACPMUX_GROWTH_CLIENTS",
-    "ACPMUX_GROWTH_CLIENT_MS",
-    "ACPMUX_GROWTH_SLOW",
-    "ACPMUX_GROWTH_STACKS",
-]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use acpmux::chat_size_fixture;
 /// The growth lab: a daemon with many sessions under a mesh of peers that come and go.
@@ -1790,7 +1752,7 @@ fn pin_process(pid: u32, cpus: usize) {
 /// (a starved daemon, as at a load average of 125-256 on Leo's Mac); the peer runs free.
 /// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
 /// Manual, on Linux CI:
-/// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+/// `cargo test -p acpmux --release --test acpmux_all whole_lists -- --ignored --nocapture`.
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual: a churn lab; run on Linux CI"]
@@ -2585,7 +2547,7 @@ fn size_ratios(base: &Value, size: &Value) -> (Value, Option<(String, f64)>) {
 /// The sweep: `CHAT-SIZE {...}` per size, `CHAT-SIZE-RATIO {...}` per size against the first,
 /// and `infinite_chat_size_ratio_max <ratio> <key> <size>` (the daemon's part of the goal).
 /// Manual, on Linux CI (release): `ACPMUX_CHAT_SIZES=1M,100M,1G,4G cargo test -p acpmux --release
-/// --test god_daemon chat_size_sweep -- --ignored --nocapture`.
+/// --test acpmux_all chat_size_sweep -- --ignored --nocapture`.
 #[test]
 #[ignore = "manual: writes chats up to 4 GB; run on Linux CI"]
 fn chat_size_sweep() {

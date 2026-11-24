@@ -23,7 +23,7 @@
 //! that grows: its end bytes grow with the run.
 //! Manual, on Linux CI:
 //! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
-//! --features dhat-heap --test god_daemon growth -- --ignored --nocapture`.
+//! --features dhat-heap --test acpmux_all growth -- --ignored --nocapture`.
 
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

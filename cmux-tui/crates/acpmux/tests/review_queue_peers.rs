@@ -2,11 +2,6 @@
 //! read on either lists the other's asks once, tagged with its `host`, and never loops. An
 //! answer on B lands in B's audit trail (`_acpmux/audit`), not A's.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

@@ -7,11 +7,6 @@
 //! The marker is shown (`cmuxVm`). Each hub reads the marker under its own
 //! folder (`Hub::set_vm_marker_root`).
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// No agent starts here.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

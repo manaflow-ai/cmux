@@ -6,9 +6,7 @@
 //! such a home, through its socket.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
+use crate::daemon_env;
 /// The benchmarks' bounds, sizes and optional executable path, never credentials.
 /// The hermetic re-start keeps only these, so `env_or` refuses any other name.
 const BENCH_VARS: &[&str] = &[
@@ -368,7 +366,7 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
 }
 
 /// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
-/// `cargo test -p acpmux --test daemon_memory idle_session_resident_memory_benchmark --
+/// `cargo test -p acpmux --test acpmux_all idle_session_resident_memory_benchmark --
 /// --ignored --exact --nocapture --test-threads=1`.
 /// `ACPMUX_MEMORY_BENCH_BINARY=/absolute/path/to/acpmux` selects another build while the
 /// harness and its fixture stay identical. The environment remains hermetic and denies agents.

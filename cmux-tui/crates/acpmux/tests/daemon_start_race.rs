@@ -2,9 +2,7 @@
 //! the winner's endpoint and close its readiness pipe, including during startup.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

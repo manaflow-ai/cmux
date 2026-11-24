@@ -2,7 +2,7 @@
 //! chat-history-search: at most 150 ms p95 per keystroke). Ignored by `cargo test`; the perf cron's
 //! chat-search Linux part runs it:
 //!
-//!   cargo test --release -p acpmux --test chats_search_bench -- --ignored --nocapture
+//!   cargo test --release -p acpmux --test acpmux_all chats_search_bench -- --ignored --nocapture
 //!
 //! `chats/text_scale_bench_tests.rs` times the text index alone on small chats at 1k to 500k
 //! chats. This bench times what the page waits for, through the daemon's protocol, on stores the
@@ -28,12 +28,6 @@
 //!
 //! Its lines, beside the human ones: `PERF_ROW {"name":"chat_search.keystroke",...}` and the two
 //! report-only rows; the cron stores them as `webui.chat_search.*`.
-
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent; it keeps only its own size knobs.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["CHAT_SEARCH_BENCH_CHATS", "CHAT_SEARCH_BENCH_MIB"]);
 
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};

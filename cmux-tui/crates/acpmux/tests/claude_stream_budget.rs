@@ -9,10 +9,7 @@
 //! Linux only (it reads /proc).
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The stand-in Claude Code is this test's agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::json;
 use std::collections::HashMap;

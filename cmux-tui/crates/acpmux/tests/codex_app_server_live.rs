@@ -5,18 +5,13 @@
 //!
 //! ```text
 //! ACPMUX_CODEX_LIVE=/path/to/codex CODEX_HOME=/path/to/home \
-//!   cargo test -p acpmux --test codex_app_server_live -- --test-threads 3
+//!   cargo test -p acpmux --test acpmux_all codex_app_server_live -- --test-threads 3
 //! ```
 //!
 //! Without ACPMUX_CODEX_LIVE each test says so and passes (CI has no model).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Live by design (only with ACPMUX_CODEX_LIVE): the real codex it names and
-// the CODEX_HOME that reaches a model are kept; nothing else of the host.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_CODEX_LIVE", "CODEX_HOME"]);
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

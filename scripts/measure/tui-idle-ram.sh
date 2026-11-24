@@ -14,7 +14,7 @@
 #     (latency_n=300, latency_cli_n=40, latency_scenarios=small,scale), each line printed as
 #     `TUI-LATENCY <sha12> <round> PERF-DAEMON ...`;
 #   - acpmux, an agent prompt's send to first token, cold (agent start + send) and warm (send): the commit's own
-#     `cargo test --release -p acpmux --test start_under_load_bench` at no load (acpmux_samples=30; acpmux=0 skips
+#     `cargo test --release -p acpmux --test acpmux_all` at no load (acpmux_samples=30; acpmux=0 skips
 #     it), each summary line printed as `TUI-ACPMUX <sha12> <round> ...`.
 set -uo pipefail
 # The whole output also goes to $FAST_CHECKS_OUT/tui-idle-ram.log, the file `cmux-bench tui-idle` reads back
@@ -130,7 +130,7 @@ for sha in ${shas[@]+"${shas[@]}"}; do
   timed+=("${full:0:12}|$tree|$CARGO_TARGET_DIR_RELEASE")
   if [[ "$latency" == 1 && "$acpmux" == 1 ]]; then
     (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$CARGO_TARGET_DIR_RELEASE" cargo test --locked --profile "$profile" -p acpmux \
-      --test start_under_load_bench --no-run 2>&1 | tail -n 2) || { echo "TUI-ACPMUX-ERROR ${full:0:12}: the bench did not build"; status=1; }
+      --test acpmux_all --no-run 2>&1 | tail -n 2) || { echo "TUI-ACPMUX-ERROR ${full:0:12}: the bench did not build"; status=1; }
   fi
   for (( run = 1; run <= runs; run++ )); do
     python3 "$here/tui-idle-ram.py" --tui "$out/cmux-tui" --workspaces "$workspaces" --settle "$settle" --label "${full:0:12}-r$run" || status=1
@@ -172,7 +172,7 @@ if [[ "$latency" == 1 ]]; then
         | grep '^PERF-DAEMON' | sed "s/^/TUI-LATENCY $sha12 $round /" || status=1
       if [[ "$acpmux" == 1 ]]; then
         (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$target" START_BENCH_LOAD=1 START_BENCH_SAMPLES="$acpmux_samples" \
-          cargo test --locked --profile "$profile" -p acpmux --test start_under_load_bench -- --ignored --nocapture 2>&1) \
+          cargo test --locked --profile "$profile" -p acpmux --test acpmux_all start_under_load_bench -- --ignored --nocapture 2>&1) \
           | grep -E '^  (cold|warm) ' | sed "s/^ */TUI-ACPMUX $sha12 $round /" || status=1
       fi
     done

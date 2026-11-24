@@ -67,7 +67,7 @@ run_tui_core_lib() {
 }
 
 run_acpmux_test() {
-  run cargo test --profile gate -p acpmux --test v2_connection "$1" -- --ignored --nocapture --test-threads=1
+  run cargo test --profile gate -p acpmux --test acpmux_all "$1" -- --ignored --nocapture --test-threads=1
 }
 
 # The gate lines are in v2-gates.d, one file per row of the design doc's PR table:

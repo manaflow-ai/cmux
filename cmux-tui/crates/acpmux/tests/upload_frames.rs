@@ -5,11 +5,6 @@
 //! the peer. The 2 GB file: `prompt_uploads_large.rs`.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
-
 #[path = "support/app_ws.rs"]
 mod app_ws;
 

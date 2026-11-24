@@ -15,10 +15,7 @@
 //! harness from the model picker while NIGHTLY showed it).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent; `harness add` only writes a file.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 use serde_json::Value;

@@ -2,9 +2,7 @@
 //! envelope. The pair endpoint is a loopback-only fake; no cloud is contacted.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use serde_json::Value;
 use std::fs;

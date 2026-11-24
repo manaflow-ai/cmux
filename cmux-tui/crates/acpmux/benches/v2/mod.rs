@@ -1245,7 +1245,7 @@ mod tests {
             "}",
             "",
             "run_connection() {",
-            "  run cargo test --profile gate -p acpmux --test v2_connection \"$1\" -- --ignored",
+            "  run cargo test --profile gate -p acpmux --test acpmux_all v2_connection \"$1\" -- --ignored",
             "}",
             "",
             "gates() {",

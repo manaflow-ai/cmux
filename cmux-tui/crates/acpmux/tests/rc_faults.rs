@@ -8,20 +8,12 @@
 //!   retried until the store logs again (`Hub::reach_broken_link`).
 //!
 //! ```text
-//! cargo test -p acpmux --test rc_faults -- --nocapture --include-ignored   # CMUX_FAULT_RUNS (20)
-//! CMUX_FAULT_SEED=3 cargo test -p acpmux --test rc_faults disk_full -- --nocapture --include-ignored
+//! cargo test -p acpmux --test acpmux_all rc_faults -- --nocapture --include-ignored   # CMUX_FAULT_RUNS (20)
+//! CMUX_FAULT_SEED=3 cargo test -p acpmux --test acpmux_all disk_full -- --nocapture --include-ignored
 //! ```
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Stand-in agents (tests/fake_agent.py); the fault harness reads its seeds from these.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "CMUX_FAULT_RUNS",
-    "CMUX_FAULT_SEED",
-    "CMUX_FAULT_SEED_BASE",
-    "CMUX_FAULT_PARALLEL",
-]);
+use crate::daemon_env;
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
@@ -262,7 +254,7 @@ fn prompt(session: &str, text: &str) -> Value {
 /// link is retried with a backoff until the store logs again (`Hub::reach_broken_link`).
 #[test]
 fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
-    let replay = "cargo test -p acpmux --test rc_faults disk_full";
+    let replay = "cargo test -p acpmux --test acpmux_all disk_full";
     Runs::new("disk-full mid-turn", replay).at_most_parallel(4).run(|seed, trace| {
         let mut rng = Rng::new(seed);
         let full = *rng.pick(&[Full::NoSpace, Full::Quota]);

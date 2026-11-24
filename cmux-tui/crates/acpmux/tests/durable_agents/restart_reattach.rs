@@ -338,7 +338,7 @@ async fn a_host_that_ends_before_adoption_settles_its_chat() {
 }
 
 /// Same workload before/after: 300 stored chats, 25 actual hosted agents. Run explicitly on
-/// the Linux pool with `--test durable_agents startup_latency_300_chats -- --ignored --nocapture`.
+/// the Linux pool with `--test acpmux_all startup_latency_300_chats -- --ignored --nocapture`.
 /// No injected delays: these timings measure filesystem checks, log scans and adoption.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "startup performance harness; run on the Linux pool"]

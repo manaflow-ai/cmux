@@ -1,9 +1,7 @@
 //! The Cloud bridge distinguishes an unavailable daemon from an old daemon.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::path::Path;

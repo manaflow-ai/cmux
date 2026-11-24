@@ -41,15 +41,8 @@
 //! the oracle reports it.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Stand-in agents (tests/fake_agent.py). The step key and the two fuzz variables select the run;
-// none holds a credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "CMUX_CI_STEP_KEY",
-    "ACPMUX_FUZZ_SEED",
-    "ACPMUX_FUZZ_ROUNDS",
-]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};

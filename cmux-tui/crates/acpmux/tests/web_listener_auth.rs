@@ -4,11 +4,6 @@
 //! dashboard or the WebSocket protocol starts. The token comes only from a
 //! header (`server/ws_auth.rs`), never the URL.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::server::{AGENT_PANE_ORIGIN, bind_ws, bind_ws_with, serve_ws};

@@ -126,7 +126,7 @@ if [[ "$bench" == daemon ]]; then
   perf() {
     local label="$1" tree="$2" log="$work/perf-$1.log" code=0 result=ok
     (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" cargo test --release --locked \
-      -p acpmux --test perf_ops -- --nocapture 2>&1) | tee "$log" \
+      -p acpmux --test acpmux_all perf_ops -- --nocapture 2>&1) | tee "$log" \
       | sed -n "s/^\(ACPMUX-PERF[A-Z-]*\) /\1 $label /p;/^over the daemon budgets: \[/,/^]/p" || code=$?
     if (( code != 0 )); then
       # perf_ops asserts its budgets last: the panic payload `over the daemon budgets: [...]` starts a line

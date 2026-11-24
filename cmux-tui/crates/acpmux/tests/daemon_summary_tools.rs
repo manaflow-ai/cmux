@@ -1,5 +1,5 @@
 //! Reproducible list benchmark; run the identical file on base and head on Linux CI:
-//! `cargo test -p acpmux --test daemon_summary_tools -- --ignored --nocapture`
+//! `cargo test -p acpmux --test acpmux_all daemon_summary_tools -- --ignored --nocapture`
 //! Each endpoint gets a fresh daemon and Python JSON consumer. The consumer holds
 //! one complete wire reply and its parsed tree. Its RSS is NOT browser/page RSS.
 //! Output: one `acpmux-summary-tools: {JSON}` record per endpoint, all sizes in bytes.
@@ -7,11 +7,7 @@
 //! for scripts/gallery-matrix/summary-tools-memory.mjs (actual Chromium page RSS).
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// Synthetic artifact destination; contains no account credentials.
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::deny().keep(&["ACPMUX_SUMMARY_TOOLS_OUTPUT"]);
+use crate::daemon_env;
 
 use serde_json::json;
 use std::io::{BufRead, BufReader};

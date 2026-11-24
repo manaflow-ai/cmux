@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "tmux for ACP agents: a headless session multiplexer daemon and CLI (its TUI: the acpmux-tui crate)"
 license.workspace = true
 publish.workspace = true
+# All ordinary integration tests share one harness so Cargo links acpmux once.
+autotests = false
 readme = "README.md"
 repository = "https://github.com/manaflow-ai/cmux"
 homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/crates/acpmux"
@@ -293,6 +295,311 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 [target.'cfg(unix)'.dev-dependencies]
 # The share host's device channel test seals a relay secret as a viewer does (`share_host/tests.rs`).
 hpke = { version = "0.13", default-features = false, features = ["alloc", "p256"] }
+
+[[test]]
+name = "acpmux_all"
+path = "tests/acpmux_all.rs"
+
+[[test]]
+name = "admission_redirect"
+path = "tests/admission_redirect.rs"
+
+[[test]]
+name = "admission_subsessions"
+path = "tests/admission_subsessions.rs"
+
+[[test]]
+name = "agent_displays"
+path = "tests/agent_displays.rs"
+
+[[test]]
+name = "agent_tools"
+path = "tests/agent_tools.rs"
+
+[[test]]
+name = "cache_compact"
+path = "tests/cache_compact.rs"
+
+[[test]]
+name = "carrier_faults"
+path = "tests/carrier_faults.rs"
+
+[[test]]
+name = "chat_fork"
+path = "tests/chat_fork.rs"
+
+[[test]]
+name = "chats_window_owned"
+path = "tests/chats_window_owned.rs"
+
+[[test]]
+name = "claude_plugin_dirs_env"
+path = "tests/claude_plugin_dirs_env.rs"
+
+[[test]]
+name = "complete_rpc"
+path = "tests/complete_rpc.rs"
+
+[[test]]
+name = "fix_from_link"
+path = "tests/fix_from_link.rs"
+
+[[test]]
+name = "full_access_managed"
+path = "tests/full_access_managed.rs"
+
+[[test]]
+name = "full_access_resume"
+path = "tests/full_access_resume.rs"
+
+[[test]]
+name = "full_access_setting"
+path = "tests/full_access_setting.rs"
+
+[[test]]
+name = "full_access_subsessions"
+path = "tests/full_access_subsessions.rs"
+
+[[test]]
+name = "github_app_token"
+path = "tests/github_app_token.rs"
+
+[[test]]
+name = "github_broker"
+path = "tests/github_broker.rs"
+
+[[test]]
+name = "harness_admin_origin"
+path = "tests/harness_admin_origin.rs"
+
+[[test]]
+name = "harness_admin_rpc"
+path = "tests/harness_admin_rpc.rs"
+
+[[test]]
+name = "harness_watch_follow_paths"
+path = "tests/harness_watch_follow_paths.rs"
+
+[[test]]
+name = "hunk_summary_rpc"
+path = "tests/hunk_summary_rpc.rs"
+
+[[test]]
+name = "launch_credential"
+path = "tests/launch_credential.rs"
+
+[[test]]
+name = "login_env_background_job"
+path = "tests/login_env_background_job.rs"
+
+[[test]]
+name = "login_env_child_plan"
+path = "tests/login_env_child_plan.rs"
+
+[[test]]
+name = "login_env_no_output"
+path = "tests/login_env_no_output.rs"
+
+[[test]]
+name = "login_env_startup_retry"
+path = "tests/login_env_startup_retry.rs"
+
+[[test]]
+name = "lost_home_writes"
+path = "tests/lost_home_writes.rs"
+
+[[test]]
+name = "machine_health"
+path = "tests/machine_health.rs"
+
+[[test]]
+name = "model_races"
+path = "tests/model_races.rs"
+
+[[test]]
+name = "model_races_peer"
+path = "tests/model_races_peer.rs"
+
+[[test]]
+name = "peer_degraded"
+path = "tests/peer_degraded.rs"
+
+[[test]]
+name = "peer_long_turn"
+path = "tests/peer_long_turn.rs"
+
+[[test]]
+name = "plan_build"
+path = "tests/plan_build.rs"
+
+[[test]]
+name = "probe_cwd"
+path = "tests/probe_cwd.rs"
+
+[[test]]
+name = "prompt_uploads_large"
+path = "tests/prompt_uploads_large.rs"
+
+[[test]]
+name = "routes_account_home"
+path = "tests/routes_account_home.rs"
+
+[[test]]
+name = "routes_cloud_gateway"
+path = "tests/routes_cloud_gateway.rs"
+
+[[test]]
+name = "routes_codex_login"
+path = "tests/routes_codex_login.rs"
+
+[[test]]
+name = "routes_codex_shadow"
+path = "tests/routes_codex_shadow.rs"
+
+[[test]]
+name = "routes_file_secret"
+path = "tests/routes_file_secret.rs"
+
+[[test]]
+name = "routes_rpc"
+path = "tests/routes_rpc.rs"
+
+[[test]]
+name = "routing_env"
+path = "tests/routing_env.rs"
+
+[[test]]
+name = "send_attach_family"
+path = "tests/send_attach_family.rs"
+
+[[test]]
+name = "session_lineage"
+path = "tests/session_lineage.rs"
+
+[[test]]
+name = "session_mcp_servers"
+path = "tests/session_mcp_servers.rs"
+
+[[test]]
+name = "session_new_worktree"
+path = "tests/session_new_worktree.rs"
+
+[[test]]
+name = "settings_watch_follow_paths"
+path = "tests/settings_watch_follow_paths.rs"
+
+[[test]]
+name = "start_mode_settings"
+path = "tests/start_mode_settings.rs"
+
+[[test]]
+name = "start_mode_settings_watch"
+path = "tests/start_mode_settings_watch.rs"
+
+[[test]]
+name = "subsession_cwd_swap"
+path = "tests/subsession_cwd_swap.rs"
+
+[[test]]
+name = "subsession_fork"
+path = "tests/subsession_fork.rs"
+
+[[test]]
+name = "subsession_runs"
+path = "tests/subsession_runs.rs"
+
+[[test]]
+name = "subsession_trust"
+path = "tests/subsession_trust.rs"
+
+[[test]]
+name = "subsession_trust_inherit"
+path = "tests/subsession_trust_inherit.rs"
+
+[[test]]
+name = "subsession_working"
+path = "tests/subsession_working.rs"
+
+[[test]]
+name = "subsessions"
+path = "tests/subsessions.rs"
+
+[[test]]
+name = "subsessions_delivery"
+path = "tests/subsessions_delivery.rs"
+
+[[test]]
+name = "subsessions_questions"
+path = "tests/subsessions_questions.rs"
+
+[[test]]
+name = "subsessions_safety"
+path = "tests/subsessions_safety.rs"
+
+[[test]]
+name = "subsessions_worktree"
+path = "tests/subsessions_worktree.rs"
+
+[[test]]
+name = "tool_inventory"
+path = "tests/tool_inventory.rs"
+
+[[test]]
+name = "trust_canonical"
+path = "tests/trust_canonical.rs"
+
+# These set process variables of their own (`Process::with_env` in their HERMETIC), which the
+# shared process of acpmux_all cannot.
+[[test]]
+name = "agent_host"
+path = "tests/agent_host.rs"
+
+[[test]]
+name = "cpu_class"
+path = "tests/cpu_class.rs"
+
+[[test]]
+name = "dispatch_last_resort"
+path = "tests/dispatch_last_resort.rs"
+
+[[test]]
+name = "peer_admission_origin"
+path = "tests/peer_admission_origin.rs"
+
+[[test]]
+name = "peer_dispatch_origin"
+path = "tests/peer_dispatch_origin.rs"
+
+[[test]]
+name = "peer_request_deadlines"
+path = "tests/peer_request_deadlines.rs"
+
+[[test]]
+name = "peer_status"
+path = "tests/peer_status.rs"
+
+[[test]]
+name = "remote_sandbox"
+path = "tests/remote_sandbox.rs"
+
+[[test]]
+name = "session_control_peer_cli"
+path = "tests/session_control_peer_cli.rs"
+
+# Sign-in hot-module tests mutate the running module's process-wide state.
+[[test]]
+name = "agent_login"
+path = "tests/agent_login.rs"
+
+# Windows daemon tests own process-wide handles and environment.
+[[test]]
+name = "windows_daemon"
+path = "tests/windows_daemon.rs"
+
+# Hub protocol integration tests share their own process because they use a dedicated helper root.
+[[test]]
+name = "hub_integration"
+path = "tests/hub_integration.rs"
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]

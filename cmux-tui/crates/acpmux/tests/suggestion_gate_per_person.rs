@@ -9,10 +9,7 @@
 //! their person key), B a peer A links to. A chat on B is reached through A.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agent under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};

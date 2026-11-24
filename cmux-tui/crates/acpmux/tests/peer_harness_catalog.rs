@@ -1,10 +1,6 @@
 //! Chief placement reads the selected machine's catalog and cached sign-in
 //! status without forwarding controls or exposing a second hop through a peer.
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
-
 use acpmux::config::{Config, StoreMode};
 use acpmux::harness_health::Settings;
 use acpmux::hub::Hub;

@@ -5,10 +5,7 @@
 //! before a daemon is reached: an expired ticket fails here with no daemon.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::io::Write;
 use std::process::{Output, Stdio};

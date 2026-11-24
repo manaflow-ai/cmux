@@ -2,9 +2,8 @@
 //! coordinator chat waits on a session it did not start and reads its reply, stops that session's
 //! running turn, and is refused its own chat and a name that is no session.
 #![cfg(unix)]
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::HERMETIC;
+use crate::daemon_env;
 #[allow(dead_code)]
 #[path = "durable_watch_lifecycle/daemon.rs"]
 mod daemon;

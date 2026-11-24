@@ -1,7 +1,4 @@
 //! A peer gets the liveness class, but no diagnostic text or timestamp.
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_text::masked;
 use serde_json::{Value, json};

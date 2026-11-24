@@ -7,9 +7,8 @@
 // log load exists only with debug assertions.
 #![cfg(all(unix, debug_assertions))]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::HERMETIC;
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};

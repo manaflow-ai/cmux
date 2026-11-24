@@ -2,10 +2,7 @@
 //! saved token from a build that sent it there is rotated once.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use acpmux::config::{Config, PeerConfig, StoreMode, WebSocketConfig};
 use acpmux::hub::Hub;

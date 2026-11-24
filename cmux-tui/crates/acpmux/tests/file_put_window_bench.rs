@@ -8,19 +8,11 @@
 //! and streaming ticks while the uploads run (the round-trip audit's duress, fewer turns).
 //! Env: `FPW_BYTES` (2097152,104857600), `FPW_PROFILES` (lte,lossy-3), `FPW_LOADS` (idle),
 //! `FPW_WINDOWS` (1,8), `FPW_RUNS` (3).
-//! `cargo test --release -p acpmux --test file_put_window_bench -- --ignored --nocapture`
+//! `cargo test --release -p acpmux --test acpmux_all file_put_window_bench -- --ignored --nocapture`
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "FPW_BYTES",
-    "FPW_PROFILES",
-    "FPW_LOADS",
-    "FPW_WINDOWS",
-    "FPW_RUNS",
-    "FPW_DURESS_TURNS",
-]);
+use crate::HERMETIC;
+use crate::daemon_env;
 
 #[path = "support/app_ws.rs"]
 mod app_ws;

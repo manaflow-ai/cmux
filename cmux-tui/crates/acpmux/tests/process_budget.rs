@@ -15,10 +15,7 @@
 //! chat; this one holds every process).
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// The daemon this test starts runs tests/fake_agent.py only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};

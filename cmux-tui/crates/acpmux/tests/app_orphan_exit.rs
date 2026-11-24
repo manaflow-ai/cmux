@@ -8,10 +8,7 @@
 //! app answers or only quit (NIGHTLY), and any daemon off macOS, keep serving.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process starts no agent.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::io::{BufRead, BufReader};
 #[cfg(target_os = "macos")]

@@ -5,10 +5,7 @@
 //! Leo, 2026-11-07: "Why does it say it's self-declared if we can just detect the thing?"
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+use crate::daemon_env;
 
 use serde_json::{Value, json};
 use std::fs;
@@ -55,7 +52,14 @@ struct Shutdown<'a>(&'a Path);
 
 impl Drop for Shutdown<'_> {
     fn drop(&mut self) {
-        let _ = cli(self.0, &["daemon", "shutdown", "--end-agents"]);
+        // Cleanup must never panic: a panic here during unwinding aborts the whole shared
+        // `acpmux_all` process.
+        let mut cmd = daemon_env::command(self.0, daemon_env::Agents::StandIn, &[]);
+        cmd.args(["daemon", "shutdown", "--end-agents"])
+            .env("ACPMUX_HOME", self.0)
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .current_dir(self.0.join("p"));
+        let _ = cmd.output();
         let _ = fs::remove_dir_all(self.0);
     }
 }

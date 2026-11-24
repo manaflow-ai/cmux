@@ -1,9 +1,7 @@
 //! Binding the Unix socket must not wait for the journal's writer or replay.
 #![cfg(unix)]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+use crate::daemon_env;
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Stdio};

@@ -69,7 +69,7 @@
 //!
 //! ```text
 //! cmux-ci test --route fleet -- 'cd cmux-tui && ACPMUX_DURESS=1 cargo test -p acpmux --release \
-//!   --test duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
+//!   --test acpmux_all duress_daemon -- --ignored --nocapture duress_bench legs=relay,bigchat'
 //! ```
 //!
 //! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a
@@ -85,40 +85,10 @@
 //! matches nothing, so `duress_bench` must be named with it.)
 #![cfg(target_os = "linux")]
 
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
+use crate::daemon_env;
 // host150, peerscale and the measures every leg's row gains (presence gap, links, notices, spawns).
 #[path = "support/duress_host150.rs"]
 mod host150;
-// The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_DURESS",
-    "ACPMUX_DURESS_LEGS",
-    "ACPMUX_DURESS_SECS",
-    "ACPMUX_DURESS_CAP_SECS",
-    "ACPMUX_DURESS_CPU_X",
-    "ACPMUX_DURESS_SESSIONS",
-    "ACPMUX_DURESS_N",
-    "ACPMUX_DURESS_PEERS",
-    "ACPMUX_DURESS_MEMORY_HIGH",
-    "ACPMUX_DURESS_STARVE_CORES",
-    "ACPMUX_DURESS_STARVE_X",
-    "ACPMUX_DURESS_STARVE_IDLE",
-    "ACPMUX_DURESS_STARVE_MEMORY_HIGH",
-    "ACPMUX_DURESS_STARVE_CPU_MAX",
-    "ACPMUX_DURESS_STARVE_DELAY_MS",
-    "ACPMUX_DURESS_STARVE_JITTER_MS",
-    "ACPMUX_DURESS_STARVE_STALL_MS",
-    "ACPMUX_DURESS_STARVE_STALL_EVERY_S",
-    // The commit under test, when the runner names it (else `git rev-parse HEAD`).
-    "GITHUB_SHA",
-    // The fleet's output directory, not a credential.
-    "FAST_CHECKS_OUT",
-    "ACPMUX_DURESS_BIG_RECORDS",
-    // How `systemd-run --user` reaches the user's manager, for the bigchat leg's memory ceiling.
-    "XDG_RUNTIME_DIR",
-    "DBUS_SESSION_BUS_ADDRESS",
-]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::god_fixture;

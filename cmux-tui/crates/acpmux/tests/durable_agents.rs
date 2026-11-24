@@ -22,8 +22,7 @@ mod carried_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/credential_restart.rs"]
 mod credential_restart;
-#[path = "support/daemon_env.rs"]
-mod daemon_env;
+use crate::daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
 #[path = "durable_agents/handoff_gap.rs"]
@@ -76,20 +75,6 @@ mod translator_panic;
 mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
 mod update_tool_call;
-// This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
-// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
-    "ACPMUX_REATTACH_LIVE",
-    "ACPMUX_REATTACH_IDLE",
-    "ACPMUX_REATTACH_CLOSED",
-    "ACPMUX_REATTACH_RECORDS",
-    "ACPMUX_REATTACH_SCAN_DELAY_MS",
-    "ACPMUX_REATTACH_BUDGET_MS",
-    "ACPMUX_REATTACH_OPEN_BUDGET_MS",
-    "ACPMUX_IDLE_SUBS",
-    "ACPMUX_IDLE_SUBS_WINDOW_S",
-    "ACPMUX_IDLE_SUBS_OUT",
-]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
