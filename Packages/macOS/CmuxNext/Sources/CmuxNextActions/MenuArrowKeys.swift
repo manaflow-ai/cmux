@@ -2,7 +2,8 @@
 public import AppKit
 
 /// The arrow keys a person presses to reach a row of an open menu (`debug.object_menu`'s `folders` and `choose`).
-public enum MenuArrowKeys {
+public struct MenuArrowKeys {
+    public init() {}
     /// The key codes that open `folders` in turn from `top`: Down (125) to each folder's row, then Right (124).
     /// Arrow keys move over enabled, shown rows (an alternate row shares its primary's place; a section header,
     /// such as cmux > Customizations' Experiments and Labs titles, is never highlighted). Nothing is highlighted
