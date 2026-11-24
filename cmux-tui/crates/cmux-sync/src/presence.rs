@@ -1,6 +1,6 @@
 //! Who's here: people and agents, on which devices, active or not, in which scope.
 //!
-//! Discord's gateway presence, small: each device of each member sends a [`Beat`] every few seconds
+//! Chat-gateway presence, small: each device of each member sends a [`Beat`] every few seconds
 //! (a heartbeat carrying its status), the table keeps the newest per (member, device), and a device
 //! that stops beating is gone after [`Presence::ttl_ms`]. Nothing is persisted: a restart starts
 //! empty and fills within one beat interval. A beat has a per-device sequence number, so the same
@@ -128,7 +128,7 @@ pub struct Presence {
 
 impl Default for Presence {
     fn default() -> Self {
-        // Beats every 10 s; three missed is gone, as Discord's gateway closes a session that misses
+        // Beats every 10 s; three missed is gone, as a chat gateway closes a session that misses
         // its heartbeat ack. Idle at 2 minutes and away at 10, as chat apps do.
         Self {
             ttl_ms: 30_000,

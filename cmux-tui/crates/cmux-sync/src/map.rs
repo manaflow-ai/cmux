@@ -4,8 +4,8 @@
 //! Each key holds one [`Entry`]: its value (or a tombstone), the [`Stamp`] of the edit that wrote it
 //! and that edit's [`Dot`]. Merging two entries keeps the greater stamp, which is commutative,
 //! associative and idempotent: replicas may exchange [`Delta`]s in any order, any number of times,
-//! through any path (Mac -> VM -> phone, or straight), and end equal. This is Figma's
-//! property-level last-writer-wins without the need for its server to be up: the server (here, the
+//! through any path (Mac -> VM -> phone, or straight), and end equal. This is
+//! property-level last-writer-wins without the need for a server to be up: the server (here, the
 //! chat's home daemon) still acks edits, and [`Replica::pending`] counts the local edits it has not
 //! acked yet, which is what "offline, 3 changes waiting" shows.
 //!
