@@ -7,8 +7,8 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, move_words, pause_words,
-    plan_of, takes, tool_event,
+    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, move_outcome, move_words,
+    pause_words, plan_of, takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -292,4 +292,21 @@ fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready()
         driver.did,
         ["create", "show booting", "show ready", "show moving", "move", "show live"]
     );
+}
+
+#[test]
+fn a_move_refused_for_the_login_leaves_the_chat_here_with_the_reason() {
+    // The app's Move to Cloud refuses when the owner's chosen login cannot be read; its reason
+    // names the step and the cause, and is not one to try again.
+    let reason = "reading the agent login for the move: the keychain item is missing";
+    let refused = move_outcome(Err(json!({"code": "cloud_move.login", "message": reason})));
+    assert_eq!(refused, Err((reason.to_owned(), false)));
+    assert_eq!(move_outcome(Ok(json!({"moved": true}))), Ok(()));
+    let mut driver = fake(vec![Event::TurnEnded, Event::MachineReady]);
+    driver.moves = VecDeque::from([refused]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud), (Home::Here, Cloud::Failed));
+    assert_eq!(state.reason.as_deref(), Some(reason));
+    assert_eq!(driver.did.iter().filter(|did| *did == "move").count(), 1);
+    assert_eq!(driver.did.last().map(String::as_str), Some("pause"));
 }

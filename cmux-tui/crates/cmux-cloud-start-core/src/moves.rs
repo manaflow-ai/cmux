@@ -8,6 +8,7 @@ pub mod autosize;
 pub mod cli;
 pub mod folder;
 pub mod ledger;
+pub mod login;
 pub mod pin;
 pub mod progress;
 pub mod seed;
