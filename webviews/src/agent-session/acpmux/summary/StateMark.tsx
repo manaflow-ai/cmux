@@ -36,9 +36,9 @@ export function StateMark({
     );
   if (mark && (state === "running" || state === "active"))
     return (
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a spinner with a spoken name, not an image file
       <span
         className={`acpmux-live-count ${className ?? ""}`}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a spinner with a spoken name, not an image file
         role="img"
         aria-label={label}
         title={label}

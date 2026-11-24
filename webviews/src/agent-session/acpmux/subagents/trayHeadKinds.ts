@@ -45,7 +45,8 @@ export function trayHead(
     items,
     finished,
     waiting,
-    working,
+    // Running work is its mark and count now, never "Running in background" (Leo, 2026-11-23).
+    working: _working,
     chatHarness,
     arm,
     separator = " · ",
