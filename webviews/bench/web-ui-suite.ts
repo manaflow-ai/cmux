@@ -76,6 +76,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // The RFD 0040 transcript replacement's named fling benchmark. It reports both the current web transcript and
+  // a plain-text floor with one schema so a future native arm can join without changing the driver.
+  {
+    name: "transcript-fling",
+    file: "transcript-fling.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
@@ -173,6 +182,16 @@ export const BENCHES: readonly Bench[] = [
     args: ["100000", "20"],
     env: { CASES: "main" },
     timeoutMs: 1_200_000,
+    ownPart: true,
+  },
+  // Ten 100-turn chats in one shared renderer against an empty one (goal memory-per-chat): renderer PSS, MB per chat
+  // and chat_pages_memory.n10.ratio_vs_empty. Linux only (/proc). perf-cron.py's web-ui-memory part runs it
+  // (`--only chat-pages-memory`).
+  {
+    name: "chat-pages-memory",
+    file: "chat-pages-memory.bench.ts",
+    args: ["10", "100"],
+    timeoutMs: 300_000,
     ownPart: true,
   },
   // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's

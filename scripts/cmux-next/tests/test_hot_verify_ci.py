@@ -227,6 +227,18 @@ class Result(unittest.TestCase):
         self.assertIn("cmux17", str(refused.exception))
         self.assertIn("timed out after 300 seconds", str(refused.exception))
         self.assertIn("plan 300", str(refused.exception))
+        self.assertIsInstance(refused.exception, hv.NoReceipt)
+
+    def test_a_tar_with_no_receipt_exits_3_so_the_workflow_looks_again(self) -> None:
+        # Run 44455465520 (#45972): the worker's GitHub read ran out of quota, its out.tar had a step.json and no
+        # receipt, and `post the look` failed hard. Exit 3 is the retryable result; a bad marker stays exit 1.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "mini", "error": "rate limit"}).encode()})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.main(argv), 3)
+            bad = self.unpacked(look_files(marker="<!-- something else -->"))
+            self.assertEqual(hv.main(["stage", str(bad)] + argv[2:]), 1)
 
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
@@ -543,7 +555,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.look_result != ''", "\n".join(block))
         step = block.index("      - name: Dispatch one more look")
         self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
-                                                  "steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}")
+                                                  "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
+                                                  "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
         again = "Dispatch one more look"
         done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
@@ -557,6 +570,19 @@ class Workflow(unittest.TestCase):
                                                         "KIND": "merge"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
+
+    def test_a_tar_with_no_receipt_marks_the_publish_job_to_look_again_once(self) -> None:
+        # Run 44455465520 (#45972): stage exits 3 for an out.tar with no receipt; the stage step turns that into
+        # again=true (the dispatch step above runs on it) on the first look, and fails on the retry (attempt 1).
+        block = self.job_block("publish")
+        stage = block.index("      - name: Unpack and stage")
+        dispatch = block.index("      - name: Dispatch one more look")
+        self.assertLess(stage, dispatch, "the dispatch step reads steps.stage.outputs.again, so it runs after stage")
+        script = "\n".join(block[stage:dispatch])
+        self.assertIn('if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then', script)
+        self.assertIn('echo "again=true" >> "$GITHUB_OUTPUT"', script)
+        self.assertIn('[[ "$rc" == 0 ]] || exit "$rc"', script)
+        self.assertIn("ATTEMPT: ${{ inputs.attempt }}", script)
 
     def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
         # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the

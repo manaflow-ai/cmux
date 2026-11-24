@@ -104,7 +104,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
     /// manual clock.
     @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
-    @ObservationIgnored var isCreationPending = false
+    @ObservationIgnored var isCreationPending = false {
+        // The browser is on its way: a load `load` kept for it starts now (``startLoadAwaitingBrowser()``).
+        didSet { if isCreationPending { startLoadAwaitingBrowser() } }
+    }
+    /// `load` gave the page an address while it had no browser and none was on its way: the load starts when one is
+    /// (``startLoadAwaitingBrowser()``), not before, since Chromium loads nothing until then.
+    @ObservationIgnored var loadAwaitsBrowser = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
@@ -494,8 +500,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // What the page area shows, and when the document takes it over, are in
     // `CEFTab+LoadingBackground`.
 
+    /// The browser of a page `load` gave an address before it had one is on its way (a pane shows the tab, or its
+    /// creation began): the load starts now, so the throbber and Stop show in the frame that shows the page.
+    /// Chromium's own load events carry it from there (`CEFTab+Events`).
+    func startLoadAwaitingBrowser() {
+        guard loadAwaitsBrowser else { return }
+        loadAwaitsBrowser = false
+        guard !isClosed, browserID == nil, let url = pendingURL, !state.isLoading else { return }
+        let id = makeNavigationID()
+        navigation = id
+        machine.apply(.started(id, url: url))
+    }
+
     func creationFailed() {
         isCreationPending = false
+        loadAwaitsBrowser = false
         agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
@@ -609,6 +628,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func load(_ url: URL) {
         guard !isClosed else { return }
         automaticDownloads.userGesture()
+        guard browserID != nil || isCreationPending else {
+            // No browser, and none on its way: a page made before any pane shows its tab (a rest on the tab, a
+            // hibernated page restored in the background, an agent's read). Chromium makes its browser when a pane
+            // shows it or an agent needs one, and loads nothing before, so a navigation started here never ended:
+            // the tab read as loading and its strip spun forever (Lawrence 2026-11-23). It keeps the address, as
+            // Chrome's unloaded tab does, and loads when its browser is on its way.
+            pendingURL = url
+            loadAwaitsBrowser = true
+            machine.apply(.addressPending(url))
+            return
+        }
+        loadAwaitsBrowser = false
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))

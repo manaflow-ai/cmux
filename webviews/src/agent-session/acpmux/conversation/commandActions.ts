@@ -893,6 +893,8 @@ const PROGRAMS: Record<string, Rule> = {
   },
   // `rg --files [path]` lists the files it would search; it searches nothing.
   rg: (args) => {
+    // `--pre CMD` runs CMD on every file: not a search.
+    if (args.some((arg) => /^--pre(?:=|$)/.test(arg))) return undefined;
     if (!args.includes("--files")) return searched(args, RG_VALUES);
     return listed(parse(args, RG_VALUES).positional[0]);
   },
@@ -942,6 +944,8 @@ const PROGRAMS: Record<string, Rule> = {
     // Only `sed -n 'x,yp' file` reads; any other sed rewrites what it reads.
     const { positional, has } = parse(args, ["-e", "-f"]);
     if (!has("-n") || has("-i", "--in-place") || args.some((arg) => arg.startsWith("-i"))) return undefined;
+    // A script that can run a command or write a file (`1e CMD`, `s/a/b/e`, `w FILE`) is not a read.
+    if (!sedPrintsOnly(args)) return undefined;
     return has("-e") ? read(positional) : read(positional.slice(1));
   },
   curl: fetched,
