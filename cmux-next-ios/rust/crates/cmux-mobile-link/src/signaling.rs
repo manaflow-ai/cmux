@@ -377,6 +377,9 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
+    /// sessions never move onto a Worker socket, nor a Worker's onto it.
+    local: std::sync::atomic::AtomicBool,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -504,6 +507,7 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            local: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -595,6 +599,19 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
+    /// no Worker, no account token (`token` is the hub's own).
+    pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
+        let client = Self::connect_in(base_url, token, crate::local::LOCAL_TEAM, device_id, None).await?;
+        client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(client)
+    }
+
+    /// Whether this socket runs to a Mac's local hub rather than the Worker.
+    pub fn is_local(&self) -> bool {
+        self.shared.local.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether `other` is a handle of this same socket.
@@ -863,6 +880,7 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),

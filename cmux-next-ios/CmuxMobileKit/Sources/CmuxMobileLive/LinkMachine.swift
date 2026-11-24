@@ -165,8 +165,8 @@ public struct LinkMachine: Sendable {
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
     /// The last dial found no way to the Mac on this network (`network_blocked`):
-    /// what to show instead of "Reconnecting…" while the quiet retries go on,
-    /// until a dial succeeds or the target or transport changes.
+    /// what the status line says (once the quiet bound passed) while the quiet
+    /// retries go on, until a dial succeeds or the target or transport changes.
     public private(set) var networkBlock: NetworkBlock?
     /// The dial whose `networkBlocked` set ``networkBlock``: a later dial that
     /// fails for another reason (no `networkBlocked` before its `dialFailed`,
@@ -486,12 +486,16 @@ extension LinkMachine.Phase {
         }
     }
 
-    /// One short line for the Mac's section header and Settings. Transport,
-    /// path, latency, and daemon failures remain available to diagnostics;
-    /// the normal UI says what the person can do next. `block`: the network
-    /// blocks the link (``LinkMachine/networkBlock``): while it is down, the
-    /// line says so and what to do, never "Reconnecting…" (the quiet retries
-    /// go on beneath it).
+    /// One short line for the Mac's section header and Settings, or nil for
+    /// nothing: a connected link and one redialing on its own say nothing
+    /// (the header keeps the Mac's name and its cached rows). "Signed out"
+    /// stays (the person signs in again); "Offline" is held by the caller
+    /// until the link has been down for the shared quiet bound
+    /// (`LiveCoordinator.statusLines`). Transport, path, latency, and daemon
+    /// failures remain available to diagnostics. `block`: the network blocks
+    /// the link (``LinkMachine/networkBlock``): while it is down, the line
+    /// says so and what to do (held by the same quiet bound), and the quiet
+    /// retries go on beneath it.
     public func statusLine(macName _: String, media _: VideoMediaState = .off, block: NetworkBlock? = nil) -> String? {
         if let block {
             switch self {
@@ -500,15 +504,11 @@ extension LinkMachine.Phase {
             }
         }
         return switch self {
-        case .idle: nil
+        case .idle, .connecting, .connected: nil
         case .macOffline: "Offline"
         case .signedOut: "Signed out"
-        case .connecting: "Reconnecting…"
-        case .connected: "Connected"
         case .waiting(_, _, let reason, _):
-            reason == LinkController.reason(LinkError(code: "offline", message: ""))
-                ? "Offline"
-                : "Reconnecting…"
+            reason == LinkController.reason(LinkError(code: "offline", message: "")) ? "Offline" : nil
         }
     }
 

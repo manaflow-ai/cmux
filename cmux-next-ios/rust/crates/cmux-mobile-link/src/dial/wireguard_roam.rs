@@ -1223,7 +1223,12 @@ pub fn rehome(client: &SignalingClient) -> usize {
     let mut moved = 0;
     for session in live() {
         let current = session.signaling();
-        if current.device_id() == client.device_id() && !current.same_socket(client) {
+        // A local hub socket and a Worker socket of one device are two
+        // routes, not a replacement: each keeps its own sessions.
+        if current.device_id() == client.device_id()
+            && !current.same_socket(client)
+            && current.is_local() == client.is_local()
+        {
             session.rehome_onto(client);
             moved += 1;
         }

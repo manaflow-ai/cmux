@@ -5,8 +5,9 @@ import Testing
 
 /// PROTOCOL.md "When no path works": a WireGuard dial that found no way to the
 /// Mac (UDP, TURN and cmux's relay all failed) fails with `network_blocked` and
-/// what each way did. The person reads what blocks it and the one thing to do,
-/// never an endless "Reconnecting…", while the quiet retries go on beneath it.
+/// what each way did. Once the link has been down for the quiet bound, the
+/// person reads what blocks it and the one thing to do, never nothing or a bare
+/// "Offline", while the quiet retries go on beneath it.
 @Suite struct NetworkBlockTests {
     /// The record as the Rust link sends it (`PathFailures::to_json`).
     private func error(_ json: String) -> LinkError { LinkError(code: LinkError.networkBlocked, message: json) }
@@ -48,7 +49,8 @@ import Testing
     @Test func theLineStaysOnTheBlockThroughTheRetriesUntilADialWorks() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
-        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == "Reconnecting…")
+        // A dial on its own says nothing.
+        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == nil)
         let block = NetworkBlock(json: #"{"udp":"blocked","turn":"no_allocation","relay":"timeout"}"#)
         // A dial that found no path: the block, then its failure (a quiet retry).
         _ = machine.handle(.networkBlocked(generation: machine.generation, block))
@@ -61,13 +63,13 @@ import Testing
         guard case .waiting = machine.phase else { Issue.record("expected a scheduled retry, got \(machine.phase)"); return }
         #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == block.statusLine)
         #expect(machine.phase.diagnosticLine(macName: "Studio", block: machine.networkBlock) == block.sentence)
-        // The scheduled retry starts: still the block, not "Reconnecting…".
+        // The scheduled retry starts: still the block, not nothing.
         _ = machine.handle(.retryDue(generation: machine.generation))
         #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == block.statusLine)
         // Another network: the dial works, and the block is gone.
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .httpsRelay))
         #expect(machine.networkBlock == nil)
-        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == nil)
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS)")
     }
 
@@ -84,7 +86,7 @@ import Testing
         // The quiet retry fails with a plain timeout: no networkBlocked before it.
         _ = machine.handle(.dialFailed(generation: machine.generation, reason: LinkError.timeoutReason))
         #expect(machine.networkBlock == nil)
-        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == nil)
     }
 
     @Test func anotherMacOrTransportForgetsTheBlock() {

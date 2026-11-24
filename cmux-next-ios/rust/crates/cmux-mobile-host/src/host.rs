@@ -278,6 +278,9 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         None
     };
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // Phones beside this Mac link through its local hub with no Worker and
+    // no internet (local_link.rs); it outlives every Worker reconnect.
+    let _local_link = crate::local_link::start(&config, &services, &mailbox).await;
     // This Mac reaching the person's other machines through the same warm
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
@@ -748,7 +751,7 @@ async fn answer_session(
             );
         },
     ));
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
