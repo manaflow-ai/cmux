@@ -11,6 +11,9 @@ use super::Origin;
 use crate::hub::Hub;
 use crate::placement::{Candidate, Work};
 use crate::rpc::RpcError;
+use cmux_host_budget::place::{
+    Asked, Headroom, HereBudget, Inputs, Override, Room, Setting, Work as BudgetWork, decide,
+};
 use serde_json::{Value, json};
 
 /// `{"work": "agent"|"build", "offInteractive": bool, "outdatedOk": bool}` →
@@ -278,6 +281,67 @@ pub(super) fn brief_work(brief: &str) -> Work {
     let text = brief.to_ascii_lowercase();
     if text.contains("capture") || text.contains("build") { Work::Build } else { Work::Agent }
 }
+
+/// `_acpmux/place_chat`: where a new chat runs when the person picked Auto in its Where menu,
+/// decided by `cmux_host_budget::place::decide` from this host's budget read now.
+pub(super) async fn place_chat(params: &Value) -> Value {
+    let here = crate::host_pressure::Meter::shared().current().await.map(|verdict| {
+        let reading = crate::host_pressure::Reading::from(&verdict);
+        let level = crate::host_pressure::level_for(&reading, crate::host_pressure::Level::Normal);
+        HereBudget { level, over: verdict.over }
+    });
+    place_chat_decision(params, here)
+}
+
+/// `{"where": "auto"|"here"|PLACE, "targets": [{"place", "headroom"}]}` and this host's budget
+/// (`None`: not read) -> the serialized `Decision`, its reason's words as `why`, and the number
+/// of `targets`. Picking Auto for this chat is the opt-in, so Auto is on for this call only.
+/// No targets (no Cloud machine, or not signed in) keeps the chat here and says why.
+pub(super) fn place_chat_decision(params: &Value, here: Option<HereBudget>) -> Value {
+    let force = match params.get("where").and_then(Value::as_str) {
+        None | Some("auto") => Override::None,
+        Some("here") => Override::Here,
+        Some(other) => Override::To(other.to_owned()),
+    };
+    let rooms: Vec<Room> = params
+        .get("targets")
+        .and_then(Value::as_array)
+        .map(|targets| targets.iter().filter_map(chat_target).collect())
+        .unwrap_or_default();
+    let count = params.get("targets").and_then(Value::as_array).map_or(0, Vec::len);
+    let setting = Setting { auto: true, ..Setting::default() };
+    let inputs =
+        Inputs { work: BudgetWork::Session, asked: Asked::Auto, here, setting: &setting, force };
+    let decision = decide(&inputs, || rooms);
+    let mut v = serde_json::to_value(&decision).unwrap_or_else(|_| json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("why".into(), json!(decision.reason.to_string()));
+        obj.insert("targets".into(), json!(count));
+    }
+    v
+}
+
+/// One `targets` entry as a place and its room: "room", "stale", `{"full": [phrases]}`, and
+/// anything else unknown (never room). An entry without a `place` name is skipped.
+fn chat_target(target: &Value) -> Option<Room> {
+    let place = target.get("place").and_then(Value::as_str)?.to_owned();
+    let headroom = match target.get("headroom") {
+        Some(Value::String(s)) if s == "room" => Headroom::Room,
+        Some(Value::String(s)) if s == "stale" => Headroom::Stale,
+        Some(Value::Object(o)) if o.contains_key("full") => Headroom::Full(
+            o.get("full")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default(),
+        ),
+        _ => Headroom::Unknown,
+    };
+    Some(Room { place, headroom })
+}
+
+#[cfg(test)]
+#[path = "place_chat_tests.rs"]
+mod place_chat_tests;
 
 #[cfg(test)]
 mod tests {

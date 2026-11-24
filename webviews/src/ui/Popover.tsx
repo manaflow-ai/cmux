@@ -56,7 +56,7 @@ export function virtualAnchor(anchor: UiAnchor) {
 export interface PopoverProps {
   open: boolean;
   /** `escape`: closed by Escape, which a dialog may read as "revert". */
-  onOpenChange(open: boolean, details?: { escape: boolean }): void;
+  onOpenChange(open: boolean, details?: { escape: boolean; outsidePress?: boolean }): void;
   /** Where it opens; it opens below. */
   anchor: UiAnchor;
   /** The accessible name of the popover (role dialog). */
@@ -64,6 +64,7 @@ export interface PopoverProps {
   /** The popup's id, which its trigger names in `aria-controls` (`usePopoverTrigger`). */
   id?: string;
   className?: string;
+  style?: React.CSSProperties;
   /** False keeps a surface on the page's own glass. */
   hostGlass?: boolean;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
@@ -74,11 +75,11 @@ export interface PopoverProps {
    *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
   flip?: UiPopupFlip;
   /** Which edge of the anchor the popover lines up with (default: its start). */
-  align?: "start" | "end";
+  align?: "start" | "center" | "end";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
-  /** Where focus goes on close (default: back to where it was). */
-  finalFocus?: React.RefObject<HTMLElement | null> | boolean;
+  /** Where focus goes on close (default: back to where it was). The callback is for web popovers. */
+  finalFocus?: React.ComponentProps<typeof BasePopover.Popup>["finalFocus"];
   /** Declarative native content. When the host is available, children are not mounted as rows. */
   native?: {
     model: NativePopupDescription;
@@ -99,6 +100,7 @@ export function Popover({
   label,
   id,
   className,
+  style,
   hostGlass = true,
   fade = false,
   side = "bottom",
@@ -131,12 +133,20 @@ export function Popover({
       onOpenChange(false, { escape: reason === "escape" });
     },
   });
-  useNativeFinalFocus(nativePopup.available && native !== undefined && open, finalFocus);
+  useNativeFinalFocus(
+    nativePopup.available && native !== undefined && open,
+    typeof finalFocus === "function" ? undefined : finalFocus,
+  );
   if (nativePopup.available && native !== undefined) return null;
   return (
     <BasePopover.Root
       open={open}
-      onOpenChange={(next, details) => onOpenChange(next, { escape: details.reason === "escape-key" })}
+      onOpenChange={(next, details) =>
+        onOpenChange(next, {
+          escape: details.reason === "escape-key",
+          outsidePress: details.reason === "outside-press",
+        })
+      }
       modal={false}
     >
       <BasePopover.Portal container={container}>
@@ -154,8 +164,10 @@ export function Popover({
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
+            style={style}
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass={hostGlass ? "popover" : undefined}
+            data-surface-role="popover"
             data-host-glass-cover={hostGlass ? "" : undefined}
             id={id}
             aria-label={label}
@@ -163,7 +175,7 @@ export function Popover({
             finalFocus={finalFocus}
           >
             {resize && (side === "top" || side === "bottom") && (
-              <PopupResizeGrips resize={resize} side={side} align={align} />
+              <PopupResizeGrips resize={resize} side={side} align={align === "end" ? "end" : "start"} />
             )}
             {fade ? (
               <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
