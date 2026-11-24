@@ -66,6 +66,7 @@ cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
+cmux-felt.workspace = true
 # The share host's verified copy of the Screen Sharing helper outside the app.
 cmux-signed-bundle.workspace = true
 cmux-tailnet = { workspace = true, optional = true }
