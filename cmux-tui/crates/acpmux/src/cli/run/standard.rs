@@ -1263,14 +1263,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let v = match resolve_id(&client, &session).await {
-                Ok(id) => {
-                    crate::cli::slow_notice::noted(
-                        "the session's details",
-                        client.request(method::MUX_INFO, json!({"sessionId": id})),
-                    )
-                    .await?
-                }
+            let v = match crate::cli::slow_notice::noted(
+                "the session's details",
+                session_info(&client, &session, false),
+            )
+            .await
+            {
+                Ok(record) => record,
                 // A row only the send relay lists: its details are the relay's row, `via: relay`.
                 Err(e) => match crate::cli::send_relay::relayed_row(&e) {
                     Some(row) => row.clone(),
