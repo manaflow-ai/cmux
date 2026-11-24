@@ -156,6 +156,12 @@ async fn session_move_is_followed_by_a_connection_attached_at_its_source() {
     let info = call(&mut rpc, &mut seen, "_acpmux/info", json!({"sessionId": id})).await;
     assert_ne!(info["status"], "closed", "the chat's own row, not its tombstone: {info}");
     assert!(info["turn"]["turnId"].is_string(), "its turn runs there: {info}");
+    // A wait for its turn to end waits on the turn there: the tombstone here is closed, and
+    // answered such a wait at once.
+    let wait = json!({"sessions": [id], "until": ["ready"], "timeoutMs": 1500});
+    let waited = call(&mut rpc, &mut seen, "_acpmux/wait", wait).await;
+    assert_eq!(waited["timedOut"], true, "its turn still runs there: {waited}");
+    assert!(waited["sessions"][0].get("peer").is_none(), "{waited}");
     let kept = call(&mut rpc, &mut seen, "_acpmux/draft_get", json!({"sessionId": id})).await;
     assert_eq!(kept["draft"], "draft at home");
     let draft = json!({"sessionId": id, "text": "draft while away"});
@@ -166,6 +172,10 @@ async fn session_move_is_followed_by_a_connection_attached_at_its_source() {
     let answer = call(&mut rpc, &mut seen, "session/prompt", prompt(&id, "p-away", "away")).await;
     assert_eq!(answer["stopReason"], "end_turn", "{answer}");
     assert_eq!(count(&direct.texts(&id, "user_message").await, "away"), 1);
+    let wait = json!({"sessions": [id], "until": ["ready"], "timeoutMs": 20000});
+    let waited = call(&mut rpc, &mut seen, "_acpmux/wait", wait).await;
+    assert_eq!(waited["timedOut"], false, "its turn ended there: {waited}");
+    assert!(waited["resolved"][0]["lastTurn"]["turnId"].is_string(), "the chat's row: {waited}");
     assert_eq!(count(&direct.texts(&id, "agent_message_chunk").await, "echo: away"), 1);
 
     // And back, under a running turn again.
