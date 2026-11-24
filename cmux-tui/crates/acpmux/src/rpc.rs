@@ -944,6 +944,8 @@ pub mod method {
     /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
     /// post a rule by key, read the current rules, ack one.
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
+    pub const MUX_FORUM_LIST: &str = "_acpmux/forum/list";
     pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
     pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
