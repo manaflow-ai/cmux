@@ -1489,6 +1489,9 @@ export class AcpmuxDirectClient {
   /// Prompt ids whose Not sent row came from the host's store (`drawUnsentRow`): a lost prompt's
   /// sender may draw the same prompt on its way over one (`drawLostPrompt`).
   private restoredUnsent = new Set<string>();
+  /// Prompt ids whose row on its way came from a lost client (`resumeCarried`): the sender that
+  /// waits for the host's resend draws it again as its own (`drawLostPrompt`), over the same row.
+  private carriedUnsent = new Set<string>();
   /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
   /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
   /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
@@ -2409,6 +2412,18 @@ export class AcpmuxDirectClient {
     for (const [key, value] of carried.optimisticPromptRows) this.optimisticPromptRows.set(key, value);
     for (const [key, value] of carried.optimisticPromptTexts) this.optimisticPromptTexts.set(key, value);
     for (const [key, value] of carried.queueAuthors) this.queueAuthors.set(key, value);
+    // A prompt still on its way when the connection went keeps its row through the reconnect
+    // (daemon-swap-graceful.test.ts): the rebuild keeps the in-flight rows this client holds, and
+    // it held none of the lost client's, so the row went at the attach and came back only once its
+    // sender drew it again after the connect, a blink on every daemon swap.
+    const carriedRows = new Map(carried.rows.map((row) => [row.id, row]));
+    for (const [promptId, rowId] of carried.optimisticPromptRows) {
+      const row = carriedRows.get(rowId);
+      if (!row?.pending) continue;
+      this.rows.set(rowId, row);
+      this.carriedUnsent.add(promptId);
+    }
+    for (const entry of carried.queue) if (entry.sending) this.carriedUnsent.add(entry.id);
     const shown: ShownRows = {
       sessionId: carried.sessionId,
       rows: carried.rows,
@@ -2433,6 +2448,19 @@ export class AcpmuxDirectClient {
     this.drawn = shown;
     // Kept through the reconnect's own rebuilds, until its attach draws (`noteReplace`).
     this.shownBefore = shown;
+  }
+
+  /// The prompts a lost client carried on their way (`resumeCarried`) on a connection whose host
+  /// keeps no journal of them (`journalsPrompts`): nobody sends them again here, and their sender
+  /// has them back already, so their rows and queue entries go.
+  private dropCarriedUnsent(): void {
+    for (const promptId of this.carriedUnsent) {
+      const rowId = this.optimisticPromptRows.get(promptId);
+      if (rowId) this.rows.delete(rowId);
+      this.optimisticPromptRows.delete(promptId);
+      this.optimisticPromptTexts.delete(promptId);
+    }
+    this.carriedUnsent.clear();
   }
 
   private async open(): Promise<void> {
@@ -6372,6 +6400,15 @@ export class AcpmuxDirectClient {
     this.usageLimitsSeq = this.limitsSeq;
     this.limitsVersion += 1;
     this.goalSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    // A prompt this pane is still sending behind the turn (`send`'s `waits`) is not acpmux's yet,
+    // so the list read below never names it: it stays in the queue, on its way, until acpmux lists
+    // it or its send settles. A daemon swap lost it before acpmux took it, and the host's journal
+    // sends it again (lostPrompt.ts): dropped here, its row went and came back on every swap
+    // (daemon-swap-graceful.test.ts). Only where the journal keeps it (`journalsPrompts`).
+    const sendingQueued = this.journalsPrompts()
+      ? this.queue.filter((entry) => entry.sending && this.optimisticPromptRows.has(entry.id))
+      : [];
+    if (!this.journalsPrompts()) this.dropCarriedUnsent();
     this.queue = [];
     // The chat's permission groups and handoff (`startAttachReads`): asked with the attach, or now
     // for a chat on another machine. The rows draw without waiting for them: each client draws its
@@ -6440,6 +6477,8 @@ export class AcpmuxDirectClient {
       this.queueAuthors,
       this.queueEdited,
     );
+    for (const entry of sendingQueued)
+      if (!this.queue.some((listed) => listed.id === entry.id)) this.queue = [...this.queue, entry];
     // A held prompt whose record is older than the page shows its list preview: read its record.
     this.fetchHeldText();
     // acpmux holds nothing older than the page: the pane offers no more history. A settled page laid
@@ -14228,7 +14267,8 @@ export class AcpmuxDirectClient {
   /// attach drew for it (a chat opened from acpmux's view holds rows, not every record).
   showsPrompt(sessionId: string, promptId: string): boolean {
     if (this.selectedSessionId !== sessionId) return false;
-    if (this.queue.some((entry) => entry.id === promptId)) return true;
+    // The pane's own entry on its way (`send`'s `waits`) is not acpmux's.
+    if (this.queue.some((entry) => entry.id === promptId && !entry.sending)) return true;
     if (
       this.events.some(
         (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
@@ -14248,12 +14288,23 @@ export class AcpmuxDirectClient {
     const rowId = `local-${promptId}`;
     // A Not sent row the host's store drew for it meanwhile (a relaunch, this connection's restore)
     // is the same prompt: it is on its way again, so that row says so instead of a second copy.
-    if (this.rows.has(rowId) && !this.restoredUnsent.delete(promptId)) return true;
+    const restored = this.restoredUnsent.delete(promptId);
+    const carried = this.carriedUnsent.delete(promptId);
+    if (this.rows.has(rowId) && !restored && !carried) return true;
     this.failedPrompts.delete(rowId);
     const at = Date.now();
     const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
     this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    // Behind the turn it waits in the queue as its send drew it, kept through the reconnect: it
+    // stays there, on its way, and `failLostPrompt` turns it into its failed row if it never shows.
+    if (!this.rows.has(rowId) && this.queue.some((entry) => entry.id === promptId && entry.sending)) {
+      this.promptRowKeys.set(promptId, rowId);
+      this.optimisticPromptRows.set(promptId, rowId);
+      this.optimisticPromptInputs.set(promptId, input);
+      if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
+      return true;
+    }
     // Drawn as its send drew it (`sentPromptShape`): a paste is the bubble's text, never a token.
     const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
     this.promptRowKeys.set(promptId, rowId);
@@ -14282,6 +14333,12 @@ export class AcpmuxDirectClient {
   /// line apart from the row while the row still looks sent. False when there is no such row.
   failLostPrompt(promptId: string, error: unknown): boolean {
     const entry = this.deliveries.get(promptId);
+    // One that waited in the queue (`drawLostPrompt`) leaves it for its failed row.
+    const queued = this.queue.find((each) => each.id === promptId && each.sending);
+    if (entry && queued && !this.rows.has(entry.rowId)) {
+      this.queue = this.queue.filter((each) => each !== queued);
+      this.rows.set(entry.rowId, { id: entry.rowId, version: 0, at: Date.now(), kind: "user", text: queued.prompt });
+    }
     const row = entry ? this.rows.get(entry.rowId) : undefined;
     if (!entry || !row || entry.delivery.state !== "sending") return false;
     const input = this.optimisticPromptInputs.get(promptId) ?? row.text ?? "";

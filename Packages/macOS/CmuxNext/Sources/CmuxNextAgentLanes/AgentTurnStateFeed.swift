@@ -9,7 +9,7 @@ import os
 /// connection whose `_acpmux/session_changed` pushes keep it current, so
 /// nothing polls. It starts with the app's Chats feed (`ChatsFeed.started`).
 /// When the socket is absent it waits for a directory change on the socket's
-/// path; a lost connection clears the states and reconnects with `Backoff`. An acpmux that
+/// path; a lost connection holds the states through a short gap (``gapHold``) and reconnects with `Backoff`. An acpmux that
 /// follows a cursor (`session-list-follow-v1`, ``AgentListFollow``) is then asked only the rows
 /// changed since, laid over the list the feed held.
 @MainActor
@@ -45,6 +45,12 @@ public final class AgentTurnStateFeed {
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
+    /// The clear a closed watch runs once it stayed closed past ``gapHold``.
+    private let gapClear = DemandTimer(owner: "agent-turn-states.gap-hold")
+    /// How long a closed watch's states stay on screen for the reconnect to replace them: a daemon
+    /// handover's new acpmux answers well within it, and the pane's own quiet window is as long
+    /// (hostRetry.ts `RECONNECT_LINE_AFTER_MS`).
+    private let gapHold: Duration
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     /// This connection's usage read (``usageRequest(cursor:)``): its numbers until the watch's page
     /// arrives (the page would replace them), whether the page did, and the pages it read.
@@ -78,9 +84,12 @@ public final class AgentTurnStateFeed {
     ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
     ///     acpmux on this Mac whose chats the store also mirrors.
     ///   - peerSessionChanged: each change of an acpmux peer's session on this Mac's own acpmux.
+    ///   - gapHold: how long a closed watch's states stay shown for its reconnect (``gapHold``).
     public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
-                mirroring host: String? = nil, peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)? = nil) {
+                mirroring host: String? = nil, peerSessionChanged: (@MainActor (_ peer: String, _ stale: Bool) -> Void)? = nil,
+                gapHold: Duration = .seconds(10)) {
         socket = socketPath
+        self.gapHold = gapHold
         self.turns = turns
         self.lanes = lanes
         self.peerSessionChanged = peerSessionChanged
@@ -111,6 +120,7 @@ public final class AgentTurnStateFeed {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             reconnect?.cancel()
+            gapClear.cancel()
             pageRetry?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
@@ -302,6 +312,7 @@ public final class AgentTurnStateFeed {
     /// `keeping` ones, which a push changed while its later pages were read.
     private func applyPage(_ page: AgentWatchPage, keeping: Set<String>, keepingPeers: [String: Set<String>]) {
         backoff.reset()
+        gapClear.cancel()
         if !isMirror, !turns.watching { turns.watching = true }
         turns.replace(states: page.states, lastMessages: page.lastMessages, muted: page.muted, titles: page.titles,
                       generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, identities: page.identities,
@@ -443,14 +454,14 @@ public final class AgentTurnStateFeed {
         resyncing = false
         pageRetry?.cancel()
         pageRetry = nil
-        // A closed watch knows nothing: no stale working dots until it reconnects. The cursor and
-        // the list held stay (`listFollow`, `held`): the reconnect follows them.
-        if !isMirror { turns.watching = false }
-        // Titles stay: a tab keeps reading as its chat while the watch reconnects.
-        turns.clearLive(source: source)
-        lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
-        lanes.lanes = [:]
+        // A daemon handover (an update, `cmux app try`, `cmux live --rust`) closes the watch and the
+        // next acpmux answers within a second or two with the same chats: the sidebar holds what it
+        // shows through that gap (Leo, 2026-11-22: "no shift, no anything, just... ok now it
+        // changed"), and the reconnect's page or follow lays the newest states over it
+        // (`applyPage`). Only a watch still closed past ``gapHold`` knows nothing: then its working
+        // dots and lanes go. The cursor and the list held stay (`listFollow`, `held`) either way.
         logger.info("agent turn states: watch closed")
+        gapClear.schedule(after: gapHold) { @MainActor [weak self] in self?.clearAfterGap() }
         reconnect?.cancel()
         reconnect = Task { [weak self] in
             guard var backoff = self?.backoff else { return }
@@ -459,6 +470,16 @@ public final class AgentTurnStateFeed {
             self?.backoff = backoff
             self?.connect()
         }
+    }
+
+    /// The watch stayed closed past ``gapHold``: it knows nothing, so no stale working dots until
+    /// it reconnects. Titles stay: a tab keeps reading as its chat while the watch reconnects.
+    private func clearAfterGap() {
+        if !isMirror { turns.watching = false }
+        turns.clearLive(source: source)
+        lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
+        lanes.lanes = [:]
+        logger.info("agent turn states: watch still closed after \(String(describing: self.gapHold), privacy: .public); states cleared")
     }
 
     /// Waits for the socket to appear: watches the nearest directory on its

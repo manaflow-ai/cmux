@@ -82,8 +82,9 @@ nonisolated final class StandInAcpmux {
     private let client = OSAllocatedUnfairLock(initialState: Int32(-1))
     private let connected = DispatchSemaphore(value: 0)
 
-    init(sessions: [[String: Any]]) throws {
-        path = "/tmp/cmux-done-dot-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
+    /// `socketPath`: the socket to serve, a fresh one when nil (a daemon handover's next acpmux serves its predecessor's).
+    init(sessions: [[String: Any]], at socketPath: String? = nil) throws {
+        self.path = socketPath ?? "/tmp/cmux-done-dot-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
         unlink(path)
         let server = socket(AF_UNIX, SOCK_STREAM, 0)
         listener = server
