@@ -38,6 +38,7 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
+import { threadMinimapCutover } from "../agent-session/acpmux/threadMinimap/cutover.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
@@ -167,6 +168,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
+  threadMinimapCutover,
   threadMinimapWave,
   threadMinimapIncoming,
   threadMinimapReplies,
