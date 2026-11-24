@@ -4,6 +4,8 @@ import { focusRoute } from "../../ui/focusRoute";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
+import { renderLocalized } from "../shared/localizedRoot";
+import table from "./generated/strings.json";
 import { TerminalHistoryPage } from "./TerminalHistoryPage";
 import { TerminalHistoryStore } from "./store";
 import "../shared/pageBase.css";
@@ -28,7 +30,12 @@ export function mountTerminalHistoryPage(
         }
       },
     });
-  createRoot(root).render(<TerminalHistoryPage store={store} />);
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => <TerminalHistoryPage store={store} strings={strings} />,
+    (strings) => strings.t("terminalHistory.tab"),
+  );
   return store;
 }
 

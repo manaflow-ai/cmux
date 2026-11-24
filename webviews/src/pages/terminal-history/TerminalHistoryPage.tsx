@@ -1,169 +1,256 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { isPromptMarkdown } from "../../agent-session/acpmux/conversation/promptMarkdown";
+import type { Strings } from "../shared/i18n";
+import { RawRecord } from "./RawRecord";
 import type { TerminalHistoryStore } from "./store";
-import type { TranscriptHit, TranscriptTurn } from "./types";
+import { hitTurn, type TranscriptHit, type TranscriptTurn } from "./types";
+
+const FormattedMessage = lazy(() => import("./FormattedMessage"));
 
 export type TerminalHistoryPageProps = {
   store: TerminalHistoryStore;
+  strings: Strings;
   fixture?: { title?: string; turns?: TranscriptTurn[]; before?: number | null; query?: string };
 };
 
-export function TerminalHistoryPage({ store, fixture }: TerminalHistoryPageProps) {
+export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistoryPageProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const viewport = useRef<HTMLDivElement>(null);
+  const placeLatest = useRef(true);
+  const [selected, select] = useState<TranscriptHit>();
   const turns = fixture?.turns ?? snapshot.turns;
-  const title = fixture?.title ?? snapshot.title;
+  const title = fixture?.title || snapshot.title || strings.t("terminalHistory.tab");
   const query = fixture?.query ?? snapshot.query;
-  const hitSet = useMemo(() => snapshot.hits.map((hit) => hit.snippet.toLocaleLowerCase()), [snapshot.hits]);
-
+  const hitKeys = useMemo(() => new Set(snapshot.hits.map((hit) => `${hit.pageEnd}:${hitTurn(hit)}`)), [snapshot.hits]);
   useEffect(() => {
     if (!fixture) void store.load();
   }, [fixture, store]);
 
-  const onScroll = () => {
-    const element = viewport.current;
-    if (element && element.scrollTop < 420) void store.loadOlder();
-  };
+  useLayoutEffect(() => {
+    if (fixture || !placeLatest.current || snapshot.loading || !turns.length || !viewport.current) return;
+    placeLatest.current = false;
+    viewport.current.scrollTop = viewport.current.scrollHeight;
+  }, [fixture, snapshot.loading, turns]);
 
+  const loadOlder = async () => {
+    const el = viewport.current;
+    const prior = store.getSnapshot();
+    if (!el || prior.loading || prior.loadingOlder || prior.before === null) return;
+    const top = el.getBoundingClientRect().top;
+    const anchor = Array.from(el.querySelectorAll<HTMLElement>("article")).find(
+      (row) => row.getBoundingClientRect().bottom >= top,
+    );
+    const oldTop = anchor?.getBoundingClientRect().top;
+    await store.loadOlder();
+    if (!anchor || oldTop === undefined || store.getSnapshot().before === prior.before) return;
+    requestAnimationFrame(() => {
+      if (anchor.isConnected) el.scrollTop += anchor.getBoundingClientRect().top - oldTop;
+    });
+  };
+  const jump = async (hit: TranscriptHit) => {
+    if (!(await store.jumpToHit(hit))) return;
+    select(hit);
+    requestAnimationFrame(() =>
+      viewport.current
+        ?.querySelector(`[data-turn-key="${hit.pageEnd}:${hitTurn(hit)}"]`)
+        ?.scrollIntoView({ block: "center" }),
+    );
+  };
   return (
     <main className="terminal-history-page">
-      <header className="terminal-history-header">
-        <div>
-          <p className="terminal-history-kicker">Read-only transcript</p>
+      <div>
+        <header className="terminal-history-header">
           <h1>{title}</h1>
-          <p className="terminal-history-meta">Earlier turns stay available after a terminal restart.</p>
-        </div>
-        <label className="terminal-history-search">
-          <span>Find in transcript</span>
-          <input
-            type="search"
-            value={query}
-            placeholder="Search all turns"
-            onChange={(event) => void store.find(event.target.value)}
-          />
-          <kbd>⌘F</kbd>
-        </label>
-      </header>
-      {snapshot.error && !fixture ? (
-        <p className="terminal-history-error" role="alert">
-          {snapshot.error}
-        </p>
-      ) : null}
-      <div className="terminal-history-scroll" ref={viewport} onScroll={onScroll}>
-        {snapshot.loading && !fixture ? <p className="terminal-history-status">Loading latest turns…</p> : null}
-        {snapshot.loadingOlder ? (
-          <p className="terminal-history-status terminal-history-status-top">Loading earlier turns…</p>
-        ) : null}
-        {turns.length === 0 && !snapshot.loading ? (
-          <p className="terminal-history-status">No transcript turns found.</p>
-        ) : null}
-        {turns.map((turn, index) => (
-          <Turn
-            key={`${index}-${turn.promptAt ?? ""}`}
-            turn={turn}
-            index={index}
-            highlighted={hitSet.some((snippet) =>
-              `${turn.prompt}\n${turn.answer}`.toLocaleLowerCase().includes(snippet),
-            )}
-            onLoadMore={(role) => void store.loadMore(index, role)}
-          />
-        ))}
-        {snapshot.hits.length > 0 ? (
-          <nav className="terminal-history-results" aria-label="Search results">
-            <span>{snapshot.hits.length} matches</span>
-            {snapshot.hits.slice(0, 12).map((hit, index) => (
-              <button
-                key={`${hit.pageEnd}-${hit.turn}-${index}`}
-                type="button"
-                onClick={() => void jumpToHit(store, hit)}
-              >
+          <label className="terminal-history-search">
+            <input
+              type="search"
+              value={query}
+              aria-label={strings.t("find.placeholder")}
+              placeholder={strings.t("find.placeholder")}
+              onChange={(event) => {
+                select(undefined);
+                void store.find(event.target.value);
+              }}
+            />
+            <kbd aria-hidden="true">⌘F</kbd>
+          </label>
+        </header>
+        {query && !fixture && (
+          <nav className="terminal-history-results" aria-label={strings.t("find.placeholder")}>
+            {snapshot.hits.map((hit, i) => (
+              <button type="button" key={`${hit.pageEnd}-${hitTurn(hit)}-${i}`} onClick={() => void jump(hit)}>
                 {hit.snippet}
               </button>
             ))}
+            {snapshot.searching && <span role="status">{strings.t("files.searching")}</span>}
+            {!snapshot.searching && snapshot.searchComplete && !snapshot.hits.length && (
+              <span role="status">{strings.t("find.noResults")}</span>
+            )}
+            {!snapshot.searching && !snapshot.searchComplete && (
+              <button type="button" onClick={() => void store.continueFind()}>
+                {strings.t("find.next")}
+              </button>
+            )}
           </nav>
-        ) : null}
-        {!snapshot.searchComplete && !fixture ? (
-          <button type="button" className="terminal-history-older" onClick={() => void store.continueFind()}>
-            Find more results
+        )}
+        {snapshot.error && !fixture && (
+          <p className="terminal-history-error" role="alert">
+            {snapshot.error}
+          </p>
+        )}
+      </div>
+      <div
+        ref={viewport}
+        className="terminal-history-scroll"
+        onScroll={() => {
+          if (viewport.current && viewport.current.scrollTop < 420) void loadOlder();
+        }}
+      >
+        {snapshot.before !== null && !fixture && (
+          <button
+            type="button"
+            className="terminal-history-older"
+            disabled={snapshot.loadingOlder}
+            onClick={() => void loadOlder()}
+          >
+            {strings.t(snapshot.loadingOlder ? "transcript.loadingOlder" : "inbox.earlier")}
           </button>
-        ) : null}
-        {snapshot.before !== null && !fixture ? (
-          <button type="button" className="terminal-history-older" onClick={() => void store.loadOlder()}>
-            Load earlier history
+        )}
+        {snapshot.loading && !fixture && (
+          <p role="status" className="terminal-history-status">
+            {strings.t("transcript.loading")}
+          </p>
+        )}
+        {!snapshot.loading && !turns.length && (
+          <p className="terminal-history-status">{strings.t("subagents.empty.title")}</p>
+        )}
+        {turns.map((turn, i) => {
+          const key = turn.pageEnd !== undefined ? `${turn.pageEnd}:${turn.turnIndex}` : String(i);
+          return (
+            <Turn
+              key={key}
+              identity={key}
+              turn={turn}
+              store={store}
+              index={i}
+              strings={strings}
+              highlighted={hitKeys.has(key)}
+              rawOffset={
+                selected?.role === "raw" && selected.rawStart === turn.raw?.start ? selected.rawOffset : undefined
+              }
+            />
+          );
+        })}
+        {snapshot.hasNewer && !fixture && (
+          <button
+            type="button"
+            className="terminal-history-older"
+            onClick={() => {
+              placeLatest.current = true;
+              void store.returnToLatest();
+            }}
+          >
+            {strings.t("transcript.jumpLatest")}
           </button>
-        ) : null}
-        {snapshot.hasNewer && !fixture ? (
-          <button type="button" className="terminal-history-older" onClick={() => void store.returnToLatest()}>
-            Back to latest
-          </button>
-        ) : null}
+        )}
       </div>
     </main>
   );
 }
 
-async function jumpToHit(store: TerminalHistoryStore, hit: TranscriptHit): Promise<void> {
-  await store.jumpToHit(hit);
-  requestAnimationFrame(() => {
-    const match = Array.from(document.querySelectorAll<HTMLElement>(".terminal-history-turn")).find((element) =>
-      element.textContent?.toLocaleLowerCase().includes(hit.snippet.toLocaleLowerCase()),
-    );
-    match?.scrollIntoView({ block: "center", behavior: "smooth" });
-  });
-}
-
-function Turn({
-  turn,
-  index,
-  highlighted,
-  onLoadMore,
-}: {
-  turn: TranscriptTurn;
-  index: number;
-  highlighted: boolean;
-  onLoadMore: (role: "user" | "assistant") => void;
-}) {
-  return (
-    <article className={`terminal-history-turn${highlighted ? " is-highlighted" : ""}`} data-turn={index}>
-      <div className="terminal-history-turn-marker" aria-hidden="true">
-        {index + 1}
-      </div>
-      <div className="terminal-history-turn-body">
-        <section className="terminal-history-message terminal-history-message-user">
-          <h2>You</h2>
-          <p>{turn.prompt}</p>
-          {turn.promptMore !== undefined ? (
-            <button type="button" className="terminal-history-more" onClick={() => onLoadMore("user")}>
-              Read more
-            </button>
-          ) : null}
-        </section>
-        {turn.tools.length > 0 ? (
-          <details className="terminal-history-tools">
-            <summary>
-              {turn.tools.length} tool call{turn.tools.length === 1 ? "" : "s"}
-            </summary>
-            <ul>
-              {turn.tools.map((tool, toolIndex) => (
-                <li key={`${tool.title}-${toolIndex}`}>{tool.title}</li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-        <section className="terminal-history-message terminal-history-message-assistant">
-          <h2>Agent</h2>
-          <p>{turn.answer}</p>
-          {turn.answerMore !== undefined ? (
-            <button type="button" className="terminal-history-more" onClick={() => onLoadMore("assistant")}>
-              Read more
-            </button>
-          ) : null}
-        </section>
-        {turn.truncated ? (
-          <p className="terminal-history-truncated">
-            Preview shortened · open the transcript result to read the full turn.
-          </p>
-        ) : null}
-      </div>
-    </article>
+function Message({ text, at }: { text: string; at?: number }) {
+  const literal = <p>{text}</p>;
+  return isPromptMarkdown(text) ? (
+    <Suspense fallback={literal}>
+      <FormattedMessage text={text} at={at} />
+    </Suspense>
+  ) : (
+    literal
   );
 }
+
+const Turn = memo(function Turn({
+  identity,
+  turn,
+  store,
+  index,
+  strings,
+  highlighted,
+  rawOffset,
+}: {
+  identity: string;
+  turn: TranscriptTurn;
+  store: TerminalHistoryStore;
+  index: number;
+  strings: Strings;
+  highlighted: boolean;
+  rawOffset?: number;
+}) {
+  return (
+    <article
+      className={`terminal-history-turn${highlighted ? " is-highlighted" : ""}`}
+      data-turn-key={identity}
+      data-page-end={turn.pageEnd}
+      data-source-turn={turn.turnIndex}
+    >
+      {turn.raw ? (
+        <RawRecord store={store} strings={strings} section={turn.raw} matchOffset={rawOffset} />
+      ) : (
+        <>
+          {(turn.prompt || turn.promptMore !== undefined) && (
+            <section className="terminal-history-message terminal-history-message-user">
+              <h2>{strings.t("transcript.you")}</h2>
+              <Message text={turn.prompt} at={turn.promptAt} />
+              {turn.promptMore !== undefined && (
+                <button
+                  type="button"
+                  className="terminal-history-more"
+                  onClick={() => void store.loadMore(index, "user")}
+                >
+                  {strings.t("message.more")}
+                </button>
+              )}
+            </section>
+          )}
+          {!!turn.tools.length && (
+            <details className="terminal-history-tools">
+              <summary>
+                {turn.tools.length} {strings.t("ledger.total.tools")}
+              </summary>
+              <ul>
+                {turn.tools.map((tool, i) => (
+                  <li key={i}>{tool.title}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {(turn.answer || turn.answerMore !== undefined) && (
+            <section className="terminal-history-message terminal-history-message-assistant">
+              <h2>{strings.t("transcript.agent")}</h2>
+              <Message text={turn.answer} at={turn.answerAt} />
+              {turn.answerMore !== undefined && (
+                <button
+                  type="button"
+                  className="terminal-history-more"
+                  onClick={() => void store.loadMore(index, "assistant")}
+                >
+                  {strings.t("message.more")}
+                </button>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </article>
+  );
+});

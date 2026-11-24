@@ -1,5 +1,9 @@
 import type { PageClient } from "../shared/pageClient";
 
+export type RawRange = { start: number; end: number; position: "before" | "after" };
+export type RawSection = RawRange & { pageEnd: number; completeThrough?: number };
+export type RawChunk = { text: string; nextOffset: number | null };
+
 export type TranscriptTool = { title: string };
 
 export type TranscriptTurn = {
@@ -12,6 +16,8 @@ export type TranscriptTurn = {
   promptMore?: number;
   answerMore?: number;
   pageEnd?: number;
+  turnIndex?: number;
+  raw?: RawSection;
 };
 
 export type TranscriptPage = {
@@ -20,18 +26,40 @@ export type TranscriptPage = {
   createdMs: number;
   updatedMs: number;
   turns: TranscriptTurn[];
+  rawRanges?: RawRange[];
+  completeThrough?: number;
   before: number | null;
   pageEnd?: number;
 };
 
-export type TranscriptHit = {
+type TextHit = {
   pageEnd: number;
   turn: number;
   role: "user" | "assistant" | "tool";
   snippet: string;
 };
 
-export type TranscriptFindResult = { hits: TranscriptHit[]; before: number | null };
+export type TranscriptHit =
+  | TextHit
+  | {
+      pageEnd: number;
+      role: "raw";
+      rawStart: number;
+      rawEnd: number;
+      rawOffset: number;
+      completeThrough?: number;
+      snippet: string;
+    };
+
+export function hitTurn(hit: TranscriptHit): number {
+  return hit.role === "raw" ? -1 - hit.rawStart : hit.turn;
+}
+
+export type TranscriptFindResult = {
+  hits: TranscriptHit[];
+  before: number | null;
+  completeThrough?: number;
+};
 
 export type TranscriptProvider = Pick<PageClient, "call">;
 

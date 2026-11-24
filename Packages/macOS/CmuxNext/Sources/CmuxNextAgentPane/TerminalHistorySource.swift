@@ -88,6 +88,10 @@ private final class TerminalHistoryBridge: PageProvider {
             request["query"] = query
         default: throw PageError.unknownOp(op)
         }
+        if let boundary = params["completeThrough"], !boundary.isNull {
+            guard let offset = boundary.intValue, offset >= 0 else { throw PageError.invalidParams("completeThrough") }
+            request["completeThrough"] = offset
+        }
         if let before = params["before"], !before.isNull {
             guard let offset = before.intValue, offset >= 0 else { throw PageError.invalidParams("before") }
             request["before"] = offset

@@ -1,3 +1,6 @@
+// l10n-allow-file: gallery fixtures.
+import { createStrings } from "../shared/i18n";
+import table from "./generated/strings.json";
 import { componentEntry } from "../../gallery/entry";
 import { TerminalHistoryPage } from "./TerminalHistoryPage";
 import { TerminalHistoryStore } from "./store";
@@ -24,6 +27,7 @@ const turns: TranscriptTurn[] = [
 function GalleryTerminalHistory(props: { title?: string; turns?: TranscriptTurn[]; query?: string }) {
   return (
     <TerminalHistoryPage
+      strings={createStrings(table)}
       store={new TerminalHistoryStore(null, "gallery")}
       fixture={{ title: props.title, turns: props.turns ?? turns, query: props.query }}
     />
@@ -42,7 +46,10 @@ export default componentEntry({
   styles: () => import("./styles.css"),
   variants: {
     latest: { note: "Latest transcript page, with tool calls folded.", props: {} },
-    searching: { note: "Cmd-F search focused with one matching turn highlighted.", props: { query: "paging" } },
+    searching: {
+      note: "Cmd-F search focused with one matching turn highlighted.",
+      props: { query: "paging" },
+    },
     compact: {
       note: "A narrow terminal pane affordance that opens the same read-only viewer.",
       props: { title: "Claude Code · earlier history", turns: turns.slice(0, 2) },

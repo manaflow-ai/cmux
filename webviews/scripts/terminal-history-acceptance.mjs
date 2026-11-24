@@ -162,6 +162,7 @@ try {
   console.log("terminal_history_visible_600mib", JSON.stringify(metrics));
   if (evidence) await page.screenshot({ path: path.join(evidence, "terminal-history-latest.png") });
 
+  await page.locator("article strong").filter({ hasText: "complete" }).first().waitFor({ state: "attached" });
   const tool = page.locator("article details").last();
   assert.equal(await tool.evaluate((el) => el.open), false);
   await tool.locator("summary").click();
@@ -209,7 +210,7 @@ try {
     { dayOne },
   );
   console.log("terminal_history_scroll_600mib", JSON.stringify(scroll));
-  await page.getByRole("button", { name: /back to latest/i }).click();
+  await page.getByRole("button", { name: /jump to latest/i }).click();
   await page.getByText(newestText, { exact: true }).first().waitFor();
 
   await page.keyboard.press("Meta+f");
