@@ -74,6 +74,7 @@ final class MarkdownWebViewerAssets {
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigation)
             .replacingOccurrences(of: "{{markdownSanitizerJS}}", with: markdownSanitizer)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: Self.localizedStringsJSON())
+            .replacingOccurrences(of: "{{appLinkSchemesJSON}}", with: "[]")
     }
 
     /// Load and cache a bundled asset on demand (mermaid / vega lazy libs).
