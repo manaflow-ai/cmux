@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +77,19 @@ class PublishedInTests(unittest.TestCase):
         refusal = subprocess.CalledProcessError(1, "gh", stderr="HTTP 403: You have exceeded a secondary rate limit")
         self.assertTrue(module.rate_limited(refusal))
         self.assertFalse(module.rate_limited(subprocess.CalledProcessError(1, "gh", stderr="HTTP 404: Not Found")))
+
+    def test_rate_limit_in_the_batched_read_stops_without_per_pr_retries(self):
+        refusal = subprocess.CalledProcessError(1, "gh", stderr="HTTP 429: API rate limit exceeded for installation")
+        calls = []
+
+        def fake_gh(*args, payload=None):
+            calls.append(args)
+            raise refusal
+
+        with mock.patch.object(module, "gh", side_effect=fake_gh):
+            with self.assertRaises(subprocess.CalledProcessError):
+                module.existing_comments("o/r", [1, 2, 3])
+        self.assertEqual(len(calls), 1, calls)
 
     def test_unreadable_span_never_fails_the_release(self):
         with tempfile.TemporaryDirectory() as directory:
