@@ -180,6 +180,26 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      # cmux#52200 evidence (this branch only): the walk-through's video and screens, sealed to a key only the
+      # lane holds, because the account's Settings and Mac lists name other Macs.
+      - name: Seal the offline walk-through evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          cd artifacts/ios-sim
+          tar -cf "$RUNNER_TEMP/offline-evidence.tar" offline-walkthrough.mp4 offline-ax.jsonl screens SUMMARY.md 2>/dev/null || true
+          openssl smime -encrypt -aes256 -binary -in "$RUNNER_TEMP/offline-evidence.tar" -out "$RUNNER_TEMP/offline-evidence.tar.enc" -outform DER "$GITHUB_WORKSPACE/scripts/ci/offline-p0/cert.pem"
+          ls -l "$RUNNER_TEMP/offline-evidence.tar.enc"
+
+      - name: Upload the sealed evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: offline-evidence-sealed-${{ github.run_id }}
+          path: ${{ runner.temp }}/offline-evidence.tar.enc
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Remove the CI auth profile
         if: always()
         run: |
