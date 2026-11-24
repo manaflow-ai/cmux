@@ -1,10 +1,9 @@
 # cmux NEXT nightly: artifact verification and rollback
 
 cmux NEXT installs update themselves from one Sparkle feed,
-`https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml`. A bad
+`https://files-next.cmux.com/nightly-next/appcast-arm64.xml`. A bad
 nightly reaches every install within one update check. This page covers the
-advisory static verifier and the manual command that takes a bad build off
-that feed.
+artifact and latency verdicts, the Sentry health gate, and how to pull a bad build.
 
 ## Pull a bad build
 
@@ -135,8 +134,8 @@ manual operator action through `nightly-next-rollback.yml`.
 ### Felt latency in the canary verdict
 
 After the static checks pass, the CI Mac runs the signed DMG through
-`scripts/ci/launch_tti_check.py`. It restores two workspaces with one chat and
-2,000 lines of terminal scrollback. Five warm terminal relaunches each supply:
+`scripts/ci/launch_tti_check.py`. It restores Home, a terminal workspace with
+2,000 lines of scrollback, and a workspace with one chat. Five warm terminal relaunches each supply:
 
 | Timing in milliseconds | Start → end | Absolute floor |
 | --- | --- | --- |
@@ -152,12 +151,15 @@ Missing keys, unmatched machines and a previous pass without measurements show
 as `unavailable`. The current samples still seed a later comparison.
 
 The canary run summary shows both medians, ranges, delta and threshold. Its
-`canary-latency-<build>` artifact and the `latency` field in
+`canary-latency-<build>-<attempt>` artifact and the `latency` field in
 `verdicts/<build>.json` carry the samples and the advisory verdict. A latency
 `fail` emits a warning. Static verification still decides ring promotion.
-Five recorded cmux14 first frames ranged from 1,182.3 to 1,328.6 ms, and the
-native echo needs a key window on the unattended runner. These conditions
-make a single fleet comparison insufficient evidence for withholding a build.
+Five first frames on a signed Nightly ranged from 1,182.3 to 1,328.6 ms
+(median 1,224.5 ms). A five-launch large-session run ranged from 993.6 to
+2,225.3 ms. Five native key-to-echo measurements on a 120-workspace Mac
+build had a median of 29.7 ms and a p90 of 43.5 ms. An earlier unattended run
+missed all eight echoes. Both timings warn while the scheduled canary collects
+comparable samples on signed Nightlies. [Native echo measurements](https://github.com/manaflow-ai/cmux/pull/47154#issuecomment-7040903643)
 
 ### Switches
 

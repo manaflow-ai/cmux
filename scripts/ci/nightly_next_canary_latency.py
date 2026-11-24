@@ -9,8 +9,6 @@ import os
 from pathlib import Path
 from statistics import median
 import sys
-import urllib.error
-import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nightly_next_train as train
@@ -26,19 +24,46 @@ def elapsed(value):
     return type(value) in (float, int) and math.isfinite(value) and value >= 0
 
 
-def samples(tti):
-    rows = {metric: [] for metric in FLOORS_MS}
-    for row in tti.get("rounds", []):
-        if (row.get("kind"), row.get("front"), row.get("input")) != ("warm", "terminal", "in_app"):
-            continue
+def samples(tti, outcome, smoke_failures=()):
+    """Keep first frames on an input-only failure. A broken launch or seed measures neither metric."""
+    readings = {metric: [] for metric in FLOORS_MS}
+    if not isinstance(tti, dict):
+        return readings, "missing launch harness report"
+    seed = tti.get("seed")
+    if not isinstance(seed, dict) or (seed.get("workspaces"), seed.get("chats")) != (3, 1):
+        return readings, "expected the Home workspace plus the seeded terminal and chat workspaces"
+    rounds = tti.get("rounds")
+    if not isinstance(rounds, list) or len(rounds) != RUNS:
+        return readings, f"harness did not complete {RUNS} relaunches"
+
+    missed_input = []
+    for index, row in enumerate(rounds, 1):
+        if not isinstance(row, dict) or (row.get("kind"), row.get("front"), row.get("input")) != ("warm", "terminal", "in_app"):
+            return readings, "unexpected launch round or input path"
+        failures = row.get("failures")
+        if not isinstance(failures, list) or any(
+            not isinstance(f, str) or not f.startswith(("the app typed no key:", "the terminal took no key within "))
+            for f in failures
+        ):
+            return readings, "harness reported a failed launch round"
         frame = row.get("first_frame_ms")
         if elapsed(frame):
-            rows["first_frame_ms"].append(frame)
-        marks = row.get("marks", {})
-        typed, accepted, echo = (marks.get(k) for k in ("terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"))
-        if all(elapsed(v) for v in (typed, accepted, echo)) and typed <= accepted <= echo:
-            rows["typing_echo_ms"].append(round(echo - typed, 3))
-    return rows
+            readings["first_frame_ms"].append(frame)
+        if failures:
+            missed_input.extend(f"round {index}: {failure}" for failure in failures)
+            continue
+        marks = row.get("marks")
+        if isinstance(marks, dict):
+            typed, accepted, echo = (marks.get(k) for k in ("terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"))
+            if all(elapsed(v) for v in (typed, accepted, echo)) and typed <= accepted <= echo:
+                readings["typing_echo_ms"].append(round(echo - typed, 3))
+    if outcome != "success" or tti.get("verdict") != "pass":
+        # The smoke can also fail after the rounds (e.g. a crash). Preserve the independent
+        # frame readings only when the smoke confirms that *all* failures were missing input.
+        if missed_input and smoke_failures == missed_input:
+            return readings, "the terminal probe missed input in one or more rounds"
+        return {}, f"launch harness verdict {tti.get('verdict')} (step {outcome})"
+    return readings, None
 
 
 def stats(values):
@@ -49,17 +74,38 @@ def stats(values):
                 mad=median([abs(v - middle) for v in values]))
 
 
+def matches_build(report, doc):
+    """The producer job verified the artifact source. Its build workflow may have a different head."""
+    return (isinstance(report, dict) and report.get("build") == doc["build"]
+            and train.SHA_RE.fullmatch(str(report.get("source_commit", "")))
+            and report.get("canaryRun") == doc.get("canaryRun") and bool(doc.get("canaryRun"))
+            and report.get("canaryAttempt") == doc.get("canaryAttempt") and bool(doc.get("canaryAttempt")))
+
+
 def judge(current, previous):
-    """Return a per-metric verdict. A failed latency verdict is advisory on the release ring."""
-    base = (previous or {}).get("latency") or {}
-    comparable = (base.get("profile") == current["profile"] and base.get("machine") == current["machine"]
-                  and base.get("build") == previous["build"] and base.get("commit") == previous["commit"])
+    """A failed metric warns on the release ring. An unavailable metric never reads as a pass."""
+    base = (previous or {}).get("latency")
+    reason = None
+    if previous is None:
+        reason = "no earlier passing build found"
+    elif not matches_build(base, previous):
+        reason = "previous passing build has no matching latency report"
+    elif base.get("profile") != current["profile"]:
+        reason = "measurement profile changed"
+    elif base.get("machine") != current["machine"]:
+        reason = "Mac model, chip or OS build changed"
+
     rows = {}
     for metric, floor in FLOORS_MS.items():
         now = stats(current["samples"].get(metric))
-        old = stats(base.get("samples", {}).get(metric)) if comparable else None
+        baseline = {} if reason else base.get("samples")
+        old = stats(baseline.get(metric)) if isinstance(baseline, dict) else None
         row = rows[metric] = dict(current=now, previous=old, verdict="unavailable")
-        if now and old:
+        if not now:
+            row["reason"] = current.get("measurement_error") or f"fewer than {RUNS} valid candidate readings"
+        elif not old:
+            row["reason"] = reason or f"fewer than {RUNS} valid baseline readings"
+        else:
             delta = now["median"] - old["median"]
             limit = max(floor, FRACTION * old["median"], 3 * max(old["mad"], now["mad"]))
             row.update(delta_ms=round(delta, 3), threshold_ms=round(limit, 3),
@@ -69,23 +115,22 @@ def judge(current, previous):
             "verdict": "fail" if "fail" in verdicts else "unavailable" if "unavailable" in verdicts else "pass"}
 
 
-def read_verdict(url):
-    request = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": "cmux-canary-latency/1"})
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
-
-
 def report(args):
-    current = {"build": args.build, "commit": args.commit, "profile": PROFILE, "machine": args.machine,
-               "samples": samples(json.loads(args.tti.read_text())) if args.tti.is_file() else {}}
+    from nightly_next_artifact_check import fetch_url  # same 404 handling as the static canary
+
+    try:
+        tti = json.loads(args.tti.read_text())
+        smoke = json.loads(args.tti.with_name("report.json").read_text()) if args.harness_outcome == "failure" else {}
+        readings, error = samples(tti, args.harness_outcome, smoke.get("failures") if isinstance(smoke, dict) else None)
+    except (OSError, ValueError) as exc:
+        readings, error = {}, f"launch harness report unreadable ({type(exc).__name__}, step {args.harness_outcome})"
+    current = {"build": args.build, "source_commit": args.source_commit, "canaryRun": args.run_url,
+               "canaryAttempt": args.attempt, "profile": PROFILE, "machine": args.machine, "samples": readings}
+    if error:
+        current["measurement_error"] = error
     candidates = sorted({b for b in args.earlier.split() if b.isdigit() and int(b) < int(args.build)}, key=int, reverse=True)
     try:
-        previous = train.passing_verdict(candidates, read_verdict)
+        previous = train.passing_verdict(candidates, fetch_url)
     except OSError as error:
         print(f"::warning::Could not read the previous passing canary verdict: {error}", file=sys.stderr)
         previous = None
@@ -99,9 +144,10 @@ def report(args):
         cells = [f"{s['median']:g} ({s['minimum']:g}–{s['maximum']:g})" if s else "unavailable"
                  for s in (row["current"], row["previous"])]
         delta = f"{row['delta_ms']:g} / {row['threshold_ms']:g}" if "delta_ms" in row else "—"
-        lines.append(f"| {name} | {' | '.join(cells)} | {delta} | {row['verdict']} |")
+        detail = row["verdict"] + (" · " + row["reason"] if "reason" in row else "")
+        lines.append(f"| {name} | {' | '.join(cells)} | {delta} | {detail} |")
         if row["verdict"] != "pass":
-            print(f"::warning title=nightly-next felt latency::{name}: {row['verdict']}, build {args.build} "
+            print(f"::warning title=nightly-next felt latency::{name}: {detail}, build {args.build} "
                   f"{cells[0]} vs {result['baseline_build']} {cells[1]} ms (delta / threshold {delta} ms)")
     print("\n".join(lines))
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -116,15 +162,16 @@ def attach(verdict_path, report_path):
         if report_path.stat().st_size > 8192:
             raise ValueError("oversized report")
         result = json.loads(report_path.read_text())
-        if (not isinstance(result, dict) or result.get("build") != doc["build"]
-                or result.get("commit") != doc["commit"] or result.get("profile") != PROFILE
+        if (not matches_build(result, doc) or result.get("profile") != PROFILE
                 or result.get("verdict") not in ("pass", "fail", "unavailable")):
             raise ValueError("report does not describe this verified build")
     except (OSError, ValueError) as error:
         result = {"verdict": "unavailable", "reason": "no matching measurement report"}
         print(f"::warning title=nightly-next felt latency::{error}")
     doc["latency"] = result
-    verdict_path.write_text(json.dumps(doc, indent=2) + "\n")
+    temp = verdict_path.with_suffix(".tmp")
+    temp.write_text(json.dumps(doc, indent=2) + "\n")
+    temp.replace(verdict_path)
 
 
 def main():
@@ -135,7 +182,10 @@ def main():
     writer.add_argument("--report", type=Path, required=True)
     measure = commands.add_parser("report")
     measure.add_argument("--build", required=True)
-    measure.add_argument("--commit", required=True)
+    measure.add_argument("--source-commit", required=True)
+    measure.add_argument("--run-url", required=True)
+    measure.add_argument("--attempt", type=int, required=True)
+    measure.add_argument("--harness-outcome", required=True)
     measure.add_argument("--machine", required=True)
     measure.add_argument("--earlier", default="")
     measure.add_argument("--tti", type=Path, required=True)
