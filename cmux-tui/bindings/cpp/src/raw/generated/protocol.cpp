@@ -12,12 +12,27 @@ Result<Json> Codec<ActivitySnapshot>::encode(const ActivitySnapshot& value) {
     auto encoded_attached_clients = encode_value(value.attached_clients);
     if (!encoded_attached_clients) return std::move(encoded_attached_clients).error();
     object.emplace("attached_clients", std::move(encoded_attached_clients).value());
+    if (!value.echo_at_ms.is_absent()) {
+        auto encoded = encode_value(value.echo_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("echo_at_ms", std::move(encoded).value());
+    }
+    if (!value.echo_input_at_ms.is_absent()) {
+        auto encoded = encode_value(value.echo_input_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("echo_input_at_ms", std::move(encoded).value());
+    }
     if (value.last_agent_action_at_ms) {
         auto encoded = encode_value(*value.last_agent_action_at_ms);
         if (!encoded) return std::move(encoded).error();
         object.emplace("last_agent_action_at_ms", std::move(encoded).value());
     } else {
         object.emplace("last_agent_action_at_ms", Json(nullptr));
+    }
+    if (!value.last_person_attach_at_ms.is_absent()) {
+        auto encoded = encode_value(value.last_person_attach_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_person_attach_at_ms", std::move(encoded).value());
     }
     if (value.last_user_input_at_ms) {
         auto encoded = encode_value(*value.last_user_input_at_ms);
@@ -45,6 +60,26 @@ Result<ActivitySnapshot> Codec<ActivitySnapshot>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.attached_clients = std::move(decoded).value();
     }
+    const Json* field_echo_at_ms = value.find("echo_at_ms");
+    if (field_echo_at_ms) {
+        if (field_echo_at_ms->is_null()) {
+            result.echo_at_ms = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_echo_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.echo_at_ms = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_echo_input_at_ms = value.find("echo_input_at_ms");
+    if (field_echo_input_at_ms) {
+        if (field_echo_input_at_ms->is_null()) {
+            result.echo_input_at_ms = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_echo_input_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.echo_input_at_ms = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_last_agent_action_at_ms = value.find("last_agent_action_at_ms");
     if (!field_last_agent_action_at_ms) {
         return make_error(ErrorCode::decode, "missing required field 'last_agent_action_at_ms'");
@@ -56,6 +91,16 @@ Result<ActivitySnapshot> Codec<ActivitySnapshot>::decode(const Json& value) {
             auto decoded = decode_value<std::uint64_t>(*field_last_agent_action_at_ms);
             if (!decoded) return std::move(decoded).error();
             result.last_agent_action_at_ms = std::move(decoded).value();
+        }
+    }
+    const Json* field_last_person_attach_at_ms = value.find("last_person_attach_at_ms");
+    if (field_last_person_attach_at_ms) {
+        if (field_last_person_attach_at_ms->is_null()) {
+            result.last_person_attach_at_ms = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_last_person_attach_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.last_person_attach_at_ms = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_last_user_input_at_ms = value.find("last_user_input_at_ms");

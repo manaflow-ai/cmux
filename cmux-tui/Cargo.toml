@@ -96,6 +96,7 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-resume-prefetch",
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-files-host",
@@ -389,6 +390,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-resume-prefetch = { path = "crates/cmux-resume-prefetch" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }

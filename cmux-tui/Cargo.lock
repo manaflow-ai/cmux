@@ -2116,6 +2116,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-process",
+ "cmux-resume-prefetch",
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-envelope",
@@ -2595,6 +2596,14 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-resume-prefetch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]
