@@ -121,15 +121,18 @@ pub fn local_link_remove(instance: String) {
 }
 
 /// The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
-/// (nil: forget the key). Its ad is then trusted only with the key tag of that key.
+/// (nil: forget the key). Its ad is then trusted only with the key tag of that key. The key is the
+/// bytes the Mac hashes for its tag: its X9.63 identity key as lowercase hex (`MacPins`), so a
+/// phone hands over exactly what it pinned. Device ids compare without case, as the pins do.
 #[uniffi::export]
 pub fn local_link_pair(mac_device_id: String, identity_public_key: Option<Vec<u8>>) {
+    let mac = mac_device_id.to_lowercase();
     with_state(|state| match identity_public_key {
         Some(key) => {
-            state.tags.insert(mac_device_id, local::key_tag(&key));
+            state.tags.insert(mac, local::key_tag(&key.to_ascii_lowercase()));
         }
         None => {
-            state.tags.remove(&mac_device_id);
+            state.tags.remove(&mac);
         }
     });
 }
@@ -150,7 +153,7 @@ pub fn local_link_matches(
 /// it was paired with. Empty: not nearby.
 pub fn nearby(mac_device_id: &str) -> Vec<SocketAddr> {
     with_state(|state| {
-        let tag = state.tags.get(mac_device_id).cloned();
+        let tag = state.tags.get(&mac_device_id.to_lowercase()).cloned();
         state.peers.addresses(mac_device_id, tag.as_deref(), Instant::now())
     })
 }
@@ -303,6 +306,10 @@ mod tests {
         // Paired with another key: the ad is somebody else's.
         local_link_pair("mac-A".into(), Some(b"other-key".to_vec()));
         assert!(!local_link_nearby("mac-A".into()));
+        // The phone hands over its pin as it stored it (MacPins: lowercase id, lowercase hex);
+        // case on either side still names the same Mac and key.
+        local_link_pair("MAC-a".into(), Some(b"MAC-KEY".to_vec()));
+        assert!(local_link_nearby("mac-A".into()));
         local_link_pair("mac-A".into(), Some(b"mac-key".to_vec()));
         assert!(local_link_nearby("mac-A".into()));
         assert!(local_link_matches(ad.clone(), "mac-A".into(), Some(b"mac-key".to_vec())));
