@@ -35,7 +35,7 @@ struct ClosedNewTabPagesStopDrawingTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: tree())
+        store.apply(snapshot: Self.tree())
         let controller = try #require(services.windows.openWindow(workspaces: ["tabless-ws"], frame: CGRect(x: 200, y: 200, width: 1100, height: 720)))
         let folder = FileManager.default.temporaryDirectory.appending(path: "tabless-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
