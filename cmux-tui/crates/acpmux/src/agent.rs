@@ -2739,6 +2739,19 @@ impl ChildAgent {
                         unacked = 0;
                     }
                 }
+                // A writer that panicked (#54378) may have taken lines the host never got: their
+                // requests would wait on a reattach for answers that never come. The link is
+                // broken as one that lost an entry, so its notice answers them (`is_broken`).
+                if link.writer_panicked.load(Ordering::SeqCst) {
+                    eprintln!("acpmux: agent {} host link writer panicked; its link breaks", reader.name);
+                    if reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                        let _ = hosted
+                            .inbound
+                            .send(Inbound::LinkBroken { agent: reader.generation })
+                            .await;
+                    }
+                    return;
+                }
                 #[cfg(debug_assertions)]
                 reader_stop_hold().await;
                 // The agent holder (`agent_host/custody.rs`): a host that died while its harness

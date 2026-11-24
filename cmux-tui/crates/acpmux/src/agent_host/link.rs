@@ -446,6 +446,9 @@ pub struct Link {
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Set when this link's writer panicked (#54378): lines it took may never have reached the
+    /// host, so their requests get no answer from it; the reader marks the link broken.
+    pub writer_panicked: Arc<std::sync::atomic::AtomicBool>,
     /// The last entry the host sent on this link (`replay_end_within`).
     highest: Arc<std::sync::atomic::AtomicU64>,
     /// The ring offsets the host's entries carried (`HostFrame::Entry::o`, the agent holder),
@@ -630,6 +633,8 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     // reaches the host again; the socket itself stays open and would never tell it (#54378).
     let writer_gone = Arc::new(tokio::sync::Notify::new());
     let gone = writer_gone.clone();
+    let writer_panicked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let panicked = writer_panicked.clone();
     tokio::spawn(async move {
         use futures_util::FutureExt as _;
         // The frame being written and its receipt, settled below if the writer panics on it.
@@ -687,7 +692,10 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             f.failed();
         }
         if wrote.is_err() {
+            // On stderr too (`daemon.log`): stdout may be gone with the process that read it.
+            eprintln!("acpmux: agent host link writer panicked; its link ends");
             tracing::error!("agent host link writer panicked; its link ends");
+            panicked.store(true, std::sync::atomic::Ordering::SeqCst);
             gone.notify_one();
         }
         // Never sent now: what it still queues is cut, so no holder waits on it.
@@ -775,6 +783,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
+            writer_panicked,
             highest,
             offsets,
         }),
