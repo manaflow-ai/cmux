@@ -78,14 +78,15 @@ def pad(text: str, width: int, align: str = "left") -> str:
 
 
 def truncate(text: str, width: int, ellipsis: str = ELLIPSIS) -> str:
-    """`text` if it fits in `width` cells, else its longest head that fits together with `ellipsis`."""
+    """`text` if it fits in `width` cells, else its longest head that fits together with `ellipsis`. Only visible
+    characters are dropped: the escape sequences of the cut-off tail are kept (so a closing reset still lands)."""
     if display_width(text) <= width:
         return text
     room = width - display_width(ellipsis)
     if room <= 0:
         return _take(ellipsis, width)[0]
-    head, _ = _take(text, room)
-    return head + ellipsis
+    head, rest = _take(text, room)
+    return head + ellipsis + "".join(ANSI_RE.findall(rest))
 
 
 def fit(text: str, width: int, align: str = "left") -> str:
@@ -96,8 +97,8 @@ def fit(text: str, width: int, align: str = "left") -> str:
 def wrap(text: str, width: int) -> list[str]:
     """Greedy word wrap of `text` into lines of at most `width` cells. Words are split on spaces; a word wider than
     `width` is broken across lines. Runs of spaces between words collapse to one."""
-    if width < 1:
-        raise ValueError("width must be at least 1")
+    if width < 2:
+        raise ValueError("width must be at least 2")
     lines: list[str] = []
     line = ""
     line_w = 0
@@ -112,9 +113,6 @@ def wrap(text: str, width: int) -> list[str]:
             line, line_w = "", 0
         while w > width:
             head, word = _take(word, width)
-            if not strip_ansi(head):
-                # a single character wider than the line: put it on its own line
-                head, word = _take(word, display_width(word))[0][:1], word[1:]
             lines.append(head)
             w = display_width(word)
         line, line_w = word, w

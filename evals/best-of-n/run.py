@@ -57,6 +57,9 @@ def use_set(work: Path, chosen: str | None = None) -> str:
     if name not in SETS:
         sys.exit(f"run.py: no task set {name} (sets: {', '.join(SETS)})")
     TASKS = HERE / name
+    # `setup` freezes the set into WORK/tasks, so a task edited mid-run is scored with the tests its starter had.
+    if (work / "tasks").is_dir():
+        TASKS = work / "tasks"
     return name
 SCHEMA = "best-of-n-results/v1"
 # `--diverse`: one (model, plan hint) per attempt, cycled past four. The first attempt starts cold: no hint at all.
@@ -88,13 +91,13 @@ def git(repo: Path, *args: str) -> None:
                     "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
 
 
-def setup(work: Path) -> Path:
+def setup(work: Path, only: str | None = None) -> Path:
     repo = work / "repo"
     if repo.exists():
         sys.exit(f"run.py: {repo} exists; use a new --work")
     repo.mkdir(parents=True)
     git(repo, "init", "-q", "-b", "main")
-    for name in tasks(None):
+    for name in tasks(only):
         (repo / name).mkdir()
         shutil.copy(TASKS / name / "starter.py", repo / name / f"{name}.py")
         shutil.copy(TASKS / name / "prompt.md", repo / name / "SPEC.md")
@@ -151,7 +154,8 @@ def start(work: Path, model: str, attempts: int, reviewer: str, effort: str | No
         state = {"parent": name, "repo": str(repo), "model": model, "attempts": attempts, "reviewer": reviewer,
                  "effort": effort, "diverse": diverse, "plan": plan(model, attempts, diverse),
                  "hints_emulated": hinted and not has_hint, "races": {}}
-    for name in tasks(only):
+    # Only the tasks `setup` put in the repo (a set can grow after setup).
+    for name in [t for t in tasks(only) if (repo / t).is_dir()]:
         if name in state["races"]:
             continue
         args = ["race", "new", "--parent", state["parent"], "--reviewer", reviewer, "--prompt-file",
@@ -199,11 +203,11 @@ def hidden_tests(name: str, folder: Path) -> tuple[int, int, list[str]]:
     return res["passed"], res["total"], res["failures"]
 
 
-def check() -> int:
+def check(only: str | None = None) -> int:
     """Each task's hidden tests pass on its reference.py and fail on its starter (and on partial.py, a fix of only the
     reported symptom, where a task has one): the set is solvable and not free."""
     bad = 0
-    for name in tasks(None):
+    for name in tasks(only):
         with tempfile.TemporaryDirectory() as tmp:
             for src, want in (("reference.py", True), ("starter.py", False), ("partial.py", False)):
                 if src == "partial.py" and not (TASKS / name / src).is_file():
@@ -280,7 +284,7 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
     doc = {
         "schema": SCHEMA,
         "measured_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "task_set": f"cmux evals/best-of-n/{TASKS.name}",
+        "task_set": f"cmux evals/best-of-n/{(work / 'task_set').read_text().strip() if (work / 'task_set').is_file() else TASKS.name}",
         "model": state["model"], "attempts": state["attempts"], "reviewer": state["reviewer"],
         "effort": state.get("effort"), "diverse": state.get("diverse"), "plan": state.get("plan"),
         "hints_emulated": state.get("hints_emulated"),
@@ -307,6 +311,7 @@ def main() -> None:
         p.add_argument("--work", type=Path, required=name != "check")
         if name in ("setup", "check"):
             p.add_argument("--set", choices=SETS, default="tasks")
+            p.add_argument("--tasks", help="only these tasks (comma-separated), as for a calibration run")
         if name == "start":
             p.add_argument("--model", default="claude/haiku")
             p.add_argument("--attempts", type=int, default=4)
@@ -324,11 +329,13 @@ def main() -> None:
     a = ap.parse_args()
     if a.cmd == "check":
         use_set(Path("/nonexistent"), a.set)
-        sys.exit(check())
+        sys.exit(check(a.tasks))
     work = a.work.resolve()
     if a.cmd == "setup":
         use_set(work, a.set)
-        repo = setup(work)
+        repo = setup(work, a.tasks)
+        for name in tasks(a.tasks):
+            shutil.copytree(TASKS / name, work / "tasks" / name, ignore=shutil.ignore_patterns("__pycache__"))
         (work / "task_set").write_text(a.set + "\n")
         print(repo)
         return
