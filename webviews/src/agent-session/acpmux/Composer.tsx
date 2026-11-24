@@ -171,6 +171,7 @@ import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from ".
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { compactingUsage } from "./usageStats";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
@@ -707,8 +708,13 @@ function useRelayProps(props: Props): Props {
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
+/// Function props the composer calls only from a send, never while drawing: held like its `on*` handlers. The
+/// pane passes `holdsSend` inline, so each pane render (every streamed tool-output chunk under a running tool
+/// call) handed the composer a new one and drew the composer and its box again, in the frames a typed key waits on.
+const CALL_TIME_PROPS = ["holdsSend"] as const;
+
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -1037,6 +1043,7 @@ function ComposerFrame({
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLookWithV2();
+  const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -3221,6 +3228,7 @@ function ComposerFrame({
       composing.current = value;
     };
   });
+  const emptyQuietSlot = quietActions && !shell && !hasDraft && !listening;
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
@@ -3238,11 +3246,11 @@ function ComposerFrame({
       >
         <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
-    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
+    ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
       // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
       // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
@@ -3250,7 +3258,10 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          disabled={
+            emptyQuietSlot ||
+            (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
+          }
           className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
@@ -3375,6 +3386,7 @@ function ComposerFrame({
       data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-composer-buttons-visible={buttonsVisible || undefined}
       data-shell-look={shellLook}
       data-footer-controls={controlsLook}
       data-empty-height={emptyHeight}
