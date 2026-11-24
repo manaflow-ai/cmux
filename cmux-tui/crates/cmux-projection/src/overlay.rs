@@ -42,7 +42,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
-use crate::upper::{SetTime, Stat, Upper};
+use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE, SetTime, Stat, Upper, fmt};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
@@ -78,20 +78,21 @@ pub const DEFAULT_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// The cache's own file naming the manifest it belongs to (never evicted).
 pub const CACHE_ID_FILE: &str = "manifest-id";
 
-/// `errno` values (Linux numbers; the mount is Linux only).
+/// `errno` values, the system's own numbers (Linux's under the FUSE mount, macOS's under the NFS
+/// one).
 pub mod errno {
-    pub const EPERM: i32 = 1;
-    pub const ENOENT: i32 = 2;
-    pub const EIO: i32 = 5;
-    pub const EBADF: i32 = 9;
-    pub const EACCES: i32 = 13;
-    pub const EEXIST: i32 = 17;
-    pub const EXDEV: i32 = 18;
-    pub const ENOTDIR: i32 = 20;
-    pub const EISDIR: i32 = 21;
-    pub const EINVAL: i32 = 22;
-    pub const ENAMETOOLONG: i32 = 36;
-    pub const ENOTEMPTY: i32 = 39;
+    pub const EPERM: i32 = libc::EPERM;
+    pub const ENOENT: i32 = libc::ENOENT;
+    pub const EIO: i32 = libc::EIO;
+    pub const EBADF: i32 = libc::EBADF;
+    pub const EACCES: i32 = libc::EACCES;
+    pub const EEXIST: i32 = libc::EEXIST;
+    pub const EXDEV: i32 = libc::EXDEV;
+    pub const ENOTDIR: i32 = libc::ENOTDIR;
+    pub const EISDIR: i32 = libc::EISDIR;
+    pub const EINVAL: i32 = libc::EINVAL;
+    pub const ENAMETOOLONG: i32 = libc::ENAMETOOLONG;
+    pub const ENOTEMPTY: i32 = libc::ENOTEMPTY;
 }
 use errno::{
     EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
@@ -129,13 +130,13 @@ impl Type {
     /// The type an `st_mode`'s `S_IFMT` bits name.
     #[must_use]
     pub fn of_mode(mode: u32) -> Self {
-        match mode & libc::S_IFMT {
-            libc::S_IFDIR => Self::Dir,
-            libc::S_IFLNK => Self::Link,
-            libc::S_IFIFO => Self::Fifo,
-            libc::S_IFSOCK => Self::Socket,
-            libc::S_IFCHR => Self::Char,
-            libc::S_IFBLK => Self::Block,
+        match mode & fmt::S_IFMT {
+            fmt::S_IFDIR => Self::Dir,
+            fmt::S_IFLNK => Self::Link,
+            fmt::S_IFIFO => Self::Fifo,
+            fmt::S_IFSOCK => Self::Socket,
+            fmt::S_IFCHR => Self::Char,
+            fmt::S_IFBLK => Self::Block,
             _ => Self::File,
         }
     }
@@ -447,7 +448,7 @@ fn check(ret: libc::c_int) -> Result<(), i32> {
 
 fn fd_chmod(file: &fs::File, mode: u32) -> Result<(), i32> {
     // SAFETY: the descriptor is open for the call.
-    check(unsafe { libc::fchmod(file.as_raw_fd(), mode & 0o7777) })
+    check(unsafe { libc::fchmod(file.as_raw_fd(), crate::upper::mode_t(mode & 0o7777)) })
 }
 
 fn fd_chown(file: &fs::File, uid: u32, gid: u32) -> Result<(), i32> {
@@ -998,7 +999,7 @@ impl Overlay {
     pub fn version(&self, ino: u64) -> Result<Option<Version>, i32> {
         let path = self.path_of(ino)?;
         Ok(match self.node(&path).ok_or(ENOENT)? {
-            Node::Upper(stat) if stat.format() == libc::S_IFREG => Some(Version::Upper {
+            Node::Upper(stat) if stat.format() == fmt::S_IFREG => Some(Version::Upper {
                 dev: stat.dev,
                 ino: stat.ino,
                 size: stat.size,
@@ -1147,6 +1148,16 @@ impl Overlay {
         let node = self.node(&path)?;
         // A name the number no longer answers to (its path now holds another file).
         (self.ino_of(&path, &node) == ino).then_some((path, node))
+    }
+
+    /// The number of the folder that holds `ino` (the folder itself for the root): what an NFS
+    /// client's lookup of `..` answers, which a FUSE kernel answers by itself.
+    pub fn parent(&self, ino: u64) -> Result<u64, i32> {
+        let path = self.path_of(ino)?;
+        if path.is_empty() {
+            return Ok(self.root());
+        }
+        Ok(self.lookup_path(Self::parent_of(&path))?.ino)
     }
 
     /// Whether folder `ino` is only in the manifest (no upper folder under it): its names change
@@ -1724,7 +1735,7 @@ impl Overlay {
             }
         }
         let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
-            Node::Upper(stat) if stat.format() == libc::S_IFREG => {
+            Node::Upper(stat) if stat.format() == fmt::S_IFREG => {
                 let access = flags & libc::O_ACCMODE;
                 let file = self.upper.open_existing(&path, access)?;
                 if flags & libc::O_TRUNC != 0 {
@@ -1809,7 +1820,8 @@ impl Overlay {
         u32::try_from(data.len()).map_err(|_| EINVAL)
     }
 
-    /// `fallocate(2)` through open handle `handle`.
+    /// `fallocate(2)` through open handle `handle` (Linux).
+    #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
@@ -1829,7 +1841,7 @@ impl Overlay {
     /// instead, whose new folders are set-group-id too) and its mode, as the kernel does on a disk.
     fn adopt_new(&self, parent: &str, child: &str, who: Who, mode: Option<u32>) -> Result<(), i32> {
         let parent_attr = self.node(parent).map(|node| self.attr(parent, &node));
-        let set_gid = parent_attr.is_some_and(|attr| attr.mode & libc::S_ISGID != 0);
+        let set_gid = parent_attr.is_some_and(|attr| attr.mode & fmt::S_ISGID != 0);
         let gid = match parent_attr {
             Some(attr) if set_gid => attr.gid,
             _ => who.gid,
@@ -1842,7 +1854,7 @@ impl Overlay {
         }
         if let Some(mut mode) = mode {
             if stat.is_dir() && set_gid {
-                mode |= libc::S_ISGID;
+                mode |= fmt::S_ISGID;
             }
             self.upper.chmod(child, mode)?;
         }
@@ -1901,9 +1913,9 @@ impl Overlay {
     ) -> Result<Attr, i32> {
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
-        let format = mode & libc::S_IFMT;
+        let format = mode & fmt::S_IFMT;
         match format {
-            0 | libc::S_IFREG => {
+            0 | fmt::S_IFREG => {
                 self.in_folder(&parent, || {
                     self.upper.open_file(
                         &child,
@@ -1912,7 +1924,7 @@ impl Overlay {
                     )
                 })?;
             }
-            libc::S_IFIFO | libc::S_IFSOCK | libc::S_IFCHR | libc::S_IFBLK => {
+            fmt::S_IFIFO | fmt::S_IFSOCK | fmt::S_IFCHR | fmt::S_IFBLK => {
                 self.in_folder(&parent, || self.upper.mknod(&child, format | 0o600, rdev))?;
             }
             _ => return Err(EINVAL),
@@ -2023,10 +2035,9 @@ impl Overlay {
     ) -> Result<(), i32> {
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
-        let exchange = flags & libc::RENAME_EXCHANGE != 0;
-        let noreplace = flags & libc::RENAME_NOREPLACE != 0;
-        if flags & !(libc::RENAME_EXCHANGE | libc::RENAME_NOREPLACE) != 0 || (exchange && noreplace)
-        {
+        let exchange = flags & RENAME_EXCHANGE != 0;
+        let noreplace = flags & RENAME_NOREPLACE != 0;
+        if flags & !(RENAME_EXCHANGE | RENAME_NOREPLACE) != 0 || (exchange && noreplace) {
             return Err(EINVAL);
         }
         let node = self.node(&from).ok_or(ENOENT)?;
@@ -2136,7 +2147,7 @@ impl Overlay {
         self.ensure_upper(from)?;
         self.ensure_upper(to)?;
         self.upper_folder(to_parent)?;
-        self.upper.rename(from, to, libc::RENAME_EXCHANGE)?;
+        self.upper.rename(from, to, RENAME_EXCHANGE)?;
         // Swap the two names' numbers (and everything below each).
         let temp = format!("\0exchange\0{a}");
         self.move_names(from, &temp, a);
