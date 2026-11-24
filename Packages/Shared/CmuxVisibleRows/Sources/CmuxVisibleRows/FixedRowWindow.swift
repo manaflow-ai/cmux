@@ -1,6 +1,7 @@
 /// The rows a list of fixed-height rows mounts, and which of them a change makes it configure again (Leo 2026-11-18,
 /// ask-1105ee4cc6: "we draw the visible area, right?"). No AppKit or UIKit, so its math is tested on every platform;
 /// the Cloud Team sessions list (CmuxNextCloudUI) keeps its row views by the keys `remount` reads.
+// lint:allow namespace-type: pure row-window math over value inputs, shared by the platforms; no receiver owns it yet.
 public enum FixedRowWindow {
     /// The rows in the viewport plus one viewport above and one below, clamped to `0..<count`. A viewport of no height
     /// (a list not laid out yet) reads as `fallbackHeight`, so the first pass mounts a screenful and not nothing.

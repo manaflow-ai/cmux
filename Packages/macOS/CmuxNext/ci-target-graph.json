@@ -959,9 +959,7 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CmuxVisibleRows"
-      ]
+      "packages": []
     },
     "CmuxNextCloudUITests": {
       "kind": "test",
@@ -976,9 +974,7 @@
         "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
-      "packages": [
-        "CmuxVisibleRows"
-      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextCodeRouter": {
