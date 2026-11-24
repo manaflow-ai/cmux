@@ -124,23 +124,22 @@ public final class HangReportCollector: Sendable {
         if start { schedule { [self] in resolvePending() } }
     }
 
-    /// Resolves every waiting sample, then ends the job (off the main thread).
+    /// Resolves the samples waiting now (off the main thread); samples that came meanwhile go to a next job,
+    /// and the last job, finding none, lets the main thread start one again.
     private func resolvePending() {
-        while true {
-            let jobs = pending.withLock { pending in
-                let jobs = pending.jobs
-                pending.jobs = []
-                if jobs.isEmpty { pending.scheduled = false }
-                return jobs
-            }
-            guard !jobs.isEmpty else { return }
-            for job in jobs {
-                var resolved = job.sample
-                resolved.frames = Array(resolve(job.addresses).prefix(HangSample.maxFrames))
-                guard isEnabled else { continue }
-                aggregate.withLock { $0.keep(resolved) }
-            }
+        let jobs = pending.withLock { pending in
+            let jobs = pending.jobs
+            pending.jobs = []
+            if jobs.isEmpty { pending.scheduled = false }
+            return jobs
         }
+        guard !jobs.isEmpty else { return }
+        for job in jobs {
+            var resolved = job.sample
+            resolved.frames = Array(resolve(job.addresses).prefix(HangSample.maxFrames))
+            if isEnabled { aggregate.withLock { $0.keep(resolved) } }
+        }
+        schedule { [self] in resolvePending() }
     }
 
     static func milliseconds(_ nanos: UInt64) -> Int { Int(min(nanos / 1_000_000, UInt64(HistogramBucket.maxMs))) }

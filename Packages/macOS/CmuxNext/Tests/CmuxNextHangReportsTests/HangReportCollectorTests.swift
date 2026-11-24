@@ -82,6 +82,10 @@ struct HangReportCollectorTests {
         #expect(jobs.withLock { $0.count } == 1)
         jobs.withLock { $0.removeFirst() }()
         #expect(collector.snapshot().stalls.count == 8, "the one job resolves every waiting stall")
+        // It schedules one follow-up, which finds nothing and ends the run.
+        #expect(jobs.withLock { $0.count } == 1)
+        jobs.withLock { $0.removeFirst() }()
+        #expect(jobs.withLock { $0.isEmpty })
         collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1])
         #expect(jobs.withLock { $0.count } == 1, "a stall after the job ended starts the next")
     }
