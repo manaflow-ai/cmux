@@ -702,6 +702,10 @@ export default componentEntry<Props>({
       note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
     },
+    "card-light": {
+      note: "The same card in a light theme.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
     "card-loading-dots": {
       note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
       props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "dots" },

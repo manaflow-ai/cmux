@@ -15,6 +15,10 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
+/// Beside a move's bundle: what the first bytes of each agent file a history-later prepare had
+/// copied hash to, `{"native/<label>/<path>": {length, sha256}}` (`export_grown`).
+pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
+
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
     std::fs::read(marker)
@@ -49,6 +53,21 @@ impl Hub {
         session: &Arc<Session>,
         dest: &Path,
         after: Option<u64>,
+    ) -> Result<PathBuf> {
+        self.export_grown(session, dest, after, None)
+    }
+
+    /// [`Self::export_after`]; `grown` a history-later prepare's copies of the agent's files and
+    /// what each holds (`transfer_precopy.rs` `PrefixFold`): each that the file now only grew
+    /// past moves into the bundle with that growth appended, and `dest`'s
+    /// [`NATIVE_DIGESTS`] says what its first bytes hash to, so neither the copy nor the
+    /// digest a move asks of them (`transfer_digest`) reads the whole file under the freeze.
+    pub(super) fn export_grown(
+        &self,
+        session: &Arc<Session>,
+        dest: &Path,
+        after: Option<u64>,
+        grown: Option<(&Path, &Value)>,
     ) -> Result<PathBuf> {
         // What the log holds back goes in first (`store/deferred.rs`).
         anyhow::ensure!(
@@ -121,10 +140,37 @@ impl Hub {
         let mut copied = Vec::new();
         if !native.is_empty() {
             crate::home_fs::create_dirs(dir.join("native"))?;
+            let home = dirs::home_dir().unwrap_or_default();
+            let mut digests = serde_json::Map::new();
             for (label, src) in native {
-                if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
+                let fast = grown.and_then(|(prepared, held)| {
+                    let rel = crate::native::grow_into_from(
+                        &src,
+                        prepared,
+                        &dir.join("native"),
+                        &label,
+                        &home,
+                    );
+                    let rel = rel
+                        .inspect_err(|e| tracing::debug!("native file not grown: {e:#}"))
+                        .ok()??;
+                    let at = format!("native/{rel}");
+                    if let Some(digest) = held.get(&at) {
+                        digests.insert(at, digest.clone());
+                    }
+                    Some(rel)
+                });
+                let rel = match fast {
+                    Some(rel) => Ok(rel),
+                    None => crate::native::copy_into(&src, &dir.join("native"), &label),
+                };
+                if let Ok(rel) = rel {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
+            }
+            if !digests.is_empty() {
+                let digests = Value::Object(digests).to_string();
+                crate::home_fs::write(dest.join(NATIVE_DIGESTS), digests)?;
             }
         }
         // OpenCode keeps its sessions in a database: the session goes as its export. A failed
@@ -308,6 +354,11 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
         let restored = match guarded {
+            // A history-later move's receive bundle is read by nothing after its finish: its
+            // transcript becomes the home folder's file by a link, not a copy under the freeze.
+            None if staged.is_some_and(|s| s.history_later) => {
+                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+            }
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
