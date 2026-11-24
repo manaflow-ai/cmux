@@ -30,6 +30,7 @@ use crate::inline::{
     InlineWindow, STANDBY_CAPACITY_CODE, STANDBY_CAPACITY_MESSAGE, inline_peer,
     latest_inline_deadline, live_inline_circuits, live_standby, standby_count, standby_has_room,
 };
+use crate::placement::{VIEWER_REGION_HEADER, is_region};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -41,6 +42,8 @@ use crate::wire::{
 
 const CONTROL_TAG: &str = "daemon-control";
 const CONNECT_TAG: &str = "client-allocation";
+/// A client socket's tag naming the viewer's location hint (`crate::placement`): `viewer-region:weur`.
+const VIEWER_REGION_TAG_PREFIX: &str = "viewer-region:";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
 const JOIN_TICKET_TTL_SECONDS: u64 = 30;
@@ -969,6 +972,7 @@ impl RelaySlot {
         generation: u64,
         now: u64,
         expires_at: u64,
+        region: Option<&str>,
     ) -> Result<String> {
         let key = self.ticket_key()?;
         let issuer = self.ticket_issuer();
@@ -984,6 +988,7 @@ impl RelaySlot {
             issued_at_unix: now,
             expires_at_unix: expires_at,
             grant: None,
+            region: region.map(str::to_owned),
         };
         issue_ticket(&claims, key.as_bytes(), &issuer).map_err(|error| {
             worker::Error::RustError(format!("failed to mint {role:?} join ticket: {error}"))
@@ -1278,7 +1283,15 @@ impl DurableObject for RelaySlot {
             pending_handover: false,
             inline: InlineState::default(),
         })?;
-        self.state.accept_websocket_with_tags(&pair.server, &[tag]);
+        // A viewer's place rides on the socket as a tag, so it survives hibernation with no attachment field.
+        let region_tag = (role == RelayRole::Client)
+            .then(|| request.headers().get(VIEWER_REGION_HEADER).ok().flatten())
+            .flatten()
+            .filter(|region| is_region(region))
+            .map(|region| format!("{VIEWER_REGION_TAG_PREFIX}{region}"));
+        let mut tags = vec![tag];
+        tags.extend(region_tag.as_deref());
+        self.state.accept_websocket_with_tags(&pair.server, &tags);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
             close(&pair.server, 1011, "cleanup scheduling failed");
             return Err(error);
