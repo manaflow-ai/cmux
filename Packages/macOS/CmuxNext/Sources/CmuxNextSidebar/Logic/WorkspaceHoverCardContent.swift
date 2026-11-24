@@ -43,6 +43,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var isPreview = false
         /// The machine a machine row names: its icon draws that machine's color pick, if any.
         var machine: String?
+        /// What a click on the row opens in a browser tab of the workspace (a port link's "http://localhost:5173/").
+        var link: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
@@ -81,6 +83,12 @@ struct WorkspaceHoverCardContent: Equatable {
     var stats: String?
     /// The options the card was made with (its layout picks the card's width and history height).
     var options = WorkspaceHoverCardOptions()
+    /// The ports the workspace's terminals serve, one row each ("localhost:5173", `WorkspacePortLinks`): shown under
+    /// the tab list with details open or not, so a port opens with one click on the card. A workspace on another
+    /// machine opens the same address; its browser tab reaches that machine's localhost through the Remote carrier.
+    var ports: [Fact] = []
+    /// The `ports` entry the port rows come from, for the user's card (`cardFacts`).
+    var portsText: String?
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -102,7 +110,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// home folder, which is no fact.
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
                      options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
-                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
+                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory(),
+                     portLinks: (String) -> [WorkspacePortLinks.Link]? = { WorkspacePortLinks().links($0) }) -> Self {
         var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
         // Keep the hover card in step with the row: a local host plus the same
         // session title is metadata without information and gets no fact row.
@@ -119,7 +128,11 @@ struct WorkspaceHoverCardContent: Equatable {
             timeline[0].text = needsInputReason(workspace)
         }
         if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
-        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty, let links = portLinks(ports), !links.isEmpty {
+            card.ports = links.map { Fact(icon: .network, text: $0.label, kind: "ports", link: $0.url) }
+            card.portsText = ports
+        } else if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+            // No port to open in the entry (a hook's words), or no answer: the entry reads as before.
             let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.isPreview }
             card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
         }
@@ -404,7 +417,8 @@ struct WorkspaceHoverCardContent: Equatable {
     var cardFacts: SidebarCardFacts {
         SidebarCardFacts(
             title: title, status: Strings.activity(activity), statusSinceMs: activitySince.map { $0.timeIntervalSince1970 * 1000 },
-            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) })
+            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) }
+                + (portsText.map { [.init(kind: "ports", text: $0, sinceMs: nil)] } ?? []))
     }
 
     /// The icon of what an agent is doing (`SidebarPresence.Activity`).
