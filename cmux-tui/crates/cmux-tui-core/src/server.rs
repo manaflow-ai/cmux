@@ -802,7 +802,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -810,7 +809,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
