@@ -393,7 +393,7 @@ impl Pacer {
             }
             Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
             Priority::Interactive | Priority::Screen => {
-                DropCounters::count(&self.drops.interactive_full)
+                DropCounters::count(&self.drops.interactive_full);
             }
             Priority::Bulk => DropCounters::count(&self.drops.bulk_full),
             Priority::Media => {
