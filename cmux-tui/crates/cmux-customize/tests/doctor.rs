@@ -114,12 +114,7 @@ fn a_stale_pr_layer_and_a_broken_file_are_both_said_in_one_line() {
     assert!(broken.path.as_deref().unwrap().ends_with("config/themes/night.json"));
     assert!(broken.detail.contains("last version that loaded"), "{}", broken.detail);
 
-    assert_eq!(
-        report.line.as_deref(),
-        Some(
-            "2 customization problems to review"
-        )
-    );
+    assert_eq!(report.line.as_deref(), Some("2 customization problems to review"));
 }
 
 #[test]
