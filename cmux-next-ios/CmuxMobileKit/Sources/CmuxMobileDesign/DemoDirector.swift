@@ -42,6 +42,8 @@ public final class DemoDirector {
         /// "subagents", "checkpoints", "handoff", or a subagent's name.
         case chatOpenParity(String)
         case parityClose
+        /// The Event Inspector's filter text (the list rig types it).
+        case inspectorFilter(String)
         case checkpointRestore(id: String)
         case checkpointConfirm
         case handoffPick(id: String)
