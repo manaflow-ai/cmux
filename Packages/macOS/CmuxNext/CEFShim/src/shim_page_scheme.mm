@@ -3,7 +3,8 @@
 // (page_scheme_registration.h). Each id gets its own scheme handler factory
 // for the domain <id>, on the global context and on every request context
 // the shim creates (each profile keeps its own factories). The path rules
-// live in cmux_page_path.h (scripts/cmux-next/test-cmux-page-path-cpp.sh).
+// live in cmux_page_path.h, the packed copies' in cmux_page_packed.h
+// (scripts/cmux-next/test-cmux-page-path-cpp.sh).
 
 #include <algorithm>
 #include <atomic>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <mutex>
 
+#include "cmux_page_packed.h"
 #include "cmux_page_path.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_handler.h"
@@ -381,6 +383,54 @@ class DeferredPageResource : public CefResourceHandler {
   IMPLEMENT_REFCOUNTING(DeferredPageResource);
 };
 
+// A file the folder holds only packed (`<name>.deflate`, cmux_page_packed.h; CMUX-570): Open reads and
+// inflates it in memory. CEF calls Open and Read off the UI and IO threads, where a file read may
+// block (as CefStreamResourceHandler's file reads do); the viewers' first open inflates about 1.6 MB
+// into 5.6 MB this way. A copy that does not inflate is a 404, as a missing file is.
+class PackedFileResource : public CefResourceHandler {
+ public:
+  PackedFileResource(std::string packed, std::string mime, CefResponse::HeaderMap headers)
+      : packed_(std::move(packed)), mime_(std::move(mime)), headers_(std::move(headers)) {}
+
+  bool Open(CefRefPtr<CefRequest>, bool& handle_request, CefRefPtr<CefCallback>) override {
+    handle_request = true;
+    if (!ReadPackedPage(packed_, &body_)) {
+      body_ = "Not Found";
+      status_ = 404;
+      mime_ = "text/plain";
+    }
+    return true;
+  }
+  void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t& response_length, CefString&) override {
+    response->SetStatus(status_);
+    response->SetStatusText(PageStatusText(status_));
+    response->SetMimeType(mime_);
+    response->SetHeaderMap(headers_);
+    response_length = static_cast<int64_t>(body_.size());
+  }
+  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback>) override {
+    const size_t count = std::min(body_.size() - offset_, static_cast<size_t>(std::max(bytes_to_read, 0)));
+    if (count == 0) {
+      bytes_read = 0;
+      return false;
+    }
+    memcpy(data_out, body_.data() + offset_, count);
+    offset_ += count;
+    bytes_read = static_cast<int>(count);
+    return true;
+  }
+  void Cancel() override {}
+
+ private:
+  const std::string packed_;
+  std::string mime_;
+  const CefResponse::HeaderMap headers_;
+  int status_ = 200;
+  std::string body_;
+  size_t offset_ = 0;  // Open and Read run in sequence (CEF), never at once
+  IMPLEMENT_REFCOUNTING(PackedFileResource);
+};
+
 // Immutable after construction: Create runs off the UI thread.
 class PageFactory : public CefSchemeHandlerFactory {
  public:
@@ -469,6 +519,12 @@ class PageFactory : public CefSchemeHandlerFactory {
         if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
         return new CefStreamResourceHandler(200, "OK", mime, headers, stream);
       }
+    }
+    // Not in the folder: its packed copy beside it, when the app build stored it so.
+    if (parsed && ResolvePackedPagePath(root_, path, &file, &mime)) {
+      CefResponse::HeaderMap headers = Headers();
+      if (IsContentHashedQuery(CefString(&parts.query).ToString())) headers.emplace("Cache-Control", kImmutableCacheControl);
+      return new PackedFileResource(file, mime, headers);
     }
     static char kBody[] = "Not Found";
     return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
