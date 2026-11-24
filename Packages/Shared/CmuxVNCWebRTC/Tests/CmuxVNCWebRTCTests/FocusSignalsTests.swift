@@ -233,3 +233,20 @@ struct FocusSignalsTests {
         #expect(VNCPeerLink.focusLabel == "focus")
     }
 }
+
+#if os(macOS)
+/// The caret is never read out of a password field: where someone types a
+/// password is not sent to the viewer.
+@Suite struct FocusSecureFieldTests {
+    @Test func passwordFieldsAreSecure() {
+        #expect(SystemFocusProbe.isSecureTextField(role: "AXTextField", subrole: "AXSecureTextField"))
+        #expect(SystemFocusProbe.isSecureTextField(role: "AXSecureTextField", subrole: nil))
+    }
+
+    @Test func ordinaryTextIsNotSecure() {
+        #expect(!SystemFocusProbe.isSecureTextField(role: "AXTextField", subrole: nil))
+        #expect(!SystemFocusProbe.isSecureTextField(role: "AXTextArea", subrole: "AXSearchField"))
+        #expect(!SystemFocusProbe.isSecureTextField(role: nil, subrole: nil))
+    }
+}
+#endif

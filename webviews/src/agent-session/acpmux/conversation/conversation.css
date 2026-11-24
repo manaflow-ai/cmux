@@ -6602,6 +6602,11 @@ a.cv-sha:focus-visible {
 .cv-turn-error--card .cv-turn-error__cause {
   gap: var(--grid-gap);
 }
+/* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
+   the prose's ink, never the failure red. */
+.cv-github-connect .cv-turn-error__icon {
+  color: var(--agent-text);
+}
 .cv-turn-error--card .cv-turn-error__icon {
   width: var(--grid-icon-box);
   height: var(--grid-icon-box);
@@ -8395,7 +8400,19 @@ article.acpmux-row {
   min-height: 0;
   padding-block: 0;
   margin-block: 0;
-  contain: layout;
+  /* Style too: no row's style reads a counter or quote from outside it, so what a row mounts or
+     changes stays its own. */
+  contain: layout style;
+}
+/* A row mounted away from the view (conversation/offscreenRows.ts): the page skips its contents
+   until it comes near the viewport, its box as high as the transcript placed it (the row's inline
+   contain-intrinsic-height). content-visibility brings paint containment along, which would clip the
+   action row laid in the gap under a reply and the gap's own hit target (the rule above): the clip
+   margin keeps everything a row draws outside its box drawn and clickable, as before. Only an
+   engine that has both marks rows (`skipsOffscreenRows`). */
+article.acpmux-row.acpmux-row--offscreen {
+  content-visibility: auto;
+  overflow-clip-margin: 100vh;
 }
 /* An empty footer (turns.ts isEmptyFooter) takes no height: its hover controls lie over the gap. A
    reply's footer is a row of its own (model.ts isOverlayFooter). */
