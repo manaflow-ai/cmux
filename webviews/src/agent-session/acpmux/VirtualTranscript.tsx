@@ -236,8 +236,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
