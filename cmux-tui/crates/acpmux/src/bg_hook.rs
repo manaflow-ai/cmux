@@ -513,6 +513,12 @@ fn plain_command(argv: &[&str]) -> bool {
     }
 }
 
+/// Whether `text` begins with the subagent mark line `subagent_mark` writes (even cut short, as
+/// Claude Code's truncated one-line description of a marked command is).
+pub fn starts_with_subagent_mark(text: &str) -> bool {
+    text.trim_start().starts_with(&format!("export {}=", crate::sender_env::SUBAGENT_ENV))
+}
+
 /// `command` without the hook's mark line ([`subagent_mark`]) when it starts with one, else as
 /// it is. The mark only sets `ACPMUX_CALLER_SUBAGENT` to two plain words: it runs nothing.
 pub fn without_subagent_mark(command: &str) -> &str {

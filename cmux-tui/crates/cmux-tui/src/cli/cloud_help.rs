@@ -900,6 +900,10 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());
     }
+    #[cfg(unix)]
+    if let Some(long) = super::vm_short::long_verb(name) {
+        return find(long).map(|verb| short_verb_help(name, verb, japanese));
+    }
     let verb = find(name)?;
     let usage = usage_line(verb);
     let note = renamed(name).map_or_else(String::new, |new| {
@@ -929,6 +933,49 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
             )
         },
     )
+}
+
+/// The short spelling's usage (vm_short.rs): the VM by name or id, or none when you have one.
+#[cfg(unix)]
+fn short_usage(name: &str, verb: &Verb) -> String {
+    let flags = verb.usage.replace("{target}", "").replace("--yes", "[--yes]");
+    let flags = flags.trim();
+    match name {
+        "ls" | "list" => format!("cmux vm {name}"),
+        "exec" => "cmux vm exec [NAME|ID] -- COMMAND...".to_owned(),
+        "rename" => "cmux vm rename [NAME|ID] NEW_NAME".to_owned(),
+        // `--all`: every running VM (vm_short.rs `pause_all`).
+        "pause" | "shutdown" => format!("cmux vm {name} [NAME|ID | --all]"),
+        _ if flags.is_empty() => format!("cmux vm {name} [NAME|ID]"),
+        _ => format!("cmux vm {name} [NAME|ID] {flags}"),
+    }
+}
+
+/// `cmux vm pause --help` (and `cmux cloud pause --help`): the short verb's own usage, then the
+/// long spelling it runs. Before, every short verb but `exec` and `ssh` printed the whole overview
+/// (CMUX-674 item 15: `vm status --help`).
+#[cfg(unix)]
+fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
+    let short = short_usage(name, verb);
+    let long = usage_line(verb);
+    let shutdown = name == "shutdown";
+    if japanese {
+        let note = if shutdown {
+            "`shutdown` は `pause` と同じです（削除は `rm`）。\n"
+        } else {
+            ""
+        };
+        format!(
+            "使い方: {short}\n\n{}。VM は名前か ID で指定し、1 台なら省略できます。\n{note}\n同じ動作: {long}\nアプリがなければ cmux VM API の同名の動詞として動きます（`cmux vm --help`）。\n",
+            verb.ja
+        )
+    } else {
+        let note = if shutdown { "`shutdown` is `pause` (`rm` deletes the VM).\n" } else { "" };
+        format!(
+            "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\nWithout the cmux app this is the cmux VM API's verb of the same name (`cmux vm --help`).\n",
+            verb.en
+        )
+    }
 }
 
 /// The usage line alone, for a parse error that names the verb.
