@@ -37,9 +37,11 @@ on:
 permissions:
   contents: read
 
+# A newer head of a pull request cancels the journey of the head it replaced (its machine is swept by the next run,
+# as a killed run's is); a manual or dispatched run is never cancelled.
 concurrency:
   group: executor-journey-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   journey:
