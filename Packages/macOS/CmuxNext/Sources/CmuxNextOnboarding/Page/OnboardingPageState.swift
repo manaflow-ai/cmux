@@ -247,6 +247,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let note: String?
         let showsRestart: Bool
         let comebacks: Int
+        /// The done view: the person's Allow got the last grant on (the window closes by itself).
+        let finished: Bool
+        /// The Screenshots row's screen capture note (``ComputerUseStepModel/confirmsCapture``).
+        let confirmsCapture: Bool
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -256,9 +260,11 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encodeNullable(note, forKey: .note)
             try c.encode(showsRestart, forKey: .showsRestart)
             try c.encode(comebacks, forKey: .comebacks)
+            try c.encode(finished, forKey: .finished)
+            try c.encode(confirmsCapture, forKey: .confirmsCapture)
         }
 
-        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
+        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks, finished, confirmsCapture }
     }
 
     /// One background of Make cmux Yours (ops.ts `MakeItYoursBackground`).
@@ -493,7 +499,7 @@ extension OnboardingPageState {
                         GrantRow(pane: pane.rawValue, control: control(pane, model), icon: images.grant(pane))
                     },
                     allGranted: model.allGranted, note: note(model), showsRestart: model.permissions.helperFailed,
-                    comebacks: model.comebacks)
+                    comebacks: model.comebacks, finished: model.finished, confirmsCapture: model.confirmsCapture)
     }
 
     /// The row's trailing control for the current grants.

@@ -1,7 +1,7 @@
 extension AgentPaneModel {
     /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Open
     /// Cloud…, which opens the Cloud page at its storefront (`#/get`: the plan's sizes; the pane
-    /// knows no plan), Connect Phone…, which opens the Mobile Pairing page, Add Machine… (the Add
+    /// knows no plan), Connect Phone…, which opens Settings > Accounts > iPhone, Add Machine… (the Add
     /// Device card: a computer on the tailnet or in ~/.ssh/config, enrolled with its daemon kept
     /// current, or a new Cloud VM), and a started chat's Move to Cloud and Bring Back Local (the tab
     /// menu's same actions, on this tab), and the signed-out picker's Sign in for Cloud
@@ -35,6 +35,10 @@ extension AgentPaneModel {
     /// user 2026-11-20): the app's Toggle Terminal and Chat on this tab, the tab right-click's same row. It shows another
     /// tab, so it spends the person's gesture.
     static let terminalSwitchActions: Set<String> = ["palette.toggleTerminalChat"]
+    /// Set Up Computer Use from the chat's "Computer use is not set up" notice (`@computer-use`,
+    /// ``AgentPaneComputerUseState``). It opens the onboarding step, so it spends the person's key press or click from
+    /// just now (``AgentPaneUserGestures/consumeFreshGesture()``), never the generic half-minute credit.
+    static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -57,7 +61,8 @@ extension AgentPaneModel {
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || screenShare
+            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.setupActions.contains(id)
+            || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -65,7 +70,9 @@ extension AgentPaneModel {
         if let session, header?.showsChat(session) != true {
             return Self.refused("This chat is no longer shown.")
         }
-        if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+        if gated, !(Self.setupActions.contains(id) ? transport.gestures.consumeFreshGesture() : transport.gestures.consume()) {
+            return Self.transportFailure(.gestureRequired)
+        }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if screenShare, let session { arguments["session"] = session }
         if let environment { arguments["environment"] = environment }

@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(os)
 import os
+#endif
 
 /// A ``HomeWireSocket`` over one `URLSessionWebSocketTask`.
 final class URLSessionHomeWireSocket: HomeWireSocket {
