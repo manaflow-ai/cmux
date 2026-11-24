@@ -271,6 +271,11 @@ jobs:
             --owner-id 431397 \
             --owner-login lawrencecchen
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -412,6 +417,11 @@ jobs:
         with:
           artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: validated-python
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -1139,6 +1149,11 @@ jobs:
           artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}
           path: dist
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -1479,6 +1494,11 @@ jobs:
         with:
           artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}
           path: validated-python
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
