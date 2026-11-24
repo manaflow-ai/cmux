@@ -613,6 +613,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
     /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
     case diffCommentsSend = "diff-comments-send-v1"
+    /// `diff.comments.thread` and a threaded `diff.comments.send`: review threads (replies,
+    /// resolve) the agent answers in place.
+    case diffCommentsThreads = "diff-comments-threads-v1"
     /// `git.fingerprint`: digits that stay while one scope's diff stays, made from the changed
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
@@ -624,6 +627,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `language_packs.ensure`: the home daemon downloads the app's pinned pack for the person's
     /// language on first use, checks its sha256 and unpacks it (`LanguagePacksClient`, CMUX-570).
     case languagePacks = "language-packs-v1"
+    /// `workspace.open_url` with a workspace selector: a hover card port row opens its port in that
+    /// workspace (WorkspaceOpenURLClient); a daemon without it gets the usual refusal.
+    case workspaceOpenURL = "workspace-open-url-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -674,7 +680,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .languagePacks:
+             .browserImport, .classicImport, .diffCommentsSend, .diffCommentsThreads, .gitFingerprint, .layoutSizesBatch, .languagePacks,
+             .workspaceOpenURL:
             return .optional
         }
     }

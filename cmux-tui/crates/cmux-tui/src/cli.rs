@@ -191,6 +191,8 @@ mod vm_gcp;
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
+#[cfg(unix)]
+mod vm_tailnet;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
@@ -323,6 +325,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod video;
 #[cfg(unix)]
 mod wallpaper;
 mod wire;
@@ -636,6 +640,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "move",
     "teleport",
     "evacuate",
+    "video",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -932,6 +937,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `apps install-link URL`: cmux.com's "Open in cmux" link (`cmux://apps/install?repo=…&commit=…`),
+    // which the Mac app hands here, is `apps install REF`: a theme or snippet through the community
+    // install, an extension through the App Store's consent card.
+    #[cfg(unix)]
+    let link_args;
+    #[cfg(unix)]
+    let args = match community::install_link(args) {
+        Some(Ok(rewritten)) => {
+            link_args = rewritten;
+            link_args.as_slice()
+        }
+        Some(Err(why)) => {
+            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
+            return app::failure("community.link", &format!("cmux: {why}"), output, 2);
+        }
+        None => args,
+    };
     // `vm add|revoke|rotate|doctor` is `machine …` (`vm` was `machine`'s old name).
     #[cfg(unix)]
     let alias_args;
@@ -949,6 +971,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     #[cfg(unix)]
     let args = match auth_token::account_alias(args) {
         Some(rewritten) => {
+            // `cmux login --help`: name the spelling asked for before `vm sign-in`'s help.
+            if let Some(note) = auth_token::account_alias_help_note(args) {
+                print!("{note}");
+                let _ = io::stdout().flush();
+            }
             account_args = rewritten;
             account_args.as_slice()
         }
@@ -1082,6 +1109,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
+        .or_else(|| video::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
@@ -1349,6 +1377,16 @@ fn parse_command(
             }
             [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
                 Some(format!("{scope} rename"))
+            }
+            ["machine", "ls" | "list"] => Some("machine ls".to_owned()),
+            // `cmux machine reconnect --help`: an app verb the grammar does not run gets its own
+            // help, not the scope's (the Cloud and remote command matrix).
+            [scope, verb]
+                if app_action_help::has_section(scope)
+                    && app_action_help::verb_help(scope, verb).is_some()
+                    && !grammar_runs(&command_args, surface) =>
+            {
+                Some(format!("{scope} {verb}{APP_ACTION_TOPIC}"))
             }
             [scope, ..] if surface.accepts(scope) || app_action_help::has_section(scope) => {
                 Some((*scope).to_string())
@@ -1696,9 +1734,28 @@ fn set_output_mode(
     Ok(())
 }
 
+/// The help topic suffix of one app verb (`machine reconnect app-action`).
+const APP_ACTION_TOPIC: &str = " app-action";
+
+/// Whether the grammar itself runs `args` once its help options are gone: then its help is the
+/// grammar's, not an app verb's of the same name.
+fn grammar_runs(args: &[String], surface: Surface) -> bool {
+    let words = args
+        .iter()
+        .filter(|word| !matches!(word.as_str(), "-h" | "--help"))
+        .cloned()
+        .collect::<Vec<_>>();
+    matches!(parse(&words, surface), Ok(command) if !matches!(command, ParsedCommand::Help(_)))
+}
+
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
+        (Some(topic), _) if topic.ends_with(APP_ACTION_TOPIC) => {
+            let topic = topic.trim_end_matches(APP_ACTION_TOPIC);
+            let (scope, verb) = topic.split_once(' ').unwrap_or((topic, ""));
+            Cow::Owned(app_action_help::verb_help(scope, verb).unwrap_or_default())
+        }
         (Some("machine"), Surface::Cmux) => {
             let text = format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER);
             Cow::Owned(app_action_help::append("machine", &text).unwrap_or(text))
@@ -1762,6 +1819,7 @@ fn scope_help_with_keys(
         "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
+        "machine ls" => Cow::Borrowed(surface::MACHINE_LS_HELP),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
