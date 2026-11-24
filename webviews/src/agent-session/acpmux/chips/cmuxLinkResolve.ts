@@ -37,6 +37,8 @@ export type CmuxLinkInfo = {
   workspace?: string;
   /// The chat it opens: a chat link the list has, or one acpmux resolved.
   sessionId?: string;
+  /// A built-in tool's badge in the draft (`@computer-use`, toolMentions.ts): its icon's name.
+  tool?: string;
 };
 
 /// The chat a chat link names in `store`, without asking anyone.
