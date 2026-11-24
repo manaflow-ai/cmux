@@ -902,8 +902,12 @@ fn up_to_finish(
 /// (2026-11-24: `transfer.path: "composers.json" is not a file a guarded move takes`), so the
 /// chat moves without it and the pump says so in one line.
 fn taken_by_target(args: &Args, manifest: &Value, transfer_id: &str) -> Value {
-    let identity = super::machine_gate::reach(&args.to).ok();
-    let served = identity.as_ref().and_then(super::machine_gate::served).unwrap_or_default();
+    // A target that could not be asked is not an older target: the manifest goes whole, so a
+    // failed read never costs the person their unsent text or prompt images.
+    let Ok(identity) = super::machine_gate::reach(&args.to) else {
+        return manifest.clone();
+    };
+    let served = super::machine_gate::served(&identity).unwrap_or_default();
     let mut manifest = manifest.clone();
     let left = acpmux::capabilities::leave_out_untaken(&mut manifest, |c| served.contains(&c));
     if let Some(line) = acpmux::capabilities::left_out_line(&left) {
