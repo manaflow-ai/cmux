@@ -25,6 +25,8 @@ export default defineConfig({
         bindings: {
           ENVIRONMENT: "test",
           TEAM_HUB_RETIRE_RETRY_MS: "0",
+          // test/link-relay.test.ts: a small per-user relay budget, so its cap shows within a few MiB.
+          LINK_RELAY_USER_MIB_PER_MIN: "2",
           // A fake server key for the primary (dev) project: team creation runs its real Stack requests,
           // which test/teams.test.ts answers with a fake Stack fetch. Membership and invites stay on the
           // ENVIRONMENT=test fixtures below.
