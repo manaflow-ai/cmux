@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach }
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
+import type { trayFoldHeadLook } from "../src/agent-session/acpmux/subagents/trayFoldHead.experiment";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -76,7 +77,7 @@ const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/sub
 /// (the default since #48542) draws each kind's own mark instead. A test of the stack pins the
 /// `counts` arm, read when the tray mounts; every test ends with the arm unpinned.
 const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
-function pinFoldHead(arm: "counts" | "one" | "two" | "kinds" | "tally") {
+function pinFoldHead(arm: keyof typeof trayFoldHeadLook.arms) {
   experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": arm };
 }
 // This suite checks the headers from before the `tally` arm (the default since Leo's 2026-11-23 ask);

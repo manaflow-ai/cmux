@@ -18,6 +18,7 @@ import { activity, chat, row, user, tool } from "../../../gallery/fixtures/acpmu
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { PLUS_PICKER } from "../composerSelectors";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 
 function agent(task: string, minutes: number, state: Subagent["state"], fields: Partial<Subagent> = {}): Subagent {
@@ -130,7 +131,7 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
 /** In the `glyph` column the hat's first mark starts on the composer +'s ink (within a pixel). */
 function columnHolds(ctx: PlayContext, column: "glyph" | "chip"): void {
   const mark = head(ctx)?.querySelector<HTMLElement>("[data-kind] svg, [data-kind] img, .acpmux-lineage__icon");
-  const plus = ctx.document.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button");
+  const plus = ctx.document.querySelector<HTMLElement>(PLUS_PICKER);
   if (!mark || !plus) return;
   const plusBox = plus.getBoundingClientRect();
   const glyph = plus.querySelector("svg")?.getBoundingClientRect() ?? plusBox;
