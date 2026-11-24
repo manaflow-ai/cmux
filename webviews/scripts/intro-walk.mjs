@@ -7,8 +7,7 @@
 //     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after;
 //   - one publish per pick: each click on a choice sends exactly one op, and Skip sends exactly one;
 //   - Skip restores: after picks then Skip, the choices the page shows equal the ones it opened on. The mock answers
-//     as the host does (MakeItYoursStepModel: "Skip keeps what is set"), so this reads false until the host's Skip
-//     restores the opening settings and the mock follows it.
+//     as the host does (MakeItYoursStepModel.revert writes the opening choices back on Skip).
 //
 //   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build]
 //
