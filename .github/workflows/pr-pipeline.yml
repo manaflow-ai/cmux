@@ -36,11 +36,10 @@ jobs:
     name: linux
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # Setup (10 min), the tool downloads (3 min), twelve waves of the slowest step (6 min; twenty-four shared
-    # steps, two at once on 2 CPUs) and the three `alone` steps, ci-artifact-worker and coderouter (6 min each) and
-    # the iOS matrix protocol (45 min), so a slow step is reported by the runner, not cut here (tests/test_ci_step_table.py
-    # holds this).
-    timeout-minutes: 142
+    # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min,
+    # the iOS matrix protocol 45 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 215
     permissions:
       contents: read
     steps:

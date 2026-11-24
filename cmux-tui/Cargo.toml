@@ -98,7 +98,9 @@ members = [
     "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-deadline",
+    "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
@@ -115,6 +117,7 @@ members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -247,7 +250,9 @@ default-members = [
     "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
+    "crates/cmux-tailnet-join",
     "crates/cmux-remote-protocol",
+    "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
     "crates/cmux-remote",
@@ -262,6 +267,7 @@ default-members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
     "crates/cmux-bookmarks-ops",
@@ -382,6 +388,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
+cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -434,6 +441,7 @@ cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }
@@ -468,6 +476,7 @@ cmux-composer-send = { path = "crates/cmux-composer-send" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-braid-path = { path = "crates/cmux-braid-path" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-host = { path = "crates/cmux-host" }
@@ -691,6 +700,20 @@ lto = "off"
 codegen-units = 16
 
 [profile.gate.package.acpmux]
+codegen-units = 16
+
+# A custom profile inherits its parent's package overrides too, so every
+# `[profile.release.package.X]` above that sets codegen-units = 1 needs its
+# line here. cmux-tui-core at one unit (from #47836) made its gate test build
+# take 35 minutes, and the v2 gate step ran out its limit before the last group
+# (acpmux-v2-connection, the `v2.pr04.*` rows) started. cmux-tui gets opt-level
+# 3 too: the gates time optimized code, not release's "z".
+# test_gate_profile_overrides_every_single_unit_release_package keeps this whole.
+[profile.gate.package.cmux-tui-core]
+codegen-units = 16
+
+[profile.gate.package.cmux-tui]
+opt-level = 3
 codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the

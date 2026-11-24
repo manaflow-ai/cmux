@@ -21,6 +21,10 @@ pub enum FrameType {
     Ping = 3,
     Pong = 4,
     DeflatedData = 5,
+    /// A chunk of a numbered message on a channel whose messages also travel
+    /// as datagrams (`crate::classes`): sent only to a peer that listed
+    /// [`crate::classes::CLASSES_LANE`].
+    Sequenced = 6,
 }
 
 impl FrameType {
@@ -32,6 +36,7 @@ impl FrameType {
             3 => Self::Ping,
             4 => Self::Pong,
             5 => Self::DeflatedData,
+            6 => Self::Sequenced,
             _ => return None,
         })
     }
