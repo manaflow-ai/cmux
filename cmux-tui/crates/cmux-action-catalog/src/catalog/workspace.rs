@@ -281,6 +281,21 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("file"),
         ..Action::DEFAULT
     },
+    // Hands every pinned workspace name back to the automatic namer (daemon command
+    // `release-workspace-names`). Leo, 2026-11-24: "should it be auto by default? i kinda like it...
+    // unless it was force renamed as a thing". Names stay as they are until the next automatic name.
+    Action {
+        id: "workspace.releaseNames",
+        group: GROUP,
+        title: t("ActionCatalog", "action.workspace.releaseNames", "Release All Workspace Names to Automatic"),
+        keywords: &["title", "name", "auto", "automatic", "release", "unpin", "reset", "all"],
+        category: "workspace",
+        symbol: "sparkles",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "workspace release-names",
+        ..Action::DEFAULT
+    },
     Action {
         id: "workspace.nameFromActivity",
         group: GROUP,

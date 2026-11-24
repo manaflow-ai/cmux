@@ -14,10 +14,17 @@
 //! [`KEPT_WAIT`], and lists the kept rows only if that misses; while a refresh is already running
 //! (a slow relay) it lists them at once. Without a kept listing it reads the relay by the budget.
 //!
+//! A relay that missed its budget with no kept listing is not waited on again: later `ls` calls
+//! list it as not listed (`no answer yet, refreshing`) at once, while the detached refresh keeps
+//! trying; its first good answer becomes the kept listing ([`MISSED_MARK`]).
+//!
 //! A relay listing that misses the budget (or fails) is served from the last good one, kept in
-//! [`CACHE_FILE`] under the acpmux home with the time it was read: its rows are marked `stale`
-//! with their `asOfMs`, the JSON listing says so in `remote`, and the text view in one stderr
-//! line. A miss also starts one detached refresh (`ls --refresh-relay-cache`, at most one at a
+//! [`CACHE_FILE`] under the acpmux home with the time it was read: its rows carry their `asOfMs`,
+//! the JSON listing says so in `remote`, and the text view in one stderr line. They are not
+//! marked `stale`: that mark is a down peer's last-known copy (`hub/peer_cache.rs`), which the
+//! table shows as unknown and `peer down` (`ls_table.rs` `unreadable`). A relay copy seconds old
+//! is not a down peer: marked so, every one of 2,000 relay rows read `peer down` while the relay
+//! listed 87 running (cmuxterm-hq `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`). A miss also starts one detached refresh (`ls --refresh-relay-cache`, at most one at a
 //! time, its child killed at [`send_relay::LS_DEADLINE`]), so the next `ls` serves a newer copy.
 
 use std::path::{Path, PathBuf};
@@ -42,6 +49,14 @@ pub(crate) const CACHE_FILE: &str = "relay-ls-cache.json";
 
 /// Present while a detached refresh runs; its text is when it started (ms).
 const REFRESH_MARK: &str = "relay-ls-cache.refreshing";
+
+/// Present once a read of the relay missed its budget with no kept listing to show; its text is
+/// when. While it stands, `ls` does not wait on the relay again: the refresh it starts is what
+/// reads it, and the first good answer keeps a listing (which retires this).
+const MISSED_MARK: &str = "relay-ls-cache.missed";
+
+/// What [`RelayRead::missed`] says when the relay missed before and has not answered since.
+pub(crate) const NO_ANSWER_YET: &str = "no answer yet, refreshing";
 
 /// A cached listing older than this is not served: it would list sessions long gone.
 const CACHE_MAX_AGE_MS: u64 = 24 * 3_600_000;
@@ -200,6 +215,18 @@ pub(crate) fn start_with(
                 tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(read_by)));
             return RelayPart::Racing { cache, task, kept, until: read_by + KEPT_GRACE };
         }
+        // A relay that missed its budget before and never gave a listing: not waited on again
+        // (a known slow peer must not make every `ls` slow); its rows are unknown until the
+        // detached refresh keeps an answer.
+        if missed_mark_live(&cache, crate::store::now_ms()) {
+            refresh_detached(&cache);
+            return RelayPart::Kept(RelayRead {
+                rows: Vec::new(),
+                state: RemoteState::Missing,
+                source,
+                missed: Some(NO_ANSWER_YET.to_owned()),
+            });
+        }
         let task =
             tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(deadline)));
         RelayPart::Reading(source, cache, task)
@@ -264,6 +291,10 @@ impl FarRead {
                 Ok(Err(e)) => format!("failed ({e})"),
                 Ok(Ok(Err(_))) | Err(_) => {
                     task.abort();
+                    let _ = crate::home_fs::write(
+                        cache.with_file_name(MISSED_MARK),
+                        crate::store::now_ms().to_string(),
+                    );
                     format!("not read within {}", seconds(budget))
                 }
             };
@@ -286,6 +317,13 @@ impl FarRead {
         let (relay, (ssh_hosts, ssh_rows)) = tokio::join!(relay, ssh);
         Far { relay, ssh_hosts, ssh_rows }
     }
+}
+
+fn missed_mark_live(cache: &Path, now: u64) -> bool {
+    std::fs::read_to_string(cache.with_file_name(MISSED_MARK))
+        .ok()
+        .and_then(|t| t.trim().parse::<u64>().ok())
+        .is_some_and(|at| now.saturating_sub(at) <= CACHE_MAX_AGE_MS)
 }
 
 /// `1.5s`, `2s`.
@@ -320,9 +358,11 @@ fn source_name(relay: &SendRelay) -> String {
 pub(crate) fn write_cache(path: &Path, source: &str, rows: &[Value], at: u64) {
     let body = json!({"version": 1, "readAtMs": at, "source": source, "sessions": rows});
     let _ = crate::home_fs::write(path, body.to_string());
+    let _ = crate::home_fs::remove_file(path.with_file_name(MISSED_MARK));
 }
 
-/// The cached listing's read time and rows, each marked `stale` with its `asOfMs`; none when
+/// The cached listing's read time and rows, each with its `asOfMs` (never `stale`: see the module
+/// doc); none when
 /// there is none, it does not parse, or it is older than [`CACHE_MAX_AGE_MS`].
 pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
     let text = std::fs::read_to_string(path).ok()?;
@@ -339,7 +379,6 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
         .cloned()
         .map(|mut row| {
             if let Some(fields) = row.as_object_mut() {
-                fields.insert("stale".into(), json!(true));
                 fields.insert("asOfMs".into(), json!(at));
             }
             row
@@ -358,6 +397,7 @@ fn refreshing(cache: &Path, now: u64) -> bool {
 
 /// Starts `ls --refresh-relay-cache` detached, unless one started within the relay's own
 /// deadline is still marked. Not in tests: this process is the test binary there.
+#[cfg_attr(test, allow(clippy::needless_return))]
 fn refresh_detached(cache: &Path) {
     let mark = cache.with_file_name(REFRESH_MARK);
     let now = crate::store::now_ms();
@@ -407,7 +447,7 @@ pub(crate) async fn refresh_now() -> anyhow::Result<()> {
 }
 
 /// The relay's rows for a caller with no listing of its own to show a stale line (the MCP `ls`
-/// tool): fresh by [`budget`], else the cached ones, marked stale.
+/// tool): fresh by [`budget`], else the cached ones, each with its `asOfMs`.
 pub(crate) async fn relay_rows() -> Vec<Value> {
     let far = start_with(
         send_relay::configured().filter(|r| r.ls_argv.is_some()),
