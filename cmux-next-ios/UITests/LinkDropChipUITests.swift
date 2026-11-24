@@ -14,7 +14,8 @@ import XCTest
 /// chip_gone_ms=310 shifts=0 samples=212`.
 final class LinkDropChipUITests: XCTestCase {
     override func setUp() {
-        continueAfterFailure = false
+        // Every cycle reports, so one early chip does not hide the next.
+        continueAfterFailure = true
     }
 
     @MainActor func testHomeChipIdle() throws { try measure(surface: "home", rows: "home.row.", load: false) }
@@ -26,6 +27,8 @@ final class LinkDropChipUITests: XCTestCase {
     private struct Sample {
         let at: Date
         let chip: Bool
+        /// What made `chip` true: the element's identifier and label.
+        let chipWhat: String?
         let rows: [String: CGRect]
         let marker: String?
     }
@@ -69,6 +72,11 @@ final class LinkDropChipUITests: XCTestCase {
             // The chip showed somewhere between the sample before and this one.
             var resolution: Double?
             if let shown, let before { resolution = shown.at.timeIntervalSince(before.at) * 1000 }
+            let chipWhat = shown?.chipWhat ?? "none"
+            // A chip already up when the link dropped is not this drop's chip.
+            let chipBefore = samples.last { $0.at < down }?.chip ?? false
+            let firstAfter = during.first.map { $0.at.timeIntervalSince(down) * 1000 }
+            let maxGap = zip(during, during.dropFirst()).map { $1.at.timeIntervalSince($0.at) * 1000 }.max() ?? 0
             let gone = samples.first { $0.at >= back && !$0.chip }.map { $0.at.timeIntervalSince(back) * 1000 }
             // Shifts: from 1 s before the drop to 3 s after the return, consecutive samples in
             // which a row on screen in both moved (nothing scrolls in this test).
@@ -83,17 +91,23 @@ final class LinkDropChipUITests: XCTestCase {
                     }
                 }
             }
-            let line = String(format: "LINKDROP surface=%@ load=%@ cycle=%d time_to_chip_ms=%@ resolution_ms=%@ chip_gone_ms=%@ shifts=%d samples=%d",
+            let line = String(format: "LINKDROP surface=%@ load=%@ cycle=%d time_to_chip_ms=%@ resolution_ms=%@ chip_gone_ms=%@ shifts=%d samples=%d chip_before_drop=%@ first_sample_ms=%@ max_gap_ms=%.0f chip=%@",
                               surface, condition, cycle, timeToChip.map { String(format: "%.0f", $0) } ?? "none",
                               resolution.map { String(format: "%.0f", $0) } ?? "none",
-                              gone.map { String(format: "%.0f", $0) } ?? "none", shifts.count, window.count)
+                              gone.map { String(format: "%.0f", $0) } ?? "none", shifts.count, window.count,
+                              chipBefore ? "yes" : "no", firstAfter.map { String(format: "%.0f", $0) } ?? "none", maxGap,
+                              chipWhat.replacingOccurrences(of: " ", with: "_"))
             print(line)
             note("linkdrop-\(surface)-\(condition)-\(cycle)", line + (shifts.isEmpty ? "" : "\n" + shifts.joined(separator: "\n")))
 
             XCTAssertTrue(window.contains { !$0.rows.isEmpty }, "rows were on screen to watch: \(line)")
-            let chipTime = try XCTUnwrap(timeToChip, "\(surface) \(condition) cycle \(cycle): no chip during a \(back.timeIntervalSince(down)) s drop\n\(line)")
-            // Nothing before the 10 s bound (a sample can lag the chip, never lead it).
-            XCTAssertGreaterThanOrEqual(chipTime, 9_900, "the chip showed before the bound: \(line)")
+            XCTAssertFalse(chipBefore, "a chip was up before the drop: \(line)")
+            if let chipTime = timeToChip {
+                // Nothing before the 10 s bound (a sample can lag the chip, never lead it).
+                XCTAssertGreaterThanOrEqual(chipTime, 9_900, "the chip showed before the bound: \(line)")
+            } else {
+                XCTFail("\(surface) \(condition) cycle \(cycle): no chip during a \(back.timeIntervalSince(down)) s drop\n\(line)")
+            }
             XCTAssertTrue(shifts.isEmpty, "rows moved as the chip came and went: \(line)\n\(shifts.joined(separator: "\n"))")
             cycle += 1
         }
@@ -105,17 +119,21 @@ final class LinkDropChipUITests: XCTestCase {
         let root = try app.snapshot()
         let at = Date()
         var chip = false
+        var chipWhat: String?
         var rows: [String: CGRect] = [:]
         var marker: String?
         func walk(_ element: XCUIElementSnapshot) {
             let id = element.identifier
-            if id.hasPrefix("connection.chip") || id == "home.note.updating" { chip = true }
+            if id.hasPrefix("connection.chip") || id == "home.note.updating" {
+                chip = true
+                if chipWhat == nil { chipWhat = "\(id):\(element.label)" }
+            }
             if id.hasPrefix(prefix), !element.frame.isEmpty { rows[id] = element.frame }
             if id == "rig.linkdrop" { marker = element.value as? String }
             element.children.forEach(walk)
         }
         walk(root)
-        return Sample(at: at, chip: chip, rows: rows, marker: marker)
+        return Sample(at: at, chip: chip, chipWhat: chipWhat, rows: rows, marker: marker)
     }
 
     /// `load=0 up down1=1795… back1=1795… done` to its stamps.

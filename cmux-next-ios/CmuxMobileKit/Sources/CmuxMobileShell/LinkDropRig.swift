@@ -14,8 +14,9 @@ import SwiftUI
 /// Mock mode builds no `LiveCoordinator`, so the rig does what the coordinator does on a drop:
 /// it records the Mac's drop (`AppStore.macLinkDownSince`, as `updateTerminalsOffline` does),
 /// marks the Mac's link failed (`macConnection`, what Home reads), and holds the Workspaces
-/// banner for the quiet bound (`HeldNotice`, as `phaseChanged` holds "Reconnecting"). On the
-/// return it clears all three.
+/// banner for the quiet bound (`HeldNotice`, as `phaseChanged` holds "Reconnecting"), and
+/// marks the Mac's workspace list stale and redialing (`handleMacData`). On the return it
+/// clears them and records the list as received again.
 ///
 /// Launch arguments:
 /// - `-cmux-mobile-link-drop home|workspaces`: the surface (its tab), and turns the rig on.
@@ -64,6 +65,9 @@ final class LinkDropRig {
         MacHomeFeed.shared.seedStressRows(count: loaded ? 10_000 : 8, macID: mac)
         store.tracksMacData = true
         store.macConnection[mac] = .connected
+        // Its workspaces, live (as the coordinator records a received list).
+        let workspaceCount = store.workspaces.filter { $0.macID == mac }.count
+        store.handleMacData(.received(count: workspaceCount), macID: mac)
         macID = mac
         shell.tab = surface == "workspaces" ? .workspaces : .home
         if loaded { LinkDropLoad.start() }
@@ -74,12 +78,16 @@ final class LinkDropRig {
             // The drop.
             store.macLinkDownSince[mac] = Date()
             store.macConnection[mac] = .failed("Can't reach the Mac right now.")
+            // The list goes stale and the link redials, as the coordinator's reconnecting phase does.
+            store.handleMacData(.disconnected(at: Date()), macID: mac)
+            store.handleMacData(.connecting, macID: mac)
             bannerHold.hold(.reconnecting(to: Self.macName, identity: mac), for: QuietStatusGate.threshold)
             stamp("down\(cycle)")
             try? await Task.sleep(for: .seconds(down))
             // The return.
             store.macLinkDownSince[mac] = nil
             store.macConnection[mac] = .connected
+            store.handleMacData(.received(count: workspaceCount), macID: mac)
             bannerHold.show(nil)
             stamp("back\(cycle)")
         }
