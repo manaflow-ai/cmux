@@ -4134,11 +4134,11 @@ function promptPendingLooks() {
   };
   return {
     "prompt-pending": {
-      note: "Chosen: one pending look for every state of a waiting prompt, the queued row (Send now at rest; copy, Retry, Fork, Save and X on hover). Queued behind the running turn: X and Send now act. On its way past its first second: both drawn disabled, the row the same size. Going again by itself after no answer: Send now tries at once, X takes it back to the composer. No Sending status, no Not sent, no Retry, Edit, Remove or Details.",
+      note: "Chosen: one pending look for every state of a waiting prompt, the queued row (Send now at rest; copy, Retry, Fork and X on hover, no Save as Prompt). Queued behind the running turn: X and Send now act. On its way past its first second: both drawn disabled, the row the same size. Going again by itself after no answer: Send now tries at once, X takes it back to the composer. No Sending status, no Not sent, no Retry, Edit, Remove or Details.",
       snapshot: rows(),
     },
     "prompt-pending-queued": {
-      note: 'The queued state pointed: unchanged from before this change (Leo, 2026-11-24: "this one is good").',
+      note: 'The queued state pointed: copy, X and Send now, as before but without Save as Prompt (Leo, 2026-11-24: "this one is good", then "save prompt butotn still bad").',
       snapshot: rows(),
       play: pointAt("queued"),
     },

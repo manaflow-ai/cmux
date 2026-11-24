@@ -69,7 +69,7 @@ async function render(row: AcpmuxRow): Promise<HTMLElement> {
     root = createRoot(container);
     root.render(
       <PresentationContext.Provider value="messages">
-        <TurnActionsContext.Provider value={{ retry: () => {} }}>
+        <TurnActionsContext.Provider value={{ retry: () => {}, unsteer: async () => "back" }}>
           {/* As MessageRow draws it: the pending row in place of the footer while it waits. */}
           <UserBubble
             row={row}
@@ -223,4 +223,27 @@ test("no delivery state draws sent and still sending together", async () => {
     root = undefined;
     dom?.window.close();
   }
+});
+
+// Leo, 2026-11-24 06:32Z: "save prompt butotn still bad". No message footer or pending row offers
+// Save as Prompt: a sent prompt's footer, a slow send's pending row and a queued steer's row.
+test("no footer or pending row draws Save as Prompt; the queued row reads copy, X and Send now", async () => {
+  const labels = (container: HTMLElement) =>
+    [...container.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
+  const sent = await render(prompt({ state: "delivered" }));
+  expect(labels(sent)).not.toContain("Save as Prompt");
+  expect(sent.querySelector(".cv-save-prompt")).toBeNull();
+  const slow = await render(prompt({ state: "sending", sentAt: Date.now() - 5_000 }));
+  expect(labels(slow)).not.toContain("Save as Prompt");
+  const queued = await render(prompt({ state: "delivered" }, { steer: "waiting", steerPromptId: "p-steer-save" }));
+  expect(queued.querySelector(".cv-save-prompt")).toBeNull();
+  expect(
+    [...queued.querySelectorAll(".cv-user__pending button")].map((button) =>
+      button.classList.contains("cv-user__send-now")
+        ? "send-now"
+        : button.classList.contains("cv-user__take-back")
+          ? "x"
+          : button.getAttribute("aria-label"),
+    ),
+  ).toEqual([translate("turn.copy"), "x", "send-now"]);
 });

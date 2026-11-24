@@ -159,9 +159,10 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          // Retry and its model switch moved to the reply footer (TurnFooter); Save as Prompt sits by the time.
-          expect(measurements.footer).toHaveLength(2);
-          expect(measurements.versionFooter).toHaveLength(4);
+          // Retry and its model switch moved to the reply footer (TurnFooter), and Save as Prompt is
+          // gone (Leo, 2026-11-24: "save prompt butotn still bad"): Copy, and the version switcher's two.
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);

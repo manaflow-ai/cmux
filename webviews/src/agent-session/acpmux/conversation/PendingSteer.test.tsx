@@ -277,19 +277,16 @@ const controls = (container: Element) =>
       ? "send-now"
       : node.classList.contains("cv-user__take-back")
         ? "x"
-        : node.classList.contains("cv-save-prompt-test")
-          ? "save"
-          : (node.getAttribute("aria-label") ?? "?"),
+        : (node.getAttribute("aria-label") ?? "?"),
   );
 
 async function drawOne(row: AcpmuxRow, unsteer: (() => Promise<"back">) | undefined = async () => "back" as const) {
   const container = installDom();
   root = createRoot(container);
-  const save = <button type="button" className="cv-save-prompt-test" aria-label="Save as Prompt" />;
   await act(async () =>
     root!.render(
       <TurnActionsContext.Provider value={{ unsteer }}>
-        <PendingSteer row={row} send={async () => true} queued={{ save }}>
+        <PendingSteer row={row} send={async () => true} queued={{}}>
           <span className="cv-test-footer">sent footer</span>
         </PendingSteer>
       </TurnActionsContext.Provider>,
@@ -318,9 +315,9 @@ const retrying: AcpmuxRow = {
   delivery: { state: "failed", promptId: "p-again", sessionId: "s", sentAt: 0, failedAt: 10, code: "timeout" },
 };
 
-test("the queued row is unchanged: copy, save, X and Send now, all working", async () => {
+test("the queued row reads copy, X and Send now, all working, with no Save as Prompt", async () => {
   const container = await drawOne({ ...waiting, steerPromptId: "p-queued-look" });
-  expect(controls(container)).toEqual(["Copy", "save", "x", "send-now"]);
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
   const sendNow = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   expect(sendNow.dataset.pendingState).toBe("queued");
   expect(sendNow.disabled).toBe(false);
@@ -330,7 +327,7 @@ test("the queued row is unchanged: copy, save, X and Send now, all working", asy
 
 test("a send on its way past its first second takes the queued row's look, its X and Send now disabled", async () => {
   const container = await drawOne(sending(Date.now() - 5_000));
-  expect(controls(container)).toEqual(["Copy", "save", "x", "send-now"]);
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
   const sendNow = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   expect(sendNow.dataset.pendingState).toBe("sending");
   // It cannot be hurried or taken back while acpmux has not answered: drawn, disabled, same size.
@@ -350,7 +347,7 @@ test("a send that lands within its first second shows no pending row, only its f
 
 test("a send going again by itself keeps the same row: Send now tries at once, X takes it back", async () => {
   const container = await drawOne(retrying);
-  expect(controls(container)).toEqual(["Copy", "save", "x", "send-now"]);
+  expect(controls(container)).toEqual(["Copy", "x", "send-now"]);
   expect(container.textContent).not.toContain("Not sent");
   const calls: string[] = [];
   window.cmuxAcpmuxActions = Object.fromEntries(

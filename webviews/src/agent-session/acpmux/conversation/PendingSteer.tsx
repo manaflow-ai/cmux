@@ -16,7 +16,7 @@ import {
   markSentNow,
 } from "./pendingSteerModel";
 /// A prompt's one pending look, from the moment it is on its way until acpmux took it and the agent
-/// read it: copy, Retry, Fork, Save and the X on hover, and Send now, as a steer queued behind the
+/// read it: copy, Retry, Fork and the X on hover, and Send now, as a steer queued behind the
 /// running turn has drawn them since #22834 (Leo, 2026-11-24: "why is THIS one find and good? ...
 /// this one is good. why were ther e2 of them"). Before, a prompt acpmux had not answered yet said
 /// "(clock) Sending" in its footer instead (#41513), a second look for the same waiting message.
@@ -93,13 +93,13 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {/* Copy, Retry, Fork, Save and the X show on hover, in the sent row's order; Send now stays
-            (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
+        {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
+            (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong").
+            No Save as Prompt here or in any footer (Leo, 2026-11-24: "save prompt butotn still bad"). */}
         <span className="cv-user__queued-hover">
           {row.text?.trim() && <MessageCopy text={row.text} />}
           {queued?.retry}
           {queued?.fork}
-          {queued?.save}
           {(!queuedNow || (promptId && unsteer)) && (
             <button
               type="button"
