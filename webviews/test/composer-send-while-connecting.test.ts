@@ -35,7 +35,11 @@ test("a send made while the chat still connects to acpmux is shown at once and g
   expect(performance.now() - pressed).toBeLessThan(50);
   // Both are the transcript's rows now, in the order they were sent, even in a chat with history.
   expect(rows(sends)).toEqual(["user:sent while loading", "user:and another"]);
-  expect(rows(sends, [{ id: "old", kind: "user" }])).toEqual(["user:undefined", "user:sent while loading", "user:and another"]);
+  expect(rows(sends, [{ id: "old", kind: "user" }])).toEqual([
+    "user:undefined",
+    "user:sent while loading",
+    "user:and another",
+  ]);
   // Once the client draws a prompt's own row (the same id), the pane's stand-in for it goes.
   expect(rows(sends, [{ id: "local-loading-1", kind: "user" }])).toEqual(["user:undefined", "user:and another"]);
   await settle();
