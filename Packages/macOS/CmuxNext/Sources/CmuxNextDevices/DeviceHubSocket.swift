@@ -132,7 +132,7 @@ public final class DeviceHubSocket: Sendable {
     let clock: any Clock<Duration>
     let connectTimeout: Duration
 
-    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(30),
+    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(60),
                 backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
                 connectTimeout: Duration = DeviceHubSocket.connectTimeout,
                 clock: any Clock<Duration> = ContinuousClock()) {
