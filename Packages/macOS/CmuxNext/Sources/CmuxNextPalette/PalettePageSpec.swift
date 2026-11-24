@@ -45,6 +45,10 @@ public struct PalettePageSpec {
     /// Like `onLeave`, but also when no row was ever highlighted (an empty
     /// folder): a page that waits for a choice hears every way out once.
     public var onCancel: (@MainActor () -> Void)?
+    /// A self-contained picker takes prefix and keyword input literally and Escape closes its root.
+    public var usesScopeShortcuts = true
+    /// Captures the native input before a row activation that may wait for results.
+    public var onActivationInput: (@MainActor () -> Void)?
     /// A tree the page walks in place (``PaletteHierarchy``).
     public var hierarchy: PaletteHierarchy?
     /// The row to select for an empty query, by id, once it is listed (the
