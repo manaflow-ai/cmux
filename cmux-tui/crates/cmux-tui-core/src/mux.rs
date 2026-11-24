@@ -221,6 +221,7 @@ mod host_death_tests;
 mod idle_close;
 mod journal;
 mod journal_maintenance;
+mod journal_plugin_demand;
 mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
