@@ -1446,6 +1446,11 @@ try {
         const metrics = classifyFrames(got.frames);
         const settledMs = restartSettled(got.frames, metrics, got.liveLatestAt || null).settledMs ?? nowMs;
         addRelaunchProfile(profile, nowMs, metrics.firstContentMs ?? 0, settledMs, profiled + 1);
+        if (process.env.PROFILE_DUMP)
+          (await import("node:fs")).writeFileSync(
+            `${process.env.PROFILE_DUMP}-${profiled}.json`,
+            JSON.stringify({ profile, nowMs, settledMs }),
+          );
       }
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
