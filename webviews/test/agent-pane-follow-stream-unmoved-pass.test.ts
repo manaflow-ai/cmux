@@ -105,13 +105,18 @@ await requireBrowserLane("agent-pane-follow-stream-unmoved-pass.test.ts", async 
     await page.close();
     const passes = renders["transcript:anchor-pass"] ?? 0;
     const skipped = renders["transcript:anchor-skipped"] ?? 0;
-    console.log(`FOLLOW-STREAM-UNMOVED ${JSON.stringify({ passes, skipped, resizes, deltas: load.deltas, following })}`);
+    console.log(
+      `FOLLOW-STREAM-UNMOVED ${JSON.stringify({ passes, skipped, resizes, deltas: load.deltas, following })}`,
+    );
     expect(load.deltas).toBeGreaterThanOrEqual(from + 120);
     // The view stayed at the latest row through the stream.
     expect(following).not.toBeNull();
     expect(following!).toBeLessThan(4);
-    // Most chunks moved no row and ran no pass (none were skipped before the fix: about 120 passes ran).
-    expect(skipped, "placement passes skipped for chunks that moved no row").toBeGreaterThanOrEqual(60);
+    // Most commits moved no row and ran no pass (none were skipped before the fix). A slow runner batches many
+    // chunks into one commit, so the bound is a share of the commits, not a count of chunks.
+    expect(skipped, "placement passes skipped for commits that moved no row").toBeGreaterThanOrEqual(
+      Math.max(10, Math.floor(0.4 * (passes + skipped))),
+    );
     // Every pass that ran had a row's size change behind it (its observer's report, or the chunk's commit that
     // the report's frame follows), with a little room for the page's own passes (the composer's, a mount).
     expect(passes, "placement passes against row size changes").toBeLessThanOrEqual(2 * resizes + 6);

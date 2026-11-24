@@ -2877,9 +2877,7 @@ function TranscriptView({
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The placement pass's other inputs as the last pass that ran took them (`unmovedPass`).
-  const passedWith = useRef<{ first: number; room: number; lift: number; followResume: number } | undefined>(
-    undefined,
-  );
+  const passedWith = useRef<{ first: number; room: number; lift: number; followResume: number } | undefined>(undefined);
   /// `room`: the room kept under the last row (`room` below) as of the last placement pass.
   /// `reader`: the room the reader scrolled back down to (`readerKept` below): what the room held while they were
   /// scrolled up, kept under the last row once the view follows again, with the newest prompt it was
