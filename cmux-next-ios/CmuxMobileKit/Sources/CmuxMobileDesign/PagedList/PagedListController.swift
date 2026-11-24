@@ -637,8 +637,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var used = anchor.flatMap { restore($0) }
         // The rows on screen may size themselves after that restore, in the pass it triggers (an
         // arrival measuring from its estimate): settle them and restore once more, at most once.
-        // Only where PagedListSettle can say yes (it never does for a .down list, at rest or under a
-        // scroll), so no other update gets the extra layout pass: an infinite drift reads as "maybe".
+        // Only where PagedListSettle can say yes (never for a .down list, never without an anchored
+        // restore), so no other update gets the extra layout pass: an infinite drift reads as "maybe".
         var settle = PagedListSettle.State(up: direction == .up, sliding: follows && (spring.isRunning || arrivals > 0),
                                            scrolling: collectionView.isTracking || collectionView.isDecelerating,
                                            anchored: used != nil, drift: .infinity)
