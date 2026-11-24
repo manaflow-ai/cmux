@@ -4,8 +4,8 @@
 // prose that is never touched, then its latest call's title (`doingTool`). ACP titles every other
 // call in words that start with a capital ("Read AgentCard.tsx", "Run cargo test"); a shell call's
 // title is the command as typed, which starts with a lowercase program, a path or an assignment.
-// That one reads "Running <program …>" (conversation/shortCommand.ts, the background-task note's
-// short label); the whole text stays the line's tooltip.
+// That one reads as the command itself while it shimmers (Leo, 2026-11-23: "running" doesn't need
+// text); the whole text stays the line's tooltip.
 import type { Translate } from "../i18n";
 import { ROW_WIDTH, shortCommand } from "../conversation/shortCommand";
 import { toolForName } from "../toolNames";
@@ -46,7 +46,7 @@ export function toolDetail(t: Translate, title: string | undefined, shell = fals
   // with the row half empty (Leo, 2026-11-12: "why are there ellipses going so fast? Like they get
   // truncated and cut off so soon").
   const command = shortCommand(trimmed, ROW_WIDTH);
-  return command ? t("tools.runningCommand", { command }) : t("tools.runningUnnamed");
+  return command || trimmed;
 }
 
 /// A chat's doing line in words: its plan step as it is, then its tool call's title in words. The
@@ -81,11 +81,10 @@ const isBareToolName = (action: string | undefined, shell = false): boolean => {
   return shell ? tool === "shell" : tool !== undefined;
 };
 
-/// An agent's step as every surface names it: a bare shell tool's name reads "Running a command",
-/// never "Bash", which read as the line's kind (Leo, 2026-11-05, on a tray of subagents each reading
-/// "Bash": "these are all bash? How are they all bash? Aren't they sub-agents?"); any other as it is.
-export function namedAction(t: Translate, action: string | undefined, shell = false): string | undefined {
-  return isBareToolName(action, shell) && toolForName(action!) === "shell" ? t("tools.runningUnnamed") : action;
+/// An agent's step as every surface names it: a bare shell tool's name is its neutral tool title,
+/// with no running-state phrase (Leo, 2026-11-23: "running" doesn't need text); any other as it is.
+export function namedAction(_t: Translate, action: string | undefined, _shell = false): string | undefined {
+  return action;
 }
 
 /// What an agent does now in words: ``namedAction``, else its call's title (``toolDetail``).

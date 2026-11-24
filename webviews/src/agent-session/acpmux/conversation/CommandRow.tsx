@@ -85,16 +85,16 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
-  const said = commandSaid(t, tool, look);
+  const said = running ? undefined : commandSaid(t, tool, look);
   // A finished read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
   // the book, "Read <file name>", its full path on hover (ReadLabel.tsx).
   const read = readPath(tool);
   const cwd = useContext(SessionCwdContext);
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
-  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
-  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
-    command: "\u0000",
-  }).split("\u0000");
+  // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+  // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+  const [before = "", after = ""] = running
+    ? []
+    : t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
   const line = (
     <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
       {short}

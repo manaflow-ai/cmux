@@ -330,15 +330,18 @@ export function inlineScript(command: string): { language: string; file?: string
   return { language, ...(file ? { file } : {}), more };
 }
 
-/// "Ran a Python script on als.json", "Running a Bash script": the script's words under the row's
-/// own verb, for a row, a running row and the live line.
+/// "Ran a Python script on als.json": the script's words under the row's own verb. A running row
+/// uses the noun alone, with its first letter capitalized (Leo, 2026-11-23: "running" doesn't need
+/// text).
 export function scriptSaid(t: Translate, command: string, running = false): string | undefined {
   const noun = scriptNoun(t, command);
   if (!noun) return undefined;
-  return t(running ? "tools.runningCommand" : "tools.ranCommand", { command: noun });
+  if (running) return noun.slice(0, 1).toLocaleUpperCase() + noun.slice(1);
+  return t("tools.ranCommand", { command: noun });
 }
 
-/// The live line's words for a script, without its verb (Thinking.tsx adds "Running"/"Ran").
+/// The live line's words for a script, without a running-state verb (Thinking.tsx adds "Ran" only
+/// after it finishes).
 export function scriptNoun(t: Translate, command: string): string | undefined {
   const script = inlineScript(command);
   if (!script) return undefined;

@@ -278,7 +278,7 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   const html = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
   );
-  expect(words(html)).toBe("Running bun test 13s");
+  expect(words(html)).toBe("bun test 13s");
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 

@@ -613,34 +613,37 @@ export function Thinking({
   // 39 seconds").
   const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
+  const idleLabel = compacting
+    ? t(
+        liveCompaction?.reason === "account_switch"
+          ? "compaction.runningAccountSwitch"
+          : liveCompaction?.reason === CACHE_EXPIRY_REASON
+            ? "compaction.runningCacheExpiry"
+            : "turn.live.compacting",
+      )
+    : waitsOnAgents
+      ? subagentsLabel(t, liveAgents, liveAgentNames)
+      : writing
+        ? t("turn.live.writing")
+        : silent
+          ? waitingLabel(t, liveWait)
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
   const label =
     doing === undefined
-      ? compacting
-        ? t(
-            liveCompaction?.reason === "account_switch"
-              ? "compaction.runningAccountSwitch"
-              : liveCompaction?.reason === CACHE_EXPIRY_REASON
-                ? "compaction.runningCacheExpiry"
-                : "turn.live.compacting",
-          )
-        : waitsOnAgents
-          ? subagentsLabel(t, liveAgents, liveAgentNames)
-          : writing
-            ? t("turn.live.writing")
-            : silent
-              ? waitingLabel(t, liveWait)
-              : (turnVerb ??
-                (statusVerbConfig.mode === "custom"
-                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
-                  : t("thinking")))
+      ? idleLabel
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
+            ? done
+              ? t("tools.ranCommand", { command: doing })
+              : doing
             : draft
               ? t("tools.writingCommand")
-              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
+              : done
+                ? t("tools.ranUnnamed")
+                : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
