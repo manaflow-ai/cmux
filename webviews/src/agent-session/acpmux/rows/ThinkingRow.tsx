@@ -1,5 +1,6 @@
 import { memo, useContext } from "react";
 import { Thinking } from "../conversation/Thinking";
+import { LiveDwellContext, liveStatusKey, useKeyedDwell, withLiveStatus } from "../conversation/liveDwell";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
@@ -7,9 +8,13 @@ import { sameLiveWait, sameNames } from "../conversation/liveWait";
 
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 export const ThinkingRow = memo(
-  function ThinkingRow({ row }: RowProps) {
+  function ThinkingRow({ row: latest }: RowProps) {
     // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
     const pulse = useContext(LiveLinePulseContext);
+    // Each status stays at least a dwell, so a burst of calls rolls the line a few whole times, never
+    // thirty cut-off times (liveDwell.ts).
+    const dwell = useContext(LiveDwellContext);
+    const row = withLiveStatus(latest, useKeyedDwell(liveStatusKey(latest), latest, dwell));
     return (
       <Thinking
         starting={row.queued !== undefined}
