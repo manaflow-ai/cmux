@@ -676,6 +676,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
+        // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
+        let opened = hub.mesh.gate().opened.notified();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -922,13 +927,25 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() || !wake_on_ready {
-                    sleep.await;
-                } else {
-                    tokio::select! {
+                // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
+                // opens: the outbox drains as soon as the hub is back, not on each send's own
+                // schedule. Its key makes the post again the same message.
+                let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
+                match (delivery.projection_only(), wake_on_ready, by_hub) {
+                    (true, _, _) | (false, false, false) => sleep.await,
+                    (false, true, false) => tokio::select! {
                         () = sleep => {}
                         () = ready => {}
-                    }
+                    },
+                    (false, false, true) => tokio::select! {
+                        () = sleep => {}
+                        () = opened => {}
+                    },
+                    (false, true, true) => tokio::select! {
+                        () = sleep => {}
+                        () = ready => {}
+                        () = opened => {}
+                    },
                 }
             }
         }
@@ -1493,6 +1510,36 @@ mod no_session_next_tests {
         let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
         assert_eq!(next(&down), Next::Unsent);
         assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
+    }
+
+    /// A session whose folder is gone keeps the delivery: the folder may come back, so it is
+    /// tried again, and the refusal names the folder.
+    #[test]
+    fn a_missing_folder_is_tried_again_and_named() {
+        use crate::hub::worktree_care::folder_missing;
+        let gone = folder_missing("probe", std::path::Path::new("/tmp/probe-gone"), "is gone");
+        assert_eq!(next(&gone), Next::Retry);
+        assert!(gone.message.starts_with("session.folder_missing"), "{}", gone.message);
+        assert!(gone.message.contains("/tmp/probe-gone"), "{}", gone.message);
+    }
+
+    /// How many attempts one message to a session whose folder stays gone makes in two hours on
+    /// the outbox's own schedule, with no peer's reconnect ending a wait (`deliver`'s
+    /// `wake_on_ready`): the schedule, then a doubling tail.
+    #[test]
+    fn a_missing_folder_is_tried_eleven_times_in_two_hours() {
+        use crate::hub::worktree_care::folder_missing;
+        let d = super::retry_delay_tests::delivery(0, false);
+        let refusal = folder_missing("probe", std::path::Path::new("/tmp/x"), "is gone");
+        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
+        let two_hours = 2 * 60 * 60 * 1000;
+        while now <= two_hours && !expired(&d, now) {
+            attempts += 1;
+            assert_eq!(next(&refusal), Next::Retry);
+            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
+            now += retry_sleep(&d, secs, now).as_millis() as u64;
+        }
+        assert_eq!(attempts, 11);
     }
 }
 

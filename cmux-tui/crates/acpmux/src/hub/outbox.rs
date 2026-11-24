@@ -67,6 +67,10 @@ pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
 /// sees that it may not have run; it is never dropped while open.
 pub const OPEN_ON_PEER_FOR_MS: u64 = 30 * KEEP_SETTLED_MS;
 
+/// The reason, and the first words of the error, of a delivery whose target session's folder is
+/// gone (`hub/worktree_care.rs` `folder_missing`): kept and sent again once it is back.
+pub const FOLDER_MISSING: &str = "session.folder_missing";
+
 /// The error of a delivery whose peer never showed it within [`OPEN_ON_PEER_FOR_MS`].
 pub const OPEN_LAPSED: &str = "the peer took this message, but its machine lost it with its disk \
      and did not come back within 30 days to take it again; it may not have run";
@@ -276,10 +280,15 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            // Why it failed, for a program: the target's machine has no such session, or it
-            // took it and lost it, and did not come back for it.
+            // Why it failed or waits, for a program: the target's machine has no such session,
+            // or the session's folder is gone (`error` names the folder; still queued, it goes
+            // once the folder is back), or it took it and lost it, and did not come back for it.
             "reason": if self.no_session() {
                 Some("no_session")
+            } else if self.state != State::Delivered
+                && self.error.as_deref().is_some_and(|e| e.starts_with(FOLDER_MISSING))
+            {
+                Some(FOLDER_MISSING)
             } else {
                 (self.state == State::Failed && self.error.as_deref() == Some(OPEN_LAPSED))
                     .then_some("open_lapsed")

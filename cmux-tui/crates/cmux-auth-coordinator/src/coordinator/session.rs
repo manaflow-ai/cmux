@@ -1,6 +1,7 @@
 //! Sign-out and the state helpers every flow shares.
 
 use super::Coordinator;
+use super::state::{DebugCredentials, PendingCode, Session, Teams, TokenCache};
 use crate::event::{AuthFailure, Effect, TokenReadKind};
 use crate::model::{AuthState, AuthUser};
 use crate::phase::SIGN_OUT_CLEARED_PHASES;
@@ -11,22 +12,21 @@ impl Coordinator {
     pub(super) fn on_sign_out_requested(&mut self, fx: &mut Vec<Effect>) {
         fx.push(Effect::CancelInFlightWork);
         self.advance_session_generation(true, fx);
-        self.sign_out_epoch = self.sign_out_epoch.wrapping_add(1);
-        self.pending_sign_out_captures.insert(self.sign_out_epoch);
+        self.generations.sign_out_epoch = self.generations.sign_out_epoch.wrapping_add(1);
+        self.pending_sign_out_captures.insert(self.generations.sign_out_epoch);
         self.publish_session_identity(fx);
         fx.push(Effect::ClearPhaseDampers(SIGN_OUT_CLEARED_PHASES));
         fx.push(Effect::CaptureTeardownCredentialsAndClearLocalSession {
-            sign_out_epoch: self.sign_out_epoch,
+            sign_out_epoch: self.generations.sign_out_epoch,
         });
     }
 
     pub(super) fn on_sign_out_local_cleared(&mut self, sign_out_epoch: u64, fx: &mut Vec<Effect>) {
-        // Each capture is answered once: a repeated answer (or one for a
-        // capture never started) must not clear a session signed in since.
-        if !self.pending_sign_out_captures.remove(&sign_out_epoch) {
-            return;
-        }
-        if sign_out_epoch != self.sign_out_epoch {
+        // Each capture is answered once (`step` refused a repeated answer, or
+        // one for a capture never started): it must not clear a session
+        // signed in since.
+        self.pending_sign_out_captures.remove(&sign_out_epoch);
+        if sign_out_epoch != self.generations.sign_out_epoch {
             // A newer sign-out began after this one captured: that one owns
             // the local clear (and keeps the capture open until it answers).
             // Only this capture's own server teardown still runs.
@@ -41,7 +41,7 @@ impl Coordinator {
             fx.push(Effect::EndSignOutCredentialCapture);
         }
         if self.launch.includes_dev_auth {
-            self.has_debug_credentials = false;
+            self.debug_credentials = DebugCredentials::None;
             fx.push(Effect::ForgetDebugCredentials);
         }
         self.clear_auth_state("signed out by the person", false, true, fx);
@@ -80,14 +80,15 @@ impl Coordinator {
         self.cancel_team_scope_recovery(fx);
         fx.push(Effect::ForgetLatestSignInRefreshToken);
         if !preserve_pending_code {
-            self.has_pending_code = false;
+            self.pending_code = PendingCode::None;
             fx.push(Effect::DropPendingCode);
         }
         self.cached_user = None;
         fx.push(Effect::ClearCachedUser);
-        self.has_tokens = false;
+        self.token_cache = TokenCache::Empty;
         fx.push(Effect::ClearSessionCache);
-        self.set_available_teams(Vec::new(), fx);
+        self.teams = Teams::Unloaded;
+        self.publish_team_scope(fx);
         self.set_selected_team(None, fx);
         self.apply(AuthState::cleared(), fx);
     }
@@ -96,15 +97,18 @@ impl Coordinator {
         if notify {
             fx.push(Effect::NotifySessionWillTransition);
         }
-        self.session_generation = self.session_generation.wrapping_add(1);
-        self.authenticated_teams_session_generation = None;
-        self.set_available_teams(Vec::new(), fx);
+        self.generations.session = self.generations.session.wrapping_add(1);
+        // A new generation's list has not loaded.
+        self.teams = Teams::Unloaded;
+        self.publish_team_scope(fx);
     }
 
     pub(super) fn apply(&mut self, state: AuthState, fx: &mut Vec<Effect>) {
-        self.current_user = state.current_user;
-        self.is_authenticated = state.is_authenticated;
-        self.is_restoring_session = state.is_restoring_session;
+        self.set_session(Session::from_state(state), fx);
+    }
+
+    pub(super) fn set_session(&mut self, session: Session, fx: &mut Vec<Effect>) {
+        self.session = session;
         self.publish_session_identity(fx);
     }
 
@@ -123,7 +127,7 @@ impl Coordinator {
         if same {
             return;
         }
-        self.team_scope_generation = self.team_scope_generation.wrapping_add(1);
+        self.generations.team_scope = self.generations.team_scope.wrapping_add(1);
         let scope = self.team_scope();
         self.last_published_team_scope = scope.clone();
         fx.push(Effect::PublishTeamScope(scope));
@@ -135,7 +139,7 @@ impl Coordinator {
     }
 
     pub(super) fn set_has_tokens(&mut self, fx: &mut Vec<Effect>) {
-        self.has_tokens = true;
+        self.token_cache = TokenCache::Stored;
         fx.push(Effect::SetHasTokens);
     }
 

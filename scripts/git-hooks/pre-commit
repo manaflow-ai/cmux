@@ -188,6 +188,7 @@ def check(candidate, root, mode, dirs):
     if not (os.path.isfile(resolved) and os.access(resolved, os.X_OK)):
         say(f"{candidate} is not an executable file; not running it.")
         return False
+    root_real = ""
     if root or mode:
         root_real = real(root) if root else ""
         if not root_real or not within(resolved, root_real):
@@ -195,8 +196,15 @@ def check(candidate, root, mode, dirs):
             return False
     # A package install inside the checkout (its node_modules) is the one place
     # a tool may live inside it; the hook checks that git tracks nothing there.
+    # wt checkouts project node_modules as a link to a shared install outside the
+    # checkout: the link itself (exactly the install root) may sit in the
+    # checkout when what it points at does not.
+    root_link = os.path.normpath(root) if root else ""
+    root_outside = bool(root_real) and not any(within(root_real, directory) for directory in dirs)
     for place in places:
         if mode == "checkout-install" and within(place, root_real):
+            continue
+        if mode == "checkout-install" and root_outside and place == root_link:
             continue
         for directory in dirs:
             if within(place, directory):
