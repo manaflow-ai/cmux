@@ -14,6 +14,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use cmux_scope::Scope;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
@@ -81,6 +82,8 @@ pub struct Pop {
     config: PopConfig,
     registry: Arc<Mutex<Registry>>,
     reports: Reports,
+    /// Owns every allocation task; dropped with the PoP.
+    scope: Scope,
 }
 
 impl Pop {
@@ -90,6 +93,7 @@ impl Pop {
             config,
             registry: Arc::default(),
             reports: Arc::default(),
+            scope: Scope::new("cmux-hop-relay pop"),
         })
     }
 
@@ -196,17 +200,18 @@ impl Pop {
             registry: Arc::clone(&self.registry),
             reports: Arc::clone(&self.reports),
         };
-        tokio::spawn(alloc.run(rx));
+        self.scope.spawn_until_cancelled("hop-relay allocation", alloc.run(rx));
         wire::encode_bind_ok(relayed_addr, lifetime)
     }
 }
 
 /// Serves the reports as JSON on every connection (any request, one answer).
 pub async fn serve_health(listener: TcpListener, reports: Reports) {
+    let scope = Scope::new("cmux-hop-relay health");
     loop {
         let Ok((mut stream, _)) = listener.accept().await else { continue };
         let reports = Arc::clone(&reports);
-        tokio::spawn(async move {
+        scope.spawn_until_cancelled("hop-relay health answer", async move {
             let mut scratch = [0_u8; 1024];
             let _ =
                 tokio::time::timeout(Duration::from_millis(200), stream.read(&mut scratch)).await;

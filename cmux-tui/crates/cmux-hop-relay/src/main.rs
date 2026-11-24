@@ -78,11 +78,15 @@ async fn main() -> anyhow::Result<()> {
                 stats_every: Duration::from_millis(parse(&args, "--stats-every-ms", 0)?),
             };
             let pop = Pop::bind(config.clone()).await.with_context(|| format!("bind {bind}"))?;
+            let health_scope = cmux_scope::Scope::new("cmux-hop-relay main");
             if let Some(health) = flag(&args, "--health") {
                 let listener = tokio::net::TcpListener::bind(health)
                     .await
                     .with_context(|| format!("bind {health}"))?;
-                tokio::spawn(serve_health(listener, pop.reports()));
+                health_scope.spawn_until_cancelled(
+                    "hop-relay health",
+                    serve_health(listener, pop.reports()),
+                );
             }
             eprintln!(
                 "cmux-hop-relay listening on {} (relayed ports on {}, phone leg {} kbit/s)",

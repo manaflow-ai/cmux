@@ -2025,6 +2025,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-scope",
  "cmux-transport",
  "getrandom 0.3.4",
  "hmac",

@@ -21,6 +21,7 @@ path = "src/bin/hop-bench.rs"
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+cmux-scope = { path = "../cmux-scope" }
 cmux-transport = { path = "../cmux-transport" }
 getrandom.workspace = true
 hmac.workspace = true
