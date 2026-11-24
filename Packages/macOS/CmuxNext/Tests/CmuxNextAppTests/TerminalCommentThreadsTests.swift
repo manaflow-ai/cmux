@@ -42,6 +42,7 @@ struct TerminalCommentThreadsTests {
             return ["deleted": .number(Double(ids.count)), "ids": .array(ids.map(JSONValue.string))]
         }
 
+        func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
         func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                           text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
             clearingSends.append(key)
@@ -165,6 +166,7 @@ struct TerminalCommentThreadsTests {
                 deleted += ids
                 return [:]
             }
+            func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
             func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                               text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
             // No sendThreadedComments: the protocol's default refuses, as a host without diff-comments-threads-v1.
