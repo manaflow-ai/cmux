@@ -80,7 +80,7 @@ await requireBrowserLane("newtab-chip-icons-bare.test.ts", async () => {
             // shield (newtab-chip-scale.test.ts), so a glyph that stops matching fails here.
             expect(glyphs.length).toBeGreaterThanOrEqual(4);
             const transparent = (color: string) =>
-              color === "transparent" || /^rgba\(0, 0, 0, 0\)$/.test(color) || /\/ 0\)$/.test(color);
+              color === "transparent" || /^rgba\(0, 0, 0, 0\)$/.test(color) || color.endsWith("/ 0)");
             for (const glyph of glyphs) {
               expect({ ...glyph, background: transparent(glyph.background) ? "none" : glyph.background }).toEqual({
                 where: glyph.where,
