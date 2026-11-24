@@ -603,6 +603,10 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// Who closed the chat last, why, and whether its work was done (`close_why.rs`): kept on
+    /// every close, so a closed row (`close`) says what closed it after its log is compacted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close: Option<crate::close_why::CloseRecord>,
     /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
