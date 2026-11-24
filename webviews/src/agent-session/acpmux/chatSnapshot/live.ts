@@ -13,7 +13,7 @@ import {
 import { watchLaunchSettle } from "../launchSettle";
 import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number };
+type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean };
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -45,12 +45,14 @@ export function copyShowsRunningTurn(): boolean {
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
-export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null } | undefined {
+export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | null; chrome_only?: true } | undefined {
   const value = shown();
   if (!value) return undefined;
   return {
     painted_ms: Math.round(value.at),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
+    // Written at another size: the pane's chrome drew, the transcript's rows did not (shared.ts `fitsChromeOnly`).
+    ...(value.chromeOnly ? { chrome_only: true as const } : {}),
   };
 }
 
