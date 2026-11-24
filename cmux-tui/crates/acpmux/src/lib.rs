@@ -99,6 +99,7 @@ pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
 pub mod folder_instructions;
+pub mod fork_place;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -160,6 +161,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;

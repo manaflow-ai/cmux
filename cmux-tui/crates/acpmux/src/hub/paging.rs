@@ -684,7 +684,7 @@ impl Hub {
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let session = self.session_get(id);
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.

@@ -16894,7 +16894,7 @@ class SpawnOwnerFixedOnBase(unittest.TestCase):
 
     def test_a_diff_that_reaches_the_check_is_refused(self):
         for path in ("scripts/cmux-next/check-spawn-owner.py", "scripts/cmux-next/spawn-owner-baseline.tsv",
-                     "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
+                     "scripts/cmux-next/baseline_renames.py", "cmux-tui/crates/acpmux/src/hub/mod.rs", "cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs"):
             with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
                 self.judge(SpawnOwnerGitHub(changed=(path,)))
         with self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes: tests/test_spawn_owner_ratchet.py"):
