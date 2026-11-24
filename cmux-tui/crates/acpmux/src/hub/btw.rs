@@ -1167,7 +1167,8 @@ mod tests {
             rows.iter().map(|row| row["sessionId"].as_str().unwrap().to_owned()).collect()
         };
         let all = hub.session_list_text(&json!({}), false, true, usize::MAX).unwrap();
-        assert_eq!(ids(&all), ["chat", "task", "started", "other"]);
+        // Marking the side chat updates it: it lists first.
+        assert_eq!(ids(&all), ["task", "chat", "started", "other"]);
         let top = hub.session_list_text(&json!({"topLevelOnly": true}), false, true, usize::MAX);
         assert_eq!(ids(&top.unwrap()), ["chat", "other"]);
         for limit in 1..=3 {
