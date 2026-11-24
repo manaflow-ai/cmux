@@ -1443,3 +1443,45 @@ async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
     assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
     assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
 }
+
+/// A machine only the hub reaches answers a health read of itself, of no session, as a direct
+/// peer's link reads it (`peer_health.rs`), bounded to one small message.
+#[tokio::test]
+async fn a_machine_answers_its_health_through_the_hub_of_no_session() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let health = host_health(&hub, "machine-b").await.unwrap();
+    assert!(health.is_object(), "{health}");
+    assert!(health.get("unsupported").is_none(), "{health}");
+    assert!(health.to_string().len() <= HEALTH_BYTES);
+    // Another person is refused by B itself.
+    let other = Loopback::new(&b, dir.path(), "person-2");
+    assert!(host_health(&other, "machine-b").await.is_err());
+}
+
+/// Old against new: a build before the health read refuses it as it refuses any method it does
+/// not read (`mesh.read_unsupported`), which the asker keeps as unsupported, never an error.
+#[tokio::test]
+async fn an_old_machine_refuses_the_health_read_and_reads_as_unsupported() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    // What a build without `_acpmux/host_health` answers: the refusal of a method it lacks.
+    let old = read(&hub, "machine-b", "own-e2e", "_acpmux/host_health_unknown", &json!({})).await;
+    let refused = old.unwrap_err();
+    assert!(refused.message.starts_with("mesh.read_unsupported"), "{refused:?}");
+    assert_eq!(health_of(Err(refused)).unwrap(), json!({"unsupported": true}));
+    // A new machine's answer, an answer with no reading, and one over the bound.
+    assert_eq!(health_of(Ok(r#"{"health":{"cpus":4}}"#.into())).unwrap(), json!({"cpus": 4}));
+    assert!(health_of(Ok(r#"{"other":1}"#.into())).is_err());
+    assert!(health_of(Ok("not json".into())).is_err());
+    let big = json!({"health": {"x": "y".repeat(HEALTH_BYTES)}}).to_string();
+    assert!(health_of(Ok(big)).is_err());
+    // Any other failure stays a failure.
+    assert!(health_of(Err(RpcError::internal("down"))).is_err());
+    // The body is version 1, so an old build reaches its method check.
+    let body: Value = serde_json::from_str(&health_body()).unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["method"], HOST_HEALTH);
+}
