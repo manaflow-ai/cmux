@@ -74,6 +74,7 @@ final class CloudService {
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
     @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0) } // in the install token's team (CloudSpareReadiness.Dependencies.team)
+    @ObservationIgnored let spareWarmGate = CloudSpareWarmGate() // one warm at a time, none within Rust's gap: a Cmd-Tab burst spawns one CLI process (hq#8747)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
