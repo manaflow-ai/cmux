@@ -26,6 +26,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
     public var shortcut: String?
+    /// A caller-supplied tooltip, used for transient rows whose title is only a short state word.
+    public var tooltip: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
@@ -39,6 +41,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
+    /// A look with a title draws the title alone, no glyph (the sidebar's Chief row, Lucas 2026-11-23); an icon-only
+    /// look and a tile still draw the glyph, since they have no title to show.
+    public var hidesGlyphBesideTitle = false
     /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
     public var iconFromShownTab = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
@@ -73,12 +78,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var taskProgress: SidebarTaskProgress?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
                 emoji: String? = nil) {
         self.icon = icon
         self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
+        self.tooltip = tooltip
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -242,7 +248,7 @@ extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
     /// ("Settings (⌘,)").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        tooltip ?? shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
     }
 }
 

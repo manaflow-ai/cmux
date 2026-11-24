@@ -1,11 +1,18 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
-const diskReport = (free_mb: number, total_mb: number, floor_mb: number, observed_at = Date.now()) => ({
+const diskReport = (
+  free_mb: number,
+  total_mb: number,
+  floor_mb: number,
+  observed_at = Date.now(),
+): CloudDiskHealth => ({
+  // The Cloud API computes the state; the fixture mirrors its floor rule.
+  state: free_mb <= floor_mb ? "warning" : "healthy",
   free_mb,
   used_mb: total_mb - free_mb,
   total_mb,
@@ -414,6 +421,34 @@ export default cloudPageEntry({
       note: "Cloud settings: the plan's cleanup in words, the email heads-up toggle and the team's numbers.",
       action: "cleanup-team",
       retention: { ...freeRetention, team: { heads_up_days: 7 } },
+      machines,
+      snapshots,
+    },
+    "billing-past-due": {
+      note: "The latest renewal failed (cmux.com paymentPastDue): one line under the plan with Manage Billing.",
+      planId: "pro",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-past-due-max": {
+      note: "A failed renewal on the Max plan: the same line and Manage Billing; the plan name is the plan's own.",
+      planId: "max",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-paid": {
+      note: "A paid plan whose renewal went through: no payment line.",
+      planId: "pro",
+      paymentPastDue: false,
+      machines,
+      snapshots,
+    },
+    "billing-read-failed": {
+      note: "The billing read fails (cmux.com unreachable): no payment line, the plan shows as usual.",
+      planId: "pro",
+      paymentPastDue: "fail",
       machines,
       snapshots,
     },

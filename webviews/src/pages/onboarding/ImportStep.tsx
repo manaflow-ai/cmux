@@ -19,6 +19,7 @@ import { OPS, type ImportCounts, type ImportRow, type ImportState } from "./ops"
 import { HostIcon, useOnboarding } from "./parts";
 import { countsLine, importRowDetail, importStatus, keychainLine, kindLabel } from "./text";
 import { intl } from "../../ui/intl";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Row slots kept mounted, so detection fills them in place. */
 export const IMPORT_ROW_SLOTS = 4;
@@ -88,6 +89,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
         <span className="onb-import-sub">{subtitle}</span>
       </span>
       <span className="onb-import-trailing">
+        {/* tooltip-allow: a failed import's reason shows nowhere else. */}
         <span className="onb-import-detail" title={tooltip ?? undefined}>
           {text}
         </span>
@@ -220,20 +222,19 @@ function ImportList({ importer }: { importer: ImportState }) {
         <KindChoices importer={importer} />
         {/* Keep in Sync stays shown and dimmed without History, so the kinds card never holds an
             empty line. */}
-        <label
-          className="onb-check onb-sync"
-          data-off={history ? undefined : ""}
-          inert={!history}
-          title={strings.t("onboarding.import.keepInSync.help")}
-        >
-          <Check
-            aria-label={strings.t("onboarding.import.keepInSync")}
-            checked={importer.keepsHistoryInSync}
-            disabled={!importer.editable || !history}
-            onChange={() => store.call(OPS.toggleKeepInSync)}
-          />
-          {strings.t("onboarding.import.keepInSync")}
-        </label>
+        <WithFacts facts={[{ value: strings.t("onboarding.import.keepInSync.help") }]}>
+          {(facts) => (
+            <label {...facts} className="onb-check onb-sync" data-off={history ? undefined : ""} inert={!history}>
+              <Check
+                aria-label={strings.t("onboarding.import.keepInSync")}
+                checked={importer.keepsHistoryInSync}
+                disabled={!importer.editable || !history}
+                onChange={() => store.call(OPS.toggleKeepInSync)}
+              />
+              {strings.t("onboarding.import.keepInSync")}
+            </label>
+          )}
+        </WithFacts>
       </div>
     </div>
   );
@@ -515,7 +516,7 @@ export function ImportStep({ importer, progress }: { importer: ImportState; prog
         )}
       </ViewSwap>
       {mode === "list" && status !== "" && (
-        <output className="onb-status" aria-live="polite" title={status || undefined}>
+        <output className="onb-status" aria-live="polite">
           {status}
         </output>
       )}
