@@ -127,6 +127,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_page_rule.rs"]
+pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
 pub(super) mod reader;
 #[path = "inbox_surge.rs"]
@@ -215,6 +217,10 @@ pub(super) struct Item {
     /// A fire notice that wakes the chat and never waits as an FYI: only with the surge preview
     /// on (`surge_inbox_on`); with it off a notice is its class alone, as before the surge inbox.
     pub(super) fire: bool,
+    /// The page rule's verdict, in a chat on the coordinator list (`inbox_page_rule.rs`): it
+    /// decides whether the item wakes the chat. None: not on the list, unreadable or restored,
+    /// so it wakes as before the rule (fail open).
+    pub(super) verdict: Option<page_rule::Verdict>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -234,6 +240,7 @@ impl Item {
     pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
         Self {
             surge_held: false,
+            verdict: None,
             prompt_id: prompt_id.to_owned(),
             notice: None,
             answered: None,
@@ -271,6 +278,8 @@ impl Inbox {
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
+    /// The page rule's fold table (`inbox_page_rule.rs`): a program's repeated alarm text.
+    pub(super) folds: page_rule::Folds,
     surge_rate: surge::SurgeRate,
     surge_counts: Arc<StdMutex<surge::Counts>>,
     pub(super) items: Vec<Item>,
@@ -819,6 +828,7 @@ pub(crate) fn relay_body(text: &str) -> &str {
 /// sender's session, and the messages whole when the notice holds them; past that, the newest one
 /// whole (`newest`) while it is [`NEWEST_BYTES`] or less and the notice's newest ones stay within
 /// [`NEWEST_TOTAL_BYTES`]. Only the parts carry it: the agent's text keeps its previews.
+#[cfg(test)]
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
     render_read(items, &reader::Summaries::new())
 }
@@ -835,7 +845,8 @@ pub(super) fn render_read(items: &[&Item], summaries: &reader::Summaries) -> (St
             None => threads.push((&item.thread, vec![item])),
         }
     }
-    let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent());
+    // A folded repeat of a program's page (`inbox_page_rule.rs`) is no blocker again.
+    let blocker = |list: &[&Item]| list.iter().any(|i| i.class.urgent() && !folded(i));
     let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
     let whole = items.iter().map(|i| i.text.len()).sum::<usize>() <= WHOLE_BYTES;
     let summary = |list: &[&Item]| {
@@ -978,8 +989,24 @@ fn body(text: &str) -> &str {
 
 /// Whether `item` may wake the idle chat of `meta`.
 fn wakes(meta: &SessionMeta, item: &Item) -> bool {
-    item.fire
-        || wakes_as(meta, item.class, item.report || item.waited, item.from_session.as_deref())
+    match item.verdict {
+        Some(verdict) => verdict == page_rule::Verdict::Page,
+        None => {
+            item.fire
+                || wakes_as(
+                    meta,
+                    item.class,
+                    item.report || item.waited,
+                    item.from_session.as_deref(),
+                )
+        }
+    }
+}
+
+/// Whether `item` is a folded repeat of a program's page (`inbox_page_rule.rs`): it starts no
+/// flush of its own and goes with the next notice.
+fn folded(item: &Item) -> bool {
+    item.verdict == Some(page_rule::Verdict::Fold)
 }
 
 fn fire_notice(notice: Option<&Value>) -> bool {
@@ -987,7 +1014,7 @@ fn fire_notice(notice: Option<&Value>) -> bool {
 }
 
 fn ordinary_fyi(item: &Item) -> bool {
-    item.class == PromptClass::Fyi && !item.fire
+    item.class == PromptClass::Fyi && !item.fire && item.verdict != Some(page_rule::Verdict::Page)
 }
 
 /// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
@@ -1347,13 +1374,15 @@ impl Hub {
         let meta_now = session.meta();
         let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
-        let wakes_now = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
+        let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(
                 &meta_now,
                 class,
                 is_report(provenance) || waited,
                 sender_session.as_deref(),
             );
+        // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
+        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1372,6 +1401,22 @@ impl Hub {
         );
         let thread_sender = thread_sender(provenance, sender);
         let tool_notice = tool_notice_of(provenance);
+        let notice_title = tool_notice
+            .as_ref()
+            .and_then(|n| n.get("title"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let page_message = page_rule_on.then(|| page_rule::Message {
+            class,
+            from: sender,
+            has_session: sender_session.is_some() || stamped_session.is_some(),
+            human: human_authenticated
+                || sender_identity.get("actorKind").and_then(Value::as_str)
+                    == Some("authenticated_human"),
+            fire: fire_notice(tool_notice.as_ref()) || page_rule::fire_text(&text),
+            title: notice_title.as_deref(),
+            text: &text,
+        });
         let thread = match &tool_notice {
             Some(notice) => surge_topic(explicit, &text, Some(notice), &thread_sender),
             None => thread_key(explicit, &thread_sender, &text),
@@ -1387,6 +1432,10 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
+            let now = now_ms();
+            let verdict =
+                page_message.as_ref().and_then(|m| page_rule::judge(&inbox.folds, m, now));
+            let wakes_now = verdict.map_or(wakes_before_rule, |v| v == page_rule::Verdict::Page);
             // A continuation that may still fire brings a turn, but no sooner notice for FYIs
             // alone (router review of #38603 at 8991049, F1).
             let strands = !wakes_now
@@ -1435,8 +1484,12 @@ impl Hub {
                     }
                     None => {
                         held = strands;
+                        if let (Some(m), Some(v)) = (page_message.as_ref(), verdict) {
+                            page_rule::record(&mut inbox.folds, m, v, now);
+                        }
                         inbox.items.push(Item {
                             surge_held: false,
+                            verdict,
                             prompt_id: prompt_id.to_owned(),
                             notice: None,
                             answered: None,
@@ -1448,7 +1501,7 @@ impl Hub {
                             class,
                             report: is_report(provenance),
                             waited,
-                            at: now_ms(),
+                            at: now,
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
                             fire: surge_on && fire_notice(tool_notice.as_ref()),
@@ -1567,6 +1620,7 @@ impl Hub {
             } else {
                 inbox.items.push(Item {
                     surge_held: false,
+                    verdict: None,
                     prompt_id: prompt_id.to_owned(),
                     notice: None,
                     answered: None,
@@ -1681,12 +1735,15 @@ impl Hub {
                 let oldest = new.iter().map(|i| i.at).min().unwrap_or(now);
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
-                let fyi_only = new.iter().all(|i| ordinary_fyi(i));
+                // A folded repeat (`inbox_page_rule.rs`) waits as an FYI does.
+                let fyi_only = new.iter().all(|i| ordinary_fyi(i) || folded(i));
+                // A folded repeat starts no flush of its own in an idle chat.
+                let clocked = new.iter().filter(|i| !folded(i)).map(|i| i.at).min();
                 // Read before a Stop's `due_now` below takes the inbox mutably.
                 let urgent = new.iter().any(|i| steers_at_once(&meta, i));
                 let coalesced = new
                     .iter()
-                    .filter(|i| !ordinary_fyi(i))
+                    .filter(|i| !ordinary_fyi(i) && !folded(i))
                     .map(|i| i.at)
                     .min()
                     .unwrap_or(oldest)
@@ -1763,7 +1820,7 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                            let flush = oldest.saturating_add(FLUSH_MS);
+                            let flush = clocked.map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
@@ -1779,7 +1836,10 @@ impl Hub {
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
                             let at = due.max(retry);
-                            if continuing {
+                            if at == u64::MAX {
+                                // Only folded repeats are new: they go with the next notice.
+                                Next::Nothing
+                            } else if continuing {
                                 // The cut turn's continuation may still fire (`auto_resume.rs`):
                                 // a turn of its own now would supersede it. Looked at again
                                 // later; a continuation that runs ends its timer when its turn
@@ -2263,6 +2323,7 @@ impl Hub {
                     };
                     let item = Item {
                         surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
+                        verdict: None,
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
                         answered: None,
