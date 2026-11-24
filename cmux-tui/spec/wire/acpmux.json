@@ -19,6 +19,7 @@
     "field:_meta.acpmux#cliHost",
     "field:_meta.acpmux#compression",
     "field:_meta.acpmux#context",
+    "field:_meta.acpmux#createKey",
     "field:_meta.acpmux#createdBy",
     "field:_meta.acpmux#cwd",
     "field:_meta.acpmux#decisionNonce",
@@ -27,6 +28,7 @@
     "field:_meta.acpmux#effort",
     "field:_meta.acpmux#env",
     "field:_meta.acpmux#ephemeral",
+    "field:_meta.acpmux#features",
     "field:_meta.acpmux#forceAdmit",
     "field:_meta.acpmux#forwardProjection",
     "field:_meta.acpmux#fromAgent",
@@ -53,6 +55,8 @@
     "field:_meta.acpmux#peerRowBatches",
     "field:_meta.acpmux#personDecision",
     "field:_meta.acpmux#personKey",
+    "field:_meta.acpmux#personVerified",
+    "field:_meta.acpmux#placeRedirect",
     "field:_meta.acpmux#policy",
     "field:_meta.acpmux#pr",
     "field:_meta.acpmux#preset",
@@ -62,6 +66,7 @@
     "field:_meta.acpmux#provenance",
     "field:_meta.acpmux#reportTo",
     "field:_meta.acpmux#requestId",
+    "field:_meta.acpmux#requireAsking",
     "field:_meta.acpmux#requireFullAccess",
     "field:_meta.acpmux#resend",
     "field:_meta.acpmux#restricted",
@@ -115,6 +120,8 @@
     "method:_acpmux/chat/route.set",
     "method:_acpmux/chat_fork",
     "method:_acpmux/chat_open",
+    "method:_acpmux/chat_place",
+    "method:_acpmux/chat_place_set",
     "method:_acpmux/chat_projects",
     "method:_acpmux/chat_resolve",
     "method:_acpmux/chat_roots",
@@ -164,6 +171,7 @@
     "method:_acpmux/github/pr_wait",
     "method:_acpmux/github_action",
     "method:_acpmux/github_app_lease",
+    "method:_acpmux/github_rest",
     "method:_acpmux/goal/get",
     "method:_acpmux/goal/set",
     "method:_acpmux/goal/update",
@@ -177,6 +185,7 @@
     "method:_acpmux/history",
     "method:_acpmux/host_health",
     "method:_acpmux/host_notice",
+    "method:_acpmux/host_overload",
     "method:_acpmux/hunk_summary",
     "method:_acpmux/import",
     "method:_acpmux/inbox_digest",
@@ -198,8 +207,6 @@
     "method:_acpmux/machine_consent_refused",
     "method:_acpmux/machine_files_call",
     "method:_acpmux/machine_info",
-    "method:_acpmux/machine_route_probe",
-    "method:_acpmux/machine_routes",
     "method:_acpmux/mail/ack",
     "method:_acpmux/mail/read",
     "method:_acpmux/mail/send",
@@ -241,9 +248,9 @@
     "method:_acpmux/register",
     "method:_acpmux/registry",
     "method:_acpmux/reload_config",
-    "method:_acpmux/remote.pipe",
     "method:_acpmux/rename",
     "method:_acpmux/report",
+    "method:_acpmux/request_state",
     "method:_acpmux/resolve",
     "method:_acpmux/retention",
     "method:_acpmux/review_brief",
@@ -259,6 +266,7 @@
     "method:_acpmux/run_elsewhere/plan",
     "method:_acpmux/run_elsewhere/start",
     "method:_acpmux/schema",
+    "method:_acpmux/scorecard",
     "method:_acpmux/secret_request",
     "method:_acpmux/secret_run",
     "method:_acpmux/send_queue",
@@ -323,9 +331,7 @@
     "notify:_acpmux/chat_changed",
     "notify:_acpmux/chats_lagged",
     "notify:_acpmux/chats_window_changed",
-    "notify:_acpmux/connections.changed",
     "notify:_acpmux/machine_join_progress",
-    "notify:_acpmux/unsent",
     "notify:catalog.changed",
     "param:_acpmux/account/remove#account",
     "param:_acpmux/account/sign_in#account",
@@ -502,6 +508,8 @@
     "param:_acpmux/prewarm#harness",
     "param:_acpmux/prewarm#model",
     "param:_acpmux/prewarm#release",
+    "param:_acpmux/prewarm#reserveHome",
+    "param:_acpmux/prewarm#wait",
     "param:_acpmux/prewarm#workspaceId",
     "param:_acpmux/process/background#sessionId",
     "param:_acpmux/process/background#toolCallId",
@@ -667,6 +675,7 @@
       "method:_acpmux/events",
       "method:_acpmux/harness_enable",
       "method:_acpmux/harnesses",
+      "method:_acpmux/info",
       "method:_acpmux/kill",
       "method:_acpmux/markUnread",
       "method:_acpmux/models",
@@ -750,6 +759,9 @@
       "method:session/new",
       "method:session/prompt"
     ],
+    "connections-events-v1": [
+      "notify:_acpmux/connections.changed"
+    ],
     "cost-ledger-v1": [
       "method:_acpmux/ledger"
     ],
@@ -792,6 +804,9 @@
       "method:_acpmux/file_put_cancel",
       "method:_acpmux/file_put_chunk",
       "method:_acpmux/file_put_finish"
+    ],
+    "feature:filePutWindow": [
+      "param:_acpmux/file_put_finish#chunksInFlight"
     ],
     "feature:harnessInventory": [
       "notify:_acpmux/harness_inventory"
@@ -900,6 +915,9 @@
       "method:acp.trust.get",
       "method:acp.trust.set"
     ],
+    "feature:unsentSeq": [
+      "notify:_acpmux/unsent"
+    ],
     "feature:uploadFrames": [
       "method:_acpmux/file_put_data",
       "method:_acpmux/file_put_status"
@@ -934,6 +952,10 @@
     "machine-join-ssh-v1": [
       "method:_acpmux/machine_candidates",
       "method:_acpmux/machine_join_ssh"
+    ],
+    "machine-routes-v1": [
+      "method:_acpmux/machine_route_probe",
+      "method:_acpmux/machine_routes"
     ],
     "machine-signed-in-v1": [
       "method:_acpmux/machine_signed_in"
@@ -975,6 +997,9 @@
       "method:_acpmux/permission_group_respond",
       "method:_acpmux/permission_groups"
     ],
+    "place-redirect-v1": [
+      "method:session/new"
+    ],
     "process-census-v1": [
       "method:_acpmux/process/census"
     ],
@@ -1009,6 +1034,9 @@
     ],
     "read-through-v1": [
       "method:_acpmux/seen"
+    ],
+    "remote-pipe-v1": [
+      "method:_acpmux/remote.pipe"
     ],
     "send-fanout-v1": [
       "method:_acpmux/send_fanout"
@@ -1097,12 +1125,20 @@
       "notify:_acpmux/rows_lagged",
       "notify:_acpmux/rows_patch"
     ],
+    "transfer-composers-v1": [
+      "method:_acpmux/transfer_receive",
+      "method:_acpmux/transfer_write"
+    ],
     "transfer-history-later-v1": [
       "method:_acpmux/transfer_history",
       "method:_acpmux/transfer_history_export",
       "method:_acpmux/transfer_history_have",
       "method:_acpmux/transfer_prepare",
       "method:_acpmux/transfer_stage_finish"
+    ],
+    "transfer-images-v1": [
+      "method:_acpmux/transfer_receive",
+      "method:_acpmux/transfer_write"
     ],
     "transfer-live-v1": [
       "method:_acpmux/transfer_digest",
