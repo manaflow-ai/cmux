@@ -193,9 +193,15 @@ def job_id(name: str) -> str:
     return Path(name).stem
 
 
-def label_guard() -> str:
-    """ci.yml's guard: into feat-cmux-next, a label event for any other label skips (test_ci_label_events_skip_full_ci)."""
-    labels = json.dumps(list(LABEL_OPT_INS), separators=(",", ":"))
+# ci.yml's labels: the opt-ins plus the land handoff (scripts/ci/head_tier.py land rule). A docs-only pull request
+# runs no CI tier, so the fallback does not start ci.yml on `ready-to-land`.
+CI_LABELS = LABEL_OPT_INS + ("ready-to-land",)
+
+
+def label_guard(labels_read: tuple[str, ...] = LABEL_OPT_INS) -> str:
+    """A label guard: into feat-cmux-next, a label event for any label not in LABELS_READ skips
+    (test_ci_label_events_skip_full_ci). The fallback's reads LABEL_OPT_INS, ci.yml's CI_LABELS."""
+    labels = json.dumps(list(labels_read), separators=(",", ":"))
     return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
             "(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
             f"!contains(fromJSON('{labels}'), github.event.label.name))")
