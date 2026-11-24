@@ -69,7 +69,7 @@ test("a started Cloud chat's folder menu: its machine's folders only, never Add 
   }
   // An unsent chat already on its Cloud machine (its page's own acpmux is the machine's).
   expect(folderMenu({ ...started, readOnly: false, newChats: false, cloudMachine: true })).toEqual({
-    kind: "chatFolders",
+    kind: "cloudSources",
     addFolder: false,
   });
   const machine = [{ id: "/home/cmux/work/api" }, { id: "/home/cmux/chats/other-chat" }, { id: "/home/cmux/work/web" }];
@@ -78,9 +78,13 @@ test("a started Cloud chat's folder menu: its machine's folders only, never Add 
   ).toEqual(["/home/cmux/work/web", "/home/cmux/work/api"]);
 });
 
-test("a Cloud start not sent yet keeps this Mac's folders (the start copies the pick); once out, a label", () => {
+test("an unsent Cloud chat has Cloud sources and an unsent Mac chat has local folders", () => {
   const preStart = { readOnly: false, newChats: false, onThisMac: true, localChoices: true, cloudMachine: true };
-  expect(folderMenu({ ...preStart, cloudStartOut: false })).toEqual({ kind: "localFolders", addFolder: true });
+  expect(folderMenu({ ...preStart, cloudStartOut: false })).toEqual({ kind: "cloudSources", addFolder: false });
+  expect(folderMenu({ ...preStart, cloudStartOut: false, cloudMachine: false })).toEqual({
+    kind: "localFolders",
+    addFolder: true,
+  });
   expect(folderMenu({ ...preStart, cloudStartOut: true })).toEqual({ kind: "label", addFolder: false });
   // A started chat on this Mac keeps Add folder… (a new chat in a folder this Mac's panel picks).
   expect(
