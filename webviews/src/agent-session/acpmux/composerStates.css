@@ -1006,16 +1006,16 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    a gap apart, so it never reads as part of the steer list: muted, a size down, no actions, and a
    click only opens the whole text. `below` and `summary` are its gallery arms. */
 .acpmux-composer > .acpmux-composer-queue.acpmux-queue-system {
-  border-radius: var(--acpmux-strip-radius, 18px);
-  margin-bottom: 4px;
+  border-radius: var(--grid-composer-radius);
+  margin-bottom: var(--ds-space-1);
   max-height: none;
 }
 .acpmux-composer > .acpmux-composer-queue.acpmux-queue-system[data-look="below"] {
-  margin-block: 4px 4px;
+  margin-block: var(--ds-space-1);
 }
 .acpmux-queue-system > .acpmux-queued-system {
-  min-height: 22px;
-  padding-block: 2px;
+  min-height: auto;
+  padding-block: var(--grid-half-step);
   color: var(--acpmux-composer-dim);
 }
 .acpmux-queue-system .acpmux-queued-text {
@@ -1027,7 +1027,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
   color: var(--agent-text);
 }
 .acpmux-queue-system[data-look="summary"] > li + li {
-  padding-left: 24px;
+  padding-left: var(--ds-space-5);
 }
 
 /* The prompts the pane holds for the folder's trust answer (ComposerQueue.tsx, trustHeld.ts) follow
