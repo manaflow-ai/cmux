@@ -520,6 +520,9 @@ pub struct Peer {
     /// watch's reply, and the changes after it, until then, and drops them when the
     /// initialize reply says the watch was not the one to ask.
     pipelined_key: StdMutex<Option<String>>,
+    /// The `initialize` that went out with the upgrade request: its id and its answer
+    /// (`early_initialize`); the handshake takes it instead of asking again.
+    early_init: StdMutex<Option<(i64, oneshot::Receiver<Result<Value, RpcError>>)>>,
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,

@@ -64,6 +64,8 @@ pub(super) struct Opened {
     pub presented: Option<String>,
     /// ssh's stderr, read for why an ssh link ended.
     pub ssh_errors: Option<ssh_errors::Capture>,
+    /// The id of the `initialize` that left with the upgrade request (`Peer::early_initialize`).
+    pub early_id: Option<i64>,
 }
 
 /// Which direct path this machine has for a peer: acpmux's own WireGuard transport runs only
@@ -558,12 +560,17 @@ impl Peer {
             .direct_credentials(ssh_tokens)
             .ok_or_else(|| "no token for the peer yet".to_owned())?;
         let heard = Heard::default();
+        let early = self.early_initialize();
+        let early_id = early.as_ref().map(|(id, _)| *id);
         let opening = async {
             let (stream, url) = self.direct_stream(via).await?;
             let req = self.ws_request(&url, Some(&token), peer_token.as_deref())?;
             tokio_tungstenite::client_async_with_config(
                 req,
-                heard.wrap(stream),
+                match early {
+                    Some((_, frame)) => heard.wrap_early(stream, frame),
+                    None => heard.wrap(stream),
+                },
                 Some(crate::server::ws_config()),
             )
             .await
@@ -584,6 +591,7 @@ impl Peer {
             heard,
             presented: peer_token,
             ssh_errors: None,
+            early_id,
         })
     }
 
@@ -601,6 +609,9 @@ impl Peer {
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
+        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
+        let early = (self.url.starts_with("ws://")).then(|| self.early_initialize()).flatten();
+        let early_id = early.as_ref().map(|(id, _)| *id);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
         let connect = async {
             let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
@@ -612,7 +623,10 @@ impl Peer {
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
-                heard.wrap(tcp),
+                match early {
+                    Some((_, frame)) => heard.wrap_early(tcp, frame),
+                    None => heard.wrap(tcp),
+                },
                 Some(crate::server::ws_config()),
                 None,
             )
@@ -627,7 +641,13 @@ impl Peer {
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
-        Ok(Opened { ws: OpenedWs::Url(Box::new(ws)), heard, presented: None, ssh_errors: None })
+        Ok(Opened {
+            ws: OpenedWs::Url(Box::new(ws)),
+            heard,
+            presented: None,
+            ssh_errors: None,
+            early_id,
+        })
     }
 
     /// Open the peer's WebSocket over `ssh -W`, reading its tokens over ssh as needed.
@@ -715,6 +735,7 @@ impl Peer {
                         heard,
                         presented: peer_token,
                         ssh_errors: Some(errors),
+                        early_id: None,
                     });
                 }
                 Err(error) => error,
