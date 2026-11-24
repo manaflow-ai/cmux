@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDiff
 import CmuxNextGitHubViewer
@@ -11,17 +12,12 @@ import CmuxNextSettings
 /// routes, and a closed tab closes its page. The Stats, Chief Usage, Chief view gallery, channels
 /// and CodeRouter tabs are this; a page with routes or sub-views of its own has its own provider.
 @MainActor
-final class WebPageTab: InternalPageProvider {
+final class WebPageTab: PageTabViews, InternalPageProvider {
     let page: InternalPageID
     let symbol: String
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
-    private let make: (_ key: String, _ route: String?) -> NSView?
-    private var pages: [String: NSView] = [:]
-    private var localPages: [String: PageWebView] = [:] // pages bound to a capability in this app only
-    /// What each tab of a routed page shows (its `#/...` route), so a restored or reopened tab shows it again.
-    private var routes: [String: String] = [:]
     /// A page's report of what it drew (the GitHub page's `shown`: an address, and whether it had its
     /// content), for the instant-create bench's mark.
     var onShown: ((_ url: String, _ content: Bool) -> Void)?
@@ -42,29 +38,11 @@ final class WebPageTab: InternalPageProvider {
         self.symbol = symbol
         self.icon = icon
         self.title = title
-        self.make = make
+        super.init(make: make)
     }
 
-    func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let view = localPages[key] ?? make(key, routes[key]) else { return NSView() }
-        pages[key] = view
-        return view
-    }
+    func makeView(for key: String, in window: WindowController?) -> NSView { view(for: key) }
 
-    func route(for key: String) -> String? { routes[key] }
-    func restore(_ route: String, for key: String) { routes[key] = route }
-
-    /// Moves tab `key` to `route`: a route change in its page when it runs, else what it opens with.
-    func navigate(_ key: String, to route: String) {
-        routes[key] = route
-        (pages[key] as? PageWebView)?.open(route: route)
-    }
-
-    func tabClosed(_ key: String) {
-        (pages.removeValue(forKey: key) as? PageWebView)?.close()
-        localPages[key] = nil
-        routes[key] = nil
-    }
 }
 
 extension InternalPageID {
@@ -153,7 +131,6 @@ extension WebPageTab {
     }
 }
 
-
 extension WebPageTab {
     /// The grant to read this terminal's transcript stays in the app. The page cannot supply a
     /// path or grant itself another session by restoring a route sent from a daemon.
@@ -162,7 +139,7 @@ extension WebPageTab {
         let tab: WebPageTab
         if let registered = pages.provider(id) as? WebPageTab { tab = registered }
         else {
-            tab = WebPageTab(id, symbol: "clock.arrow.circlepath", title: String(localized: "terminalHistory.tab", defaultValue: "Earlier history", bundle: .module)) { nil }
+            tab = WebPageTab(id, symbol: "clock.arrow.circlepath", title: String(localized: "terminalHistory.tab", defaultValue: "Earlier history", bundle: .module.inAppLanguage)) { nil }
             pages.register(tab)
         }
         if let existing = pages.tabIDs(in: pane.paneKey).first(where: { tab.route(for: $0) == source.key }) {
@@ -170,8 +147,7 @@ extension WebPageTab {
             return
         }
         let key = LocalPageTab.makeKey(id), services = pane.services
-        tab.localPages[key] = source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host)
-        tab.routes[key] = source.key
+        tab.bind(source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host), to: key, route: source.key)
         pages.open(id, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                    window: services.windowController(showing: pane), key: key)
         pane.apply(pane.snapshot())

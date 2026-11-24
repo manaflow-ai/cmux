@@ -1,0 +1,29 @@
+.terminal-history-page { min-height: 100vh; color: var(--cmux-text-primary); background: var(--cmux-background-primary); display: grid; grid-template-rows: auto 1fr; }
+.terminal-history-header { display: flex; gap: 28px; justify-content: space-between; padding: 28px max(28px, calc((100vw - 980px) / 2)); border-bottom: 1px solid var(--cmux-border-subtle); background: color-mix(in srgb, var(--cmux-background-primary) 90%, transparent); }
+.terminal-history-kicker { margin: 0 0 6px; color: var(--cmux-text-secondary); font: 600 11px/1.2 var(--cmux-font-sans); letter-spacing: .08em; text-transform: uppercase; }
+.terminal-history-header h1 { margin: 0; font: 650 24px/1.2 var(--cmux-font-sans); }
+.terminal-history-meta { margin: 8px 0 0; color: var(--cmux-text-secondary); font: 13px/1.4 var(--cmux-font-sans); }
+.terminal-history-search { position: relative; width: min(340px, 38vw); align-self: center; display: grid; gap: 6px; color: var(--cmux-text-secondary); font: 12px/1.2 var(--cmux-font-sans); }
+.terminal-history-search input { width: 100%; box-sizing: border-box; border: 1px solid var(--cmux-border-subtle); border-radius: 8px; padding: 9px 38px 9px 11px; color: var(--cmux-text-primary); background: var(--cmux-background-secondary); font: 14px var(--cmux-font-sans); }
+.terminal-history-search kbd { position: absolute; right: 10px; bottom: 9px; color: var(--cmux-text-tertiary); font: 11px var(--cmux-font-mono); }
+.terminal-history-scroll { overflow: auto; padding: 20px max(28px, calc((100vw - 980px) / 2)) 64px; overscroll-behavior: contain; }
+.terminal-history-turn { display: grid; grid-template-columns: 30px minmax(0, 760px); gap: 14px; margin: 0 auto 24px; scroll-margin-top: 20px; }
+.terminal-history-turn-marker { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: var(--cmux-text-secondary); background: var(--cmux-fill-secondary); font: 11px var(--cmux-font-mono); }
+.terminal-history-turn-body { min-width: 0; border-left: 1px solid var(--cmux-border-subtle); padding-left: 18px; }
+.terminal-history-message { padding: 13px 15px; border-radius: 10px; background: var(--cmux-background-secondary); }
+.terminal-history-message h2 { margin: 0 0 6px; color: var(--cmux-text-secondary); font: 600 12px var(--cmux-font-sans); }
+.terminal-history-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--cmux-font-sans); }
+.terminal-history-message-assistant { margin-top: 10px; background: var(--cmux-background-tertiary); }
+.terminal-history-tools { margin: 8px 0; color: var(--cmux-text-secondary); font: 12px var(--cmux-font-sans); }
+.terminal-history-tools summary { cursor: pointer; padding: 5px 0; }
+.terminal-history-tools ul { margin: 0; padding: 0 0 4px 24px; color: var(--cmux-text-tertiary); }
+.terminal-history-tools li { padding: 2px 0; }
+.terminal-history-turn.is-highlighted .terminal-history-message { outline: 2px solid var(--cmux-accent); outline-offset: 2px; }
+.terminal-history-status, .terminal-history-error { max-width: 760px; margin: 22px auto; color: var(--cmux-text-secondary); font: 13px var(--cmux-font-sans); }
+.terminal-history-status-top { margin-top: 0; }
+.terminal-history-error { color: var(--cmux-text-critical); }
+.terminal-history-older { display: block; margin: 8px auto; border: 1px solid var(--cmux-border-subtle); border-radius: 7px; padding: 8px 12px; color: var(--cmux-text-primary); background: var(--cmux-background-secondary); cursor: pointer; }
+.terminal-history-results { max-width: 760px; margin: 8px auto 24px; display: grid; gap: 4px; font: 12px var(--cmux-font-sans); }
+.terminal-history-results span { color: var(--cmux-text-secondary); }
+.terminal-history-results button { overflow: hidden; border: 0; border-radius: 6px; padding: 7px 9px; color: var(--cmux-text-primary); background: var(--cmux-background-secondary); text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+@media (max-width: 650px) { .terminal-history-header { display: grid; padding: 20px; } .terminal-history-search { width: 100%; } .terminal-history-scroll { padding-inline: 20px; } }

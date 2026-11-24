@@ -68,6 +68,8 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
+mod transcript;
+mod transcript_index;
 mod team_audit;
 pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
@@ -381,6 +383,9 @@ pub(super) async fn route(
                 })
             })
             .await
+        }
+        transcript::PAGE | transcript::FIND => {
+            heap(|| transcript::handle(hub, service, m, &params)).await
         }
         // A chat's past turns from its harness's store, read now and never kept: for a chat with
         // no ACP resume (cx-5esm), and a Claude Code or Codex chat shown before it is adopted.

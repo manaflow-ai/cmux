@@ -17,6 +17,9 @@ use crate::adopt_tools::{PastTool, ToolResult};
 
 #[path = "adopt_replay_page.rs"]
 mod page;
+#[path = "transcript_page.rs"]
+mod transcript_page;
+pub use transcript_page::{transcript_page, TranscriptPage};
 pub use page::{
     ClaudePage, PAGE_TURNS, claude_page, claude_page_with_turns, newest_claude_page,
     newest_prompt_start,
@@ -165,6 +168,11 @@ impl Fold {
     }
 
     /// A Codex message item annotated with its kinds was folded: items are the turns from it on.
+    /// Treat Codex response items as turns when a page starts after the rollout marker.
+    pub(crate) fn assume_codex_items(&mut self) {
+        self.current = true;
+    }
+
     pub fn current(&self) -> bool {
         self.current
     }
