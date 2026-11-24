@@ -65,8 +65,12 @@ use cmux_mobile_host::control::{self, CloudLink, CloudLinks};
 use cmux_mobile_host::pairing::LinkAuth;
 use cmux_mobile_host::services::{Peer, serve};
 use cmux_mobile_link::dial::{self, SessionEvents, wireguard};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, LinkProfile, set_link_profile, shape_by_profile};
-use cmux_mobile_link::{Channel, ChannelEvent, DialOptions, Link, LinkConfig, SignalingClient, TransportKind};
+use cmux_mobile_link::testing::{
+    FakeOptions, FakeSignaling, LinkProfile, set_link_profile, shape_by_profile,
+};
+use cmux_mobile_link::{
+    Channel, ChannelEvent, DialOptions, Link, LinkConfig, SignalingClient, TransportKind,
+};
 use cmux_relay::{Relay, RelayConfig};
 use cmux_remote_protocol::{CircuitId, LaneToken, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole};
 use futures_util::{SinkExt, StreamExt};
@@ -77,7 +81,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_tungstenite::tungstenite::Message;
 
 const PAIR: &str = "ios-linux";
-const RIG: &str = "cmux-next-ios/rust/crates/cmux-mobile-host/tests/pair_matrix_ios_linux.rs::pair_matrix_ios_linux";
+const RIG: &str =
+    "cmux-next-ios/rust/crates/cmux-mobile-host/tests/pair_matrix_ios_linux.rs::pair_matrix_ios_linux";
 /// A run that has not reached content or caught up by then failed (DESIGN.md).
 const BOUND: Duration = Duration::from_secs(90);
 const MACHINE: &str = "pair-linux-vm";
@@ -815,7 +820,8 @@ impl Rig {
         let hop_a = Shaper::start(relay_a_process.addr, relay_80.clone(), seed, &trace)
             .await
             .map_err(|e| e.to_string())?;
-        let hop_b = Shaper::start(relay_b.addr, relay_80, seed ^ 0xB, &trace).await.map_err(|e| e.to_string())?;
+        let hop_b =
+            Shaper::start(relay_b.addr, relay_80, seed ^ 0xB, &trace).await.map_err(|e| e.to_string())?;
         let mut tasks = Vec::new();
         let vm = Vm::new(load, seed);
         tasks.push(vm.register(relay_a_process.addr).await?);
@@ -1024,18 +1030,28 @@ impl Acp {
     async fn message(&mut self) -> Result<Value, String> {
         loop {
             if !self.pending.is_empty() {
-                match serde_json::from_slice::<Value>(&self.pending) {
-                    Ok(value) => {
-                        self.pending.clear();
+                // One message per data frame, a large one split over several; two in one frame parse too.
+                let mut values = serde_json::Deserializer::from_slice(&self.pending).into_iter::<Value>();
+                let next = values.next();
+                let used = values.byte_offset();
+                match next {
+                    Some(Ok(value)) => {
+                        self.pending.drain(..used);
+                        while self.pending.first().is_some_and(u8::is_ascii_whitespace) {
+                            self.pending.remove(0);
+                        }
                         return Ok(value);
                     }
-                    Err(error) if error.is_eof() => {}
-                    Err(error) => return Err(format!("bad ACP message: {error}")),
+                    None => self.pending.clear(),
+                    Some(Err(error)) if error.is_eof() => {}
+                    Some(Err(error)) => return Err(format!("bad ACP message: {error}")),
                 }
             }
             match self.channel.recv().await {
                 Some(ChannelEvent::Data(bytes)) => self.pending.extend_from_slice(&bytes),
-                Some(ChannelEvent::Closed(info)) => return Err(format!("closed {}: {}", info.code, info.reason)),
+                Some(ChannelEvent::Closed(info)) => {
+                    return Err(format!("closed {}: {}", info.code, info.reason));
+                }
                 None => return Err("channel ended".into()),
             }
         }
@@ -1104,7 +1120,12 @@ impl Acp {
         }
     }
 
-    async fn until_marker(&mut self, seen: &mut Seen, marker: u64, deadline: Instant) -> Result<Instant, String> {
+    async fn until_marker(
+        &mut self,
+        seen: &mut Seen,
+        marker: u64,
+        deadline: Instant,
+    ) -> Result<Instant, String> {
         loop {
             if let Some(at) = seen.markers.get(&marker) {
                 return Ok(*at);
@@ -1152,7 +1173,12 @@ struct Outcome {
 
 impl Outcome {
     fn failed(error: String) -> Self {
-        Self { ttfc: Err(error.clone()), resume: Err(error.clone()), bytes: Err(error.clone()), fail: Some(error) }
+        Self {
+            ttfc: Err(error.clone()),
+            resume: Err(error.clone()),
+            bytes: Err(error.clone()),
+            fail: Some(error),
+        }
     }
 }
 
@@ -1209,7 +1235,7 @@ async fn measure(rig: &Rig, condition: &str, seed: u64, long_minutes: u64) -> Ou
             }
             "handoff" => {
                 let bytes = wire_bytes();
-                if wireguard::simulate_network_loss(Some(&session_id), true) != 1 {
+                if wireguard::simulate_network_loss(Some(session_id.as_str()), true) != 1 {
                     return Err("no phone session to lose".to_owned());
                 }
                 tokio::time::sleep(Duration::from_millis(rng.range(1_000, 3_000))).await;
@@ -1225,9 +1251,9 @@ async fn measure(rig: &Rig, condition: &str, seed: u64, long_minutes: u64) -> Ou
                     Ok(true) => {}
                     other => return Err(format!("park: {other:?}")),
                 }
-                wireguard::simulate_blackout(Some(&session_id), true, true);
+                wireguard::simulate_blackout(Some(session_id.as_str()), true, true);
                 tokio::time::sleep(Duration::from_secs(60)).await;
-                wireguard::simulate_blackout(Some(&session_id), true, false);
+                wireguard::simulate_blackout(Some(session_id.as_str()), true, false);
                 let end = Instant::now();
                 rig.vm.push(MEASURED_SURFACE, Some(MARKER));
                 link.resume();
@@ -1270,9 +1296,9 @@ async fn measure(rig: &Rig, condition: &str, seed: u64, long_minutes: u64) -> Ou
                 }
                 // The blip at the end: 5 s dark on the same socket.
                 let bytes = wire_bytes();
-                wireguard::simulate_blackout(Some(&session_id), true, true);
+                wireguard::simulate_blackout(Some(session_id.as_str()), true, true);
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                wireguard::simulate_blackout(Some(&session_id), true, false);
+                wireguard::simulate_blackout(Some(session_id.as_str()), true, false);
                 let end = Instant::now();
                 rig.vm.push(MEASURED_SURFACE, Some(MARKER));
                 (bytes, end)

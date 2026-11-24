@@ -2552,7 +2552,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
- "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
  "reqwest",
