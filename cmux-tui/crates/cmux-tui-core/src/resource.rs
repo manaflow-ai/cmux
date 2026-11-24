@@ -190,6 +190,8 @@ pub enum ResourceOperation {
     DiffCommentsSave,
     #[serde(rename = "diff.comments.send")]
     DiffCommentsSend,
+    #[serde(rename = "diff.comments.thread")]
+    DiffCommentsThread,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.review.comment")]
