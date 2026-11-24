@@ -101,6 +101,16 @@ import Testing
         view.mouseUp(with: event(.leftMouseUp, NSPoint(x: -200, y: start.y), in: view))
     }
 
+    @Test func hoveredSpaceScrolledOutByAKeyboardSwitchLosesItsHighlight() {
+        let (view, window) = makeBar(count: 40, active: 0)
+        defer { window.close() }
+        view.setHovered(0)
+        #expect(view.hoverChip != nil)
+        view.model.activeProfileID = view.model.profiles[39].id
+        view.refresh()
+        #expect(view.hoverChip == nil)
+    }
+
     @Test(arguments: [true, false]) func changingSpaceOrderDuringDragCancelsTheDrop(removing: Bool) throws {
         let (view, window) = makeBar(count: 3, active: 2)
         defer { window.close() }

@@ -228,14 +228,14 @@ final class ProfileBarView: NSView {
         performWithTheme {
             let rects = slotRects()
             let strip = strip
-            for offset in drawnDotIndices {
+            for offset in drawnDotIndices(in: rects) {
                 let profile = model.profiles[offset]
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
                 drawWindowMark(for: profile, in: rects[offset], compact: strip.compact && !active)
             }
-            if plusIsDrawn { drawPlus(in: rects[model.profiles.count]) }
+            if plusIsDrawn(in: rects[model.profiles.count]) { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
@@ -264,12 +264,12 @@ final class ProfileBarView: NSView {
     private func rebuildToolTips() {
         let rects = slotRects()
         regionSlots = rects
-        var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
+        var regions: [(rect: NSRect, text: String)] = drawnDotIndices(in: rects).map { offset in
             let profile = model.profiles[offset]
             let name = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
             return (rects[offset], windowMarkLabel(name, for: profile))
         }
-        if plusIsDrawn { regions.append((rects[model.profiles.count], Strings.newProfile)) }
+        if plusIsDrawn(in: rects[model.profiles.count]) { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
     }
 
@@ -307,7 +307,13 @@ final class ProfileBarView: NSView {
         guard let hovered else { return nil }
         let rects = slotRects()
         let index = hovered == Self.plusIndex ? model.profiles.count : hovered
-        guard rects.indices.contains(index) else { return nil }
+        let plus = rects[model.profiles.count]
+        if hovered == Self.plusIndex {
+            guard plusIsDrawn(in: plus) else { return nil }
+        } else {
+            guard model.profiles.indices.contains(index),
+                  dotIsDrawn(in: rects[index], range: visibleDotRange(plus: plus)) else { return nil }
+        }
         let fill = performWithTheme { pressed == hovered ? Palette.pressedFill : Palette.hoverFill }
         return (ProfileBarLogic.chipRect(slot: rects[index], inset: Metrics.space1), fill)
     }

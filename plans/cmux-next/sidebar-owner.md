@@ -2522,7 +2522,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
   Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
   `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
 - A scrolled row only accepts clicks and draws shortcut hints on whole visible dots. The drag creates layers for
-  those dots and clips them between the leading inset and the +. Ctrl-9 hints the last Space.
+  those dots and clips them between the leading inset and the +. Ctrl-9 hints the last Space. A keyboard switch
+  that scrolls a hovered dot out of view also clears its highlight.
 - A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
 - Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
   9ba13003412.
