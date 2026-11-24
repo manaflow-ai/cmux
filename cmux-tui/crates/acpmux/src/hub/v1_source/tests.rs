@@ -185,7 +185,7 @@ pub(crate) fn translated_of(store: &dyn Store, id: &str) -> Vec<(u64, u32, u64)>
             for op in translate::translate(&mut state, Harness::V1, seq, 1, line).unwrap() {
                 match op.change {
                     Change::Row(row) if !row.open => rows.push((row.id, row.rev, seq)),
-                    Change::Patch(row) => rows.push((row.id, row.rev, seq)),
+                    Change::Patch(row) | Change::Leave(row) => rows.push((row.id, row.rev, seq)),
                     _ => {}
                 }
             }

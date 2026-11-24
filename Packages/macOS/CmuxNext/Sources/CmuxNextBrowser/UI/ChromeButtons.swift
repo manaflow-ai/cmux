@@ -229,7 +229,7 @@ final class ChromeIconButton: ClickableButton {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// A right-click presses a button whose press opens a menu (the toolbar's
@@ -453,6 +453,12 @@ class ChromeTextField: NSTextField {
     /// at the body size after some density switches).
     var densityFont: NSFont { BrowserMetrics.bodyFont }
 
+    /// The text, placeholder and caret colors, read inside the field's theme scope. A field on a surface of its own
+    /// (the omnibar's, `AddressField`) returns the inks fitted to it.
+    var themedTextColor: NSColor { Palette.textPrimary } // theme-scoped
+    var themedPlaceholderColor: NSColor { Palette.textSecondary } // theme-scoped
+    var themedCaretColor: NSColor { Palette.caret } // theme-scoped
+
     func setPlaceholder(_ text: String) {
         placeholderText = text
         applyPlaceholder()
@@ -469,16 +475,19 @@ class ChromeTextField: NSTextField {
     }
 
     private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
+        performWithTheme { textColor = themedTextColor }
         applyPlaceholder()
         applyEditorColors()
     }
+
+    /// Re-reads the field's colors (a change of the surface under it with no appearance change).
+    func reapplyColors() { applyColors() }
 
     private func applyPlaceholder() {
         guard !placeholderText.isEmpty else { return }
         performWithTheme {
             setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
+                .foregroundColor: themedPlaceholderColor,
                 .font: font ?? BrowserMetrics.bodyFont,
             ]))
         }
@@ -487,7 +496,7 @@ class ChromeTextField: NSTextField {
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
         performWithTheme {
-            editor.insertionPointColor = Palette.caret
+            editor.insertionPointColor = themedCaretColor
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }

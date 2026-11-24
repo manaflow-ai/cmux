@@ -190,8 +190,16 @@ pub enum ResourceOperation {
     DiffCommentsSave,
     #[serde(rename = "diff.comments.send")]
     DiffCommentsSend,
+    #[serde(rename = "diff.comments.thread")]
+    DiffCommentsThread,
     #[serde(rename = "git.branches")]
     GitBranches,
+    #[serde(rename = "git.review.comment")]
+    GitReviewComment,
+    #[serde(rename = "git.review.post")]
+    GitReviewPost,
+    #[serde(rename = "git.review.start")]
+    GitReviewStart,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -214,6 +222,8 @@ pub enum ResourceOperation {
     GitWorktreeRemove,
     #[serde(rename = "git.worktree.setup")]
     GitWorktreeSetup,
+    #[serde(rename = "git.worktree.setup.run")]
+    GitWorktreeSetupRun,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]
@@ -524,6 +534,8 @@ pub enum ResourceOperation {
     SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
+    #[serde(rename = "project.actions.list")]
+    ProjectActionsList,
     #[serde(rename = "project.observe")]
     ProjectObserve,
     #[serde(rename = "project.add")]
@@ -676,6 +688,8 @@ pub enum ResourceOperation {
     CloudMachineShareChat,
     #[serde(rename = "cloud.machine.chief_start")]
     CloudMachineChiefStart,
+    #[serde(rename = "cloud.machine.chief_resize")]
+    CloudMachineChiefResize,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

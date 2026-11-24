@@ -281,7 +281,7 @@ public final class HomeChiefSettingsView: NSView {
         gap(after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
-        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        // The rest of the Chief's settings (every Chief, the Feed in the chat) live in Settings.
         let allSettings = Self.footerButton(HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
         sections[.settings].addArrangedSubview(allSettings)

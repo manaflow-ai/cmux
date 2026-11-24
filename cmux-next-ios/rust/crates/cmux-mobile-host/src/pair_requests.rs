@@ -189,6 +189,44 @@ pub fn handle(pairing: Option<&Pairing>, asker: &Asker<'_>, args: &Value) -> Res
     }
 }
 
+/// `cmux mobile pair-requests` run on this Mac itself: the same requests and answers, asked over
+/// hostd's local link socket (`link_socket.rs`, `{"op":"pair-requests"}`), never over a link.
+/// That socket is owner-only (`0600` in the daemon's `0700` folder) and checks the caller's
+/// uid, so the asker is the OS user the app's own Allow button serves, on this Mac: the
+/// same trust as that click (Leo, 2026-11-22: "surely we dont need to be bottled this hard by
+/// a click. and esp on a single machine"). It asks as this Mac's own device id, so every refusal of [`handle`] still holds,
+/// "a device cannot answer its own pairing request" included. Returns the service's answer,
+/// or `{"error":CODE,"message":REASON}`.
+pub fn answer_locally(pairing: Option<&Pairing>, args: &Value) -> Value {
+    let device_id = pairing.map_or("", |p| p.mac_device_id.as_str());
+    let asker = Asker { device_id, kind: Some(PeerKind::Mac) };
+    match handle(pairing, &asker, args) {
+        Ok(answer) => {
+            if let Some(pairing) = pairing {
+                record_answer(pairing, device_id, "mac", args);
+            }
+            answer
+        }
+        Err((code, message)) => json!({"error": code, "message": message}),
+    }
+}
+
+/// An answer goes to the machine Activity log (a `list` does not).
+fn record_answer(pairing: &Pairing, by: &str, kind: &'static str, args: &Value) {
+    if args.get("action").and_then(Value::as_str) != Some("answer") {
+        return;
+    }
+    pairing.activity.record(crate::activity::Entry {
+        at_ms: crate::activity::now_ms(),
+        peer: by.to_owned(),
+        kind,
+        direction: "in",
+        service: "pair-requests".to_owned(),
+        decision: "allowed".to_owned(),
+        target: args.get("deviceId").and_then(Value::as_str).map(str::to_owned),
+    });
+}
+
 /// The `pair-requests` service (behind the pairing gate; a machine needs `control`).
 pub async fn serve(
     pairing: Option<&Pairing>,
@@ -199,18 +237,8 @@ pub async fn serve(
 ) -> Result<(), Refused> {
     let kind = link.peer().map(|(kind, _)| kind);
     let answer = handle(pairing, &Asker { device_id, kind }, args)?;
-    if let Some(pairing) = pairing
-        && args.get("action").and_then(Value::as_str) == Some("answer")
-    {
-        pairing.activity.record(crate::activity::Entry {
-            at_ms: crate::activity::now_ms(),
-            peer: device_id.to_owned(),
-            kind: kind.map_or("phone", PeerKind::as_str),
-            direction: "in",
-            service: "pair-requests".to_owned(),
-            decision: "allowed".to_owned(),
-            target: args.get("deviceId").and_then(Value::as_str).map(str::to_owned),
-        });
+    if let Some(pairing) = pairing {
+        record_answer(pairing, device_id, kind.map_or("phone", PeerKind::as_str), args);
     }
     let _ = sender.send(Bytes::from(answer.to_string())).await;
     Ok(())
@@ -358,6 +386,60 @@ mod tests {
         handle(Some(&pairing), &PAIRED_PHONE, &answer("probe", &fingerprint_of_b(), false)).unwrap();
         assert!(matches!(events.lock().unwrap()[0], Event::PairAnswer { allow: false, .. }));
         assert_eq!(handle(None, &PAIRED_PHONE, &json!({"action": "list"})).unwrap_err().0, "unavailable");
+    }
+
+    #[test]
+    fn this_macs_owner_answers_locally_with_every_refusal_kept() {
+        let (pairing, events) = pairing();
+        let _held = pairing.waiting.hold(request("probe"));
+        let listed = answer_locally(Some(&pairing), &json!({"action": "list"}));
+        let fingerprint = listed["requests"][0]["fingerprint"].as_str().unwrap().to_owned();
+        assert_eq!(fingerprint, fingerprint_of_b());
+        // The fingerprint is still required, and still must name the waiting key.
+        assert_eq!(
+            answer_locally(Some(&pairing), &json!({"action": "answer", "deviceId": "probe", "allow": true}))
+                ["error"],
+            "bad_request"
+        );
+        assert_eq!(
+            answer_locally(Some(&pairing), &answer("probe", "00000000", true))["error"],
+            "fingerprint_mismatch"
+        );
+        assert!(events.lock().unwrap().is_empty());
+        assert_eq!(
+            answer_locally(Some(&pairing), &answer("probe", &fingerprint[..8], true)),
+            json!({"ok": true})
+        );
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![Event::PairAnswer {
+                phone_device_id: "probe".into(),
+                identity_key: KEY_A.into(),
+                approval_key: KEY_B.into(),
+                allow: true,
+                by_device_id: "mac".into(),
+            }]
+        );
+        assert_eq!(pairing.activity.recent().len(), 1);
+    }
+
+    #[test]
+    fn the_local_path_refuses_what_the_service_refuses() {
+        let (pairing, events) = pairing();
+        // A request under this Mac's own id cannot be answered by this Mac.
+        let _held = pairing.waiting.hold(request("mac"));
+        assert_eq!(
+            answer_locally(Some(&pairing), &answer("mac", &fingerprint_of_b(), true)),
+            json!({"error": "forbidden", "message": "a device cannot answer its own pairing request"})
+        );
+        assert_eq!(answer_locally(Some(&pairing), &json!({"action": "list"})), json!({"requests": []}));
+        assert_eq!(
+            answer_locally(Some(&pairing), &answer("probe", "abcdef01", true))["error"],
+            "no_waiting_request"
+        );
+        assert_eq!(answer_locally(None, &json!({"action": "list"}))["error"], "unavailable");
+        assert!(events.lock().unwrap().is_empty());
+        assert!(pairing.activity.recent().is_empty());
     }
 
     #[test]

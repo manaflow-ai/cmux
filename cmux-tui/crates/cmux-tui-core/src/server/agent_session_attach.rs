@@ -481,7 +481,6 @@ fn unsent_reason(stream: &OutboundStream) -> Option<&'static str> {
 
 /// Page params shared by attach and events.
 #[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 struct PageParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -495,6 +494,12 @@ struct PageParams {
     #[serde(default)]
     max_bytes: Option<u64>,
 }
+
+/// Params no agent-session verb takes because they would name another session, folder,
+/// program or ACP request: refused (a bad request) even though other unknown params are
+/// ignored.
+const REDIRECT_PARAMS: &[&str] =
+    &["session", "sessionId", "cwd", "command", "initial_command", "mcpServers", "_meta"];
 
 enum AgentSessionCommand {
     Attach(PageParams),
@@ -520,11 +525,17 @@ enum AgentSessionCommand {
 }
 
 impl AgentSessionCommand {
-    /// The command of one frame object without `id` and `cmd`. Every params
-    /// struct denies unknown fields, so a session id, cwd, command, agent or
-    /// MCP server param is a bad request.
+    /// The command of one frame object without `id` and `cmd`. A param no
+    /// struct declares (a newer page's field) is dropped unread: no request
+    /// is refused over a field this daemon does not know. The names that
+    /// would aim a verb somewhere else ([`REDIRECT_PARAMS`]: a session id, cwd,
+    /// command, MCP servers or ACP `_meta`) are never a new field: they stay a
+    /// bad request on every verb.
     fn parse(cmd: &str, params: Value) -> Option<Self> {
         use serde_json::from_value;
+        if params.as_object()?.keys().any(|key| REDIRECT_PARAMS.contains(&key.as_str())) {
+            return None;
+        }
         Some(match cmd {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
@@ -552,13 +563,11 @@ impl AgentSessionCommand {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ForkParams {
     surface: SurfaceId,
     through_seq: u64,
@@ -568,7 +577,6 @@ struct ForkParams {
 
 /// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct TypingParams {
     surface: SurfaceId,
     on: bool,
@@ -576,7 +584,6 @@ struct TypingParams {
 
 /// `agent-session-view`: whether the person's window shows the attached chat now.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ViewParams {
     surface: SurfaceId,
     visible: bool,
@@ -592,7 +599,6 @@ struct ViewParams {
 
 /// `agent-session-set-model`: the model the attached chat uses from its next turn.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModelParams {
     surface: SurfaceId,
     model_id: String,
@@ -600,7 +606,6 @@ struct SetModelParams {
 
 /// `agent-session-set-mode`: one of the modes the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModeParams {
     surface: SurfaceId,
     mode_id: String,
@@ -608,7 +613,6 @@ struct SetModeParams {
 
 /// `agent-session-set-config`: one value of a config option the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetConfigParams {
     surface: SurfaceId,
     config_id: String,
@@ -617,7 +621,6 @@ struct SetConfigParams {
 
 /// `agent-session-btw`: the person's side question about the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BtwParams {
     surface: SurfaceId,
     question: String,
@@ -627,7 +630,6 @@ struct BtwParams {
 /// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
 /// `key`, `cancel` with `login_id`).
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct LoginParams {
     surface: SurfaceId,
     op: String,
@@ -652,10 +654,14 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    // acpmux's `agent_login::Agent`s; it answers which way each signs in (`unsupported`).
+    // Any agent id: acpmux's `agent_login::Agent` decides which it signs in and how
+    // (`unsupported_agent`, `unsupported`), so an agent it gains needs no change here (a list here
+    // fell behind acpmux's more than once).
     let agent = || {
-        text(&params.agent)
-            .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
+        text(&params.agent).filter(|a| {
+            a.len() <= 32
+                && a.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
     };
     let (mut body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
@@ -749,7 +755,6 @@ fn is_setting_id(value: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MediaParams {
     surface: SurfaceId,
     path: String,
@@ -766,7 +771,6 @@ struct MediaParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -783,7 +787,6 @@ struct PromptParams {
 /// its queue place; `agent-session-queue-decline` drops it. acpmux's `_acpmux/queue_approve`
 /// and `_acpmux/queue_decline` on the tab's own session. The owner's only.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct QueueDecisionParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -794,7 +797,6 @@ struct QueueDecisionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
@@ -821,7 +823,6 @@ struct PermissionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AnsweredBy {
     device: String,
     feed_item: String,
@@ -2257,3 +2258,32 @@ impl Mux {
 #[cfg(test)]
 #[path = "agent_session_attach_unsent_tests.rs"]
 mod unsent_tests;
+
+#[cfg(test)]
+mod unknown_params_tests {
+    use super::*;
+
+    /// A newer page's field never refuses a verb: it is dropped unread. A redirecting name
+    /// (a session id, a cwd, ...) is still a bad request.
+    #[test]
+    fn an_unknown_param_is_ignored_and_a_redirect_is_refused() {
+        let parsed = AgentSessionCommand::parse(
+            "agent-session-typing",
+            json!({"surface": 7, "on": true, "from_a_newer_page": {"x": 1}}),
+        );
+        assert!(matches!(parsed, Some(AgentSessionCommand::Typing(TypingParams { on: true, .. }))));
+        let prompt = AgentSessionCommand::parse(
+            "agent-session-prompt",
+            json!({"surface": 7, "prompt_id": "p1", "text": "hi", "initialize": {"v": 2}}),
+        );
+        assert!(matches!(prompt, Some(AgentSessionCommand::Prompt(_))));
+        for redirect in REDIRECT_PARAMS {
+            let mut params = json!({"surface": 7, "on": true});
+            params[*redirect] = json!("other");
+            assert!(
+                AgentSessionCommand::parse("agent-session-typing", params).is_none(),
+                "{redirect} must stay a bad request"
+            );
+        }
+    }
+}

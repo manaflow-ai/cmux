@@ -334,6 +334,11 @@ def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int
         if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
             return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
+    # A batch that gave no verdict tested nothing, so it opens no window, whether or not the tip moved since:
+    # run 45105503067's plan failed its fetch at 03:21Z on 2026-11-23, the tip moved on within a minute, and
+    # no suite ran on the base until the window closed two hours later, while a stale Cargo.lock sat there.
+    if not judged(newest["id"]):
+        return "dispatch", f"batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} gave no verdict (its plan or judge failed); tip {tip[:11]} is untested"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
         return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min"

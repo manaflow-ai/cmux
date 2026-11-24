@@ -556,3 +556,32 @@ for (const recorded of [false, true]) {
     }
   });
 }
+
+test("Retry keeps an image recorded only in the legacy images shape beside inline parts", async () => {
+  const { restoreInline } = await import("./inlinePrompt");
+  const row: AcpmuxRow = {
+    id: "mixed",
+    kind: "user",
+    version: 1,
+    at: 1,
+    text: "",
+    images: [
+      { id: "inline-image", mimeType: "image/png", name: "inline.png" },
+      { id: "legacy-image", mimeType: "image/png", name: "legacy.png" },
+    ],
+    inlineParts: [
+      { kind: "image", id: "inline-image", name: "inline.png", mimeType: "image/png" },
+      { kind: "file", name: "notes.txt", uri: "file:///home/dev/notes.txt", mimeType: "text/plain" },
+    ],
+  };
+  const read: string[] = [];
+  const restored = await restoreInline(row, "", async (id) => {
+    read.push(id);
+    return { mimeType: "image/png", data: "aW1hZ2U=" };
+  });
+  expect(read).toEqual(["inline-image", "legacy-image"]);
+  expect(restored.attachments.map((a) => a.name)).toEqual(["inline.png", "notes.txt", "legacy.png"]);
+  const lost = (id: string) =>
+    Promise.resolve(id === "legacy-image" ? undefined : { mimeType: "image/png", data: "aW1hZ2U=" });
+  await expect(restoreInline(row, "", lost)).rejects.toThrow();
+});

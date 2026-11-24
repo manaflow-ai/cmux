@@ -78,8 +78,6 @@ ALLOWED: dict[str, str] = {
         'retry only: one runs list, retried after a rate limit/429/5xx/timeout, at most 4 tries, 10/20/40 s apart',
     'nightly-tag-permission-probe.yml: Expect github.token to reject the workflow-changing ref':
         'by hand: each ref call retried after 408/425/429/5xx or a network error, at most 4 tries; the expected 403 is not retried',
-    'risk-tier.yml: Grade the pull request':
-        'retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart',
     'auto-resume-nightly-notarization.yml: Poll saved Apple submissions without reserving a Mac':
         "polls Apple's notary service (poll-notary-submission.py), not GitHub; the scan counts urlopen as an API call",
     "cmux-next-perf-budgets.yml: Read the state and pick this tick's work":
@@ -107,8 +105,8 @@ ALLOWED: dict[str, str] = {
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
     'cmux-next-hot-verify.yml: Dispatch the look':
-        'retry only (#45104): a look dispatch that failed is tried again, at most 6 tries in 20 minutes, 30 s doubling; '
-        'a rate limit waits for its reset, read from the rate_limit endpoint (no quota)',
+        'retry only (#45104): a look dispatch that failed for a reason other than a rate limit is tried again, at '
+        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':

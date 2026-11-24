@@ -18,13 +18,16 @@ have none): the Cloud machine channel (`cmux-cloud-machine-update`, scripts/ci/c
 and the Linux release files (`cmux-linux-release`: cmux-tui/<commit>/release.json and
 cmux-tui/channels/linux-<channel>.json). `verify --purpose` refuses a payload of any other purpose, and
 for a Linux release file checks its shape: the version, every URL under
-https://files.cmux.com/cmux-tui/<commit>/, and `expires_at`. Every Linux release payload carries
+https://files.cmux.com/cmux-tui/<commit>/ (or, for a file that names a `tree_key`,
+https://files.cmux.com/cmux-tui/tree/<tree_key>/: the tree's own release.json, a shared-tree commit's
+alias of it, and a channel pointer at a tree), and `expires_at`. Every Linux release payload carries
 `expires_at`, but only a channel pointer is held to it: the per-commit release.json is reached by an
 explicit version and stays valid (`--allow-expired`).
 
 Usage:
   web-ota-pointer.py payload --manifest M --abi-file F --channel C --commit SHA --committed-at T --out P
-  web-ota-pointer.py sign --payload P --key PEM --keys KEYS --out POINTER
+  web-ota-pointer.py sign --payload P --key PEM [--extra-key PEM2]... --keys KEYS --out POINTER
+      --extra-key: a rotation's next key; signs too when KEYS lists it, else skipped with a warning
   web-ota-pointer.py verify --pointer POINTER --keys KEYS [--channel C] [--purpose P [--allow-expired]]
       print the payload
   web-ota-pointer.py newer --pointer NEW --keys KEYS [--current CURRENT]  exit 0 when NEW moves forward
@@ -33,6 +36,8 @@ Usage:
       exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at, and
       for a Linux release file sequence and version, equal), 1 otherwise: a write-once file someone
       published with other contents
+      [--same-tree]  also ignore commit and committed_at, and require the same tree_key: the write-once
+      tree/<key>/release.json, which any commit of the tree may find already written
   web-ota-pointer.py sequence --pointer CURRENT --keys KEYS --channel C
       print the Linux release file's sequence (the stamp in its version for a phase-1 file), 0 when none
       verifies; newer refuses a Linux release pointer that would not raise it
@@ -63,6 +68,8 @@ FILES = "https://files.cmux.com/cmux-tui/"
 # The fields a re-sign of one build changes; same-build ignores them.
 SIGNING_TIME_FIELDS = ("published_at", "expires_at")
 LINUX_RELEASE_SIGNING_FIELDS = ("sequence", "version")
+# `same-build --same-tree`: the commit of a tree file is whichever commit of the tree signed it first.
+TREE_COMMIT_FIELDS = ("commit", "committed_at")
 # `newer --tree-key`: a published file of the same source tree is kept only while it has this long
 # to live (the Cloud machine file lives 30 days, cmux-machine-channel.py LIFETIME).
 TREE_KEEP_MIN_SECONDS = 7 * 24 * 3600
@@ -123,25 +130,43 @@ def openssl(*argv):
     return result.returncode == 0, result.stdout
 
 
-def sign(args):
-    keys = load_keys(args.keys)
-    payload = open(args.payload, "rb").read()
-    json.loads(payload)
-    der = subprocess.run(["openssl", "pkey", "-in", args.key, "-pubout", "-outform", "DER"], capture_output=True)
+def signature_of(payload, pem, keys, keys_path):
+    """(key_id, signature) of `payload` by the ed25519 private key `pem`; Refused unless `keys` lists it."""
+    der = subprocess.run(["openssl", "pkey", "-in", pem, "-pubout", "-outform", "DER"], capture_output=True)
     if der.returncode != 0 or not der.stdout.startswith(ED25519_SPKI_PREFIX) or len(der.stdout) != 44:
-        fail("the signing key is not an ed25519 private key")
+        raise Refused(f"the signing key {pem} is not an ed25519 private key")
     raw = der.stdout[len(ED25519_SPKI_PREFIX):]
     key_id = hashlib.sha256(raw).hexdigest()[:16]
     if keys.get(key_id) != raw:
-        fail(f"the signing key {key_id} is not in {args.keys}; the app would refuse its pointers")
+        raise Refused(f"the signing key {key_id} is not in {keys_path}; the app would refuse its pointers")
     with tempfile.TemporaryDirectory() as tmp:
         data = os.path.join(tmp, "payload")
         open(data, "wb").write(payload)
-        ok, sig = openssl("pkeyutl", "-sign", "-inkey", args.key, "-rawin", "-in", data)
+        ok, sig = openssl("pkeyutl", "-sign", "-inkey", pem, "-rawin", "-in", data)
     if not ok or len(sig) != 64:
-        fail("openssl could not sign the payload")
+        raise Refused("openssl could not sign the payload")
+    return key_id, sig
+
+
+def sign(args):
+    """Sign with --key, and with each --extra-key the key list already names (a key rotation's next
+    key: verifiers take any one listed signature, so a dual-signed file verifies on hosts that know
+    only the old key and on hosts that know only the new one). An --extra-key the list does not name
+    yet (its public half has not shipped) is skipped with a warning, never a failure."""
+    keys = load_keys(args.keys)
+    payload = open(args.payload, "rb").read()
+    json.loads(payload)
+    signed = [signature_of(payload, args.key, keys, args.keys)]
+    for pem in args.extra_key or []:
+        try:
+            key_id, sig = signature_of(payload, pem, keys, args.keys)
+        except Refused as error:
+            print(f"::warning::web-ota-pointer: extra signing key skipped: {error}", file=sys.stderr)
+            continue
+        if key_id not in [k for k, _ in signed]:
+            signed.append((key_id, sig))
     envelope = {"schema": SCHEMA, "payload": base64.b64encode(payload).decode(),
-                "signatures": [{"key_id": key_id, "sig": base64.b64encode(sig).decode()}]}
+                "signatures": [{"key_id": k, "sig": base64.b64encode(sig).decode()} for k, sig in signed]}
     with open(args.out, "w") as out:
         json.dump(envelope, out, indent=1, sort_keys=True)
         out.write("\n")
@@ -264,14 +289,24 @@ def check_linux_release(path, value):
         missing = [name for name in ("cmux-tui", "cmux-tui-hook") if not isinstance(files, dict) or name not in files]
         if missing:
             raise Refused(f"{path}: target {target} has no {' or '.join(missing)}")
-    prefix = f"{FILES}{commit}/"
+    # A tree file (tree/<key>/release.json), an alias of it (a commit that shares the tree) and a channel
+    # pointer at a tree name the tree's key; their URLs are the tree's copies. A per-commit file of a commit
+    # that built its own publication has none, and its URLs are under its commit.
+    if "tree_key" in value:
+        tree_key = value["tree_key"]
+        if not isinstance(tree_key, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_key):
+            raise Refused(f"{path}: bad tree_key {tree_key!r}")
+        prefix = f"{FILES}tree/{tree_key}/"
+    else:
+        prefix = f"{FILES}{commit}/"
     for target, files in targets.items():
         if not isinstance(files, dict) or not files:
             raise Refused(f"{path}: target {target!r} names no files")
         for name, entry in files.items():
             url = entry.get("url") if isinstance(entry, dict) else None
-            # A URL under the commit's own publication, one plain file name below it (as check_binary
-            # in cmux-tui/crates/cmux-host/src/updater/channel.rs): never another host or commit.
+            # A URL under the commit's own publication (or the tree's it names), one plain file name below
+            # it (as check_binary in cmux-tui/crates/cmux-host/src/updater/channel.rs): never another host,
+            # commit or tree.
             rest = url[len(prefix):] if isinstance(url, str) and url.startswith(prefix) else ""
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", rest):
                 raise Refused(f"{path}: {target} {name}: the url {url!r} is not under {prefix}")
@@ -292,6 +327,7 @@ def main(argv):
     s = sub.add_parser("sign")
     for name in ("--payload", "--key", "--keys", "--out"):
         s.add_argument(name, required=True)
+    s.add_argument("--extra-key", action="append", help="also sign with this key when KEYS lists it (rotation)")
     v = sub.add_parser("verify")
     v.add_argument("--pointer", required=True)
     v.add_argument("--keys", required=True)
@@ -309,9 +345,11 @@ def main(argv):
     q.add_argument("--pointer", required=True)
     q.add_argument("--keys", required=True)
     q.add_argument("--channel", required=True)
-    b =sub.add_parser("same-build")
+    b = sub.add_parser("same-build")
     for name in ("--pointer", "--current", "--keys"):
         b.add_argument(name, required=True)
+    b.add_argument("--same-tree", action="store_true",
+                   help="CURRENT is tree/<key>/release.json: any commit of NEW's tree_key with the same files")
     args = parser.parse_args(argv[1:])
     try:
         return run(args)
@@ -388,6 +426,12 @@ def run(args):
         current = verified_payload(args.current, keys, purpose=purpose, check_expiry=False)
         # A Linux release file's sequence and the version that carries it are the signing run's too.
         skip = SIGNING_TIME_FIELDS + (LINUX_RELEASE_SIGNING_FIELDS if purpose == LINUX_RELEASE else ())
+        if args.same_tree:
+            # tree/<key>/release.json: written once by the first commit of the tree to sign it. A later
+            # commit of the same tree (its alias) keeps it when it names the same files.
+            if purpose != LINUX_RELEASE or not new.get("tree_key") or new.get("tree_key") != current.get("tree_key"):
+                fail(f"{args.current} is not a release file of tree {new.get('tree_key')!r}")
+            skip += TREE_COMMIT_FIELDS
         build = lambda value: {k: v for k, v in value.items() if k not in skip}
         if build(new) != build(current):
             changed = sorted(k for k in set(new) | set(current)

@@ -58,9 +58,9 @@
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
 /* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
-.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--menu-destructive,var(--cmux-app-danger,var(--agent-danger,var(--agent-text))))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-chat-menu-key{flex:none;color:var(--menu-shortcut-color,var(--agent-muted));font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
@@ -324,8 +324,11 @@
   color: var(--agent-text);
 }
 
-/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. */
-.acpmux-header-preview {
+/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. It is a
+   hover card (.ui-card.ui-glass): its fill, frost, rim and elevation are the shared hover card glass
+   (ui/glass/glass.css), never a fill of its own; Reduce Transparency makes it the solid popup surface
+   there. The class pair outranks desktop.css's .ui-card insets. */
+.acpmux-header-preview.ui-card {
   position: fixed;
   z-index: var(--layer-tooltip, 1000);
   box-sizing: border-box;
@@ -334,13 +337,13 @@
   max-width: calc(100vw - 16 * var(--ui-px, 1px));
   overflow: hidden;
   padding: calc(8 * var(--ui-px, 1px));
-  border-radius: 8px;
-  background: var(--agent-surface-elevated, Canvas);
+  border-radius: 8px; /* concentric-allow: a non-interactive hover preview (pointer-events none), it holds no buttons */
   color: var(--agent-text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
   font-size: var(--text-caption);
   line-height: 1.3;
   pointer-events: none;
+}
+.acpmux-header-preview {
   animation: acpmux-header-preview-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both;
 }
 @keyframes acpmux-header-preview-in {
@@ -508,8 +511,18 @@
   cursor: default;
   user-select: none;
 }
+/* In the tab row it is an accessory of the row (tabRow.ts TAB_ROW_ACCESSORY): one width while it shows, the room
+   useTabRowTools leaves it (never more than the half of the row the tabs give up, less the tools), so a new summary
+   moves nothing; its text keeps to the tools' side. No room: it hides whole, the tools stay where they are. */
 .acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
+  flex: none;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  width: min(300px, var(--acpmux-tab-row-accessory-room, 0px));
+  max-width: none;
+}
+[data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
+  display: none;
 }
 .acpmux-chat-summary__text {
   flex: 0 1 auto;
