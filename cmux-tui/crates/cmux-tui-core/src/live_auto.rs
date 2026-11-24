@@ -190,14 +190,14 @@ pub fn probe(root: &Path) -> Live {
 // ---------------------------------------------------------------- the checkout's state
 
 fn git(root: &Path, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new("git").arg("-C").arg(root).args(args).output().ok()?;
+    let out = cmux_process::Command::new("git").arg("-C").arg(root).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The app FFI closure, as `live_apply.py --ffi-closure` prints it
 /// (`cmux_next_route.app_ffi_inputs` and `app_ffi_excluded`).
 pub fn ffi_closure(root: &Path) -> Result<FfiClosure, String> {
-    let out = std::process::Command::new("python3")
+    let out = cmux_process::Command::new("python3")
         .arg(root.join("scripts/cmux-next/live_apply.py"))
         .args(["--repo".as_ref(), root.as_os_str(), "--ffi-closure".as_ref()])
         .current_dir(root)
@@ -1019,6 +1019,9 @@ fn test_watch(root: &Path, state: Option<PathBuf>, emit: Emit, live: Live) -> Wa
 fn test_spawn(watch: Watch) -> Sender<Wake> {
     let (sender, wakes) = channel();
     let wake = sender.clone();
-    std::thread::spawn(move || watch.run(wake, wakes));
+    std::thread::Builder::new()
+        .name("live-auto-test".into())
+        .spawn(move || watch.run(wake, wakes))
+        .expect("live auto test thread");
     sender
 }
