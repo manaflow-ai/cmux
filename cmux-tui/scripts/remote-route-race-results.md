@@ -35,3 +35,40 @@ Caveats:
   remaining spread is that loss and load, not the race.
 - The off arm finishes in about 12.7 s, not 15 s: the budget is shared with startup.
 - Linux only (netns, netem); both "hosts" are namespaces on one kernel, so CPU is shared.
+
+## Three arms with a floor and a phase split (same day, load below 16)
+
+Ask (coordinator): "add a third arm floor (route 0 healthy, race on) so we know connect cost alone at
+50 ms / 2 %, and a per-phase split ... rerun all three arms N=20 when the load average is below 16."
+
+```sh
+sudo cmux-tui/scripts/remote-route-race-bench.sh cmux-tui/target/release/cmux-tui 20
+```
+
+Load average (1/5/15 min) was 13.9/24.0/36.3 at the start and 8.5/15.1/28.9 at the end. The floor arm
+shapes route 0 exactly like route 1 (50 ms RTT, 2 % loss). Arm order rotates each run.
+
+| Arm | N | ok | min | p50 | p95 | max | p50 spawn to first SYN | p50 SYN to SYN-ACK | p50 SYN-ACK to connected |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| race on, route 0 black-holed | 20 | 20 | 661 | 666 | 1090 | 1183 | 282 | 25 | 577 |
+| `CMUX_REMOTE_ROUTE_RACE=0`, route 0 black-holed | 20 | 19 | 12412 | 12479 | 13185 | 13379 | 12032 | 25 | 421 |
+| floor: route 0 healthy, race on | 20 | 19 | 418 | 664 | 836 | 1065 | 31 | 25 | 608 |
+
+All times in ms. One trial each in the off and floor arms printed nothing within the 40 s trial
+timeout (not counted above; cause not investigated).
+
+The client logs no phase timings, so the split comes from tcpdump in the client namespace. A SYN that
+netem drops is never seen by the tap (it sits after the qdisc), so on the black-holed arms "spawn to
+first SYN" contains the wait on route 0; the floor arm's 31 ms is the real process-start-to-first-dial.
+"SYN to SYN-ACK" is only the return leg (the tap sits after the egress delay).
+
+Where the time goes:
+- The race costs about the stagger: 282 ms to the first visible SYN is the 250 ms stagger plus about
+  30 ms of startup. With route 0 black-holed the race arm lands at p50 666 ms, the same as the floor
+  p50 of 664 ms, because the floor's own p50 already contains the 2 % loss tail (min 418 ms).
+- Connect cost itself is about 8 to 9 round trips of 50 ms: TCP (1), WebSocket upgrade (1), Noise
+  handshake (2 to 3 flights), then the extra lanes, which each open a TCP connection, upgrade and
+  Noise again in parallel (3 to 4). That is about 420 to 450 ms on a clean path.
+- The rest, up to p95 about 1.1 s, is loss: a lost packet on a 50 ms path costs a retransmit timeout
+  (about 200 ms or more), and the connect has about 20 packets in flight sequences.
+- So the 1 s target is met at p50 and p95 now; what remains is round-trip count, not the race.
