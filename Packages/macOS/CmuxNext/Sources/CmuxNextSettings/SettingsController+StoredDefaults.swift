@@ -26,8 +26,6 @@ extension SettingsSchema {
         // follow another (`autoClosingQuotes` follows `autoClosingBrackets`).
         // `editor.importFrom` itself is none of these (`unsetIsNotDefault` leaves it out).
         "editor.": "another editor's settings, the built-in per-language values, a key it follows",
-        // An unset group follows the sidebar look. A stored choice overrides it, including Automatic.
-        "sidebar.groupHeader.background": "the selected sidebar look",
         // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
         "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
     ]
@@ -134,9 +132,11 @@ extension SettingsController {
         var report = StoredDefaultsReport()
         for descriptor in SettingsSchema.all {
             guard let stored = root.value(at: descriptor.path) else { continue }
+            // Older files stored Automatic as an explicit, non-default group choice.
+            let pinnedGroup = descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath && stored == .string("auto")
             let copiesDefault = isUnsetValue(stored, of: descriptor)
                 || (formerDefaults[descriptor.id]?.contains(stored) == true && !layerBelowFileSets(descriptor.id))
-            if copiesDefault, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
+            if copiesDefault, !pinnedGroup, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
                 report.dropped[descriptor.id] = stored
             } else {
                 report.kept[descriptor.id] = stored

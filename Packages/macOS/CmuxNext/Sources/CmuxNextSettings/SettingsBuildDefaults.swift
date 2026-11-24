@@ -67,7 +67,7 @@ extension SettingsController {
         // to the file's value (#44894).
         if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
         // Resetting an explicit group style returns ownership to the sidebar look.
-        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath { return true }
+        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

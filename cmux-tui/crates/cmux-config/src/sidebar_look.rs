@@ -151,9 +151,14 @@ impl SidebarLook {
     }
 }
 
+/// The shipped look selected by the settings layers above the preset.
+pub(crate) fn selected(root: &Value, schema: &Schema, domains: &Domains) -> Option<SidebarLook> {
+    look_in(root).and_then(|name| SidebarLook::shipped(name, schema, domains))
+}
+
 /// `root` with the look it picks filled in under it (unchanged for `cmux`).
 pub fn filled(root: &Value, schema: &Schema, domains: &Domains) -> Value {
-    match look_in(root).and_then(|name| SidebarLook::shipped(name, schema, domains)) {
+    match selected(root, schema, domains) {
         Some(look) => look.filling(root),
         None => root.clone(),
     }
