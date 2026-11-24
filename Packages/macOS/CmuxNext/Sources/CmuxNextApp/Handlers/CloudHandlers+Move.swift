@@ -216,11 +216,12 @@ extension AppServices: CloudPlaceHost {
         for daemon in machines.daemons {
             for workspace in daemon.store.workspaces {
                 for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)],
-                          seen.insert(session).inserted else { continue }
+                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)] else { continue }
                     let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
+                    // Eligible first, then once per session: a tab that may not move never hides a later one of the same chat that may.
                     guard daemon.isLocal && !onCloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
-                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
+                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil,
+                          seen.insert(session).inserted else { continue }
                     found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
                                                 moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
