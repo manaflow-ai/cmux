@@ -62,4 +62,4 @@ A test with no registry entry only warns. Where a new test goes and which lane i
 - [skills/cmux-dev-workflow/references/hooks-and-lints.md](../skills/cmux-dev-workflow/references/hooks-and-lints.md),
   [pushing.md](../skills/cmux-dev-workflow/references/pushing.md)
 - [docs/ci/landing.md](../docs/ci/landing.md), [docs/ci/risk-tiers.md](../docs/ci/risk-tiers.md),
-  [docs/ci-test-health.md](../docs/ci-test-health.md), [scripts/bench/README.md](bench/README.md)
+  [scripts/bench/README.md](bench/README.md)
