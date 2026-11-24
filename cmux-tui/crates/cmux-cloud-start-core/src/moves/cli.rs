@@ -441,6 +441,10 @@ pub enum Call {
         vm_kind: Option<String>,
         #[serde(default)]
         to_pid: Option<i32>,
+        /// False: no `--interrupt` ([`agent_move_flags_at_boundary`]), the hybrid start's move. An
+        /// answer without it (every Move to Cloud) interrupts, as before.
+        #[serde(default = "interrupts")]
+        interrupt: bool,
     },
     /// `link machine update`: `--to-bundled`, and with `--if-older` only onto an older build.
     MachineUpdate {
@@ -593,7 +597,12 @@ fn words(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
 }
 
-/// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order.
+fn interrupts() -> bool {
+    true
+}
+
+/// `link agent move`'s flags after `--cwd`: one `--sync` group per copy, run in order. A running
+/// turn stops for the move (`--interrupt`) and goes on where the chat lands.
 pub fn agent_move_flags(
     syncs: &[&FrozenSync],
     ask_first: bool,
@@ -601,6 +610,21 @@ pub fn agent_move_flags(
     to_pid: Option<i32>,
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
+    flags.extend(agent_move_flags_at_boundary(syncs, ask_first, vm_kind, to_pid));
+    flags
+}
+
+/// [`agent_move_flags`] without `--interrupt`: the hybrid start's move ([`crate::hybrid`]), which
+/// never stops a turn. Its caller begins it only at a boundary the hybrid machine chose; a turn
+/// that runs then refuses the move (the source's own rule), and the machine tries it again at the
+/// next boundary.
+pub fn agent_move_flags_at_boundary(
+    syncs: &[&FrozenSync],
+    ask_first: bool,
+    vm_kind: Option<&str>,
+    to_pid: Option<i32>,
+) -> Vec<String> {
+    let mut flags = Vec::new();
     for sync in syncs {
         if let Some(from) = &sync.from_socket {
             flags.extend(words(&["--sync", "relay", "--sync-from-socket", from]));
@@ -656,7 +680,18 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::BringBackPull { socket, local, remote } => {
             plain(words(&["link", "seed", "pull", "--socket", socket, local, remote, "--or-copy"]))
         }
-        Call::AgentMove { from, surface, to, cwd, sync, then_sync, ask_first, vm_kind, to_pid } => {
+        Call::AgentMove {
+            from,
+            surface,
+            to,
+            cwd,
+            sync,
+            then_sync,
+            ask_first,
+            vm_kind,
+            to_pid,
+            interrupt,
+        } => {
             let surface = surface.to_string();
             let mut args = words(&[
                 "link",
@@ -672,7 +707,8 @@ pub fn invocation(call: &Call) -> Invocation {
                 cwd,
             ]);
             let syncs: Vec<&FrozenSync> = sync.iter().chain(then_sync).collect();
-            args.extend(agent_move_flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
+            let flags = if *interrupt { agent_move_flags } else { agent_move_flags_at_boundary };
+            args.extend(flags(&syncs, *ask_first, vm_kind.as_deref(), *to_pid));
             plain(args)
         }
         Call::MachineUpdate { socket, to_bundled, if_older } => {

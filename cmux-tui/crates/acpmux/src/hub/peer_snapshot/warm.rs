@@ -7,6 +7,15 @@
 //! forwarded page is kept (`Hub::capture_peer_page`): the chat then paints at once from its copy,
 //! whether its peer answers or not, and the peer's own page continues it once it does.
 //!
+//! A peer this daemon's config names as its own machine (`githubBroker`, Add Machine) or as a
+//! dedicated agent VM (`vmBoundary`) is read ahead whether or not a client here opened a peer chat
+//! ([`keeps_copies`]): its copy is what `acpmux session move --from-snapshot` starts from when that
+//! machine dies, and a fleet daemon with no clients of its own (the one that watches lane VMs die)
+//! otherwise held no copy of any chat it never opened (cmuxterm-hq
+//! `docs/design/fleet-dogfoods-remote.md`, move 2: "Copy each chat's journal to the owner Mac's
+//! peer snapshot, so a move can start from a dead host"). Its reads are the same rounds, within the
+//! same bounds.
+//!
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
 //! covers once it covers some, one page a chat a round; a chat is read (or tried) at most once each
@@ -116,6 +125,13 @@ impl Warm {
         let due = s.due.entry(peer.to_owned()).or_insert(at);
         *due = (*due).min(at);
     }
+}
+
+/// Whether this daemon keeps copies of `peer`'s chats with no client here asking: its config names
+/// it as this person's own machine (`githubBroker`) or as a dedicated agent VM (`vmBoundary`), a
+/// machine whose death a move from its copy outlives (module docs).
+pub(crate) fn keeps_copies(peer: &crate::peer::Peer) -> bool {
+    peer.github_broker() || peer.vm_boundary()
 }
 
 /// `d` after `at`; `at` itself on a clock that cannot go that far (it never comes to that).
@@ -250,10 +266,15 @@ impl Hub {
         }
     }
 
-    /// Peer `peer`'s rows changed (or it listed them): its round is due soon.
+    /// Peer `peer`'s rows changed (or it listed them): its round is due soon, when a client here
+    /// opened a peer chat or the peer is one whose copies this daemon keeps ([`keeps_copies`]).
     pub(crate) fn warm_peer_copies(self: &Arc<Self>, peer: &str) {
         let warm = &self.peer_snapshots.warm;
-        if !warm.wanted.load(Ordering::SeqCst) || self.peer_snapshots.dir.is_none() {
+        if self.peer_snapshots.dir.is_none() {
+            return;
+        }
+        if !warm.wanted.load(Ordering::SeqCst) && !self.peer(peer).is_some_and(|p| keeps_copies(&p))
+        {
             return;
         }
         warm.due_by(peer, after(Instant::now(), WARM_SETTLE));
