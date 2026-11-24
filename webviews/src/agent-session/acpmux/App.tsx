@@ -7732,10 +7732,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     autoArrivalShown !== "deciding" &&
     offloads.includes(landingMove(autoArrivalShown));
   useEffect(() => {
-    if (snapshot.summary?.hostKind !== "cloud" || !snapshot.sessionId) return;
+    if (cloudRouteHostKind !== "cloud" || !snapshot.sessionId) return;
     const landing = takeCloudLanding(autoCloudStartKey);
     if (landing) setAutoArrival({ page: newTabGeneration, session: snapshot.sessionId, landing });
-  }, [autoCloudStartKey, newTabGeneration, snapshot.sessionId, snapshot.summary?.hostKind]);
+  }, [autoCloudStartKey, cloudRouteHostKind, newTabGeneration, snapshot.sessionId]);
   // Why each offered move would refuse now: the picker greys its row and says it.
   const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
   const toggleSideTabs = () =>
