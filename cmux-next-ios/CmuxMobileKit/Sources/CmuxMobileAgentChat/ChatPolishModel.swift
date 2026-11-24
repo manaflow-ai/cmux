@@ -365,7 +365,9 @@ final class EventInspectorRows {
     /// Records that arrived while holding and match the shown query, counted as they come and
     /// never lowered when the journal later drops one (the pill's real count; what lands is the
     /// kept ones, `heldCount`).
-    @ObservationIgnored private(set) var arrivedWhileHeld = 0
+    @ObservationIgnored private var keptArrivals = 0
+    // MUTANT (do not merge): the pill counts the held records still kept, not the arrivals.
+    var arrivedWhileHeld: Int { heldCount }
     /// The journal tap that counts arrivals while holding.
     @ObservationIgnored private var tapToken: Int?
     @ObservationIgnored private weak var tappedJournal: AgentEventJournal?
@@ -380,7 +382,7 @@ final class EventInspectorRows {
             holding = true
             held = []
             heldHead = 0
-            arrivedWhileHeld = 0
+            keptArrivals = 0
             stubHead = head
             nextID = journal.nextID
             // Each record as it comes: matched once against the shown query, counted, and held.
@@ -397,7 +399,7 @@ final class EventInspectorRows {
         }
         held = []
         heldHead = 0
-        arrivedWhileHeld = 0
+        keptArrivals = 0
         stubsShown = 0
         released &+= 1
     }
@@ -410,7 +412,7 @@ final class EventInspectorRows {
             guard event.matches(shownQuery) else { return }
         }
         held.append(event)
-        arrivedWhileHeld += 1
+        keptArrivals += 1
         // The journal keeps the newest `limit` (and its byte budget): records before its first
         // kept one are gone there, so they go here too, bodies and all.
         if let journal = tappedJournal { compactHeld(first: journal.firstID) }
@@ -435,7 +437,7 @@ final class EventInspectorRows {
     private func dropHeld() {
         held = []
         heldHead = 0
-        arrivedWhileHeld = 0
+        keptArrivals = 0
         stubsShown = 0
         stubHead = 0
     }
