@@ -88,9 +88,15 @@ public final class ScreenSharingOrientation {
             }
             if !isPresenting, Self.resting(windowSize: scene.effectiveGeometry.coordinateSpace.bounds.size,
                                            showingTerminal: isShowingTerminal) == .portrait {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait), errorHandler: Self.ignoreGeometryError)
             }
         }
     }
+
+    /// What a refused portrait request does: nothing (the next `update()` asks again). UIKit calls
+    /// it on a background queue, so it is not main-actor isolated: as an inline closure in this
+    /// `@MainActor` class it inherited the isolation and trapped there (EXC_BREAKPOINT in
+    /// `dispatch_assert_queue`, AllUIStatesChatFeedCaptureUITests testFeed, step aed9d983).
+    nonisolated static let ignoreGeometryError: @Sendable (any Error) -> Void = { _ in }
 }
 #endif
