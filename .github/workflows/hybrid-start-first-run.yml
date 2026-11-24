@@ -6,6 +6,14 @@ name: Hybrid start first run (staging, published NEXT DEV app, PR CLI)
 # CMUX_HYBRID_START=0 control (scripts/cmux-next/hybrid-start-first-run.py). Every machine it makes is killed.
 # It checks out the pull request's head, not the merge with the base (the base did not compile acpmux on its own
 # when this ran). Same-repo pull requests only.
+#
+# Accounts, as cloud-journey-prod.yml and backend.yml journey-production read them: the job runs in
+# cmux-next-cloud-journey, whose CMUX_STAGING_STACK_* is the staging journey account (cloud-capture-provision.yml
+# target journey, the `pro` operator plan; the same account cmux-next-vm-image-dev holds as CMUX_DOGFOOD_STACK_*), and
+# the Claude login is that environment's CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN, else the repository's
+# CLAUDE_CODE_OAUTH_TOKEN. The repository's one is shared by claude.yml, cloud-chat-proof and every journey; run
+# 45301264459's control chat got "You've hit your weekly limit" from it. A one-word Claude preflight runs before the
+# build, so a login with no quota ends the job in minutes and names its reset.
 
 on:
   pull_request:
@@ -25,7 +33,7 @@ jobs:
   run:
     if: github.event.pull_request.head.repo.full_name == github.repository
     environment:
-      name: cmux-next-vm-image-dev
+      name: cmux-next-cloud-journey
       deployment: false
     runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 150
@@ -37,6 +45,34 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           submodules: false
+      # The hybrid start runs the chat on this Mac first, on a harness the app's acpmux finds on PATH (acpmux
+      # config/discover.rs): with no `claude` here it has none ("no harnesses configured", run 45276902076).
+      - name: Install Claude Code (the local harness)
+        run: |
+          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          command -v claude && claude --version
+      - name: Claude login preflight (the login this run passes)
+        env:
+          JOURNEY_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN }}
+          REPO_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -n "${JOURNEY_TOKEN:-}" ]; then source=CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN; token="$JOURNEY_TOKEN"
+          elif [ -n "${REPO_TOKEN:-}" ]; then source=CLAUDE_CODE_OAUTH_TOKEN; token="$REPO_TOKEN"
+          else echo "::error::no Claude login in this job's environment"; exit 1; fi
+          unset JOURNEY_TOKEN REPO_TOKEN
+          echo "HFR_CLAUDE_TOKEN_SOURCE=$source" >> "$GITHUB_ENV"
+          dir="$(mktemp -d)"
+          started=$(date +%s)
+          answer="$(cd "$dir" && CLAUDE_CODE_OAUTH_TOKEN="$token" CLAUDE_CONFIG_DIR="$dir/home" \
+            perl -e 'alarm shift; exec @ARGV' 120 claude -p "Reply with the single word ok." --max-turns 1 2>&1)"; code=$?
+          rm -rf "$dir"
+          answer="$(printf '%s' "$answer" | tr '\n' ' ' | cut -c1-300)"
+          line="Claude preflight ($source): exit $code in $(( $(date +%s) - started )) s: $answer"
+          echo "$line"; echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ne 0 ] || ! printf '%s' "$answer" | grep -qiw ok; then
+            echo "::error::the Claude login ($source) gave no answer, so no chat in this run can reply: $answer"; exit 1
+          fi
       - name: Init ghostty submodules
         run: |
           bash scripts/ci/init-submodule.sh ghostty
@@ -101,10 +137,11 @@ jobs:
           echo "HFR_APP=$app" >> "$GITHUB_ENV"
       - name: Materialize the staging agent account and seed its sign-in
         env:
-          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # This environment's CMUX_DOGFOOD_STACK_* is production's; the staging journey account is CMUX_STAGING_STACK_*.
+          STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
@@ -117,17 +154,12 @@ jobs:
           cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
           echo "HFR_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
-      # The hybrid start runs the chat on this Mac first, on a harness the app's acpmux finds on PATH (acpmux
-      # config/discover.rs): with no `claude` here it has none ("no harnesses configured", run 45276902076).
-      - name: Install Claude Code (the local harness)
-        run: |
-          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
-          command -v claude && claude --version
       - name: Hybrid start, three runs, follow-up, control
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
+          # The preflight's login: the journey's own first, as cloud-journey-prod.yml reads it.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HFR_CLI: ${{ steps.build.outputs.path }}
         run: |
           set -euo pipefail

@@ -50,7 +50,9 @@ SECRETS = [re.compile(r"(?i)\b(?:cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}"),
            re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
            re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")]
 T0 = time.monotonic()
-evidence = {"tag": TAG, "prompt": PROMPT, "steps": [], "runs": [], "machines_killed": [], "machines_left": []}
+evidence = {"tag": TAG, "prompt": PROMPT, "steps": [], "runs": [], "machines_killed": [], "machines_left": [],
+            # Which secret the workflow's Claude preflight chose (a name, never a value).
+            "claude_token_source": os.environ.get("HFR_CLAUDE_TOKEN_SOURCE")}
 
 
 def redact(text: str) -> str:
@@ -460,6 +462,10 @@ try:
     hv = (hv.get("result") or hv) if isinstance(hv, dict) else {}
     evidence["plan"] = hv.get("plan")
     evidence["hybrid_status"] = hv
+    # The app's own plan read (billing.status), beside the CLI's cloud.plan.get: a null plan names which read is empty.
+    bs = step("billing.status (the app's plan read)", run(["app", "call", "billing.status", "--json"], cli=APP_CLI, timeout=60))
+    bv = parsed(bs["out"])
+    evidence["billing_status"] = (bv.get("result") or bv) if isinstance(bv, dict) else bs["err"][-600:]
     before = set(machines())
     evidence["machines_before"] = sorted(before)
     for i in range(1, args.runs + 1):
@@ -510,7 +516,33 @@ for r in evidence["runs"]:
                 f"{r.get('move_ms')} | {'yes' if r.get('live_ms') is not None else 'no'} | {r.get('turn_end_ms')} | "
                 f"{a.get('prompts')}/{b.get('prompts')} | {b.get('interrupted_markers')} | {b.get('repeated_tool_calls')} | "
                 f"{b.get('done_1')} | {b.get('finished')} |")
-summary = "\n".join(["## Hybrid start first run", "", f"plan: {evidence.get('plan')}", "", *rows, "",
+def message(result: dict | None) -> str | None:
+    """The CLI's error message for a failed command, else None."""
+    if not result or result.get("code") in (0, None):
+        return None
+    value = parsed(result.get("err") or "") or parsed(result.get("out") or "")
+    said = value.get("message") if isinstance(value, dict) else None
+    return (said or (result.get("err") or "")[-300:]).strip()[:400]
+
+
+def seconds(value) -> str:
+    return "none" if value is None else f"{value / 1000:.1f} s"
+
+
+first = next((r for r in evidence["runs"] if r.get("machine")), None) or (evidence["runs"] or [{}])[0]
+follow = evidence.get("follow_up") or {}
+control = evidence.get("control") or {}
+result_line = (
+    f"result: machine started {'yes' if first.get('machine') else 'no'}"
+    f" (ready {seconds(first.get('machine_ready_ms'))}); first reply here {seconds((first.get('first_token') or {}).get('ok_ms'))};"
+    f" on the machine at {seconds(first.get('live_ms'))}; move {first.get('move_ms')} ms;"
+    f" turn {'answered' if first.get('reply') else 'failed: ' + str(message(first.get('turn_wait')))};"
+    f" follow-up {'skipped: ' + follow['skipped'] if follow.get('skipped') else ('answered' if follow.get('code') == 0 else 'failed: ' + str(message(follow)))};"
+    f" control {'answered' if control.get('code') == 0 else 'failed: ' + str(message(control))}")
+summary = "\n".join(["## Hybrid start first run", "", result_line, "",
+                     f"plan: {evidence.get('plan')} (hybrid-status {json.dumps({k: (evidence.get('hybrid_status') or {}).get(k) for k in ('plan', 'off', 'flag')})});"
+                     f" billing.status plan: {json.dumps((evidence.get('billing_status') or {}).get('plan') if isinstance(evidence.get('billing_status'), dict) else evidence.get('billing_status'))}",
+                     f"Claude login: {evidence.get('claude_token_source')}", "", *rows, "",
                      *(f"FAILED: {f}" for f in FAILED),
                      f"control (HYBRID=0): exit {evidence.get('control', {}).get('code')} in {evidence.get('control', {}).get('total_ms')} ms",
                      f"follow-up: {json.dumps({k: evidence.get('follow_up', {}).get(k) for k in ('code', 'ms', 'skipped')})}",
