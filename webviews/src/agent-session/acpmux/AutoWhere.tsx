@@ -3,14 +3,17 @@
 // ("Auto", one plain sentence); what makes Auto special is the icon, its colour and a little motion
 // (autoWhere.css), which hold still under reduced motion.
 import "./autoWhere.css";
+import { useId } from "react";
 import { useT } from "./i18n";
 import { type AutoLanding, type AutoLook, landingMove, landingTextKey } from "./autoWhereModel";
 
-/// Auto's icon. `orbit` (ships): your chat as a still centre and three machine-coloured dots going
+/// Auto's icon. `split` (ships): half a computer, half a cloud, cut by an angled slash: this Mac or
+/// Cloud. `orbit`: your chat as a still centre and three machine-coloured dots going
 /// round it. `constellation`: a spark in the machines' colours. `aurora`: there-and-back arrows in a
 /// cool gradient. `plain`: the arrows in the text colour, as any row's icon.
 export function AutoIcon({ look }: { look: AutoLook }) {
   const className = "acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon acpmux-auto-icon";
+  if (look === "split") return <SplitIcon className={className} />;
   if (look === "orbit") {
     return (
       <svg
@@ -90,6 +93,50 @@ export function AutoIcon({ look }: { look: AutoLook }) {
         </defs>
       )}
       <path d="M2.5 6h9l-2.5-2.5M13.5 10h-9l2.5 2.5" />
+    </svg>
+  );
+}
+
+/// The `split` look: the computer's left half and the cloud's right half, each clipped to its side of
+/// one slash from top right to bottom left, with a hairline gap either side of the slash.
+function SplitIcon({ className }: { className: string }) {
+  const id = useId();
+  const computer = `${id}-computer`;
+  const cloud = `${id}-cloud`;
+  return (
+    <svg
+      className={className}
+      data-look="split"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <clipPath id={computer}>
+          <path d="M0 0h9.6L3.6 16H0Z" />
+        </clipPath>
+        <clipPath id={cloud}>
+          <path d="M12.4 0H16v16H6.4Z" />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${computer})`}>
+        <rect x="1.75" y="3" width="11" height="7.75" rx="1.25" />
+        <path d="M1 13.25h11" />
+      </g>
+      <path
+        className="acpmux-auto-split-cloud"
+        clipPath={`url(#${cloud})`}
+        stroke="var(--agent-ansi-4, currentColor)"
+        d="M5.4 13.25h6.85a3.05 3.05 0 0 0 .55-6.05A4.25 4.25 0 0 0 5.2 6.1a3.6 3.6 0 0 0 .2 7.15Z"
+      />
+      <path className="acpmux-auto-split-slash" d="M12 1.5 4 14.5" />
     </svg>
   );
 }
