@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5e9345efe9def453bee55c83c2781312faa2b7b24e8bf8b40c3a9c44499b0cbf. */
+/* cmux-tui mux protocol 12, IR ff109c9258bc97c65a775fe89e2b5875d370cde9932c0307db008cf8feb995b3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5e9345efe9def453bee55c83c2781312faa2b7b24e8bf8b40c3a9c44499b0cbf" as const;
+export const SDK_IR_SHA256 = "ff109c9258bc97c65a775fe89e2b5875d370cde9932c0307db008cf8feb995b3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1801,6 +1801,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "after": {
+        "since": 12,
+        "capability": "list-workspaces-page-v1"
+      },
       "known": {
         "since": 12,
         "capability": "list-workspaces-known-v1"
@@ -2480,6 +2484,17 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "process-census": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "process-census-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; read-only, never journaled.",
+      "Hosts are classified from records, leases and session guards, never from process arguments. See spec/commands.md."
+    ]
   },
   "process-info": {
     "authority": "control",
@@ -16014,6 +16029,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "next": {
+        "capability": "list-workspaces-page-v1",
+        "constraints": [
+          "With limit: the after of the next page, on every page that is not the last."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -23789,6 +23817,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "after": {
+          "capability": "list-workspaces-page-v1",
+          "constraints": [
+            "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "known": {
           "capability": "list-workspaces-known-v1",
           "constraints": [
@@ -23806,7 +23848,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "limit": {
           "capability": "list-workspaces-limit-v1",
           "constraints": [
-            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+            "Only the first limit workspaces in sidebar order, with total, and at most 64 KiB of rows (at least one row). A reply with fewer than total workspaces has no tree_revision."
           ],
           "default": null,
           "nullable": true,
@@ -26671,6 +26713,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "PingResult"
+    }
+  },
+  "process-census": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "process-info": {

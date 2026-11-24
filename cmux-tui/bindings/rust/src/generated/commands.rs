@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5e9345efe9def453bee55c83c2781312faa2b7b24e8bf8b40c3a9c44499b0cbf.
+// cmux-tui mux protocol 12, IR ff109c9258bc97c65a775fe89e2b5875d370cde9932c0307db008cf8feb995b3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2272,6 +2272,8 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
@@ -3019,6 +3021,14 @@ pub type PinWorkspaceResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PingRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProcessCensusRequest {
+}
+
+#[rustfmt::skip]
+pub type ProcessCensusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5277,6 +5287,10 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.after.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-page-v1")?;
+        }
         if !request.known.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
@@ -5660,6 +5674,10 @@ impl CmuxClient {
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {
         self.execute(&PING_METADATA, &request)
+    }
+
+    pub fn process_census(&mut self, request: ProcessCensusRequest) -> Result<ProcessCensusResult> {
+        self.execute(&PROCESS_CENSUS_METADATA, &request)
     }
 
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {
