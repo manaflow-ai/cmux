@@ -53,7 +53,7 @@ test("a running workflow shows its counts, tokens, model, description, closed ph
   // One group: the section's head counts it, so no group head.
   expect(html).not.toContain("acpmux-workflow-tasks__group");
   expect(shown).toContain("demo-name-tournament");
-  expect(shown).toContain("1 running · 2 queued · 3 done · 185k tokens · Opus 5.5");
+  expect(shown).toContain("1 · 2 queued · 3 done · 185k tokens · Opus 5.5");
   expect(shown).toContain("Demo: 3 agents brainstorm names");
   // Each phase is one row with its count, closed; Brainstorm has nothing left running to open.
   expect(shown).toContain("Brainstorm 3/3");
@@ -325,12 +325,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
   expect(pageClocks(dom.window.document).running).toBe(0);
 });
 
-test("with running and finished workflows, each group says how many it holds", () => {
+// The running ones lead with no heading (Leo, 2026-11-23: ""running" doesn't need text"); the
+// finished ones keep theirs.
+test("with running and finished workflows, only the finished group says how many it holds", () => {
   const [finished] = summaries("finished");
   const html = renderToStaticMarkup(
     <WorkflowTasks workflows={[...summaries("running"), { ...finished!, id: "earlier" }]} />,
   );
-  expect(text(html)).toContain("1 running demo-name-tournament");
+  expect(text(html)).not.toContain("running");
+  expect(text(html).startsWith("demo-name-tournament")).toBe(true);
   expect(text(html)).toContain("1 finished demo-name-tournament");
 });
 
@@ -410,7 +413,7 @@ test("the transcript card shows workflow progress, latest agent text, model, tim
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
   // Agents still queued and Judge not reached: what is done and running, not a total.
-  expect(text(html)).toContain("demo-name-tournament Running 3 done · 1 running 13s 185.1K tokens");
+  expect(text(html)).toContain("demo-name-tournament 3 done · 1 13s 185.1K tokens");
   expect(text(html)).toContain("Critique Opus 5.5");
   expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
   expect(text(html)).toContain("Opus 5.5");
