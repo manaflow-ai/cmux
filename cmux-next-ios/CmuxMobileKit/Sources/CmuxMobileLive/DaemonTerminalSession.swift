@@ -2416,13 +2416,19 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-output-coalesce-v1`, #43373): fewer events, the first bytes after idle at once.
     nonisolated static let outputCoalesceCapability = "attach-output-coalesce-v1"
 
-    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, coalesced PTY
-    /// bytes for everything else) only with the setting on.
+    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, full-screen
+    /// programs, coalesced PTY bytes for everything else) only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid
-            ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
-            : clientCapabilities
+        agentCLIHybrid ? clientCapabilities + leanStreamCapabilities : clientCapabilities
     }
+
+    /// The lean stream's names: cmux-mobile-link `names::TERMINAL_LEAN_STREAM` on the phone
+    /// (with `terminal-full-screen-frames-v1`), today's four where the link library is absent.
+    #if canImport(CmuxMobileLinkFFI)
+    nonisolated static let leanStreamCapabilities = terminalLeanStreamCapabilities()
+    #else
+    nonisolated static let leanStreamCapabilities = [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
+    #endif
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
