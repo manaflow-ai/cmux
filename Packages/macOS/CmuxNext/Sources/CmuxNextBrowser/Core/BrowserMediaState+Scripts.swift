@@ -21,8 +21,10 @@ import Foundation
 /// most ten looks, while a report waits for the binding: an idle frame costs
 /// its renderer no wakeup and no work per DOM change. A paused element the
 /// page removes (its events fire on a detached node no listener here sees)
-/// reports null at the next natural event: a media event, or the page
-/// showing again.
+/// reports null at the next natural event: a media event, the page
+/// showing again, or the hidden-tab freeze probe's `cmux-media-recheck`
+/// (`BrowserPageBusy.fieldProbeScript`), so a stale paused report keeps no
+/// hidden page awake.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -170,6 +172,11 @@ nonisolated extension BrowserMediaState {
           addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') return;
             if (pending || (reported && held && !held.isConnected)) schedule();
+          }, true);
+          // The hidden-tab freeze probe asks first (`BrowserPageBusy.fieldProbeScript`): a paused session keeps a
+          // hidden page awake, so a reported element the page removed reports null now, before the probe's answer.
+          addEventListener('cmux-media-recheck', () => {
+            if (reported && held && !held.isConnected) report();
           }, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
