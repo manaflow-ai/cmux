@@ -22,6 +22,7 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<Long> replayHistoryRows;
     private final Field<UInt64> replayHistoryStart;
     private final Field<String> resumeGeneration;
+    private final Field<UInt64> resumeMaxBytes;
     private final Field<UInt64> resumeOffset;
     private final Field<Integer> rows;
     private final Field<String> snapshot;
@@ -42,6 +43,7 @@ public final class AttachSurfaceRequest implements WireValue {
         this.replayHistoryRows = builder.replayHistoryRows;
         this.replayHistoryStart = builder.replayHistoryStart;
         this.resumeGeneration = builder.resumeGeneration;
+        this.resumeMaxBytes = builder.resumeMaxBytes;
         this.resumeOffset = builder.resumeOffset;
         this.rows = builder.rows;
         this.snapshot = builder.snapshot;
@@ -64,6 +66,7 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<Long> replayHistoryRows() { return replayHistoryRows; }
     public Field<UInt64> replayHistoryStart() { return replayHistoryStart; }
     public Field<String> resumeGeneration() { return resumeGeneration; }
+    public Field<UInt64> resumeMaxBytes() { return resumeMaxBytes; }
     public Field<UInt64> resumeOffset() { return resumeOffset; }
     public Field<Integer> rows() { return rows; }
     public Field<String> snapshot() { return snapshot; }
@@ -116,6 +119,10 @@ public final class AttachSurfaceRequest implements WireValue {
         if (!Wire.isMissing(rawResumeGeneration)) {
             builder.resumeGeneration(rawResumeGeneration == null ? null : Wire.string(rawResumeGeneration, "AttachSurfaceRequest.resume_generation"));
         }
+        Object rawResumeMaxBytes = Wire.optional(object, "resume_max_bytes");
+        if (!Wire.isMissing(rawResumeMaxBytes)) {
+            builder.resumeMaxBytes(rawResumeMaxBytes == null ? null : Wire.uint64(rawResumeMaxBytes, "AttachSurfaceRequest.resume_max_bytes"));
+        }
         Object rawResumeOffset = Wire.optional(object, "resume_offset");
         if (!Wire.isMissing(rawResumeOffset)) {
             builder.resumeOffset(rawResumeOffset == null ? null : Wire.uint64(rawResumeOffset, "AttachSurfaceRequest.resume_offset"));
@@ -164,6 +171,7 @@ public final class AttachSurfaceRequest implements WireValue {
         Wire.put(object, "replay_history_rows", replayHistoryRows);
         Wire.put(object, "replay_history_start", replayHistoryStart);
         Wire.put(object, "resume_generation", resumeGeneration);
+        Wire.put(object, "resume_max_bytes", resumeMaxBytes);
         Wire.put(object, "resume_offset", resumeOffset);
         Wire.put(object, "rows", rows);
         Wire.put(object, "snapshot", snapshot);
@@ -178,11 +186,11 @@ public final class AttachSurfaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AttachSurfaceRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(hybridFrame, that.hybridFrame) && Objects.equals(hybridStream, that.hybridStream) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(replayHistoryStart, that.replayHistoryStart) && Objects.equals(resumeGeneration, that.resumeGeneration) && Objects.equals(resumeOffset, that.resumeOffset) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
+        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(hybridFrame, that.hybridFrame) && Objects.equals(hybridStream, that.hybridStream) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(replayHistoryStart, that.replayHistoryStart) && Objects.equals(resumeGeneration, that.resumeGeneration) && Objects.equals(resumeMaxBytes, that.resumeMaxBytes) && Objects.equals(resumeOffset, that.resumeOffset) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, hybridFrame, hybridStream, mode, outputCoalesceMs, replayHistoryRows, replayHistoryStart, resumeGeneration, resumeOffset, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
+    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, hybridFrame, hybridStream, mode, outputCoalesceMs, replayHistoryRows, replayHistoryStart, resumeGeneration, resumeMaxBytes, resumeOffset, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
 
     @Override
     public String toString() { return "AttachSurfaceRequest" + toWire(); }
@@ -198,6 +206,7 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<Long> replayHistoryRows = Field.omitted();
         private Field<UInt64> replayHistoryStart = Field.omitted();
         private Field<String> resumeGeneration = Field.omitted();
+        private Field<UInt64> resumeMaxBytes = Field.omitted();
         private Field<UInt64> resumeOffset = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<String> snapshot = Field.omitted();
@@ -245,6 +254,10 @@ public final class AttachSurfaceRequest implements WireValue {
         }
         public Builder resumeGeneration(String value) {
             this.resumeGeneration = Field.ofNullable(value);
+            return this;
+        }
+        public Builder resumeMaxBytes(UInt64 value) {
+            this.resumeMaxBytes = Field.ofNullable(value);
             return this;
         }
         public Builder resumeOffset(UInt64 value) {

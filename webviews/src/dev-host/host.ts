@@ -7,6 +7,9 @@ export type DevHostParams = {
   endpoint: string;
   token: string;
   sessionId?: string;
+  /// `#sessions=a,b,…` (with `?mounts=N`, mountModel.tsx): each pane in the document takes the next chat on its first
+  /// `ready`, so one document holds several chats (bench/chat-pages-memory.bench.ts SHARED=1).
+  sessions?: string[];
   newSession?: boolean;
   /// `#newtab`: the pane opens as a New Tab page, as a tab the app opened for one does.
   newTab?: boolean;
@@ -57,6 +60,7 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     endpoint,
     token,
     sessionId: params.get("session") ?? undefined,
+    sessions: params.get("sessions")?.split(",").filter(Boolean),
     newSession: params.has("new") || undefined,
     newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
@@ -193,7 +197,9 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
   if (SERVED_READS.has(method)) return servedRead(host, method, request);
   switch (method) {
     case "handshake":
-    case "ready":
+    case "ready": {
+      const next = request.params?.reconnect ? undefined : host.sessions?.shift();
+      if (next) host.sessionId = next;
       return {
         ok: true,
         value: {
@@ -210,6 +216,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           ...(host.machineName ? { machineName: host.machineName } : {}),
         },
       };
+    }
     case "pane.action": {
       // The app's tab actions (close, split, …) have no tab here: kept for the page's tests.
       const actions = ((globalThis as { cmuxDevPaneActions?: string[] }).cmuxDevPaneActions ??= []);
@@ -246,6 +253,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.commandAvailability":
     case "pane.clientReady":
     case "pane.renderRate":
+    case "pane.inputEchoed":
     case "pane.launchSettle":
     case "pane.tabRowTools":
     case "newTab.remember":

@@ -205,6 +205,18 @@ public final class SidebarSessionTree {
             if now != was { shapeRevision &+= 1 } else { statesRevision &+= 1 }
         }
     }
+    /// The lineage drawn last while acpmux's lanes were live (child to parent), kept across launches: the last run's,
+    /// then this run's. While the lanes are not live (a launch before the watch's first page, a watch gap) the feed
+    /// keeps these parents, so the rows nest from the first frame as they were and nothing un-nests and nests again
+    /// when the lanes land (Leo, 2026-11-22, after a relaunch: "the sidebar re-rendered/re-ordered with some
+    /// animations").
+    @ObservationIgnored public var savedParents: [WorkspaceID: WorkspaceID] = [:] {
+        didSet {
+            guard savedParents != oldValue else { return }
+            defaults.set(Dictionary(uniqueKeysWithValues: savedParents.map { ($0.key.rawValue, $0.value.rawValue) }),
+                         forKey: Self.lineageKey)
+        }
+    }
     /// Every row's pull request badge, with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:] { didSet { pullRequestsRevision &+= 1 } }
     /// The parents the user folded (a chevron on the row), kept across launches.
@@ -225,6 +237,16 @@ public final class SidebarSessionTree {
         self.defaults = defaults
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
         opened = Set((defaults.stringArray(forKey: Self.openedKey) ?? []).map(WorkspaceID.init))
+        savedParents = Dictionary(((defaults.dictionary(forKey: Self.lineageKey) as? [String: String]) ?? [:])
+            .map { (WorkspaceID($0.key), WorkspaceID($0.value)) }) { first, _ in first }
+        // The first frame nests its rows as the last run drew them.
+        if !savedParents.isEmpty, SidebarTunables.lineageNesting.value { state = SidebarSessionTreeState(parents: savedParents) }
+    }
+
+    /// Forgets the saved lineage, and the tree it seeded if no feed pass replaced it (no acpmux here: no lanes will).
+    public func dropSavedLineage() {
+        if let seeded = state, seeded == SidebarSessionTreeState(parents: savedParents) { state = nil }
+        savedParents = [:]
     }
 
     /// What the list draws: the live state with the user's folds, a parent below the top level
@@ -286,4 +308,5 @@ public final class SidebarSessionTree {
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
     static let openedKey = "sidebar.sessionTree.opened"
+    static let lineageKey = "sidebar.sessionTree.savedLineage"
 }

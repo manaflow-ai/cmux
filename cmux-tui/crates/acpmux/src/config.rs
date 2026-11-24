@@ -1320,6 +1320,16 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `lanes`: the host's lane cap each session's default memory ceiling is sized from
+    /// (RAM / lanes x 2, `session_budget.rs`). Unset: `ACPMUX_HOST_LANES`, else this host's
+    /// fleet-registry.json `lanes.max_lanes`, else none (half the RAM). 0 is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u64>,
+    /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
+    /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
@@ -1754,6 +1764,14 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
+    /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
+    /// machines on it first when their name resolves to a private address (one GCP region's VPC),
+    /// with the relay as the fallback. The same Noise XX and node keys as a relay circuit admit a
+    /// connection, so it lets in no one the relay would not. Unset (the default): relay only.
+    /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_port: Option<u16>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
@@ -1906,18 +1924,41 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // A copy of this file still waiting for the disk writer is older: it never lands after this.
+    crate::disk_writer::settle(path);
+    write_atomic_now(path, bytes)
+}
+
+/// [`write_atomic`] on the disk writer's thread (`disk_writer.rs`): the caller never waits on the
+/// disk, and newer bytes for `path` replace older ones still waiting. A failed write is logged,
+/// not returned: only for a file holding the latest state of something its next write (or a
+/// rebuild) makes up for, never one a caller must know is on disk before it goes on.
+pub fn write_atomic_later(path: &Path, bytes: Vec<u8>) {
+    crate::disk_writer::write_later(path, bytes);
+}
+
+/// [`write_atomic`] with no wait for the disk writer: the writer's own write.
+pub(crate) fn write_atomic_now(path: &Path, bytes: &[u8]) -> Result<()> {
     refuse_lost_home(path)?;
-    write_atomic_checked(path, bytes)
+    write_atomic_synced(path, bytes)
 }
 
 /// [`write_atomic`] for a writer that checked `path` with [`refuse_lost_home`] itself before
 /// preparing its folder: a second check would refuse a home replaced since the first, which the
 /// writer's held folder (`home_fs`) already keeps the file out of.
 pub(crate) fn write_atomic_checked(path: &Path, bytes: &[u8]) -> Result<()> {
+    crate::disk_writer::settle(path);
+    write_atomic_synced(path, bytes)
+}
+
+fn write_atomic_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     // Sync before rename so a power loss cannot leave empty chat metadata behind.
     write_atomic_with(path, bytes, |file, tmp| {
         #[cfg(test)]
         startup_seams::sync(tmp);
+        // The fault harness's slow disk (`cmux-fault` `disk.rs`) slows these syncs too.
+        #[cfg(debug_assertions)]
+        crate::store::disk_fault::sync();
         file.sync_all().with_context(|| format!("sync {}", tmp.display()))
     })?;
     // The rename itself is durable once its directory is synced.
