@@ -527,7 +527,8 @@ def quality_summary(scores, why_none):
 
 
 def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=None, source=None,
-                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None):
+                 cmux_input="key", host=None, viewer=None, host_args=None, viewer_args=None,
+                 encode_profile=None):
     """The budget record. CMUX: {"rows", "ledgers", "presented", "motion_rows", "scores",
     "quality_null"} or {"skipped": why}; APPLE: {"g2g", "presented"} or {"skipped": why}."""
     cmux = cmux or {"skipped": "not run (--stacks)"}
@@ -574,6 +575,8 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
         # What the cmux leg timed (key, click or scroll) and on which two Macs: a pair of one
         # Mac's names is loopback, whatever the link label says.
         "input": cmux_input, "host": host, "viewer": viewer,
+        # The profile the cmux leg asked for (--encode-profile; null: none sent, so the host ran standard).
+        "encode_profile": encode_profile,
         "host_args": list(host_args or []), "viewer_args": list(viewer_args or []),
         "presented_source": p_source, "app_ledger": app_ledger, "app_timings": app_timings,
         "mbps": {"cmux": c_mbps, "apple": null(why_apple or WHY_APPLE["mbps"])},
@@ -2720,8 +2723,10 @@ class Orchestrator:
             print(f"warning: --host-ip {self.a.host_ip} is a tailnet address. {TAILNET_UDP}",
                   file=sys.stderr, flush=True)
         self.setup()
-        self.shape_start()
         try:
+            # Inside the try: a start that fails after it applied part of the shaping is cleared
+            # now, not by the watchdog after --shape-max-s (self.shaped is set before the start).
+            self.shape_start()
             return self.measure()
         finally:
             self.shape_clear()
@@ -2815,7 +2820,8 @@ class Orchestrator:
                          rtt=clock.get("rtt_min_ms"), source=self.a.source,
                          cmux_input=getattr(self.a, "cmux_input", "key"), host=self.a.host,
                          viewer=self.a.viewer, host_args=self.host_args,
-                         viewer_args=self.viewer_args)
+                         viewer_args=self.viewer_args,
+                         encode_profile=getattr(self.a, "encode_profile", None))
         print()
         print("\n".join(format_budget(b)))
         self.log({"budget": b})
@@ -2904,13 +2910,21 @@ def cmd_run(args):
     if not legs:
         Orchestrator(args).main()
         return
-    budgets = []
+    budgets, failed = [], []
     for name, profile in legs:
         leg = argparse.Namespace(**vars(args))
         leg.link, leg.shape = name, profile
-        budgets.append(Orchestrator(leg).main())
-    print()
-    print("\n".join(format_legs(budgets)))
+        try:
+            budgets.append(Orchestrator(leg).main())
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - one failed leg must not lose the others
+            failed.append(name)
+            print(f"leg {name} failed: {e!r}"[:600], file=sys.stderr, flush=True)
+    budgets = [b for b in budgets if b]
+    if budgets:  # every leg failed: no table, so the failure below is the last line
+        print()
+        print("\n".join(format_legs(budgets)))
+    if failed:
+        raise SystemExit(f"legs failed: {', '.join(failed)} (the table holds the rest)")
 
 
 def app_env(text):
