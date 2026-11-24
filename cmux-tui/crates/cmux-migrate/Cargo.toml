@@ -14,6 +14,8 @@ workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml.workspace = true
+# .gitpod.yml; the version cmux-host already builds.
+yaml-rust = "0.4.5"
 
 [dev-dependencies]
 tempfile = "3"
