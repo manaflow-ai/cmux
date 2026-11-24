@@ -18,6 +18,7 @@ hotpatch = ["dep:subsecond"]
 [dependencies]
 # What a Cloud machine state frame means (machine_state_push.rs, apps-machine-state-watch).
 cmux-cloud-machine.workspace = true
+cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true
 # Names a crash sidecar's backtrace in a stripped release binary.
