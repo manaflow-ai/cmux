@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use super::super::{base, local};
 use super::{
     GIVE_UP_AFTER, Listed, Offer, base_of_listing, code, dial, elapsed_ms, from_set, hold_lock,
-    keep_base, note_failure, ok, print_ready, ready_timing, record_listing, stamp_ready, redial, retry_wait,
-    serve_full, serve_reads,
+    keep_base, note_failure, ok, print_ready, ready_timing, record_listing, redial, retry_wait,
+    serve_full, serve_reads, stamp_ready,
 };
 
 pub(super) fn list_head(folder: &Path) -> anyhow::Result<Listed> {
