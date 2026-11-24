@@ -3,6 +3,8 @@ public import Foundation
 import Observation
 #if os(iOS)
 public import UIKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 #endif
 
 /// The Mac's theme and wallpaper as its host serves them on the `appearance` service
@@ -20,10 +22,14 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
         public var accent: String
         public var accentColor: String?
         public var backgroundOpacity: Double
+        /// The Mac window's blur (`background_blur`, Ghostty's encoding): 0 or nil none, a radius in
+        /// points, -1 regular and -2 clear Liquid Glass. The phone blurs the wallpaper by it
+        /// (``CmuxMobileMacTheme/blurRadius(_:)``), as the Mac frosts what shows through its window.
+        public var backgroundBlur: Int?
 
         public init(background: String, foreground: String, palette: [String], selectionBackground: String? = nil,
                     selectionForeground: String? = nil, cursor: String? = nil, accent: String = "neutral",
-                    accentColor: String? = nil, backgroundOpacity: Double = 1) {
+                    accentColor: String? = nil, backgroundOpacity: Double = 1, backgroundBlur: Int? = nil) {
             self.background = background
             self.foreground = foreground
             self.palette = palette
@@ -33,6 +39,7 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
             self.accent = accent
             self.accentColor = accentColor
             self.backgroundOpacity = backgroundOpacity
+            self.backgroundBlur = backgroundBlur
         }
     }
 
@@ -97,25 +104,113 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
 
     public var chat: Chat?
 
-    private enum CodingKeys: String, CodingKey {
-        case theme, wallpaper, terminal, chat
+    /// The rest of the Mac's look (`look`, PROTOCOL.md; hostd `appearance.rs` `sanitize_look` checks
+    /// every field): the window style, the tuning (hue, saturation, glass transparency), the sidebar
+    /// surface, the terminals' font and the sidebar's group colors. Every field optional; nil from
+    /// a Mac that sends none. The phone draws the font on its terminals
+    /// (``CmuxMobileTerminalTheme``) and the tuning through ``window`` (ask-a6804c4472).
+    public struct Look: Codable, Equatable, Sendable {
+        public struct TerminalFont: Codable, Equatable, Sendable {
+            /// The family the Mac's terminals draw in.
+            public var family: String?
+            /// Their size in points (4...96).
+            public var size: Double?
+
+            public init(family: String? = nil, size: Double? = nil) {
+                self.family = family
+                self.size = size
+            }
+        }
+
+        public struct Groups: Codable, Equatable, Sendable {
+            /// `sidebar.groupPalette`.
+            public var palette: String?
+            /// `sidebar.groupGradient`.
+            public var gradient: String?
+
+            public init(palette: String? = nil, gradient: String? = nil) {
+                self.palette = palette
+                self.gradient = gradient
+            }
+        }
+
+        /// `appearance.chromeStyle` (`default`, `card`, `two-tone`, ...).
+        public var chromeStyle: String?
+        /// `appearance.hue`, 0...1 (0.5 keeps the theme's).
+        public var hue: Double?
+        /// `appearance.saturation`, 0...2 (1 keeps the theme's).
+        public var saturation: Double?
+        /// `appearance.glassTransparency`, 0...1.
+        public var glassTransparency: Double?
+        /// `appearance.sidebarSurface` (`same` | `separate`).
+        public var sidebarSurface: String?
+        public var terminalFont: TerminalFont?
+        /// `home.bubbleColors.*`; the chat draws them from hostd's ``Chat/bubbles``.
+        public var chat: Chat.Bubbles?
+        public var groups: Groups?
+
+        public init(chromeStyle: String? = nil, hue: Double? = nil, saturation: Double? = nil,
+                    glassTransparency: Double? = nil, sidebarSurface: String? = nil,
+                    terminalFont: TerminalFont? = nil, chat: Chat.Bubbles? = nil, groups: Groups? = nil) {
+            self.chromeStyle = chromeStyle
+            self.hue = hue
+            self.saturation = saturation
+            self.glassTransparency = glassTransparency
+            self.sidebarSurface = sidebarSurface
+            self.terminalFont = terminalFont
+            self.chat = chat
+            self.groups = groups
+        }
     }
 
-    /// `chat` is read on its own: a malformed one is dropped (the stock chat), and the theme, the
-    /// accent and the terminal theme of the same frame still apply.
+    public var look: Look?
+
+    /// The tint the Mac's window lays over its picture after its tuning, as hostd resolves it
+    /// (`appearance.rs` `window_tint`: alpha `tint * (1 - glass_transparency)`, the colors turned by
+    /// the hue and scaled by the saturation). Nil when the Mac shows no picture or no tuning: the
+    /// wallpaper's own tint and the plain colors show then.
+    public struct Window: Codable, Equatable, Sendable {
+        /// The tint's alpha over the picture, 0...1.
+        public var tintOpacity: Double
+        /// The chrome's tint color, `#rrggbb`.
+        public var background: String
+        /// The terminals' tint color, `#rrggbb`.
+        public var terminalBackground: String?
+
+        public init(tintOpacity: Double, background: String, terminalBackground: String? = nil) {
+            self.tintOpacity = tintOpacity
+            self.background = background
+            self.terminalBackground = terminalBackground
+        }
+    }
+
+    public var window: Window?
+
+    private enum CodingKeys: String, CodingKey {
+        case theme, wallpaper, terminal, chat, look, window
+    }
+
+    /// `chat`, `look` and `window` are each read on their own: a malformed one is dropped (the
+    /// phone's default), and the theme, the accent and the terminal theme of the same frame still
+    /// apply.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decode(Theme.self, forKey: .theme)
         wallpaper = try container.decodeIfPresent(Wallpaper.self, forKey: .wallpaper)
         terminal = try container.decodeIfPresent([String].self, forKey: .terminal)
         chat = try? container.decodeIfPresent(Chat.self, forKey: .chat)
+        look = try? container.decodeIfPresent(Look.self, forKey: .look)
+        window = try? container.decodeIfPresent(Window.self, forKey: .window)
     }
 
-    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil) {
+    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil,
+                look: Look? = nil, window: Window? = nil) {
         self.theme = theme
         self.wallpaper = wallpaper
         self.terminal = terminal
         self.chat = chat
+        self.look = look
+        self.window = window
     }
 
     /// The picture the chat shows: the frame's wallpaper when its `chat` names it.
@@ -346,6 +441,8 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     @ObservationIgnored private var pictureLoad: Task<Void, Never>?
     /// The picture id the newest load is for.
     @ObservationIgnored private var loadingPictureID: String?
+    /// The blur radius (pixels of the picture) the newest load is for.
+    @ObservationIgnored private var loadingBlur: Double = 0
     /// The picture whose fetched bytes are queued for the disk: held, not to be fetched again.
     @ObservationIgnored private var heldPictureID: String?
 
@@ -358,7 +455,7 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         if let cached = cache.load() {
             appearance = cached
             macPalette = CmuxMobileMacPalette(cached)
-            if let id = cached.wallpaper?.id { loadPicture(id, bytes: nil) }
+            if let id = cached.wallpaper?.id { loadPicture(id, bytes: nil, blur: Self.blurRadius(cached.theme.backgroundBlur)) }
         }
     }
 
@@ -371,11 +468,23 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     }
 
     /// The Mac's wallpaper behind the sidebar and Home, with the tint the Mac lays over it: nil while
-    /// Match Mac theme is off, when the Mac shows none, or before its picture is on this phone.
+    /// Match Mac theme is off, when the Mac shows none, or before its picture is on this phone. The
+    /// tint is the one the Mac draws after its glass transparency (hostd's `window`), else the
+    /// wallpaper's own.
     public var wallpaper: (image: UIImage, tint: Double)? {
         guard matchesMac, let wallpaper = appearance?.wallpaper, chatPictureID == wallpaper.id,
               let chatPicture else { return nil }
-        return (chatPicture, wallpaper.tintOpacity)
+        return (chatPicture, appearance?.window?.tintOpacity ?? wallpaper.tintOpacity)
+    }
+
+    /// The tint's color over the wallpaper after the Mac's hue and saturation (hostd's `window`):
+    /// the chrome's, or with `terminal` the terminals'. Nil while ``wallpaper`` is nil or the Mac
+    /// sends no tuning: the caller's own background is the tint then.
+    public func wallpaperTint(terminal: Bool) -> UIColor? {
+        guard wallpaper != nil, let window = appearance?.window else { return nil }
+        let hex = terminal ? window.terminalBackground : window.background
+        guard let hex, let rgb = CmuxMobileTerminalTheme.rgb(hex) else { return nil }
+        return UIColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
     }
 
     /// Whether `appearance`'s picture (the Mac's wallpaper, which the chat may also show) must be
@@ -387,14 +496,16 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
 
     /// Keeps `bytes` as picture `id` when given, then decodes picture `id` off the main actor and
     /// shows it if the appearance still names it.
-    private func loadPicture(_ id: String?, bytes: Data?) {
+    private func loadPicture(_ id: String?, bytes: Data?, blur: Double) {
         loadingPictureID = id
+        loadingBlur = blur
         if bytes != nil { heldPictureID = id }
         let cache = cache
         let decoded = enqueue { () -> UIImage? in
             if let id, let bytes { cache.saveChatWallpaper(bytes, id: id) }
             guard let id, let data = cache.chatWallpaper(id: id), let image = UIImage(data: data) else { return nil }
-            return image.preparingForDisplay() ?? image
+            let shown = Self.blurred(image, radius: blur) ?? image
+            return shown.preparingForDisplay() ?? shown
         }
         let previous = pictureLoad
         // task-owner: pictureLoad; one decode per picture change, each after the one before.
@@ -428,9 +539,38 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         enqueue { cache.save(appearance) }
         let newID = appearance.wallpaper?.id
         // Load only when the picture changed, just arrived, or is still missing: a color change keeps it.
-        if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) {
-            loadPicture(newID, bytes: chatWallpaper)
+        let blur = Self.blurRadius(appearance.theme.backgroundBlur)
+        if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) || blur != loadingBlur {
+            loadPicture(newID, bytes: chatWallpaper, blur: blur)
         }
+    }
+
+    /// The blur, in the picture's pixels, for the Mac's `background_blur`: its radius in points (the
+    /// phone's copy is about a point per pixel of the Mac's screen), Liquid Glass as the Mac's
+    /// fallback frost for it (regular 20, clear 8), none for 0 or nil.
+    nonisolated public static func blurRadius(_ blur: Int?) -> Double {
+        switch blur ?? 0 {
+        case -1: 20
+        case -2: 8
+        case let radius where radius > 0: Double(radius)
+        default: 0
+        }
+    }
+
+    /// One Core Image context for every wallpaper blur (a context is costly to make; it is thread-safe).
+    private nonisolated(unsafe) static let blurContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// `image` under a Gaussian blur of `radius` pixels, edges clamped (no dark rim); nil at 0 or
+    /// when Core Image fails (the sharp picture shows).
+    nonisolated static func blurred(_ image: UIImage, radius: Double) -> UIImage? {
+        guard radius > 0, let input = CIImage(image: image) else { return nil }
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = input.clampedToExtent()
+        filter.radius = Float(radius)
+        guard let output = filter.outputImage?.cropped(to: input.extent),
+              let cg = blurContext.createCGImage(output, from: input.extent)
+        else { return nil }
+        return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
     }
 
     /// Waits for the queued writes and picture loads (tests, and anything that reads the cache next).

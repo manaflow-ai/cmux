@@ -1046,8 +1046,14 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
-  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
-  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  "accent_color"?, "background_opacity", "background_blur"?}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. Since 2026-11-22 `wallpaper` is what the Mac shows behind its windows' content: the
+  background chosen in cmux, else the Ghostty `background-image`, else, in a see-through window
+  (`background_opacity` < 1), the desktop picture under the window's tint; null only for an opaque
+  window with no picture. The phone draws it under the terminals too, which are then see-through
+  (`background-opacity = 0` on the phone's surfaces, as on the Mac), and blurs it by
+  `background_blur` (Ghostty's encoding: a radius in points, -1 regular and -2 clear Liquid Glass;
+  omitted for 0). `id` is the SHA-256 of the picture (hex). The phone derives the
   palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
   the accent is the same at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
@@ -1077,7 +1083,18 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
   over 120 characters) while the rest and the theme still serve; a nested object with
   nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
-  bytes an older Mac sends. The phone does not draw these yet. Since 2026-11-17 a frame
+  bytes an older Mac sends. Since 2026-11-23 (ask-a6804c4472) the phone draws them while
+  Match Mac theme is on: its terminals take `terminal_font` (the family when installed on the
+  phone, else the stock font; the size over the phone's own Settings > Terminal size), and
+  the tint over the wallpaper takes the tuning through `window` (below). `chrome_style`,
+  `sidebar_surface` and `groups` have no matching phone surface and are decoded only. With a
+  `wallpaper` and a tuning off its identity (hue 0.5, saturation 1, glass 0), a frame also
+  carries `"window": {"tint_opacity", "background", "terminal_background"?}`, resolved by
+  hostd (`appearance.rs` `window_tint`): the tint the Mac's window lays over its picture after
+  `AppearanceTuning` (`WindowMaterialView`), alpha `tint_opacity * (1 - glass_transparency)`
+  and the theme's (and terminal theme's) background turned by `hue - 0.5` of a turn with its
+  HSB saturation scaled by `saturation`; the phone paints these as they are, and `chat`'s
+  `background` and `background_opacity` over a picture take the same tint. Since 2026-11-17 a frame
   may also carry `"chat"`, what the phone's agent chat shows, resolved by hostd
   (`appearance.rs` `chat_look`): `{"background", "foreground", "background_opacity",
   "wallpaper"?: the `wallpaper` id, "bubbles"?: look's `chat` colors}`. `background_opacity`

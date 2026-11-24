@@ -71,6 +71,108 @@ import UIKit
         #expect(CmuxMobileMacAppearance.decode(Data(##"{"theme":{"background":"red","foreground":"#ffffff","palette":[],"accent":"neutral","background_opacity":1},"wallpaper":null}"##.utf8)) == nil)
     }
 
+    /// Every field of the Mac's `look` crosses the wire as hostd serves it (ask-a6804c4472), with
+    /// hostd's `window` (the tint after the Mac's tuning); a malformed `look` or `window` is dropped
+    /// alone, and both survive the phone's cache.
+    @Test func everyLookFieldDecodes() throws {
+        let frame = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"neutral","background_opacity":0.8},"wallpaper":{"id":"ab12","bytes":3,"tint_opacity":0.6},"terminal":["background = #1e1e2e","foreground = #cdd6f4"],"look":{"chrome_style":"two-tone","hue":0.25,"saturation":1.5,"glass_transparency":0.4,"sidebar_surface":"separate","terminal_font":{"family":"JetBrains Mono","size":13.5},"chat":{"sent":"#0a84ff","sent_text":"#ffffff","received":"#3a3a3c","received_text":"#eeeeee"},"groups":{"palette":"gradient","gradient":"twoTone"}},"window":{"tint_opacity":0.36,"background":"#2e1e1e","terminal_background":"#2e1e2a"}}"##
+        let appearance = try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8)))
+        let look = try #require(appearance.look)
+        #expect(look.chromeStyle == "two-tone")
+        #expect(look.hue == 0.25)
+        #expect(look.saturation == 1.5)
+        #expect(look.glassTransparency == 0.4)
+        #expect(look.sidebarSurface == "separate")
+        #expect(look.terminalFont == .init(family: "JetBrains Mono", size: 13.5))
+        #expect(look.chat == .init(sent: "#0a84ff", sentText: "#ffffff", received: "#3a3a3c", receivedText: "#eeeeee"))
+        #expect(look.groups == .init(palette: "gradient", gradient: "twoTone"))
+        #expect(appearance.window == .init(tintOpacity: 0.36, background: "#2e1e1e", terminalBackground: "#2e1e2a"))
+        // The terminals take the Mac's font with its theme.
+        let terminal = try #require(CmuxMobileTerminalTheme(appearance: appearance))
+        #expect(terminal.fontFamily == "JetBrains Mono")
+        #expect(terminal.fontSize == 13.5)
+        let config = terminal.configText(seeThrough: false, fontFamily: terminal.fontFamily)
+        #expect(config.hasSuffix("font-family =\nfont-family = \"JetBrains Mono\"\n"))
+        // Not installed on this phone: the stock font (the family reset, no other).
+        #expect(!CmuxMobileTerminalTheme.isInstalled("No Such Font Family 4c1d"))
+        var missing = terminal
+        missing.fontFamily = "No Such Font Family 4c1d"
+        #expect(missing.installedFontFamily == nil)
+        #expect(missing.configText(seeThrough: false, fontFamily: missing.installedFontFamily).hasSuffix("#cdd6f4\nfont-family =\n"))
+        missing.fontFamily = "Courier"
+        #expect(missing.installedFontFamily == "Courier")
+        // A frame without `look` (an older Mac): no font, the phone's own.
+        #expect(CmuxMobileTerminalTheme(appearance: Self.mocha)?.fontSize == nil)
+        // A malformed `look` or `window` is dropped alone; the theme still applies.
+        let bad = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"neutral","background_opacity":1},"look":{"hue":"x"},"window":{"background":3}}"##
+        let partial = try #require(CmuxMobileMacAppearance.decode(Data(bad.utf8)))
+        #expect(partial.look == nil)
+        #expect(partial.window == nil)
+        #expect(partial.theme.background == "#1e1e2e")
+        // Through the cache (snake_case on disk, as on the wire).
+        let cache = Self.cache()
+        cache.save(appearance)
+        #expect(cache.load() == appearance)
+    }
+
+    /// The Mac's glass transparency thins the tint over its wallpaper on the phone (hostd's
+    /// `window`), and its hue turns the tint's color; Match Mac theme off shows neither.
+    @Test func theGlassTransparencyThinsTheWallpapersTint() async throws {
+        let picture = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        var appearance = Self.mocha
+        appearance.wallpaper = .init(id: "ab12", bytes: picture.count, tintOpacity: 0.6)
+        let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: Self.cache())
+        theme.apply(appearance, chatWallpaper: picture)
+        await theme.settled()
+        #expect(theme.wallpaper?.tint == 0.6)
+        #expect(theme.wallpaperTint(terminal: false) == nil)
+        appearance.look = .init(hue: 1, glassTransparency: 0.5)
+        appearance.window = .init(tintOpacity: 0.3, background: "#2e2e1e", terminalBackground: "#2e2e1e")
+        theme.apply(appearance)
+        await theme.settled()
+        #expect(theme.wallpaper?.tint == 0.3)
+        #expect(Self.rgba(try #require(theme.wallpaperTint(terminal: true))) == [0x2e, 0x2e, 0x1e, 255])
+        theme.matchesMac = false
+        #expect(theme.wallpaper == nil)
+        #expect(theme.wallpaperTint(terminal: true) == nil)
+    }
+
+    /// The Mac's window blur crosses the wire (none from a Mac that predates it) and the phone's
+    /// picture is blurred by it, as the Mac frosts what shows through its window.
+    @Test func theMacsBlurDecodesAndBlursThePicture() throws {
+        let frame = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"neutral","background_opacity":0.8,"background_blur":-1},"wallpaper":null}"##
+        #expect(try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8))).theme.backgroundBlur == -1)
+        #expect(Self.mocha.theme.backgroundBlur == nil)
+        #expect(CmuxMobileMacTheme.blurRadius(nil) == 0)
+        #expect(CmuxMobileMacTheme.blurRadius(0) == 0)
+        #expect(CmuxMobileMacTheme.blurRadius(12) == 12)
+        #expect(CmuxMobileMacTheme.blurRadius(-1) == 20)
+        #expect(CmuxMobileMacTheme.blurRadius(-2) == 8)
+        // A hard black and white edge comes out soft: the pixel beside it is gray.
+        let sharp = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 10), format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 10))
+            UIColor.white.setFill(); context.fill(CGRect(x: 20, y: 0, width: 20, height: 10))
+        }
+        #expect(CmuxMobileMacTheme.blurred(sharp, radius: 0) == nil)
+        let soft = try #require(CmuxMobileMacTheme.blurred(sharp, radius: 4))
+        #expect(soft.size == sharp.size)
+        let gray = try #require(Self.red(soft, x: 19, y: 5))
+        #expect(gray > 40 && gray < 215)
+    }
+
+    /// The red byte of pixel (x, y).
+    static func red(_ image: UIImage, x: Int, y: Int) -> Int? {
+        guard let cg = image.cgImage else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+        return Int(pixel[0])
+    }
+
     /// Launch and offline: the last theme is read from disk before any link.
     @Test func theCacheIsReadBeforeAnyLink() async throws {
         let cache = Self.cache()

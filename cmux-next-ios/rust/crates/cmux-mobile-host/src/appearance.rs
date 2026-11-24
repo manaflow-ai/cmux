@@ -125,6 +125,16 @@ pub struct Theme {
     /// `background-opacity` with `appearance.backgroundOpacity` over it, 0...1.
     #[serde(default = "opaque")]
     pub background_opacity: f64,
+    /// `background-blur` with `appearance.backgroundBlur` over it, as the Mac resolved it, in
+    /// Ghostty's encoding: 0 none, a radius in points, -1 regular Liquid Glass, -2 clear Liquid
+    /// Glass. The phone blurs the wallpaper by it. 0 from a Mac that predates it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub background_blur: i32,
+}
+
+/// No blur: the frame leaves the field out, as before it existed.
+fn is_zero(value: &i32) -> bool {
+    *value == 0
 }
 
 // JSON has no NaN, and `sanitize` drops any non-finite value: equality is total here.
@@ -278,13 +288,103 @@ pub fn chat_look(theme: &Theme, wallpaper: Option<&WallpaperInfo>, look: Option<
     if default_colors && wallpaper.is_none() && bubbles.is_none() {
         return None;
     }
+    // Over the picture the chat's ground is the window's tint, tuned as the Mac tunes it.
+    let window = wallpaper.and_then(|info| window_tint(theme, None, info, look));
     Some(ChatLook {
-        background: theme.background.clone(),
+        background: window.as_ref().map_or_else(|| theme.background.clone(), |w| w.background.clone()),
         foreground: theme.foreground.clone(),
-        background_opacity: wallpaper.map_or(1.0, |info| info.tint_opacity),
+        background_opacity: match (&window, wallpaper) {
+            (Some(window), _) => window.tint_opacity,
+            (None, Some(info)) => info.tint_opacity,
+            (None, None) => 1.0,
+        },
         wallpaper: wallpaper.map(|info| info.id.clone()),
         bubbles,
     })
+}
+
+/// The tint the Mac's window lays over its picture, as it draws it after `AppearanceTuning`
+/// (`WindowMaterialView`: alpha `tint * (1 - glassTransparency)`, color `tunedTint`: the hue turned
+/// by `hue - 0.5` and the saturation scaled by `saturation`), for the phone to paint as is over the
+/// same picture. The phone renders these values and computes none (ask-a6804c4472).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WindowTint {
+    /// The tint's alpha over the picture, 0...1: the wallpaper's `tint_opacity` with the glass
+    /// transparency taken out.
+    pub tint_opacity: f64,
+    /// The theme's background, tuned: the tint over the picture behind the chrome.
+    pub background: String,
+    /// The terminal theme's background, tuned: the tint over the picture behind the terminals.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_background: Option<String>,
+}
+
+// Built from finite values only: equality is total here.
+impl Eq for WindowTint {}
+
+/// The tint the window lays over `wallpaper` under `look`'s tuning; None when the Mac sends no
+/// tuning (no hue, saturation or glass transparency, or all at their identity), so a Mac at its
+/// defaults serves the message from before this existed.
+pub fn window_tint(
+    theme: &Theme,
+    terminal: Option<&[String]>,
+    wallpaper: &WallpaperInfo,
+    look: Option<&Look>,
+) -> Option<WindowTint> {
+    let look = look?;
+    let hue = look.hue.unwrap_or(0.5);
+    let saturation = look.saturation.unwrap_or(1.0);
+    let glass = look.glass_transparency.unwrap_or(0.0);
+    if hue == 0.5 && saturation == 1.0 && glass == 0.0 {
+        return None;
+    }
+    let terminal_background = terminal.and_then(|lines| {
+        lines.iter().rev().find_map(|line| line.strip_prefix("background = ").and_then(hex_color))
+    });
+    Some(WindowTint {
+        tint_opacity: (wallpaper.tint_opacity * (1.0 - glass)).clamp(0.0, 1.0),
+        background: tuned_color(&theme.background, hue, saturation),
+        terminal_background: terminal_background.map(|color| tuned_color(&color, hue, saturation)),
+    })
+}
+
+/// `#rrggbb` turned by `hue` (0.5 keeps it; the shift is `hue - 0.5` of a turn) and its saturation
+/// scaled by `saturation` (clamped to 0...1), brightness kept: the Mac's `tunedTint` in HSB.
+/// A malformed color comes back as it is.
+pub fn tuned_color(color: &str, hue: f64, saturation: f64) -> String {
+    let Some(hex) = hex_color(color) else { return color.to_owned() };
+    let channel = |at: usize| f64::from(u8::from_str_radix(&hex[at..at + 2], 16).unwrap_or(0)) / 255.0;
+    let (r, g, b) = (channel(1), channel(3), channel(5));
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let brightness = max;
+    let sat = if max > 0.0 { delta / max } else { 0.0 };
+    let h = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        ((g - b) / delta).rem_euclid(6.0) / 6.0
+    } else if max == g {
+        ((b - r) / delta + 2.0) / 6.0
+    } else {
+        ((r - g) / delta + 4.0) / 6.0
+    };
+    let h = (h + hue - 0.5).rem_euclid(1.0);
+    let s = (sat * saturation).clamp(0.0, 1.0);
+    let sector = h * 6.0;
+    let c = brightness * s;
+    let x = c * (1.0 - (sector.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match sector as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = brightness - c;
+    let byte = |v: f64| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", byte(r1), byte(g1), byte(b1))
 }
 
 /// The current appearance: what the `appearance` service sends, and the wallpaper's bytes.
@@ -304,6 +404,12 @@ impl Current {
         chat_look(&self.theme, self.wallpaper.as_ref().map(|(info, _)| info), self.look.as_ref())
     }
 
+    /// The tint the window lays over its picture after the Mac's tuning ([`window_tint`]).
+    pub fn window(&self) -> Option<WindowTint> {
+        let (info, _) = self.wallpaper.as_ref()?;
+        window_tint(&self.theme, self.terminal.as_deref(), info, self.look.as_ref())
+    }
+
     /// The `appearance` message.
     pub fn message(&self) -> Value {
         let mut message = serde_json::json!({
@@ -318,6 +424,9 @@ impl Current {
         }
         if let Some(chat) = self.chat() {
             message["chat"] = serde_json::json!(chat);
+        }
+        if let Some(window) = self.window() {
+            message["window"] = serde_json::json!(window);
         }
         message
     }
@@ -381,7 +490,16 @@ pub fn sanitize(theme: Theme) -> Option<Theme> {
         accent: if ACCENTS.contains(&theme.accent.as_str()) { theme.accent } else { neutral() },
         accent_color: optional(theme.accent_color),
         background_opacity: unit(theme.background_opacity)?,
+        background_blur: blur(theme.background_blur),
     })
+}
+
+/// The largest blur radius kept, in points (Ghostty's blur is far below it).
+const MAX_BLUR: i32 = 200;
+
+/// `background_blur` when it is a radius up to ``MAX_BLUR`` or a glass (-1, -2), else none (0).
+fn blur(value: i32) -> i32 {
+    if (-2..=MAX_BLUR).contains(&value) { value } else { 0 }
 }
 
 /// The text of `value` when it is one of `known`.
@@ -608,7 +726,29 @@ mod tests {
             accent: "magenta".into(),
             accent_color: None,
             background_opacity: 0.9,
+            background_blur: 20,
         }
+    }
+
+    #[test]
+    fn sanitize_keeps_the_macs_blur_and_drops_an_impossible_one() {
+        assert_eq!(sanitize(theme()).unwrap().background_blur, 20);
+        for glass in [-1, -2, 0, MAX_BLUR] {
+            let mut t = theme();
+            t.background_blur = glass;
+            assert_eq!(sanitize(t).unwrap().background_blur, glass);
+        }
+        for bad in [-3, MAX_BLUR + 1, i32::MIN] {
+            let mut t = theme();
+            t.background_blur = bad;
+            assert_eq!(sanitize(t).unwrap().background_blur, 0);
+        }
+        // A Mac that predates it sends none: 0.
+        let old: Theme = serde_json::from_value(serde_json::json!({
+            "background": "#000000", "foreground": "#ffffff", "palette": vec!["#000000"; 8]
+        }))
+        .unwrap();
+        assert_eq!(old.background_blur, 0);
     }
 
     #[test]
@@ -943,5 +1083,57 @@ mod tests {
             current.message()["chat"]["bubbles"],
             serde_json::json!({"sent": "#0a84ff", "sent_text": "#ffffff"})
         );
+    }
+
+    /// The Mac's tuning over its picture (ask-a6804c4472, "the transparency"): the window's tint
+    /// loses the glass transparency's share of its alpha, and its color turns by the hue and
+    /// scales by the saturation, as `WindowMaterialView` draws it. The chat's ground over the
+    /// picture takes the same tint.
+    #[test]
+    fn the_macs_tuning_reaches_the_tint_over_its_picture() {
+        let mut current = current_of(&format!(r##"{LINE_HEAD},"look":{{"glass_transparency":0.5}}}}"##));
+        current.terminal = Some(vec!["background = #1e1e2e".into(), "foreground = #cdd6f4".into()]);
+        // No picture: nothing to tint.
+        assert_eq!(current.window(), None);
+        current.wallpaper = Some((wallpaper_info(0.6), Bytes::from_static(b"\xFF\xD8\xFF")));
+        let window = current.window().unwrap();
+        assert!((window.tint_opacity - 0.3).abs() < 1e-9);
+        // Glass alone keeps the colors.
+        assert_eq!(window.background, "#000000");
+        assert_eq!(window.terminal_background.as_deref(), Some("#1e1e2e"));
+        assert!((current.chat().unwrap().background_opacity - 0.3).abs() < 1e-9);
+        let message = current.message();
+        assert_eq!(message["window"]["terminal_background"], "#1e1e2e");
+        // The wallpaper's own tint is still the one the Mac sent.
+        assert_eq!(message["wallpaper"]["tint_opacity"], 0.6);
+    }
+
+    #[test]
+    fn hue_and_saturation_turn_the_tint_as_the_mac_does() {
+        // Identity keeps the color; a half turn makes red cyan; saturation 0 makes it gray.
+        assert_eq!(tuned_color("#ff0000", 0.5, 1.0), "#ff0000");
+        assert_eq!(tuned_color("#ff0000", 1.0, 1.0), "#00ffff");
+        assert_eq!(tuned_color("#ff0000", 0.0, 1.0), "#00ffff");
+        assert_eq!(tuned_color("#ff0000", 0.5 + 1.0 / 3.0, 1.0), "#00ff00");
+        assert_eq!(tuned_color("#cc3333", 0.5, 0.0), "#cccccc");
+        // Saturation over 1 is clamped at full saturation, brightness kept.
+        assert_eq!(tuned_color("#cc6666", 0.5, 2.0), "#cc0000");
+        assert_eq!(tuned_color("#1E1E2E", 0.5, 1.0), "#1e1e2e");
+        assert_eq!(tuned_color("red", 0.7, 1.0), "red");
+        // A Mac at its tuning's identity sends no `window`, the message from before it existed.
+        let mut identity = current_of(&format!(
+            r##"{LINE_HEAD},"look":{{"hue":0.5,"saturation":1,"glass_transparency":0,"chrome_style":"flat"}}}}"##
+        ));
+        identity.wallpaper = Some((wallpaper_info(0.6), Bytes::from_static(b"\xFF\xD8\xFF")));
+        assert!(identity.message().get("window").is_none());
+        assert_eq!(identity.chat().unwrap().background_opacity, 0.6);
+        // A turned hue over a picture: the tint and the chat's ground are the turned color.
+        let mut turned = current_of(&format!(r##"{GHOSTTY_DEFAULT_LINE},"look":{{"hue":1.0}}}}"##));
+        turned.wallpaper = Some((wallpaper_info(0.4), Bytes::from_static(b"\xFF\xD8\xFF")));
+        let window = turned.window().unwrap();
+        assert_eq!(window.background, tuned_color("#282c34", 1.0, 1.0));
+        assert_ne!(window.background, "#282c34");
+        assert_eq!(window.tint_opacity, 0.4);
+        assert_eq!(turned.chat().unwrap().background, window.background);
     }
 }
