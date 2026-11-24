@@ -654,6 +654,71 @@ retries on its own; it never shows "connecting" without a bound for it
 [network requirements](../web/data/next-docs/pages.ts) (cmux.com
 `/docs/nightly/next/network-requirements`).
 
+## Three-way hub (RFD 0142 R6, added 2026-11-24, backward compatible)
+
+One room per agent session where both sources of the session's events, the
+Mac and the AutoCloud VM, upload, and every viewer (the phone, another Mac)
+downloads each event once: whichever source is ahead carries the stream, and
+the other is a warm standby. When the Mac sleeps mid-turn, the VM's copies
+are already the newest and keep flowing with no reconnect.
+
+- **Join:** `GET /v1/hub/:sessionId?deviceId=<id>&role=mac|vm|viewer`, a
+  plain HTTP/1.1 `Upgrade: websocket` with the Stack token, as for the
+  relay. The Worker admits only a device registered to the caller (its own
+  hub, then the database; anyone else gets `403 not_owner`) and a source
+  role only from a Mac-kind device (the VM's daemon registers as one; a
+  phone gets `403 not_a_source`). `400` for a session id or device id that
+  is not a UUID or an unknown role, `503 hub_off` when the Worker's
+  `HUB_RELAY_MODE` is `off`. An older Worker answers `404`.
+- **Capability:** a hub client offers the `cmux-hub.v1` subprotocol and the
+  hub echoes it. A client falls back to its other paths (one link per Mac,
+  the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
+  refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
+  which is what the two-party `LinkRelay`, and so every pre-hub relay,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
+  `relay_error_means_no_hub`). Old clients never ask for the hub, and the
+  relay they use is unchanged.
+- **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
+  session, named by the owner key, build space and session id
+  (`hubRoomName`), never a client value. Hibernating sockets, no storage
+  write per frame. One socket per source role and per viewer device (a
+  newer join closes the older with 4000 `replaced`). On join the socket
+  gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
+  socket hears `{"type":"source","role","online"}` when a source comes or
+  goes (not when a newer socket of the same role replaced it).
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
+  `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
+  checked by the Rust crate and the backend tests. The payload is a 35-byte
+  clear header and a sealed body:
+  `[u8 1][16-byte session][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm]`.
+  The header is all the relay reads; a bad one is `bad_frame:bad_hub`.
+- **Seal (end to end, source to viewer):** XChaCha20-Poly1305 under
+  `BLAKE3 derive_key("cmux relay hub v1 session key", secret || session)`,
+  nonce `[source][to][epoch BE][seq BE][6 zero bytes]`, associated data the
+  clear header, plaintext `[session][epoch BE][seq BE][source][event]`. The
+  relay holds no key that decrypts or authenticates session content; an
+  edit to any header byte, or a header moved onto another body, fails to
+  open (`cmux_transport::hub::{seal, open}`).
+- **Relay rule** (`cmux_transport::hub::HubRelayRule`, the same in
+  `src/hub-relay.ts`): a frame `to` viewers whose `(epoch, seq)` is newer
+  than the highest the room forwarded goes to every viewer once, with
+  `peer` set to the sender's device; an older or equal one is dropped and
+  counted. A frame `to` a source (Mac-to-VM sync when the two have no direct
+  path) goes to that source as is, or the sender hears
+  `{"type":"source","role","online":false}`. A viewer may not send
+  (`bad_hub:viewer`); a source speaks only as its own role
+  (`bad_hub:role`) and for the room's session (`bad_hub:session`); other
+  kinds are `bad_frame:kind`. The high-water mark lives in memory: a wake
+  forgets it, which lets at most one more copy through. `{"type":"stats"}`
+  answers `{"type":"stats","forwarded","dropped"}`.
+- **Viewer** (`cmux_transport::hub_truth::TruthTracker`, sans-io): checks
+  that the clear header equals the sealed triple, delivers events in log
+  order with no duplicates, reports a hole inside an epoch as a `Gap` to
+  fill from the source with the higher head, and flags a `StalePick` when
+  the relay's copy trails the other source's known head by more than the
+  tolerance (4).
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data

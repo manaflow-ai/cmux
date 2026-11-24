@@ -109,12 +109,18 @@ async fn controls_refuses_unknown_kinds_and_cursor_shapes() {
         json!({"kinds": ["sessions"]}),
         json!({"kinds": []}),
         json!({"kinds": ["asks"], "live": true}),
-        json!({"kinds": ["asks"], "extra": 1}),
-        json!({"kinds": ["asks"], "sessionId": "remote/chat"}),
     ] {
         let reply = wire.call(METHOD, params).await;
         assert_eq!(reply["error"]["code"], -32602, "{reply}");
     }
+}
+
+#[tokio::test]
+async fn controls_ignore_fields_a_newer_peer_adds() {
+    let mut wire = Wire::new(hub(true), Origin::Peer);
+    wire.init().await;
+    let reply = wire.call(METHOD, json!({"kinds": ["asks", "ready"], "extra": 1})).await;
+    assert_eq!(reply["result"]["phase"], "snapshot", "{reply}");
 }
 
 #[tokio::test]
