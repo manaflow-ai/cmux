@@ -790,6 +790,13 @@ impl Hub {
         if let Some(id) = carried {
             answer.set("continues", json!(id));
         }
+        // The chat's agent memory goes with it (`memory_follow.rs`).
+        let settings = crate::user_settings::text();
+        let memory =
+            crate::memory_follow::outgoing(settings.as_deref(), &session.meta().session_env);
+        if let Some(memory) = memory {
+            answer.set(crate::memory_follow::MANIFEST_FIELD, memory);
+        }
         if let Some(p) = prefix {
             let named =
                 json!({"prepareId": p.prepare_id, "afterSeq": p.after_seq, "token": p.token});

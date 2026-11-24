@@ -723,6 +723,17 @@ impl Hub {
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         }
+        // Its agent memory follows it (`memory_follow.rs`): after the guard, which clears the
+        // env a bundle brings, the move's own answer says whether the chat had memory.
+        {
+            let path = bundle.join("session.json");
+            let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
+                let mut meta: Value = serde_json::from_slice(&raw)?;
+                crate::memory_follow::apply_to_meta(&mut meta, &manifest);
+                Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
+            });
+            edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+        }
         if let Some(old) = old.as_ref() {
             if let Some(g) = &guard
                 && g.folder(&old.meta().cwd.to_string_lossy()).await.is_none()
