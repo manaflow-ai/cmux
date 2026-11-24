@@ -26,7 +26,11 @@ fn a_chat_is_cold_once_its_cache_lapsed() {
     assert_eq!(coldness(&meta(Some(now - 7), None, big - 1), now), None, "too small to batch");
     assert_eq!(coldness(&meta(None, None, big), now), None, "nothing says when it lapses");
     let ended = now - NO_EXPIRY_TTL_MS - 3;
-    assert_eq!(coldness(&meta(None, Some(ended), bigger), now), Some((3, bigger)), "the default lifetime");
+    assert_eq!(
+        coldness(&meta(None, Some(ended), bigger), now),
+        Some((3, bigger)),
+        "the default lifetime"
+    );
     // A later turn that named no expiry still warmed it.
     assert_eq!(coldness(&meta(Some(now - 100), Some(now - 1), bigger), now), None);
 }
