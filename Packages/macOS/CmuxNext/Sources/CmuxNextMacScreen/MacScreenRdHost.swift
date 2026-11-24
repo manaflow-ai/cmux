@@ -284,7 +284,7 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// Reads the app's windows that ask not to be shared every `CaptureExcludedWindows.recheck` until
     /// cancelled, and calls `changed` with the list at once and on every change, in order.
     /// `from`: the list the receiver already has (it is sent again only once it changes).
-    private static func watchExcludedWindows(from known: Set<CGWindowID>? = nil,
+    static func watchExcludedWindows(from known: Set<CGWindowID>? = nil,
                                              _ changed: @escaping @Sendable (Set<CGWindowID>) -> Void) -> Task<Void, Never> {
         // task-owner: a capture's exclusion watch; cancelled when its session's capture ends
         Task {
