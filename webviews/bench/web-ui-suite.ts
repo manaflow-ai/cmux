@@ -38,7 +38,7 @@ type Bench = {
 
 /// Short arguments; the timeouts of the benches without `ownPart`, with SHARED_BUILDS_CAP_MS for the builds the suite
 /// makes once before them, sum to at most SUITE_CAP_MS (49.5 minutes), under perf-cron.py's 50-minute cap on the suite
-/// (test/web-ui-suite-order.test.ts holds them to it). A bench's timeout covers its measuring, not a cold build. Each timeout is about 1.5x
+/// (test/web-ui-suite-order.test.ts holds them to it; nothing checks it at runtime). A bench's timeout covers its measuring, not a cold build. Each timeout is about 1.5x
 /// or more of what its bench takes on the perf cron's runner (blacksmith-4vcpu), which runs these benches about 1.7x as
 /// long as a fast-checks runner does (the base's ui-stability failed its Chromium launch after 57-59 s there, 30-34 s on
 /// fast-checks runs 43373098960 and 43374947921).
@@ -375,8 +375,10 @@ export const BENCHES: readonly Bench[] = [
 /// fling page in 35 s and the gallery in 66 s, so that runner's three are about 13 minutes.
 export const SHARED_BUILDS_CAP_MS = 1_200_000;
 
-/// What the benches without `ownPart` and the shared builds may take together: perf-cron.py's 50-minute cap on the
-/// web-ui part (LINUX_RUN_SECONDS_BY_PART), less 30 s.
+/// What the benches without `ownPart` and the shared builds may take together at their timeouts: perf-cron.py's
+/// 50-minute cap on the web-ui part (LINUX_RUN_SECONDS_BY_PART), less 30 s. A budget the timeouts are sized to, not a
+/// bound the suite keeps at runtime: test/web-ui-suite-order.test.ts holds the timeouts' sum to it, and perf-cron.py's
+/// cap is what kills a run past it.
 export const SUITE_CAP_MS = 2_970_000;
 
 export type Failure = { bench: string; why: string; tail: string[] };

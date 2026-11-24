@@ -429,14 +429,15 @@ if (import.meta.main) {
     });
     releases.push(() => daemon.stop(true));
     // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
-    const shared = PROFILE ? undefined : sharedPaneDir();
+    const variant = Boolean(PROFILE);
+    const shared = sharedPaneDir({ variant });
     const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "tool-call-burst-bench-"));
     if (!shared) releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
     const { build } = await import("vite");
     if (!shared)
       await build({
         configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-        build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+        build: { outDir: out, emptyOutDir: true, ...(variant ? { minify: false } : {}) },
         logLevel: "error",
       });
     const statics = Bun.serve({

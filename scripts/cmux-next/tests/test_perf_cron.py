@@ -1233,7 +1233,8 @@ class WebUiTests(unittest.TestCase):
                         checked += 1
                         self.assertLess(timeouts[bench] / 1000, cron.linux_run_seconds(part["name"]), (part["name"], bench))
         self.assertGreater(checked, 5)
-        # The default suite (the web-ui part, no --only) stops itself at SUITE_CAP_MS, inside the part's run cap.
+        # The default suite's timeouts and shared builds sum to SUITE_CAP_MS (web-ui-suite-order.test.ts), which must sit
+        # inside the web-ui part's run cap.
         cap = int(cron.re.search(r"export const SUITE_CAP_MS = ([\d_]+);", suite).group(1).replace("_", ""))
         self.assertLess(cap / 1000, cron.linux_run_seconds("web-ui"))
         self.assertEqual(cron.linux_job_minutes("web-ui-flat"), 55)

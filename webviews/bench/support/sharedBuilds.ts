@@ -36,9 +36,11 @@ export function sharedBuildDir(kind: SharedBuildKind, env: NodeJS.ProcessEnv = p
   return dir && fs.existsSync(path.join(dir, SHARED_BUILD_DONE)) ? path.resolve(dir) : undefined;
 }
 
-/// The suite's finished agent pane build, or undefined.
-export function sharedPaneDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return sharedBuildDir("pane", env);
+/// The suite's finished agent pane build, or undefined. A bench passes `variant` true when it builds the pane any
+/// other way than the default (unminified for PROFILE and the like): the shared build is the default one, so such a
+/// run builds its own. Each pane bench computes `variant` once and gives the same flag to its own build.
+export function sharedPaneDir({ variant = false }: { variant?: boolean } = {}, env: NodeJS.ProcessEnv = process.env) {
+  return variant ? undefined : sharedBuildDir("pane", env);
 }
 
 /// The directory name of a page's build under the pages directory (pure): the config and the page path, each

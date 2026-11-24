@@ -397,7 +397,7 @@ if (import.meta.main) {
     });
     releases.push(["stand-in acpmux", () => daemon.stop(true)]);
     // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
-    const shared = sharedPaneDir();
+    const shared = sharedPaneDir({ variant: false }); // its build has no variant
     const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "turn-end-shift-bench-"));
     if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
     const builtAt = performance.now();

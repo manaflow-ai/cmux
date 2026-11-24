@@ -662,7 +662,7 @@ async function main() {
   const traceOut = out ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-traces-"));
   // PROD_DIR=dir takes a pane build already there; under bench/web-ui-suite.ts, the suite's one pane build of the run
   // (bench/support/sharedBuilds.ts).
-  const given = process.env.PROD_DIR ?? sharedPaneDir();
+  const given = process.env.PROD_DIR ?? sharedPaneDir({ variant: false }); // its build has no variant
   const temporary = !given;
   const prod = given ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
   const { events, session } = papercutEvents({ turns, running: false });

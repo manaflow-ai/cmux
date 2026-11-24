@@ -31,6 +31,8 @@ export interface BenchPage {
   url: string;
   /// A dev server serves it (so `--dev` was asked for): every number from it is a dev number.
   dev: boolean;
+  /// It is bench/web-ui-suite.ts's shared build of the page (no build ran for it here).
+  shared?: boolean;
   close: () => Promise<void>;
 }
 
@@ -229,6 +231,7 @@ export async function serveBenchPage(
   return {
     url: `http://127.0.0.1:${statics.port}/${servedAt}${query}`,
     dev: false,
+    shared: Boolean(prebuilt),
     close: async () => {
       await statics.stop(true);
       if (!prebuilt) fs.rmSync(outDir, { recursive: true, force: true });

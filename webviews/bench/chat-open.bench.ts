@@ -260,11 +260,8 @@ try {
   // PANE_OUT=dir keeps the pane's build there and takes one already in it, so a harness that runs the
   // bench many times on one checkout (bench/chat-open-ab.sh) builds each side once.
   // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
-  const keptOut = process.env.PANE_OUT
-    ? path.resolve(process.env.PANE_OUT)
-    : process.env.PROFILE === "1"
-      ? undefined
-      : sharedPaneDir();
+  const variant = process.env.PROFILE === "1";
+  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : sharedPaneDir({ variant });
   const out = keptOut ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
   if (!keptOut) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
@@ -274,7 +271,7 @@ try {
       build: {
         outDir: out,
         emptyOutDir: true,
-        ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
+        ...(variant ? { minify: false, sourcemap: true } : {}),
       },
       logLevel: "error",
     });

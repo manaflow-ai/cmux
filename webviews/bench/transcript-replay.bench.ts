@@ -1073,7 +1073,9 @@ if (import.meta.main) {
       return daemon;
     });
     // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
-    const shared = PROFILE || process.env.PROFILE_BUILD ? undefined : sharedPaneDir();
+    // PROFILE_BUILD keeps the build it made, so it makes its own.
+    const variant = Boolean(PROFILE || process.env.PROFILE_BUILD);
+    const shared = sharedPaneDir({ variant });
     const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
     // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
     if (!shared)

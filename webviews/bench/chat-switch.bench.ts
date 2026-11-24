@@ -315,7 +315,8 @@ try {
   ]);
 
   // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
-  const shared = PROFILE || RENDERS || process.env.HEAP_PROBE ? undefined : sharedPaneDir();
+  const variant = Boolean(PROFILE || RENDERS || process.env.HEAP_PROBE);
+  const shared = sharedPaneDir({ variant });
   const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
   if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
@@ -325,7 +326,7 @@ try {
       build: {
         outDir: out,
         emptyOutDir: true,
-        ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
+        ...(variant ? { minify: false } : {}),
       },
       logLevel: "error",
     });
