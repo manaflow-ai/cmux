@@ -24,7 +24,7 @@ use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSn
 use crate::provider::{
     CMUX_IROH_ALPN, CarrierEvidence, ConnectRequest, IrohPathMode, LengthDelimitedLink, LinkGroup,
     LinkRequest, ProviderCapabilities, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
-    ROUTING_RELAY_URL, SupportedClientAuthModes, TransportProvider, sanitized_route,
+    ROUTING_RELAY_URL, ROUTING_STANDBY, SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
@@ -437,6 +437,56 @@ fn try_pre_auth_admission(
 pub struct IrohProvider {
     config: IrohProviderConfig,
     endpoint: OnceCell<Endpoint>,
+    /// The second socket: warm standbys go on whichever socket does not carry the peer's live
+    /// link. iroh keeps one selected path per peer per endpoint, shared by every connection to
+    /// it, so a standby on the link's endpoint rides the link's path: when that path is
+    /// black-holed, the standby's streams and every new dial wait on it until its 15 s idle
+    /// timeout. Bound on first use, with its own random key (the Noise identity is the
+    /// authority; one key on two sockets would make a relay drop one of them).
+    spare: OnceCell<Endpoint>,
+    carriers: Carriers,
+}
+
+/// One of the provider's two sockets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Socket {
+    Main,
+    Spare,
+}
+
+impl Socket {
+    fn other(self) -> Self {
+        match self {
+            Self::Main => Self::Spare,
+            Self::Spare => Self::Main,
+        }
+    }
+}
+
+/// Which socket carries each peer's live link: the socket of the group that opened a link to
+/// it last. One entry per peer dialed.
+#[derive(Debug, Clone, Default)]
+struct Carriers(Arc<StdMutex<std::collections::HashMap<NodeId, Socket>>>);
+
+impl Carriers {
+    fn of(&self, node: NodeId) -> Socket {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&node)
+            .copied()
+            .unwrap_or(Socket::Main)
+    }
+
+    fn set(&self, node: NodeId, socket: Socket) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(node, socket);
+    }
+
+    /// The socket a dial goes on: the carrier for a link, the other one for a standby.
+    fn for_dial(&self, node: NodeId, standby: bool) -> Socket {
+        let carrier = self.of(node);
+        if standby { carrier.other() } else { carrier }
+    }
 }
 
 impl fmt::Debug for IrohProvider {
@@ -452,11 +502,30 @@ impl fmt::Debug for IrohProvider {
 impl IrohProvider {
     pub fn new(config: IrohProviderConfig) -> Result<Self, ProviderError> {
         validate_config(&config)?;
-        Ok(Self { config, endpoint: OnceCell::new() })
+        Ok(Self {
+            config,
+            endpoint: OnceCell::new(),
+            spare: OnceCell::new(),
+            carriers: Carriers::default(),
+        })
     }
 
     async fn endpoint(&self) -> Result<&Endpoint, ProviderError> {
         self.endpoint.get_or_try_init(|| bind_endpoint(&self.config)).await
+    }
+
+    async fn socket(&self, socket: Socket) -> Result<&Endpoint, ProviderError> {
+        match socket {
+            Socket::Main => self.endpoint().await,
+            Socket::Spare => {
+                self.spare
+                    .get_or_try_init(|| async {
+                        let config = IrohProviderConfig { secret_key: None, ..self.config.clone() };
+                        bind_endpoint(&config).await
+                    })
+                    .await
+            }
+        }
     }
 
     pub async fn local_node_id(&self) -> Result<NodeId, ProviderError> {
@@ -470,6 +539,9 @@ impl IrohProvider {
     /// Gracefully closes the shared endpoint and all groups created by this provider.
     pub async fn close(&self) {
         if let Some(endpoint) = self.endpoint.get() {
+            endpoint.close().await;
+        }
+        if let Some(endpoint) = self.spare.get() {
             endpoint.close().await;
         }
     }
@@ -631,7 +703,9 @@ impl TransportProvider for IrohProvider {
         }
         let remote_node_id = route.node_id();
         let node_addr = route.into_node_addr();
-        let endpoint = self.endpoint().await?.clone();
+        let standby = request.routing.get(ROUTING_STANDBY).is_some_and(|value| value == "1");
+        let socket = self.carriers.for_dial(remote_node_id, standby);
+        let endpoint = self.socket(socket).await?.clone();
         let connection = connect_iroh_for_path_mode(
             &endpoint,
             &node_addr,
@@ -653,6 +727,8 @@ impl TransportProvider for IrohProvider {
             evidence: CarrierEvidence::Iroh { endpoint_id: remote_node_id.to_string() },
             maximum_frame_bytes: self.config.maximum_frame_bytes,
             closed: AtomicBool::new(false),
+            socket,
+            carriers: self.carriers.clone(),
         }))
     }
 }
@@ -1018,6 +1094,9 @@ struct IrohLinkGroup {
     evidence: CarrierEvidence,
     maximum_frame_bytes: usize,
     closed: AtomicBool,
+    /// The provider socket `endpoint` is; a link opened here makes it the peer's carrier.
+    socket: Socket,
+    carriers: Carriers,
 }
 
 fn iroh_transport_snapshot(
@@ -1130,6 +1209,7 @@ impl LinkGroup for IrohLinkGroup {
                 }
             }
         };
+        self.carriers.set(self.node_addr.id, self.socket);
         Ok(Box::new(LengthDelimitedLink::new(
             format!("{}:{}:{}", self.description, request.lane, request.generation),
             self.maximum_frame_bytes,

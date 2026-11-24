@@ -119,6 +119,12 @@ impl ProviderCapabilities {
     };
 }
 
+/// Routing hint (local, never sent) marking a dial as a warm standby: a provider whose groups
+/// share per-peer path state (iroh keeps one selected path per peer per endpoint) dials it on a
+/// socket apart from the one carrying the peer's live link, so a path that dies under the link
+/// is not the standby's too. Value `1`; providers without shared state ignore it.
+pub const ROUTING_STANDBY: &str = "cmux_standby";
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConnectRequest {
     pub endpoint: Url,

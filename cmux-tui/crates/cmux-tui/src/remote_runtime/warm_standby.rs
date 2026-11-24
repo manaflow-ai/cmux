@@ -37,9 +37,11 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use super::route_race::RouteRace;
-use super::{ReconnectRouteAttempt, ResolvedRouteCandidate, connect_request, next_reconnect_route};
+use super::{
+    ReconnectRouteAttempt, ResolvedRouteCandidate, connect_request, next_reconnect_route_skipping,
+};
 use cmux_remote::crypto::AuthKind;
-use cmux_remote::provider::ProviderError;
+use cmux_remote::provider::{ProviderError, ROUTING_STANDBY};
 use cmux_remote_protocol::{LanePolicy, SessionId};
 
 /// How long a standby is trusted. Under the daemon's 15 s close of a connection that opened
@@ -79,6 +81,10 @@ pub(crate) fn attempt_timeout(rtt: Option<Duration>) -> Duration {
 /// The first wait after a failed arm; it doubles up to [`MAX_BACKOFF`].
 pub(crate) const INITIAL_BACKOFF: Duration = Duration::from_secs(2);
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// How long the route a standby was taken from is not a standby again: past iroh's 15 s path
+/// idle timeout, the most a dead path is held for, so a standby armed after it finds the route
+/// as it is now. Before it the keeper holds no standby rather than one on the dead route.
+pub(crate) const FAILED_ROUTE_COOLDOWN: Duration = Duration::from_secs(20);
 
 /// `CMUX_REMOTE_WARM_STANDBY=0` keeps no standby (the A/B for its numbers).
 pub(crate) fn warm_standby_enabled() -> bool {
@@ -101,6 +107,17 @@ pub(crate) struct WarmStandby<T> {
     wake: Arc<Notify>,
     /// The far end answered no hold once: later standbys of this peer do not ask again.
     no_hold: AtomicBool,
+    /// The route the link was on when its standby was taken, and when: no standby goes there
+    /// for [`FAILED_ROUTE_COOLDOWN`], and the next reconnect pass skips it once.
+    failed: Mutex<Option<FailedRoute>>,
+}
+
+#[derive(Clone, Copy)]
+struct FailedRoute {
+    index: usize,
+    at: Instant,
+    /// The reconnect pass started behind the standby has skipped it.
+    raced: bool,
 }
 
 impl<T> WarmStandby<T> {
@@ -110,6 +127,7 @@ impl<T> WarmStandby<T> {
             active: AtomicUsize::new(active),
             wake: Arc::default(),
             no_hold: AtomicBool::new(false),
+            failed: Mutex::new(None),
         }
     }
 
@@ -120,6 +138,32 @@ impl<T> WarmStandby<T> {
 
     fn set_active(&self, index: usize) {
         self.active.store(index, Ordering::Relaxed);
+    }
+
+    /// The link moved off its route to the standby on `index`: that route failed.
+    fn took(&self, index: usize) {
+        let failed = self.active.swap(index, Ordering::Relaxed);
+        let mut slot = self.failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = (failed != index).then(|| FailedRoute { index: failed, at: Instant::now(), raced: false });
+    }
+
+    /// The failed route while it cools down, and how long it has left.
+    fn cooling(&self) -> Option<(usize, Duration)> {
+        let slot = self.failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.and_then(|failed| {
+            FAILED_ROUTE_COOLDOWN
+                .checked_sub(failed.at.elapsed())
+                .filter(|left| !left.is_zero())
+                .map(|left| (failed.index, left))
+        })
+    }
+
+    /// The failed route for the first reconnect pass after a take to skip (once).
+    fn skip_once(&self) -> Option<usize> {
+        let mut slot = self.failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let failed = slot.as_mut().filter(|failed| !failed.raced)?;
+        failed.raced = true;
+        Some(failed.index)
     }
 
     /// The held standby, when it is fresh and `alive` says its group has not closed. A stale or
@@ -174,11 +218,13 @@ impl<T> Drop for WarmStandby<T> {
 }
 
 /// The route the standby goes on: the one the reconnect pass would try first, that is not the
-/// active one. Relay routes are skipped (`relay_standby.rs` is theirs).
+/// active one nor `failed` (the route a standby was just taken from). Relay routes are skipped
+/// (`relay_standby.rs` is theirs).
 pub(crate) fn standby_route(
     routes: &[ResolvedRouteCandidate],
     next: usize,
     active: usize,
+    failed: Option<usize>,
     auth: AuthKind,
 ) -> Option<usize> {
     let len = routes.len();
@@ -187,6 +233,7 @@ pub(crate) fn standby_route(
     }
     (0..len).map(|offset| (next % len + offset) % len).find(|&index| {
         index != active
+            && Some(index) != failed
             && routes.get(index).is_some_and(|route| {
                 route.supports_client_auth(auth) && !route.endpoint.scheme().starts_with("relay+")
             })
@@ -201,6 +248,8 @@ pub(crate) enum Armed<T> {
     Dialed { retired: Option<T> },
     /// No route can be a standby (a single route, or none supports the auth).
     NoRoute,
+    /// The only other route is the one that just failed: look again after this long.
+    Cooling(Duration),
 }
 
 /// Fills the slot if it is empty, closed (`alive` false) or due its replacement. A new standby
@@ -219,17 +268,22 @@ pub(crate) async fn arm_standby<T: Send + Clone, H: Future<Output = Option<Durat
     if let Some(left) = standby.refresh_in(&alive).filter(|left| !left.is_zero()) {
         return Ok(Armed::Held(left));
     }
-    let Some(index) = standby_route(
-        routes,
-        next.load(Ordering::Relaxed),
-        standby.active.load(Ordering::Relaxed),
-        auth,
-    ) else {
-        return Ok(Armed::NoRoute);
+    let next = next.load(Ordering::Relaxed);
+    let active = standby.active.load(Ordering::Relaxed);
+    let cooling = standby.cooling();
+    let Some(index) = standby_route(routes, next, active, cooling.map(|(index, _)| index), auth)
+    else {
+        return Ok(match cooling {
+            Some((_, left)) if standby_route(routes, next, active, None, auth).is_some() => {
+                Armed::Cooling(left)
+            }
+            _ => Armed::NoRoute,
+        });
     };
     let Some(route) = routes.get(index) else { return Ok(Armed::NoRoute) };
-    let request = connect_request(route, session, lane_policy)
+    let mut request = connect_request(route, session, lane_policy)
         .map_err(|error| ProviderError::Configuration(error.to_string()))?;
+    request.routing.insert(ROUTING_STANDBY.into(), "1".into());
     let group = attempt.connect(index, request, auth).await?;
     let dialed_at = Instant::now();
     let lease =
@@ -255,7 +309,7 @@ pub(crate) fn take_standby<T>(
     let taken = standby.take(alive)?;
     if let Ok((index, _)) = &taken {
         next.store(*index, Ordering::Relaxed);
-        standby.set_active(*index);
+        standby.took(*index);
     }
     standby.wake.notify_one();
     Some(taken)
@@ -280,15 +334,17 @@ pub(crate) async fn next_warm_route<T: Send>(
     match standby.take(alive) {
         Some(Ok((index, group))) => {
             next.store(index.saturating_add(1), Ordering::Relaxed);
-            standby.set_active(index);
+            standby.took(index);
             standby.wake.notify_one();
             return Ok((group, None));
         }
         Some(Err(old)) => stale = Some(old),
         None => {}
     }
+    let skip = standby.skip_once();
     let group =
-        next_reconnect_route(next, routes, race, session, lane_policy, auth, attempt).await?;
+        next_reconnect_route_skipping(next, routes, skip, race, session, lane_policy, auth, attempt)
+            .await?;
     let len = routes.len().max(1);
     standby.set_active((next.load(Ordering::Relaxed) + len - 1) % len);
     standby.wake.notify_one();

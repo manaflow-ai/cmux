@@ -1177,7 +1177,9 @@ impl ClientConnection {
             if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
                 return Err(ConnectionError::ReconnectDeadlineExceeded { attempts: attempt });
             }
+            let bt_token = std::time::Instant::now();
             self.spend_redial_token(recovery_deadline, attempt, close_state).await?;
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() { eprintln!("bench-trace {:?} token waited {}ms", std::time::SystemTime::now(), bt_token.elapsed().as_millis()); }
             attempt = attempt.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.set_diagnostics_state(ConnectionState::Reconnecting);
@@ -1193,6 +1195,7 @@ impl ClientConnection {
                 .min(policy.attempt_timeout);
             let attempt_timeout = remaining(attempt_bound);
             let attempt_started = tokio::time::Instant::now();
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() { eprintln!("bench-trace {:?} attempt {attempt} start standby={} bound={}ms group={}", std::time::SystemTime::now(), standby.is_some(), attempt_timeout.as_millis(), standby.as_ref().map_or_else(|| group.description().to_owned(), |s| s.group.description().to_owned())); }
             let attempt_group =
                 standby.as_ref().map_or_else(|| group.clone(), |standby| standby.group.clone());
             let behind_at = standby
@@ -1252,6 +1255,7 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() { eprintln!("bench-trace {:?} attempt {attempt} took {}ms raced={:?}: {:?}", std::time::SystemTime::now(), attempt_started.elapsed().as_millis(), raced.as_ref().map(|r| r.is_some()), result.as_ref().map(|_| ()).map_err(ToString::to_string)); }
             report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
@@ -1311,6 +1315,7 @@ impl ClientConnection {
                                 }
                             } => next,
                         };
+                        if std::env::var_os("CMUX_BENCH_TRACE").is_some() { eprintln!("bench-trace {:?} discovery after attempt {attempt}: {}", std::time::SystemTime::now(), next.is_some()); }
                         if let Some(next) = next {
                             group = next;
                         }

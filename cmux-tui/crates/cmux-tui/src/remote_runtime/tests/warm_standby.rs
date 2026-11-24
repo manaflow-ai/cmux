@@ -118,16 +118,16 @@ async fn reconnect(
 #[tokio::test(start_paused = true)]
 async fn the_standby_goes_on_the_next_route_that_is_not_the_active_one() {
     let mut routes = three_routes();
-    assert_eq!(standby_route(&routes, 1, 0, AuthKind::Enrolled), Some(1));
-    assert_eq!(standby_route(&routes, 0, 2, AuthKind::Enrolled), Some(0));
+    assert_eq!(standby_route(&routes, 1, 0, None, AuthKind::Enrolled), Some(1));
+    assert_eq!(standby_route(&routes, 0, 2, None, AuthKind::Enrolled), Some(0));
     // A relay route keeps its own standby; the next one is the standby.
     routes[1] = test_route("relay+wss://relay.example/v1/relay");
-    assert_eq!(standby_route(&routes, 1, 0, AuthKind::Enrolled), Some(2));
+    assert_eq!(standby_route(&routes, 1, 0, None, AuthKind::Enrolled), Some(2));
     // One route has none; routes that cannot carry the auth are not standbys (wss is
     // device-only, so under carrier auth nothing is).
-    assert_eq!(standby_route(&routes[..1], 1, 0, AuthKind::Enrolled), None);
-    assert_eq!(standby_route(&three_routes(), 1, 0, AuthKind::Carrier), None);
-    assert_eq!(standby_route(&[], 0, 0, AuthKind::Enrolled), None);
+    assert_eq!(standby_route(&routes[..1], 1, 0, None, AuthKind::Enrolled), None);
+    assert_eq!(standby_route(&three_routes(), 1, 0, None, AuthKind::Carrier), None);
+    assert_eq!(standby_route(&[], 0, 0, None, AuthKind::Enrolled), None);
 }
 
 /// The point: a reconnect that finds a standby dials nothing and takes no time; without one it
