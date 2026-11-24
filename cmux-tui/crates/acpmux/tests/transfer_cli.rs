@@ -227,6 +227,8 @@ mod composer_attachments;
 mod move_matrix;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_as.rs"]
+mod session_move_as;
 
 #[path = "transfer_cli/session_move_ask.rs"]
 mod session_move_ask;
