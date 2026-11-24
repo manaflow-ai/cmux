@@ -58,7 +58,8 @@ public protocol FirstRunChoicesSource: AnyObject {
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
 /// background. No theme row: windows follow macOS's light or dark mode, and cmux has no setting of its own for it. Short on purpose: three rows, each already on the recommended answer, so Continue alone is a
-/// good setup. Every pick is written at once (the window behind shows it); Skip keeps what is set.
+/// good setup. Every pick is written at once (the window behind shows it); Skip puts back what was set when the step
+/// opened (`revert()`).
 @MainActor
 @Observable
 public final class MakeItYoursStepModel {
@@ -69,6 +70,8 @@ public final class MakeItYoursStepModel {
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
+    /// The choices the step first read: what Skip writes back.
+    @ObservationIgnored private var opened: FirstRunChoices?
 
     public init(source: (any FirstRunChoicesSource)?) {
         self.source = source
@@ -81,6 +84,7 @@ public final class MakeItYoursStepModel {
             return
         }
         choices = source.currentChoices()
+        if opened == nil { opened = choices }
         read?.cancel()
         // task-owner: one read of the built-in backgrounds' previews; stop() cancels it.
         read = Task { [weak self] in
@@ -105,6 +109,13 @@ public final class MakeItYoursStepModel {
         guard id == nil || backgrounds.contains(where: { $0.id == id }) else { return false }
         update { $0.background = id }
         return true
+    }
+
+    /// Skip: writes back what was set when the step opened, in one change, so the person keeps their
+    /// settings. Nothing picked: nothing written.
+    public func revert() {
+        guard let opened else { return }
+        update { $0 = opened }
     }
 
     private func update(_ change: (inout FirstRunChoices) -> Void) {
