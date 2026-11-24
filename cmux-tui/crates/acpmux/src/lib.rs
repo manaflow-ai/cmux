@@ -76,6 +76,7 @@ mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
+mod codex_signed_out;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -265,6 +266,7 @@ pub mod race_records;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -306,6 +308,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
@@ -340,6 +343,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;

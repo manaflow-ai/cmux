@@ -37,7 +37,7 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
-import { toolOfHref } from "./toolMentions";
+import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
 import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
@@ -104,6 +104,7 @@ function draftLinkTitles(): DeeplinkTitles {
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
     icon: (info) =>
       info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
+    image: (info) => (info.tool ? TOOL_MENTIONS.find((tool) => tool.icon === info.tool)?.image : undefined),
   };
 }
 

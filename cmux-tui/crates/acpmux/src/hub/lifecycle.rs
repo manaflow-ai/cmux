@@ -928,7 +928,7 @@ impl Hub {
             // outlived the stop. It reopens for this request, ready.
             if session.status() == SessionStatus::Closed {
                 self.reopen_to_start(session, stops)?;
-                self.set_status(session, SessionStatus::Ready);
+                self.set_status(session, NotWaiting::Ready);
             }
             return Ok(child);
         }
@@ -1173,7 +1173,7 @@ impl Hub {
         }
         session.loading.store(false, Ordering::SeqCst);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
         }
     }
 
@@ -1258,6 +1258,13 @@ impl Hub {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
         let meta = session.meta();
+        // Its requests say interactive (the person's chat, a coordinator) or background
+        // (subrouter_priority.rs), so the gateways keep a share for the chats Leo talks to.
+        let for_person = super::host_level::made_for_a_person(
+            meta.created_by.as_ref(),
+            session.person.load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let profile = &crate::subrouter_priority::profile_with(profile, &meta.name, for_person);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
@@ -1632,7 +1639,7 @@ impl Hub {
                 self.stop_started_agent(session, false, "policy_refused", record).await;
                 return Err(e);
             }
-            self.set_status(session, SessionStatus::Ready);
+            self.set_status(session, NotWaiting::Ready);
             self.note_launch(session, &child);
             self.note_start_level(session, &child, true);
             self.save_meta(session);
@@ -1743,7 +1750,7 @@ impl Hub {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
         self.note_start_level(session, &child, true);
         self.save_meta(session);
