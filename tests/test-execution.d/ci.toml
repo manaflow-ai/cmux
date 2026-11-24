@@ -868,6 +868,11 @@ path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_test_lifecycle.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_test_lifecycle.py"
+
+[[test]]
 path = "tests/test_ci_test_touches_diff.py"
 lane = "linux-guard"
 

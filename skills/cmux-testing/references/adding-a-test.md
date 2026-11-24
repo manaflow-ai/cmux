@@ -6,6 +6,24 @@ jobs, gates or CI-only tests (root [AGENTS.md](../../../AGENTS.md)). The one fil
 to touch is the Python lane registry (below). A test that sits where the map can see it runs
 on the pull requests that can break it.
 
+## Give every new test a category
+
+Leo, 2026-11-22: "we need to get rid of the notion that we run tests indefinitely after they get created. full
+stop." A new test file carries one line in its first 40 lines (`//` in TypeScript, `#` in Python and shell),
+and the fast gates' `test categories` lint (`scripts/ci/test_lifecycle.py lint`) fails a new file without it:
+
+| Category | Line | When it runs |
+| --- | --- | --- |
+| proof: it showed this change's behaviour once | `// test-category: proof owner=YOUR-LANE review-by=YYYY-MM-DD` (at most 90 days out) | only on pull requests that touch the test or a file it imports; never on pushes; after review-by, in the nightly sample, until the sweep deletes or promotes it |
+| guard: a real invariant or a past bug | `// test-category: guard why=WHAT IT PROTECTS` (an issue, an incident, a rule) | every push and every pull request it is affected by |
+| contract: an API, protocol or file format | `// test-category: contract why=WHICH CONTRACT` | as a guard |
+
+Most tests written to show a change works are proofs; say guard only when you can name what breaks without it.
+Never write a test that cannot fail: one that asserts a mock returns what it was given, reads a source file and
+checks the code you just wrote is there, or asserts nothing. The nightly sweep (cmuxterm-hq
+`docs/design/test-lifecycle.md`) mutates the code under test and deletes the tests that still pass. Older files
+without a line take their entry in `webviews/test-categories.json`, else run as guards.
+
 ## Where a test goes, and what picks it up
 
 | Kind | Put it in | It runs when a change touches |
