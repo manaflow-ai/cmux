@@ -28,8 +28,8 @@ import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
-import type { BrowseRequest } from "../AddProjectPanel";
 import { chooseRemoteFolder, RemoteFolderChooser } from "../RemoteFolderChooser";
+import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
@@ -46,7 +46,8 @@ import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
-import { cloudStartFolder, cloudPickExtras, composerCloudStartFolder } from "../cloudRun";
+import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
+import { cloneRepository } from "../startFolderModel";
 import { repickCloudChat, type RepickMachine } from "../cloudRepick";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
@@ -66,6 +67,8 @@ import { chooseChatFolder } from "../missingFolderModel";
 import { ManagedBanner } from "../ManagedBanner";
 import { PaneNotices } from "../PaneNotices";
 import { PlanScopeDriftNotice } from "../PlanScopeDriftNotice";
+import { ComputerUseSetupNotice } from "../computerUse/ComputerUseSetupNotice";
+import type { ComputerUseHold, ComputerUsePlace } from "../computerUse/computerUseState";
 import { bridgeGone } from "../watchBannerModel";
 import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../cmuxCommands";
 import { heldSendNotice } from "../sendFailure";
@@ -113,6 +116,7 @@ import type { FileSearchSource } from "../fileSearchModel";
 import type { ComposerPlusExtension, CaptureMode } from "../composerPlusRegistry";
 import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
+import { commandPlace } from "../commandPlace";
 
 /// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
 const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
@@ -267,6 +271,14 @@ export type PaneComposerDeps = {
   commandState: (fresh: boolean) => Parameters<typeof cmuxCommandRefusal>[2];
   harnessSwitch: HarnessSwitch;
   projectDraft: string | undefined;
+  cloudSourceWaiting: boolean;
+  setCloudSourceWaiting(waiting: boolean): void;
+  cloudSourcePick(cwd: string | undefined): string | undefined;
+  checkedOutGitHub: { cwd: string; name: string } | undefined;
+  cloningGitHub: string | undefined;
+  clearProject(): void;
+  openEmptyProject: (() => void) | undefined;
+  pickSourceProject(cwd: string, peer?: string): Promise<void>;
   cloudPicked: boolean;
   cloudWakeChat: string | undefined;
   cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -364,6 +376,15 @@ export type PaneComposerDeps = {
   authPreflightPending: boolean;
   composerMic: React.JSX.Element;
   importFile: (file: File) => Promise<void>;
+  /// The Computer Use setup notice a held `@computer-use` send raised (undefined while none shows).
+  computerUseAsk: ComputerUseHold | undefined;
+  /// Where the held send that raised it was going: the notice shows (and its Set Up opens setup) only
+  /// while this composer still sends there, never after a switch to Cloud or another machine.
+  computerUseAsked: ComputerUsePlace | undefined;
+  setUpComputerUse: () => void;
+  setComputerUseAsked: React.Dispatch<React.SetStateAction<ComputerUsePlace | undefined>>;
+  /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
+  holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean;
 };
 
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
@@ -481,6 +502,14 @@ export function drawPaneComposer({
   commandState,
   harnessSwitch,
   projectDraft,
+  cloudSourceWaiting,
+  setCloudSourceWaiting,
+  cloudSourcePick,
+  checkedOutGitHub,
+  cloningGitHub,
+  clearProject,
+  openEmptyProject,
+  pickSourceProject,
   cloudPicked,
   cloudWakeChat,
   cloudRecovery,
@@ -562,7 +591,32 @@ export function drawPaneComposer({
   authPreflightPending,
   composerMic,
   importFile,
+  computerUseAsk,
+  computerUseAsked,
+  setUpComputerUse,
+  setComputerUseAsked,
+  holdsForComputerUseSetup,
 }: PaneComposerDeps) {
+  // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
+  // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
+  // tools, #48541), so its send is held too, and the chat says so.
+  // A fresh chat on another machine has no summary yet: `startsElsewhere` (its connection's origin) says so.
+  const computerUsePlace: ComputerUsePlace =
+    cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud" || snapshot.startsOnCloud
+      ? "cloud"
+      : snapshot.summary?.host || machinePeer || snapshot.summary?.peer || startsElsewhere
+        ? "machine"
+        : "here";
+  // `/side --on cloud …` goes to a Cloud chat whatever this chat is: held as a Cloud send, with the
+  // Cloud notice, never this Mac's setup (commandPlace.ts reads the `--on` the command handler reads).
+  const sendPlace = (text: string): ComputerUsePlace => {
+    // Read without the attachments placed in the text (U+FFFC tokens), as the command's dispatch reads it.
+    const words = text.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, "").trim();
+    const side = /^\/side(?:\s+([\s\S]*))?$/i.exec(words);
+    const placed = side ? commandPlace(side[1]) : undefined;
+    return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
+  };
+  const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return (
     (readOnlySubagent || !reviewing) && (
       <>
@@ -579,6 +633,15 @@ export function drawPaneComposer({
         {!readOnlySubagent && (
           <>
             <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
+            <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
+              {shownComputerUseAsk && (
+                <ComputerUseSetupNotice
+                  hold={shownComputerUseAsk}
+                  onSetUp={setUpComputerUse}
+                  onDismiss={() => setComputerUseAsked(undefined)}
+                />
+              )}
+            </Notice>
             <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
               <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
             </Notice>
@@ -916,22 +979,26 @@ export function drawPaneComposer({
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
+            // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
+            // gesture opens the setup page; onSend checks again for a send that waited for its files.
+            holdsSend={(text, late) => holdsForComputerUseSetup(text, false, sendPlace(text), !late)}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
-              if (authBlock) return false;
+              if (authBlock || cloningGitHub) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
+              // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
+              if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
+              setComputerUseAsked(undefined);
               if (cloudPicked) {
-                // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
-                // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
+                if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
-                const folder =
-                  once ??
-                  (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
+                const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 const held = heldPick(composerSnapshot);
@@ -1283,6 +1350,16 @@ export function drawPaneComposer({
               return removed;
             }}
             onQueueChange={(promptId, edit) => {
+              // An edit that adds `@computer-use` while Computer Use is not ready is refused as a send is: the
+              // queued prompt keeps its old text and the editor keeps the edit (CMUX-682).
+              // A typed refusal (not "refused by acpmux"): the queue editor opens again with the edit.
+              if (edit.op === "update" && holdsForComputerUseSetup(edit.text, false, computerUsePlace))
+                return Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }));
+              // Send Now runs the queued text at once: held as a send is, the row stays queued.
+              if (edit.op === "send_now") {
+                const queued = snapshot.queue.find((entry) => entry.id === promptId)?.prompt;
+                if (queued && holdsForComputerUseSetup(queued, false, computerUsePlace)) return Promise.resolve(false);
+              }
               // A held prompt's text and images change in the pane; nothing else applies to it.
               if (trustHeld.has(promptId)) {
                 trustHeld.edit(promptId, edit);
@@ -1305,6 +1382,8 @@ export function drawPaneComposer({
                 opensSideSessions && !isSideSession && snapshot.sessionId
                   ? async (promptId, prompt) => {
                       const sessionId = snapshot.sessionId!;
+                      // A side chat on this Mac runs the text as a send: held before the row leaves the queue.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace)) return false;
                       // A row still waiting for the chat to take it leaves here; one with images stays,
                       // as a side chat asks the text alone.
                       const local = startingSends.rows.find((row) => row.id === promptId);
@@ -1321,6 +1400,12 @@ export function drawPaneComposer({
                         console.warn("agent pane: the side session did not start", error);
                         setBtwFailure({ sessionId, reason: knownRefusalText(error) ?? "" });
                       };
+                      // Asked again once the row left the queue (the removal awaited): it holds and says
+                      // why, and the text comes back to the composer.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace, false)) {
+                        composerHandle.current?.restore(prompt, []);
+                        return false;
+                      }
                       callNative<string>("chat.btw", { question: prompt }).then(
                         (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
                         (error: unknown) => {
@@ -1333,7 +1418,7 @@ export function drawPaneComposer({
                   : undefined)
             }
             queueImage={readQueuedImage}
-            onProject={chooseProject}
+            onProject={pickSourceProject}
             // A machine with no folder known here: the new chat starts there, in its default folder.
             onComputer={(computer) => {
               // Switching away from an explicitly selected Cloud machine must not leave a stale
@@ -1350,6 +1435,15 @@ export function drawPaneComposer({
             // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
             // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
             onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
+            onCloneRepository={
+              freshChat && !quick && !remoteChat ? (url) => cloneRepository(callNative, url) : undefined
+            }
+            onNewProject={openEmptyProject}
+            noProject={projectDraft === ""}
+            sourceRepository={checkedOutGitHub}
+            onCloudFolderWaiting={setCloudSourceWaiting}
+            cloningRepository={cloningGitHub}
+            onNoProject={freshChat ? clearProject : undefined}
             // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
             // there is none), then the chat's worktree of it.
             {...(freshChat && !quick
@@ -1385,11 +1479,6 @@ export function drawPaneComposer({
                   extraFolders: {
                     draft: extraFolderDraft,
                     onChange: setExtraFolderDraft,
-                    ...(remoteChat
-                      ? {}
-                      : {
-                          onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
-                        }),
                   },
                 }
               : {})}
@@ -1468,7 +1557,13 @@ export function drawPaneComposer({
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
             // A new chat on another machine holds Send while its agent is not set up there.
-            blockSend={blockSend || cloudSendHeld || machineCheck.blocked}
+            blockSend={
+              blockSend ||
+              cloudSendHeld ||
+              Boolean(cloningGitHub) ||
+              (cloudPicked && cloudSourceWaiting) ||
+              machineCheck.blocked
+            }
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
