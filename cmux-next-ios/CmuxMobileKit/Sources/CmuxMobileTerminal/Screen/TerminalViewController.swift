@@ -1309,6 +1309,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
+        #if DEBUG
+        // Counted so a typing test can show a keystroke sends the Mac no resize (ComposerTypingLagUITests).
+        InputLatencyTrace.shared?.sample("terminal_resize_sent", ms: 0)
+        #endif
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
@@ -1350,6 +1354,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// size is measured again, and the page's insets follow in this pass.
     func composerCardHeightChanged(_ height: CGFloat) {
         guard let host = composerHost else { return }
+        #if DEBUG
+        // Counted: a keystroke that keeps the line count relays out nothing here (ComposerTypingLagUITests).
+        InputLatencyTrace.shared?.sample("terminal_composer_relayout", ms: 0)
+        #endif
         host.view.invalidateIntrinsicContentSize()
         host.view.setNeedsLayout()
         view.setNeedsLayout()
