@@ -173,6 +173,11 @@ async fn a_connection_that_draws_no_breakdown_gets_none_in_its_attach_or_rows() 
     let omit = json!({"_meta": {"acpmux": {"omitTimeBreakdown": true}}});
     let mut phone = Client::connect_with(&hub, omit).await;
     let mut pane = Client::connect(&hub).await;
+    // Rows go to watchers (`server/mod.rs` fan-out): the phone and the pane both watch.
+    for client in [&mut phone, &mut pane] {
+        let (_, watch) = client.call(method::MUX_WATCH, json!({"enabled": true})).await;
+        assert!(watch.get("error").is_none(), "{watch}");
+    }
     let open = json!({"sessionId": ID, "limit": 400, "eventStream": true});
     let (_, first) = pane.call(method::MUX_ATTACH, open.clone()).await;
     assert!(first.get("error").is_none(), "{first}");
@@ -209,7 +214,7 @@ async fn a_connection_that_draws_no_breakdown_gets_none_in_its_attach_or_rows() 
                 let line = client.outgoing.recv().await.expect("connection remains open");
                 let v: Value = serde_json::from_str(&line).unwrap();
                 if v["method"] == method::MUX_SESSION_CHANGED
-                    && v.pointer("/params/session/id") == Some(&json!(ID))
+                    && v["params"]["sessionId"] == json!(ID)
                 {
                     rows += 1;
                     with += usize::from(v["params"]["session"].get("timeBreakdown").is_some());
