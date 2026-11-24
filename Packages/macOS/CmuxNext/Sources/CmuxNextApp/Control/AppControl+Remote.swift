@@ -60,7 +60,8 @@ extension AppControl {
     }
 
     @MainActor private static func machineRows(_ services: AppServices) -> JSONValue {
-        let rows = MachineSectionRow.rows(services.machines, health: services.machineHealth, joined: services.joinedMachines), rules = SidebarBridgeRules()
+        let rows = MachineSectionRow.rows(services.machines, health: services.machineHealth, joined: services.joinedMachines,
+                                          signedIn: services.serverReach.signedIn.joinedByMachine), rules = SidebarBridgeRules()
         return ["machines": .array(rows.map { $0.automationJSON(linkState: rules.rowLink(connected: $0.isConnected, connecting: $0.isConnecting,
                                                                                          serverState: $0.serverState?.rawValue)?.rawValue) })]
     }

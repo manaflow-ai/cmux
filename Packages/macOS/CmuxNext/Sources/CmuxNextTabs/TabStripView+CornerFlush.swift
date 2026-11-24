@@ -32,8 +32,9 @@ extension TabStripView: TabStripCorner {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
         // A strip inside the card (a lower split pane's) runs into its pane's content too while the top row's
         // tabs are folders (``setTonedInCard(_:)``), on its own toned row, so every selected tab joins the content.
+        // `appearance.tabShape` rounded keeps every selected tab a capsule on its row, never a folder.
         let runsDown = isPaneTabRow && (runsIntoCard || tonedInCard) && CornerFlush.current.isOn
-            && DesignSettings.shared.tabBarPosition != .bottom
+            && DesignSettings.shared.tabBarPosition != .bottom && DesignSettings.shared.tabShape.runsIntoCard
         let foot = runsDown ? max(0, bounds.height - (tabY + tabHeight)) : 0
         for cell in cells.values { cell.cornerFoot = foot }
         reportCornerLead()
@@ -70,8 +71,10 @@ extension TabStripView: TabStripCorner {
         // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
         // The weight follows `appearance.borders` (`Borders.width`), so a change of it redraws.
         let weight = Metrics.lineWidth(Metrics.dividerThickness)
+        // No divider over a toolbar that meets the tabs (``meetsToolbar``): the tabs and the omnibar are one surface.
+        let lined = strength > 0 && !meetsToolbar
         let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength,
-                                ink: ink, weight: weight)
+                                ink: ink, weight: weight, lined: lined)
         guard key != inCardToneDrawn else { return }
         inCardToneDrawn = key
         CATransaction.begin()
@@ -87,7 +90,7 @@ extension TabStripView: TabStripCorner {
         }
         tone.shade.path = shade
         tone.shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
-        tone.divider.path = strength > 0 ? line : nil
+        tone.divider.path = lined ? line : nil
         tone.divider.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 
@@ -147,4 +150,5 @@ struct InCardToneKey: Equatable {
     var strength: CGFloat
     var ink: NSColor
     var weight: CGFloat
+    var lined: Bool
 }

@@ -247,16 +247,48 @@ impl Brain {
             }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor a task that later runs as the Chief's own note: an ask
+            // turn may only list the automations.
+            "mcp__optchat__automation" => {
+                return field("action").is_none_or(|a| a == "list");
+            }
+            // Nor read or write a note about the owner: another person's
+            // turn keeps loops only.
+            "mcp__optchat__memory_read"
+            | "mcp__optchat__memory_write"
+            | "mcp__optchat__memory_forget" => {
+                return field("path").is_some_and(|p| p.trim().starts_with("loops/"));
+            }
+            // Nor search the owner's whole chat word for word.
+            "mcp__optchat__recall" => return false,
+            // Nor change the owner's wake settings or set wakes for them;
+            // ending the turn with nothing is fine.
+            // (nor read them: they hold the owner's notes).
+            "mcp__optchat__check_ins"
+            | "mcp__optchat__follow_up"
+            | "mcp__optchat__follow_ups"
+            | "mcp__optchat__ask" => return false,
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.
             "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
             // Nor add servers or call tools with the owner's accounts: only look.
             "mcp__optchat__mcp" => {
-                return matches!(
-                    field("action").unwrap_or("list"),
+                let action = field("action").unwrap_or("list");
+                if matches!(
+                    action,
                     "list" | "servers" | "search" | "describe" | "tasks" | "events" | "prompts"
-                );
+                ) {
+                    return true;
+                }
+                // A trusted agent's turn may call a tool of a server the
+                // owner named for it (`relay.mcpServers`); never `run` (a
+                // script across servers), `add` or any other action.
+                return action == "call"
+                    && self.turn_relay.is_some()
+                    && field("server").is_some_and(|server| {
+                        self.chief.relay_mcp_servers.iter().any(|n| n == server)
+                    });
             }
             _ => return true,
         }
@@ -280,8 +312,14 @@ impl Brain {
     /// with `input` now. The turn's settings allow the Chief's tools with
     /// no permission request, so this is where a turn another person
     /// started is held to [`Self::internal_allowed`].
+    /// Whether the running turn (or the one that just ended, while its
+    /// tools still answer) carries another person's text.
+    pub fn turn_is_ask(&self) -> bool {
+        self.turn_ask || (self.last_turn_ask && self.state.turn.is_none())
+    }
+
     pub fn turn_gate(&mut self, tool: &str, input: &Value) -> Result<(), String> {
-        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        let ask = self.turn_is_ask();
         if self.internal_allowed_input(tool, Some(input), ask) {
             return Ok(());
         }

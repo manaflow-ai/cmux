@@ -80,7 +80,7 @@ pub(super) struct PendingReply {
 
 impl Drop for PendingReply {
     fn drop(&mut self) {
-        let mut inbox = self.session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inbox = self.session.inbox();
         inbox.replies_due.retain(|d| d.turn.is_some() || d.prompt_id != self.prompt_id);
     }
 }
@@ -112,7 +112,7 @@ impl Hub {
         if reads_reply || !matches!(class, Some(PromptClass::Question | PromptClass::Block)) {
             return None;
         }
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inbox = session.inbox();
         keep_due(&mut inbox, ReplyDue::pending(prompt_id, asker, subagent));
         Some(PendingReply { session: session.clone(), prompt_id: prompt_id.to_owned() })
     }
@@ -120,7 +120,7 @@ impl Hub {
     /// Prompt `prompt_id` reached turn `turn_id`: its turn started (`turns.rs`), or its steer was
     /// written into that running turn (`steer_end.rs`). The replies due under it are that turn's.
     pub(super) fn question_reply_in_turn(&self, session: &Session, prompt_id: &str, turn_id: &str) {
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inbox = session.inbox();
         for d in inbox.replies_due.iter_mut().filter(|d| d.turn.is_none()) {
             if d.prompt_id == prompt_id {
                 d.turn = Some(turn_id.to_owned());
@@ -138,7 +138,7 @@ impl Hub {
         prompt_id: &str,
         went_in: bool,
     ) {
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inbox = session.inbox();
         inbox.replies_due.retain(|d| d.prompt_id != prompt_id || (went_in && d.turn.is_some()));
     }
 
@@ -152,7 +152,7 @@ impl Hub {
         started: bool,
     ) {
         let due: Vec<ReplyDue> = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inbox = session.inbox();
             let (due, keep) = std::mem::take(&mut inbox.replies_due)
                 .into_iter()
                 .partition(|d| d.turn.as_deref() == Some(turn_id));

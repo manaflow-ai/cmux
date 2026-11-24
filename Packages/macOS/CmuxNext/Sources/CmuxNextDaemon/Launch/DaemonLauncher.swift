@@ -161,7 +161,16 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        // A DEV build runs the owner under "cmux Files (dev)" (docs/cmux-files-host.md), so its
+        // terminals' Files and Folders checks are one identity's for every DEV build.
+        // The helper check reads the disk, so it runs with the ensure, not here.
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        var launcher = DaemonLauncher(configuration: configuration, environment: {
+            let ownerEnvironment = filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                                        processEnvironment: processEnvironment)
+                .merging(daemonEnvironment) { _, given in given }
+            return await environment().merging(ownerEnvironment) { _, owner in owner }
+        })
         launcher.health = health
         return launcher
     }
@@ -193,22 +202,51 @@ public struct DaemonLauncher: Sendable {
         let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        let bundleURL = bundle.bundleURL, bundleIdentifier = bundle.bundleIdentifier
+        let filesHost: @Sendable () -> [String: String] = {
+            filesHostEnvironment(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                                 processEnvironment: processEnvironment)
+        }
         if let ownerEnvironment {
-            return DaemonLauncher(configuration: configuration, environment: { chiefEnvironment(await ownerEnvironment()) })
+            return DaemonLauncher(configuration: configuration, environment: {
+                chiefEnvironment(await ownerEnvironment()).merging(filesHost()) { _, host in host }
+            })
         }
         let environment = chiefEnvironment(processEnvironment)
-        return DaemonLauncher(configuration: configuration, environment: { environment })
+        return DaemonLauncher(configuration: configuration, environment: { environment.merging(filesHost()) { _, host in host } })
+    }
+
+    /// `CMUX_TUI_OWNER_LAUNCHER` for `server ensure` when the app at `bundleURL` is a DEV build that embeds
+    /// "cmux Files (dev)" (``FilesHost``), else nothing.
+    static func filesHostEnvironment(bundleURL: URL, bundleIdentifier: String?,
+                                     processEnvironment: [String: String]) -> [String: String] {
+        FilesHost(bundleURL: bundleURL, bundleIdentifier: bundleIdentifier,
+                  environment: processEnvironment)?.ownerEnvironment ?? [:]
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`); and the
+    /// app's settings file when it runs on its own (`CMUX_NEXT_CONFIG_FILE`, which `LaunchIdentity`
+    /// strips when inherited from another cmux), so the owner and its brains read the file the app
+    /// writes, as the app's own daemon does. Also the
     /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
     /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
-    static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
+    ///
+    /// `CMUX_BUILD_SPACE` is kept: it is this build's cloud data space (cmux-tui `cmux-build-space`), not an
+    /// identity that would make the owner another build's, and without it a dev build's Chief (its conversations,
+    /// automations and hands) would reach nightly's cloud data. A dev build's own Chief home
+    /// (``ChiefHome``) makes the owner this build's alone, so no other build or space shares it.
+    public static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey]
         var environment = base.filter { kept.contains($0.key) }
+        // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
+        let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        if let file = SettingsFileOverride(environment: base, home: home).path {
+            environment[SettingsFileOverride.key] = file
+        }
         let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
         for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
             if let value = knobs[name] {
@@ -217,6 +255,9 @@ public struct DaemonLauncher: Sendable {
         }
         return environment
     }
+
+    /// The variable that carries a build's cloud data space to its Rust children (cmux-tui `cmux-build-space`).
+    public static let buildSpaceKey = "CMUX_BUILD_SPACE"
 
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
@@ -305,13 +346,12 @@ public struct DaemonLauncher: Sendable {
     /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
     /// older builds kept there).
     public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
-        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
+        NextSupport(applicationSupport: applicationSupport).folder
     }
 
     /// The user's `~/Library/Application Support`.
     public static func applicationSupportDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        NextSupport.applicationSupportDirectory()
     }
 
     // MARK: - Ensure
@@ -331,7 +371,16 @@ public struct DaemonLauncher: Sendable {
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
+        Self.applyRuntimeScope(to: &environment)
         return environment
+    }
+
+    /// `CMUX_TUI_RUNTIME_SCOPE`: the owner's socket directory is scoped by this app's HOME when it is not the
+    /// account's own, so an app on another HOME (a fresh-HOME launch check, an isolated profile) starts and
+    /// reaches its own owner and never the one of another app of the same user. The usual single app has no
+    /// scope, so its socket keeps the path it always had. Always set or cleared, never inherited.
+    static func applyRuntimeScope(to environment: inout [String: String]) {
+        environment["CMUX_TUI_RUNTIME_SCOPE"] = DaemonLaunchRules.runtimeScope(home: environment["HOME"])
     }
 
     /// Returns the live endpoint: a running owner from `server status`
@@ -351,6 +400,7 @@ public struct DaemonLauncher: Sendable {
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
            let running = await runningOwner() {
             health?.note(.ready(pid: running.pid))
+            DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
             return running
         }
         async let reapGrace = supportsReapGrace()
@@ -382,10 +432,11 @@ public struct DaemonLauncher: Sendable {
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)
-            health?.note(.ready(pid: ensured.pid))
+            note?.end(.ready(pid: ensured.pid))
+            DaemonLaunchTimings.shared.mark(ensured.status == "started" ? DaemonLaunchTimings.spawned : DaemonLaunchTimings.reused)
             return ensured
         } catch {
-            health?.note(.exited)
+            note?.end(.exited)
             throw error
         }
     }
@@ -411,6 +462,7 @@ public struct DaemonLauncher: Sendable {
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
+        Self.applyRuntimeScope(to: &environment)
         DaemonLaunchTimings.shared.mark("daemon.status_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
@@ -472,6 +524,7 @@ public struct DaemonLauncher: Sendable {
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
                     return DaemonEndpoint(socketPath: path)
                 }
             }

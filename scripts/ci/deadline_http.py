@@ -52,6 +52,8 @@ from typing import Callable, Iterator
 # A socket wait that ran out. Before Python 3.10 (the builder Macs' /usr/bin/python3 can be 3.9) socket.timeout is
 # an OSError of its own, not a TimeoutError; from 3.10 it is TimeoutError.
 _SOCKET_TIMEOUT = (TimeoutError, socket.timeout)
+# Sent when the caller sets no User-Agent of its own (see _start).
+USER_AGENT = "cmux-ci/1 (https://github.com/manaflow-ai/cmux)"
 
 
 class RequestTimeout(TimeoutError):
@@ -66,6 +68,14 @@ class Stalled(RequestTimeout):
 
 class AnswerTooLarge(ValueError):
     """An answer whose body ran past the caller's max_bytes."""
+
+
+class BrokenAnswer(urllib.error.URLError):
+    """An answer the connection broke off: a body shorter than its Content-Length (IncompleteRead) or a
+    status line or header http.client could not parse. http.client raises these as HTTPException, not
+    OSError, so a caller's `except (URLError, OSError)` missed them and the job died on a traceback
+    (2026-11-23 run 45260502808: IncompleteRead, 1635850 bytes read, 3174 short, in ci_receipt.fetch).
+    A URLError is an OSError, so every caller already handles it as GitHub not answering."""
 
 
 class Deadline:
@@ -284,6 +294,10 @@ def _start(req: urllib.request.Request | str, seconds: float | None,
         deadline = Deadline(seconds)
     if isinstance(req, str):
         req = urllib.request.Request(req)
+    # files.cmux.com answers urllib's default "Python-urllib/3.x" with 403 (2026-11-13: every
+    # completion.json read of cmux_next_tree_notify.py came back 403, and read as "not published").
+    if not req.has_header("User-agent"):
+        req.add_header("User-Agent", USER_AGENT)
     return req, deadline
 
 
@@ -324,6 +338,23 @@ def request(req: urllib.request.Request | str, seconds: float | None = None, *, 
     is followed drops headers added with add_unredirected_header, so a token stays on its host. A body over
     MAX_BYTES raises ValueError."""
     req, deadline = _start(req, seconds, deadline)
+    # A read (GET, HEAD) broken off mid-answer is asked once more within the same deadline; a write is
+    # not repeated, since the first may have landed.
+    attempts = 2 if req.get_method() in ("GET", "HEAD") else 1
+    for attempt in range(attempts):
+        try:
+            return _request_once(req, deadline, follow_redirects, max_bytes, raise_errors)
+        except http.client.HTTPException as error:
+            if isinstance(error, OSError):  # RemoteDisconnected is both; urllib callers already catch it
+                raise
+            if attempt + 1 < attempts and deadline.at - deadline.clock() > 0:
+                continue
+            raise BrokenAnswer(f"{req.get_method()} {req.full_url}: the answer broke off: {error!r}") from error
+    raise AssertionError("unreachable")
+
+
+def _request_once(req: urllib.request.Request, deadline: Deadline, follow_redirects: bool,
+                  max_bytes: int | None, raise_errors: bool) -> tuple[int, bytes, Headers]:
     with _open(req, deadline, follow_redirects) as response:
         if max_bytes is None:
             body = response.read()

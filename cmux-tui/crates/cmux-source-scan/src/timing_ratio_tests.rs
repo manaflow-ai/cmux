@@ -296,6 +296,26 @@ fn filtersets_match_as_nextest_reads_them() {
     assert!(parse_filter("not binary_id(/[/) | test(=a)").is_err());
 }
 
+// Review of cmux#41693, F2: `test(/\)/)` is a valid filter (a regex for a literal `)`); the
+// string unescaping turned its `\)` into an unmatched `)`, and the scan stopped on a good config.
+#[test]
+fn a_regex_filter_keeps_its_escapes() {
+    let t = |name: &str| TestId { name: name.into(), ..TestId::default() };
+    let eval = |f: &str, name: &str| eval_filter_text(f, &t(name));
+    assert_eq!(eval(r"test(/\)/)", "case_(paren)"), Some(true), "an escaped ) is a literal )");
+    assert_eq!(eval(r"test(/\)/)", "case_paren"), Some(false));
+    assert_eq!(eval(r"test(/^a\(b\)$/)", "a(b)"), Some(true));
+    assert_eq!(eval(r"test(/a\.b/)", "axb"), Some(false), "an escaped . is a literal .");
+    assert_eq!(eval(r"test(/a\/b/)", "a/b"), Some(true), r"\/ is a /, as nextest reads it");
+    let co = Checkout::demo(
+        PRELUDE,
+        Some(
+            "[[profile.default.overrides]]\nfilter = 'test(/\\)/)'\nthreads-required = 'num-test-threads'\n",
+        ),
+    );
+    assert!(scan(&co.0, &[]).is_ok(), "a valid escaped regex is no configuration error");
+}
+
 fn eval_filter_text(text: &str, t: &TestId) -> Option<bool> {
     eval_filter(&parse_filter(text).expect("parses"), t)
 }
@@ -443,4 +463,29 @@ fn inner() {
     let named: Vec<(&str, &str)> =
         found.iter().map(|f| (f.test.as_str(), f.text.as_str())).collect();
     assert_eq!(named, [("inner", "g50 < 500.0")], "only the block's own spread fn is one");
+}
+
+// Review of cmux#42384, F1: a name a block binds from a spread fn's tuple is that block's alone, so
+// an assertion after the block on a plain value of the same name is no spread bound.
+#[test]
+fn spread_bounds_keeps_a_block_binding_to_its_block() {
+    let text = "#[test]
+fn after() {
+    {
+        fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+            ms.sort_by(f64::total_cmp);
+            (ms[0], ms[1], ms[2])
+        }
+        let (g50, _g95, _gmax) = spread(&mut [3.0, 2.0, 1.0]);
+        assert!(g50 < 500.0);
+    }
+    let g50 = 2.0_f64;
+    assert!(g50 < 5.0);
+}
+";
+    let found = spread_bounds("x.rs", text, &|_: &TestId| true, &FileTests::Loose)
+        .unwrap_or_else(|e| panic!("does not parse: {e}"));
+    let named: Vec<(&str, &str)> =
+        found.iter().map(|f| (f.test.as_str(), f.text.as_str())).collect();
+    assert_eq!(named, [("after", "g50 < 500.0")], "the block's binding ends with the block");
 }

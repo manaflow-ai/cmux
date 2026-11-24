@@ -161,6 +161,11 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
     /// Called when ``overlays`` changes: the view cuts them out of the panel.
     var onOverlays: (() -> Void)?
 
+    /// The page's trackpad pinch (`pane.sessionInfo.pinch`): the panel zooms and pans with it.
+    public private(set) var pinch = AgentPaneSessionInfoPinch.none
+    /// Called when ``pinch`` changes: the view lays the panel out again.
+    var onPinch: (() -> Void)?
+
     /// Whether the panel shows.
     public var isOpen: Bool { info?.open == true }
 
@@ -176,8 +181,15 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         onOverlays?()
     }
 
+    func updatePinch(_ next: AgentPaneSessionInfoPinch) {
+        guard next != pinch else { return }
+        pinch = next
+        onPinch?()
+    }
+
     /// The page loaded again: it has sent nothing yet.
     func pageLoaded() {
+        updatePinch(.none)
         updateOverlays([])
         update(nil)
     }
@@ -190,16 +202,27 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
 public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
     public var rect: CGRect
     public var radius: CGFloat
+    /// View points per CSS pixel when the page measured it (webviews ui/glass/hostGlass.ts
+    /// `hostGlassPageZoom`); nil from an older page, which is drawn at the pane's zoom now.
+    public var zoom: CGFloat?
 
-    public init(rect: CGRect, radius: CGFloat = 0) {
+    public init(rect: CGRect, radius: CGFloat = 0, zoom: CGFloat? = nil) {
         self.rect = rect
         self.radius = radius
+        self.zoom = zoom
+    }
+
+    /// A box's `zoom`: absent is nil, a number in range is that zoom, anything else is refused.
+    static func decodeZoom(_ value: Any?) -> CGFloat?? {
+        guard let value else { return .some(nil) }
+        guard let zoom = (value as? NSNumber)?.doubleValue, AgentPaneHostGlassSurface.zoomRange.contains(zoom) else { return nil }
+        return .some(CGFloat(zoom))
     }
 
     /// The most a report carries (the page's `OVERLAY_RECTS_MAX`).
     static let maximum = 16
 
-    /// `[{left, top, right, bottom, radius?}]`, or nil for anything else (a bad number, too many).
+    /// `[{left, top, right, bottom, radius?, zoom?}]`, or nil for anything else (a bad number, too many).
     static func decode(_ value: Any?) -> [AgentPaneSessionInfoOverlay]? {
         guard let list = value as? [Any], list.count <= maximum else { return nil }
         var rects: [AgentPaneSessionInfoOverlay] = []
@@ -214,12 +237,58 @@ public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
             guard let left = number("left"), let top = number("top"), let right = number("right"),
                   let bottom = number("bottom"), right >= left, bottom >= top else { return nil }
             let radius = box["radius"] == nil ? 0 : number("radius")
-            guard let radius, radius >= 0 else { return nil }
+            guard let radius, radius >= 0, let zoom = decodeZoom(box["zoom"]) else { return nil }
             rects.append(AgentPaneSessionInfoOverlay(
-                rect: CGRect(x: left, y: top, width: right - left, height: bottom - top), radius: CGFloat(radius)
+                rect: CGRect(x: left, y: top, width: right - left, height: bottom - top), radius: CGFloat(radius), zoom: zoom
             ))
         }
         return rects
+    }
+}
+
+/// The page's trackpad pinch (Leo, 2026-11-12: "evidently you zoom in and it doesn't really, you know,
+/// it doesn't follow"). A pinch in a Chromium page zooms its visual viewport only: the page's content
+/// is scaled by `scale` and panned so that the layout point (`left`, `top`) (CSS pixels) shows at the
+/// page's top left. The page's numbers for the panel (`top`, `side`, `width`) are layout pixels, so
+/// the App's panel stayed where it was, at its size, over the zoomed page. The App maps the panel
+/// through the same scale and offset and draws it magnified, so it zooms and pans with the page.
+public nonisolated struct AgentPaneSessionInfoPinch: Equatable, Sendable {
+    public var scale: CGFloat
+    public var left: CGFloat
+    public var top: CGFloat
+
+    public init(scale: CGFloat, left: CGFloat = 0, top: CGFloat = 0) {
+        self.scale = scale
+        self.left = left
+        self.top = top
+    }
+
+    /// No pinch: the page shows at its layout size and place.
+    public static let none = AgentPaneSessionInfoPinch(scale: 1)
+
+    /// A point in the page's layout (CSS pixels) where it shows under the pinch (CSS pixels of the
+    /// unzoomed viewport): ui/visualViewportBox.ts `onVisualViewport`.
+    func shown(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: (point.x - left) * scale, y: (point.y - top) * scale)
+    }
+
+    /// The inverse of ``shown(_:)``: where a point on the zoomed screen lies in the page's layout.
+    func layout(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x / scale + left, y: point.y / scale + top)
+    }
+
+    /// `{scale, left, top}`, or nil for anything else (a bad number, a scale out of Chromium's range).
+    static func decode(_ params: [String: Any]?) -> AgentPaneSessionInfoPinch? {
+        guard let params else { return nil }
+        let number = { (key: String) -> Double? in
+            guard let value = (params[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) <= 100_000 else {
+                return nil
+            }
+            return value
+        }
+        guard let scale = number("scale"), (0.1...20).contains(scale),
+              let left = number("left"), let top = number("top") else { return nil }
+        return AgentPaneSessionInfoPinch(scale: CGFloat(scale), left: CGFloat(left), top: CGFloat(top))
     }
 }
 

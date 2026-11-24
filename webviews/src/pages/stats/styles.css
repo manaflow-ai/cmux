@@ -24,19 +24,11 @@
   letter-spacing: var(--text-title--letter-spacing);
 }
 
-.stats-private,
 .stats-muted,
 .stats-day-label,
 .stats-tile-label,
 .stats-tile-detail {
   color: var(--page-text-3);
-}
-
-.stats-private {
-  margin: 2px 0 0;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .stats-ranges {
@@ -70,6 +62,29 @@
 
 .stats-message {
   margin: 12px 0;
+}
+
+.stats-payoff {
+  margin-bottom: calc(var(--grid-base) * 3);
+  padding: calc(var(--grid-base) * 4);
+  border: 1px solid color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 8%, transparent);
+}
+
+.stats-payoff-value {
+  margin-top: var(--grid-base);
+  /* The page's one hero number: well above the tiles' heading-size values. */
+  font-size: calc(var(--text-heading) * 1.6);
+  line-height: 1.15;
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
+}
+
+.stats-payoff-detail {
+  margin-top: var(--grid-half-step);
+  font-variant-numeric: tabular-nums;
 }
 
 .stats-tiles {

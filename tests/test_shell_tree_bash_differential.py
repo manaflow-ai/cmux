@@ -228,6 +228,17 @@ NESTABLE = (
     "env -S 'X=1 bash -e' -c c1",
     "env -S 'bash -c' -- c1",
     "env -S \"'bash\" -c c1; c2",
+    # A review of upstream #4647 (F1): an option group is one argument, and a character in it that is no option letter
+    # makes bash and sh refuse the command line: '-c c1' runs nothing, so c2 is no script; whether the shell is named
+    # plainly, by env, or by an env -S string that keeps the group whole. Then the rows that must still run.
+    "bash '-c c1' c2",
+    "sh '-c c1' c2",
+    "env -S bash '-c c1' c2",
+    "env -S \"bash '-c c1' c2\"",
+    "bash -c\\ c1 c2",
+    "bash -e1c c1",
+    "env -S bash -c c1 c2",
+    "env -S 'bash -e' -c c1",
 )
 WHOLE = (
     "exec c1",
@@ -313,7 +324,15 @@ def require_oracle() -> None:
 
 
 def bash_runs(text: str) -> list[str] | str:
-    """The stub names bash runs for TEXT, sorted and unique; a string saying why when bash gave no answer."""
+    """The stub names bash runs for TEXT, sorted and unique; a string saying why when bash gave no answer: any error
+    of the run is this line's answer, never a crash of every line (#41862 review, F1's sweep)."""
+    try:
+        return _bash_runs(text)
+    except Exception as error:
+        return f"the oracle raised {type(error).__name__}: {error}"
+
+
+def _bash_runs(text: str) -> list[str] | str:
     bash = shutil.which("bash")
     if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True).returncode:
         return "bash -n refuses it: a corpus bug"
@@ -430,8 +449,13 @@ class NoOracleIsNoVerdict(unittest.TestCase):
     def test_a_host_without_an_oracle_program_skips(self):
         which = shutil.which
         for hidden in REAL:
+            # Every other program the oracle needs is present, whether this host has it or not, so the skip names
+            # HIDDEN alone (#41862 review, F3: on a host without setsid, the row hiding sh was told setsid is
+            # missing).
             def hide(name, *args, **kwargs):
-                return None if name == hidden else which(name, *args, **kwargs)
+                if name == hidden:
+                    return None
+                return which(name, *args, **kwargs) or (f"/present/{name}" if name in REAL else None)
 
             with mock.patch.object(shutil, "which", hide):
                 self.assertIn(hidden, oracle_missing() or "")
@@ -443,6 +467,28 @@ class NoOracleIsNoVerdict(unittest.TestCase):
                                          (1, 1, [], []))
                         self.assertIn(hidden, result.skipped[0][1])
 
+    def test_each_hidden_program_is_the_only_one_missing(self):
+        """A review of #41862, F3: the hidden-program row asked the host for every other program, so on a host
+        that lacks one too (stock macOS has no setsid, timeout or stdbuf) the skip named that one, and the row for the
+        hidden program failed. Every other program is present to the row, so each hides one program alone."""
+        which = shutil.which
+        for absent in REAL:
+            def host(name, *args, **kwargs):
+                return None if name == absent else which(name, *args, **kwargs)
+
+            result = unittest.TestResult()
+            with mock.patch.object(shutil, "which", host):
+                NoOracleIsNoVerdict("test_a_host_without_an_oracle_program_skips").run(result)
+            with self.subTest(absent=absent):
+                self.assertEqual((result.testsRun, result.failures, result.errors), (1, [], []))
+
+    def test_an_oracle_that_raises_is_no_answer(self):
+        """#41862 review, F1's sweep: an error of one line's run (here Popen) is that line's answer, a string
+        differences() reports, never an exception that stops every line."""
+        with mock.patch.object(subprocess, "Popen", side_effect=OSError("injected")):
+            got = bash_runs("c1")
+            self.assertEqual(got, "the oracle raised OSError: injected")
+            self.assertEqual(differences(["c1"]), [("c1", got, ["c1"])])
 
 
 if __name__ == "__main__":

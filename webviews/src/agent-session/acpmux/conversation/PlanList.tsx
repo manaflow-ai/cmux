@@ -11,6 +11,7 @@
 // message, and nothing in it spins (turns.ts `earlierTurnPlan`).
 // Memoized on its immutable entries: tokens streaming elsewhere in the turn never redraw it.
 import { memo, useCallback, useState } from "react";
+import { renderInline } from "./inlineMarkdown";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check, ChevronRight, Spinner } from "./icons";
@@ -26,12 +27,16 @@ export const PlanList = memo(function PlanList({
   entries,
   ended = false,
   earlier = false,
+  still = false,
   id,
 }: {
   entries: readonly AcpmuxPlanEntry[];
   ended?: boolean;
   /// An earlier turn's list, shown under the running turn until the agent writes a new one.
   earlier?: boolean;
+  /// The chat's task list between turns (composer hat, chatTaskList.ts): no turn works on it, so its
+  /// step in progress shows a still ring, never the spinner.
+  still?: boolean;
   /// The plan row's id: an ended list the reader opened stays open when its row draws again.
   id?: string;
 }) {
@@ -82,9 +87,9 @@ export const PlanList = memo(function PlanList({
                 {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
                 {entry.status === "completed" && <Check size={10} />}
                 {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
-                {entry.status === "in_progress" && !ended && !earlier && <Spinner size={12} />}
+                {entry.status === "in_progress" && !ended && !earlier && !still && <Spinner size={12} />}
               </span>
-              <span className="cv-plan__text">{entry.content}</span>
+              <PlanStep content={entry.content} />
               {/* The marks are drawn only; a screen reader hears the state. */}
               <span className="cv-plan__state">{t(STATUS[entry.status])}</span>
             </li>
@@ -92,5 +97,23 @@ export const PlanList = memo(function PlanList({
         </ul>
       )}
     </div>
+  );
+});
+
+/// One step's words: its first line is the step, drawn with the transcript's inline marks (a GitHub
+/// reference is its chip, `code` its span) and clamped (two lines in a card, one in the hat); the
+/// lines after it are its detail, muted and clamped to two. The whole text is its tooltip. Leo,
+/// 2026-11-22, on a two-line ops note drawn as plain wrapped text: ">1 line is ok IFF it's rendered
+/// and styled properly".
+const PlanStep = memo(function PlanStep({ content }: { content: string }) {
+  const cut = content.indexOf("\n");
+  const title = (cut < 0 ? content : content.slice(0, cut)).trim();
+  const detail = cut < 0 ? "" : content.slice(cut + 1).trim();
+  return (
+    // tooltip-allow: the detail is clamped to two lines; the tooltip holds the whole step
+    <span className="cv-plan__text" title={content}>
+      <span className="cv-plan__title">{renderInline(title)}</span>
+      {detail && <span className="cv-plan__detail">{renderInline(detail)}</span>}
+    </span>
   );
 });

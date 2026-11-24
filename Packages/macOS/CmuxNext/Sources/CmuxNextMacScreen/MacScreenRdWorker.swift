@@ -7,6 +7,8 @@ nonisolated protocol MacScreenRdWorker: AnyObject, Sendable {
     var started: Bool { get }
     var stderrTail: String { get }
     func start(_ role: MacScreenRdProcess.Role) throws
+    /// Starts the host (in the Screen Sharing helper when the build carries one).
+    func startServe() async throws
     func send<Value: Encodable>(_ value: Value)
     func stop()
 }

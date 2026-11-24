@@ -28,6 +28,7 @@ beside the code it covers.
 
 from __future__ import annotations
 
+import ast
 import functools
 import json
 import os
@@ -45,7 +46,10 @@ KEYCHAIN_READ = re.compile(r"find-generic-password|SecItemCopyMatching|keyring\.
 # A kill whose PIDs a lookup supplies on the same command: `kill $(pgrep ...)`, `pgrep ... | xargs kill`.
 PKILL_LOOKUP = re.compile(r"(?<![\w-])kill\b[^\n;|&]*\$\(\s*(?:pgrep|pidof)\b"
                           r"|(?<![\w-])(?:pgrep|pidof)\b[^\n;]*\|\s*xargs\b[^\n;|]*\bkill\b")
-PKILL = re.compile(r"(?<![\w-])(?:pkill|killall)(?![\w-])|" + PKILL_LOOKUP.pattern)
+# `pkill [-SIG] -P PID` signals only the children of a PID the script holds: the
+# rule's own advice (HOW["pkill"]), so it is not a kill by name.
+PKILL_PARENT_ONLY = r"(?!(?:\s+-(?:[A-Z]+|\d+))*\s+-P\b)"
+PKILL = re.compile(r"(?<![\w-])(?:pkill(?![\w-])" + PKILL_PARENT_ONLY + r"|killall(?![\w-]))|" + PKILL_LOOKUP.pattern)
 # big-red, big_red, BIG_RED, bigred, Big Red; not prose like "a big red build".
 BIG_RED = re.compile(r"(?<![A-Za-z0-9])(?:(?i:big[-_]?red)|Big Red|BIG RED)(?![A-Za-z0-9])")
 
@@ -101,8 +105,51 @@ FLEET_SUDO_NAMERS: set[str] = set()
 
 
 def keychain_lines(text: str) -> int:
-    """Keychain reads, whatever service they name."""
-    return len(KEYCHAIN_READ.findall(text))
+    """Secret reads and unknown forms; exact literal service-attributes argv reads no password."""
+    matches = list(KEYCHAIN_READ.finditer(text))
+    if not matches:
+        return 0
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return len(matches)
+    # Accept only a direct argv literal in a subprocess call (including the injected subprocess.run
+    # default used by portable tests), or the test assertion of that literal. A stored/mutated list,
+    # shell string, unknown wrapper, starred options or any extra flags remains a counted read.
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    ignored = []
+    lines = text.splitlines(keepends=True)
+    def offset(node, end=False):
+        line = (node.end_lineno if end else node.lineno) - 1
+        column = node.end_col_offset if end else node.col_offset
+        return sum(len(part) for part in lines[:line]) + len(lines[line].encode()[:column].decode())
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.List, ast.Tuple)) or len(node.elts) != 4:
+            continue
+        first = node.elts[:3]
+        if not all(isinstance(part, ast.Constant) and isinstance(part.value, str) for part in first):
+            continue
+        if (first[0].value not in ("security", "/usr/bin/security")
+                or first[1].value != "find-generic-password" or first[2].value != "-s"
+                or isinstance(node.elts[3], ast.Starred)):
+            continue
+        call = parents.get(node)
+        if not isinstance(call, ast.Call) or node not in call.args:
+            continue
+        name = ast.unparse(call.func)
+        known = name == "subprocess.run" or name == "self.assertEqual"
+        if name == "run":
+            scope = call
+            while scope in parents and not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope = parents[scope]
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = [*scope.args.posonlyargs, *scope.args.args]
+                known = any(arg.arg == "run" and ast.unparse(default) == "subprocess.run"
+                            for arg, default in zip(args[-len(scope.args.defaults):], scope.args.defaults))
+        if known and not any(item.arg is None or item.arg == "shell" for item in call.keywords):
+            ignored.append((offset(first[1]), offset(first[1], True)))
+    return sum(not any(start <= match.start() and match.end() <= end for start, end in ignored)
+               for match in matches)
 
 
 def reads_fleet_sudo(text: str) -> bool:
@@ -221,8 +268,18 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
+
+    def debt_in_dir(entries: dict, folder: str) -> int:
+        return sum(e.get("count", 0) for k, e in entries.items()
+                   if os.path.dirname(k) == folder and not str(e.get("reason", "")).startswith("safe:"))
+
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
+        # A test module moved out of its file (foo.rs -> foo_tests.rs) takes its entry along: the folder's debt
+        # did not grow, so the new row is not new debt.
+        if rel.endswith(("_tests.rs", "/tests.rs")) and \
+                debt_in_dir(allow[rule], os.path.dirname(rel)) <= debt_in_dir(old, os.path.dirname(rel)):
+            continue
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
                        f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
@@ -298,6 +355,23 @@ class Patterns(unittest.TestCase):
         self.assertTrue(reads_fleet_sudo('KEYCHAIN_SERVICE = "manaflow-fleet-sudo"\nrun(["security", "find-generic-password"])'))
         self.assertFalse(reads_fleet_sudo('KEYCHAIN_SERVICE = "cmuxterm-circleci"\nrun(["security", "find-generic-password"])'))
 
+    def test_attributes_only_keychain_probe_is_not_a_secret_read(self):
+        vector = '["/usr/bin/security", "find-generic-password", "-s", namespace + ".device-hub"]'
+        for source in ('subprocess.run(' + vector + ', capture_output=True)',
+                       'def probe(run=subprocess.run):\n    run(' + vector + ')',
+                       'self.assertEqual(argv, ' + vector + ')'):
+            self.assertEqual(keychain_lines(source), 0, source)
+        for source in ('subprocess.run(' + vector[:-1] + ', "-w"])',
+                       'subprocess.run(' + vector[:-1] + ', "-g"])',
+                       'subprocess.run(' + vector[:-1] + ', *options])',
+                       'subprocess.run(' + vector + ', shell=True)',
+                       'run(' + vector + ')', 'unknown(' + vector + ')',
+                       'argv=' + vector + '\nargv.append("-w")\nsubprocess.run(argv)',
+                       'subprocess.run(["security", "find-generic-password", "-ws", service])',
+                       'security find-generic-password -s "$service"',
+                       'subprocess.run(' + vector + ')\nkeyring.get_password("service", "account")'):
+            self.assertEqual(keychain_lines(source), 1, source)
+
     def test_pkill_catches_kills_by_name(self):
         for line in ('pkill -f "cmux DEV"', "killall Dock", "sudo pkill -x tccd",
                      'subprocess.run(["/usr/bin/pkill", "-9", "x"])', 'exec.Command("pkill", "-f", tag)'):
@@ -313,6 +387,9 @@ class Patterns(unittest.TestCase):
                      'while read -r pid; do\n  kill "$pid"\ndone < <(pgrep -f foo)'):
             self.assertGreaterEqual(pkill_lines(text), 1, text)
         self.assertEqual(pkill_lines('w="$(pgrep -P "$pid" | head -1)"\nkill -TERM "$w"'), 0)
+        for line in ('pkill -TERM -P "$worker" 2>/dev/null', 'pkill -P $$', "pkill -9 -P 4242"):
+            self.assertEqual(pkill_lines(line), 0, line)
+        self.assertEqual(pkill_lines('pkill -TERM -f "lane worker"'), 1)
         for line in ("kill -TERM -- -$pgid", "pkill_guard_test", "nx-pkill-shim", "skill", 'kill "$(cat pidfile)"',
                      "pgrep -f x >/dev/null && echo running"):
             self.assertEqual(pkill_lines(line), 0, line)

@@ -140,7 +140,8 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
   expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
   expect(transcriptGap(MARK_WORKED, MARK_FOOTER_ROW)).toBe(0);
   expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
-  // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
+  // Once a prompt follows, the turn keeps its row: it never collapses and shifts the transcript (Leo,
+  // 2026-11-14: "the copy sometimes disappears entirely? which causes big shifts").
   const later = turnView(
     [...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow],
     new Set(),
@@ -149,7 +150,51 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
       now: 10_000,
     },
   );
-  expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
+  const kept = later.findIndex((row) => row.kind === "turnSummary");
+  expect(isEmptyFooter(later[kept]!)).toBe(false);
+  expect(layoutConversation(later, 720).heights[kept]).toBe(TRANSCRIPT_FOOTER_CONTROL);
+});
+
+// Leo, 2026-11-14: "the copy sometimes disappears entirely? which causes big shifts. it happens often
+// when scrolling up and stuff loads". A finished turn paged in from history without its prompt (the
+// page starts mid-turn) drew acpmux's bare summary, which has no answer, so its action row was
+// missing until the older page brought the prompt and the row appeared, pushing everything below.
+test("a finished turn paged in without its prompt has its action row, at the height it has live", () => {
+  const work = (id: string, at: number) =>
+    ({
+      id,
+      version: 1,
+      at,
+      kind: "activity",
+      items: [{ kind: "tool", text: "", tool: { id, title: "ls", kind: "execute", status: "completed" } }],
+    }) as AcpmuxRow;
+  const reply = (id: string, at: number, text: string) =>
+    ({ id, version: 1, at, kind: "assistant", text }) as AcpmuxRow;
+  const summary = (id: string, at: number) =>
+    ({ id, version: 1, at, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 }) as AcpmuxRow;
+  const next = { id: "q", version: 1, at: 100, kind: "user", text: "Next" } as AcpmuxRow;
+  const options = { agentFamily: "claude" as const, now: 10_000 };
+  for (const body of [
+    // Ends on its answer.
+    [reply("a", 2, "Looking."), work("w", 3), reply("b", 4, "All set."), summary("s", 5)],
+    // Spoke, then ended on work.
+    [reply("a", 2, "I'll check the installed apps."), work("w", 3), summary("s", 5)],
+  ]) {
+    const whole = [{ id: "p", version: 1, at: 1, kind: "user", text: "Check" } as AcpmuxRow, ...body, next];
+    // The page starts after the prompt: the turn's rows and the next prompt, its own prompt not yet in.
+    const paged = [...body, next];
+    const footerHeight = (rows: AcpmuxRow[]) => {
+      const drawn = turnView(rows, new Set(), options);
+      const at = drawn.findIndex((row) => row.id === "s");
+      const markup = renderToStaticMarkup(<TurnFooter row={drawn[at]!} />);
+      expect(markup).toContain("cv-turn-actions");
+      expect(markup).not.toContain("cv-turn-actions--empty");
+      expect(markup).toContain("cv-turn-footer-row");
+      return layoutConversation(drawn, 720).heights[at];
+    };
+    expect(footerHeight(paged)).toBe(TRANSCRIPT_FOOTER_CONTROL);
+    expect(footerHeight(paged)).toBe(footerHeight(whole));
+  }
 });
 
 test("the retry hint only marks a completed edit with a known non-empty patch", () => {
@@ -235,10 +280,13 @@ test("the retry hint only marks a completed edit with a known non-empty patch", 
     expect(row?.changedFiles).toBeUndefined();
 });
 
-test("a work-only last turn that said nothing has nothing to copy and stays empty", () => {
+test("a work-only turn that said nothing has nothing to copy and stays empty; one that spoke keeps its row", () => {
   expect(isEmptyFooter(footer({ retryable: true }))).toBe(true);
+  expect(isEmptyFooter(footer({}))).toBe(true);
   expect(isEmptyFooter(footer({ retryable: true, turnCopy: [{ text: "I'll check." }] }))).toBe(false);
-  expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(true);
+  // Not the chat's last turn any more: the row stays, so nothing above it moves.
+  expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(false);
+  expect(rowMark(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(MARK_FOOTER_ROW);
 });
 
 test("a finished plan line stands the reply's 8 over its footer row, as a final reply does", async () => {

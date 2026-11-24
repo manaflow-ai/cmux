@@ -23,6 +23,7 @@ import Testing
             (commands, command) = AsyncStream.makeStream(of: Data.self)
         }
         func start(_ role: MacScreenRdProcess.Role) { state.withLock { $0.started = true } }
+        func startServe() async throws { start(.serve) }
         func send<Value: Encodable>(_ value: Value) {
             if let data = try? JSONEncoder().encode(value) { command.yield(data) }
         }

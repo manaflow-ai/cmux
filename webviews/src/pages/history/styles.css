@@ -49,7 +49,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 
@@ -321,4 +321,9 @@
   color: var(--page-text);
   font-weight: var(--weight-emphasis);
   cursor: default;
+}
+
+/* A narrowed time range reads as on, like a selected chip. */
+.history-menu-button.history-range.selected {
+  color: var(--page-text);
 }

@@ -16,6 +16,9 @@ extension IPhoneHostService {
             // Msg 3790: where the status says to sign in, the card shows the Sign In button.
             "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
             "phase": .string(phaseName),
+            // This Mac's mobile device id once hostd registered it (the id phones list it under;
+            // cmux-next-ios review.sh focuses the same tag's phone on it). Not a secret.
+            "device_id": state.deviceID.map(JSONValue.string) ?? .null,
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,
             "space_title": .string(IPhoneHostStrings.spaceTitle),
@@ -41,13 +44,13 @@ extension IPhoneHostService {
         ]
     }
 
-    /// `mobile.allowIPhoneConnections` as the service follows it (the Mobile Pairing page's switch).
+    /// `mobile.allowIPhoneConnections` as the service follows it (Settings > Accounts > iPhone's switch).
     public var allowsConnections: Bool { allowed }
 
-    /// hostd's phase (the Mobile Pairing page's step).
+    /// hostd's phase (Settings > Accounts > iPhone's status line).
     public var phase: MobileHostState.Phase { state.phase }
 
-    /// What a removed Mac says (the Mobile Pairing page's detail line).
+    /// What a removed Mac says (Settings > Accounts > iPhone's detail line).
     public static var removedText: String { IPhoneHostStrings.removed }
 
     /// The waiting pairing requests, oldest first: who asks, as which account, since when.
@@ -82,7 +85,8 @@ extension IPhoneHostService {
              "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
              "transport": .string("iroh"), "path": .null]
         }
-        // The iPhone-host toggle does not hide the separately served Phone Access list.
+        // Phones a person allowed through the removed Phone Access (iroh) listener stay listed, whatever
+        // the iPhone-host toggle, so they can be removed from the shared list.
         return hostdPhoneRows + local
     }
 

@@ -70,7 +70,18 @@ export async function open120Hz(
   {
     viewport = { width: 900, height: 640 },
     clock = "wall",
-  }: { viewport?: { width: number; height: number }; clock?: "wall" | "frames" } = {},
+    frameMs = FRAME_MS,
+    screenshot,
+  }: {
+    viewport?: { width: number; height: number };
+    clock?: "wall" | "frames";
+    /// One frame's slot (ms): 120 Hz by default; 1000 / 60 draws a 60 Hz display's frames (with the
+    /// page's `?fps=60`, frameClock.ts, on the frames' clock).
+    frameMs?: number;
+    /// Each measured frame's pixels as BeginFrame drew them (a base64 JPEG; undefined for a frame
+    /// that drew nothing new), for a clip of the run (stream-follow-smooth.test.ts).
+    screenshot?: (jpeg: string | undefined) => void;
+  } = {},
 ): Promise<Frames120> {
   const port = await freePort();
   const owner = await chromium.launch({
@@ -82,8 +93,11 @@ export async function open120Hz(
       // A clip-path animation runs on the compositor in Chromium, and under BeginFrame control its
       // frames never finish: a sent prompt's bubble reveal (conversation.css SEND-ENTRANCE) hung the
       // steer and tools turns at their 180 s limit. The app draws with WebKit, which animates
-      // clip-path on the main thread, so the page here does too.
-      "--disable-features=CompositeClipPathAnimation",
+      // clip-path on the main thread, so the page here does too. A background-color transition is
+      // the same: the Codex look's send button eases its color in once typed text makes it ready
+      // (composerStates.css), and the motion contract hung in "settle after typing" until its
+      // 180 s limit (run 43399332571).
+      "--disable-features=CompositeClipPathAnimation,CompositeBGColorAnimation",
     ],
   });
   let browser: Browser | undefined;
@@ -104,7 +118,7 @@ export async function open120Hz(
     // Only chrome-headless-shell has BeginFrame control; full Chrome's headless mode has no such
     // command, and its page would draw at 60 Hz on its own.
     try {
-      await cdp.send("HeadlessExperimental.beginFrame", { interval: FRAME_MS } as never);
+      await cdp.send("HeadlessExperimental.beginFrame", { interval: frameMs } as never);
     } catch (error) {
       throw new FramesUnsupported(String(error));
     }
@@ -135,22 +149,26 @@ export async function open120Hz(
         }
         // The last 1.5 ms spins: a timer lands a millisecond or more late.
         while (performance.now() < next) {}
-        let args: { interval: number; frameTimeTicks?: number } = { interval: FRAME_MS };
+        let args: { interval: number; frameTimeTicks?: number; screenshot?: object } = { interval: frameMs };
         if (clock === "frames") {
           await pageIdle();
           if (frameAt !== undefined) {
-            args = { interval: FRAME_MS, frameTimeTicks: frameAt };
-            frameAt += FRAME_MS;
+            args = { interval: frameMs, frameTimeTicks: frameAt };
+            frameAt += frameMs;
           }
         }
+        if (screenshot && measuring) args.screenshot = { format: "jpeg", quality: 70 };
         const asked = performance.now();
-        await cdp.send("HeadlessExperimental.beginFrame", args as never).catch(() => undefined);
+        const began = (await cdp.send("HeadlessExperimental.beginFrame", args as never).catch(() => undefined)) as
+          | { screenshotData?: string }
+          | undefined;
+        if (screenshot && measuring) screenshot(began?.screenshotData);
         const drawn = performance.now();
         // The next slot after the frame was drawn; slots it ran over are dropped.
         let slots = 1;
-        next += FRAME_MS;
+        next += frameMs;
         while (next < drawn) {
-          next += FRAME_MS;
+          next += frameMs;
           slots += 1;
         }
         if (measuring) {
@@ -172,7 +190,15 @@ export async function open120Hz(
       },
       async close() {
         running = false;
-        await pump;
+        // A beginFrame the browser leaves unanswered holds the pump (chrome-headless-shell 158.0.8127.36,
+        // scripts/ci/ensure-system-chrome.sh): closing the browser ends that call, so the pump gets a bound.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          pump,
+          // fixed-wait: the most a close waits for the pump's last frame before it closes the browser
+          new Promise((resolve) => (timer = setTimeout(resolve, 5000))),
+        ]);
+        clearTimeout(timer);
         await browser?.close();
         await owner.close();
       },

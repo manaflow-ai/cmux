@@ -18,17 +18,27 @@
 //                the first frame's, in percent, and frames whose thumb moved down while the reader went up
 //                (the thumb must only go up while the wheel goes up)
 // The pane is a production build (DEV=1: the dev server).
+//   older pages  each older page the transcript asked for: ask to the first painted frame after it settled
+//                whose content height changed (askToDrawn p50/p95/max), asks never drawn, and frames the
+//                reader asked to go up while the view could not move (loadingFrames); each page on the wire
+//                (ask to reply, its size). The stand-in serves the page size the pane asks for (SMALL_PAGES=1:
+//                the attach's 160 records, as before)
 //   TURNS=600 ENGINES=webkit,chromium STEP=1 bun bench/transcript-scroll-up.bench.ts
+//   FIXTURE=flat ROWS=100000 MODE=wheel|fling|drag PAGES=24 ENGINES=chromium bun bench/transcript-scroll-up.bench.ts
+//                (the 100k-row chat of chat-100k-flat.bench.ts, stopped after 24 older pages)
 // STEP scales the wheel's steps (1: about 80 px a frame, a trackpad flick; 0.4 a reading scroll). Prints one
 // summary line per engine and PERF_ROW lines; exits 1 when a goal is missed (0 blank frames, drift under 1 px,
-// p95 frame under 16.7 ms, thumb size change under 5 %, thumb never moving down). Run it yourself, never as a CI
-// gate (`cmux-ci test -- 'cd webviews && bun bench/transcript-scroll-up.bench.ts'`).
+// p95 frame under 16.7 ms, thumb size change under 5 %, thumb never moving down). Run it yourself; it is not a CI
+// gate (written under the 2026-10-23 no-new-CI rule, since lifted):
+// `cmux-ci test -- 'cd webviews && bun bench/transcript-scroll-up.bench.ts'`.
 /// <reference types="bun" />
-import { chromium, webkit, type Browser, type BrowserType } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, BrowserType } from "playwright";
 import { godLog } from "./godFixture";
 import { papercutPane, type PapercutStep } from "../test/support/papercutChat";
 import { traceUpwardAnchors } from "../test/support/upwardAnchorTrace";
 import { perfRow } from "./perfRow";
+import { reportOlderSplit, type CpuProfile } from "./olderPageSplit";
 
 const TURNS = Number(process.env.TURNS ?? 600);
 const STEP = Number(process.env.STEP ?? 1);
@@ -36,26 +46,62 @@ const ENGINES = (process.env.ENGINES ?? "webkit,chromium").split(",").filter(Boo
 const MAX_ROUNDS = Number(process.env.ROUNDS ?? 400);
 const FRAMES_PER_ROUND = 120;
 const FRAME_BUDGET_MS = 1000 / 60;
-/// FLING=1: a fast fling instead of a trackpad scroll, each frame's wheel 1,500 to 3,000 px.
-const FLING = process.env.FLING === "1";
+/// MODE: wheel (a trackpad scroll, STEP-scaled), fling (each frame's wheel 1,500 to 3,000 px; FLING=1 too) or
+/// drag (the scrollbar thumb dragged up: the offset moves 2,400 to 4,800 px a frame with no wheel event).
+const MODE = process.env.MODE ?? (process.env.FLING === "1" ? "fling" : "wheel");
+const FLING = MODE === "fling";
+const DRAG = MODE === "drag";
 /// LATENCY=ms: each older page lands that late, as from a remote or busy acpmux.
 const LATENCY = Number(process.env.LATENCY ?? 0);
+/// FIXTURE=flat ROWS=100000: the 100k-row chat of bench/chat-100k-flat.bench.ts (ROWS/2 turns of a question
+/// and its answer) instead of the generated ordinary log at TURNS turns.
+const FLAT = process.env.FIXTURE === "flat";
+const ROWS = Number(process.env.ROWS ?? 100_000);
+/// PAGES=N: stop once N older pages have been drawn (a 100k-row chat's top is thousands of screens up; the
+/// per-page time is what has to stay flat). 0 runs to the first prompt.
+const PAGES = Number(process.env.PAGES ?? 0);
+/// SMALL_PAGES=1: the stand-in serves pages of the attach's size (160 records) whatever the pane asks, as the
+/// bench did before it served the asked `limit` and `maxBytes`.
+const ASKED_PAGE_SIZE = process.env.SMALL_PAGES !== "1";
+/// SPLIT=1 (Chromium, implies PROFILE=1): a trace and CPU profile of the run, and each older page's ask to drawn cut
+/// into the wait for its records, its fold, React's render and commit, and style and layout, plus the frames over
+/// 16.7 ms and long tasks by what filled them (olderPageSplit.ts `OLDER-SPLIT` lines).
+const SPLIT = process.env.SPLIT === "1";
+/// RESTYLE=1 (Chromium): a timeline trace of the run, and the elements each frame restyled (UpdateLayoutTree's
+/// elementCount, summed per painted frame). Its own runs: the trace slows the page, so read no frame times there.
+const RESTYLE = process.env.RESTYLE === "1";
+const PROFILE = process.env.PROFILE === "1" || SPLIT;
 
 // The chat: the generated ordinary log at TURNS turns, its records as the stand-in daemon's lead steps; the
-// papercut chat adds one finished turn after it ("Answer 1:"), which the page waits for.
-const log = godLog("small", { turns: TURNS, imageEvery: 25, chainEvery: 150 });
+// papercut chat adds one finished turn after it ("Answer 1:"), which the page waits for. FIXTURE=flat: the
+// papercut chat's own ROWS/2 turns.
+const log = FLAT
+  ? { events: [] as ReturnType<typeof godLog>["events"] }
+  : godLog("small", { turns: TURNS, imageEvery: 25, chainEvery: 150 });
 const lead: PapercutStep[] = log.events.map((event) => [
   event.dir,
   event.kind,
   event.msg as Record<string, unknown>,
   event.at,
 ]);
-const prompts = log.events.filter((event) => event.kind === "user_message").length + 1;
+const chatTurns = FLAT ? Math.max(1, Math.floor(ROWS / 2)) : 1;
+const prompts = FLAT ? chatTurns : log.events.filter((event) => event.kind === "user_message").length + 1;
 /// The chat's first prompt's row (direct.ts names a prompt's row by its record's seq): the run is at the
 /// top of the whole chat once that row is drawn at the view's top, not only at the loaded rows' top.
-const FIRST_PROMPT = `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
+const FIRST_PROMPT = FLAT ? "user-1" : `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
-type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number };
+/// `mounted`: rows (`.acpmux-row`) that came into the DOM since the frame before (a full mount each).
+/// `shifted`: mounted rows whose `aria-posinset` changed since the frame before: rows came in above them, an
+/// older page drawn. A full held window sheds as many rows below as a page brings above, and in the flat
+/// fixture every turn is as tall as the next, so the content height alone does not say a page landed.
+type Frame = {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  paint: number;
+  mounted: number;
+  shifted: number;
+};
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -68,18 +114,104 @@ async function run(name: string, engine: BrowserType) {
   let browser: Browser | undefined;
   browser = await engine.launch({ headless: true });
   const pane = await papercutPane(() => browser!, {
-    turns: 1,
+    turns: chatTurns,
     running: false,
     lead,
+    ready: FLAT ? ".acpmux-row" : undefined,
     attachPage: 160,
     session: { turnCount: prompts },
     eventsLatencyMs: LATENCY,
     daemonIndexes: true,
+    askedPageSize: ASKED_PAGE_SIZE,
     // DEV=1 measures the dev server (React's development build); timing is of the production build.
-    ...(process.env.DEV === "1" ? {} : { production: { minify: process.env.PROFILE === "1" ? false : undefined } }),
+    ...(process.env.DEV === "1" ? {} : { production: { minify: PROFILE ? false : undefined } }),
   });
   try {
-    const page = await pane.open({ width: 1100, height: 800 });
+    // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
+    // and each ask the transcript makes and its settling (`__cmuxOlderTrace`), on the page's clock.
+    // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
+    // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
+    // One init script, so the split's phases and the asks go through one `__cmuxOlderTrace` whatever order
+    // init scripts run in.
+    const page = await pane.open({ width: 1100, height: 800 }, async (page) => {
+      await page.addInitScript((splitting: boolean) => {
+        const wire = {
+          sent: new Map<number, { before: number; limit: number; sentAt: number }>(),
+          pages: [] as { before: number; limit: number; sentAt: number; recvAt: number; bytes: number }[],
+          asks: new Map<number, { askAt: number; settledAt?: number }>(),
+        };
+        const split = splitting
+          ? { reply: [] as number[], fold: [] as number[], published: [] as number[], commits: [] as number[] }
+          : undefined;
+        const holder = window as unknown as {
+          __olderWire: typeof wire;
+          __olderSplit?: NonNullable<typeof split>;
+          __cmuxOlderTrace: (
+            phase: "ask" | "settled" | "reply" | "fold" | "published",
+            at: number,
+            ask: number,
+          ) => void;
+          __REACT_DEVTOOLS_GLOBAL_HOOK__?: unknown;
+        };
+        holder.__olderWire = wire;
+        holder.__cmuxOlderTrace = (phase, at, ask) => {
+          if (split) {
+            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
+            if (phase === "reply" || phase === "fold" || phase === "published") {
+              split[phase].push(at);
+              return;
+            }
+          }
+          if (phase === "ask") wire.asks.set(ask, { askAt: at });
+          else {
+            const entry = wire.asks.get(ask);
+            if (entry && entry.settledAt === undefined) entry.settledAt = at;
+          }
+        };
+        const Native = window.WebSocket;
+        window.WebSocket = class extends Native {
+          constructor(...args: ConstructorParameters<typeof WebSocket>) {
+            super(...args);
+            this.addEventListener("message", (event: MessageEvent) => {
+              if (wire.sent.size === 0 || typeof event.data !== "string") return;
+              const id = /^\{"jsonrpc":"2\.0","id":(\d+)/.exec(event.data)?.[1];
+              const asked = id === undefined ? undefined : wire.sent.get(Number(id));
+              if (!asked) return;
+              wire.sent.delete(Number(id));
+              wire.pages.push({ ...asked, recvAt: performance.now(), bytes: event.data.length });
+            });
+          }
+          override send(data: Parameters<WebSocket["send"]>[0]) {
+            if (typeof data === "string" && data.includes('"_acpmux/events"') && data.includes('"beforeSeq"'))
+              try {
+                const sent = JSON.parse(data) as {
+                  id: number;
+                  params: { beforeSeq: number; limit: number; promptIndex?: boolean };
+                };
+                if (sent.params.promptIndex !== true)
+                  wire.sent.set(sent.id, {
+                    before: sent.params.beforeSeq,
+                    limit: sent.params.limit,
+                    sentAt: performance.now(),
+                  });
+              } catch {}
+            super.send(data);
+          }
+        };
+        if (!split) return;
+        holder.__olderSplit = split;
+        let renderers = 0;
+        holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+          supportsFiber: true,
+          renderers: new Map(),
+          inject: () => ++renderers,
+          checkDCE: () => {},
+          onCommitFiberRoot: () => void split.commits.push(performance.now()),
+          onCommitFiberUnmount: () => {},
+          onPostCommitFiberRoot: () => {},
+        };
+      }, SPLIT);
+    });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     // PLAIN=1: no shadows, filters or blends, to tell an engine's raster cost from the page's work.
     if (process.env.PLAIN === "1")
@@ -131,14 +263,47 @@ async function run(name: string, engine: BrowserType) {
       } catch {
         observer = undefined;
       }
-      const stop = window.cmuxAfterPaint((paint) => {
+      // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
+      let mounted = 0;
+      let shifted = 0;
+      const rowsIn = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes") {
+            const node = record.target as HTMLElement;
+            if (
+              node.classList.contains("acpmux-row") &&
+              Number(node.getAttribute("aria-posinset")) > Number(record.oldValue ?? Infinity)
+            )
+              shifted += 1;
+            continue;
+          }
+          for (const node of record.addedNodes)
+            if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) mounted += 1;
+        }
+      });
+      rowsIn.observe(scroller, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["aria-posinset"],
+        attributeOldValue: true,
+      });
+      const stopPaint = window.cmuxAfterPaint((paint) => {
         frames.push({
           paint,
           scrollTop: scroller.scrollTop,
           scrollHeight: scroller.scrollHeight,
           clientHeight: scroller.clientHeight,
+          mounted,
+          shifted,
         });
+        mounted = 0;
+        shifted = 0;
       });
+      const stop = () => {
+        stopPaint();
+        rowsIn.disconnect();
+      };
       holder.__upWatch = {
         frames,
         long,
@@ -153,11 +318,29 @@ async function run(name: string, engine: BrowserType) {
     });
     // PROFILE=1 (Chromium): a CPU profile of the wheel, its busiest functions by self time printed at the end.
     let profiledAt = 0;
-    const cdp =
-      process.env.PROFILE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    const cdp = PROFILE && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    const splitting = SPLIT && name === "chromium";
+    // The trace through CDP, as much as the browser keeps: Playwright's `startTracing` records until its buffer is
+    // full, which a fling at 100k rows filled within its first two pages.
+    const tracer = splitting ? await page.context().newCDPSession(page) : undefined;
+    const restyler = RESTYLE && !tracer && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+    if (restyler)
+      await restyler.send("Tracing.start", {
+        transferMode: "ReturnAsStream",
+        traceConfig: { recordMode: "recordAsMuchAsPossible", includedCategories: ["devtools.timeline"] },
+      });
+    if (tracer)
+      await tracer.send("Tracing.start", {
+        transferMode: "ReturnAsStream",
+        traceConfig: {
+          recordMode: "recordAsMuchAsPossible",
+          includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+        },
+      });
     if (cdp) {
       await cdp.send("Profiler.enable");
-      await cdp.send("Profiler.setSamplingInterval", { interval: 250 });
+      // SPLIT=1 samples each 1 ms: at 250 us the profiler's own cost slowed every frame of a 100k-row fling.
+      await cdp.send("Profiler.setSamplingInterval", { interval: SPLIT ? 1000 : 250 });
       await cdp.send("Profiler.start");
       profiledAt = (await page.evaluate(() => performance.now())) as number;
     }
@@ -173,11 +356,14 @@ async function run(name: string, engine: BrowserType) {
           { length: FRAMES_PER_ROUND },
           (_, frame) =>
             -STEP *
-            (FLING
-              ? [1500, 2400, 1900, 3000, 2100][frame % 5]!
-              : [40.25, 95.5, 61.75, 128.125, 72.5, 101.25][frame % 6]!),
+            (DRAG
+              ? [2400, 4800, 3600, 3000][frame % 4]!
+              : FLING
+                ? [1500, 2400, 1900, 3000, 2100][frame % 5]!
+                : [40.25, 95.5, 61.75, 128.125, 72.5, 101.25][frame % 6]!),
         ),
         restFrames: 0,
+        drag: DRAG,
       });
       // Only what each frame showed is kept, not the row ids: a long run's samples are large.
       for (const sample of trace.samples) {
@@ -210,6 +396,13 @@ async function run(name: string, engine: BrowserType) {
         return !!document.querySelector(`[data-row-id="${first}"]`) && scroller.scrollTop <= 1;
       }, FIRST_PROMPT);
       if (atTop) break;
+      if (PAGES > 0) {
+        const drawn = await page.evaluate(
+          () =>
+            (window as unknown as { __olderWire: { asks: Map<number, { settledAt?: number }> } }).__olderWire.asks.size,
+        );
+        if (drawn >= PAGES) break;
+      }
     }
     const watched = await page.evaluate(() => {
       const holder = window as unknown as {
@@ -224,6 +417,60 @@ async function run(name: string, engine: BrowserType) {
         longtasks: holder.__longtasks,
       };
     });
+    // Older pages: each ask the transcript made, to the first painted frame after it settled whose content
+    // height changed (the page's rows drawn); and each page on the wire, ask to reply.
+    const wire = await page.evaluate(() => {
+      const held = (
+        window as unknown as {
+          __olderWire: {
+            pages: { before: number; limit: number; sentAt: number; recvAt: number; bytes: number }[];
+            asks: Map<number, { askAt: number; settledAt?: number }>;
+          };
+        }
+      ).__olderWire;
+      return { pages: held.pages, asks: [...held.asks.values()] };
+    });
+    const askToDrawn: number[] = [];
+    const drawnAsks: { askAt: number; settledAt: number; drawnAt: number }[] = [];
+    let cpuProfile: CpuProfile | undefined;
+    let undrawnAsks = 0;
+    for (const ask of wire.asks) {
+      if (ask.settledAt === undefined) continue;
+      const before = watched.frames.filter((frame) => frame.paint <= ask.settledAt!).at(-1);
+      const drawn = watched.frames.find(
+        (frame) => frame.paint > ask.settledAt! && (!before || frame.scrollHeight !== before.scrollHeight),
+      );
+      if (drawn && drawn.paint - ask.settledAt < 1000) {
+        askToDrawn.push(drawn.paint - ask.askAt);
+        // One line a page: bench/transcript-scroll-up-ab.sh pools them over repeats.
+        console.log(
+          `transcript-scroll-up ${name} page ${askToDrawn.length} askToDrawn ${round2(drawn.paint - ask.askAt)}`,
+        );
+        drawnAsks.push({ askAt: ask.askAt, settledAt: ask.settledAt, drawnAt: drawn.paint });
+      } else undrawnAsks += 1;
+    }
+    // Each ask to the first painted frame after it whose rows moved down in the list (`shifted`): an older
+    // page drawn above them, whatever the content height did (the window sheds below what a page adds above).
+    const askToShifted: number[] = [];
+    let unshiftedAsks = 0;
+    const askAts = wire.asks.map((ask) => ask.askAt).sort((a, b) => a - b);
+    for (const [at, askAt] of askAts.entries()) {
+      const next = askAts[at + 1] ?? Infinity;
+      const drawn = watched.frames.find((frame) => frame.paint > askAt && frame.shifted > 0);
+      // A shift past the next ask may be that ask's page: this one drew nothing of its own before it.
+      if (drawn && drawn.paint <= next + 1000) askToShifted.push(drawn.paint - askAt);
+      else unshiftedAsks += 1;
+    }
+    const wireMs = wire.pages.map((each) => each.recvAt - each.sentAt);
+    // A frame the reader asked to go up and the view moved less (held at the loaded rows' top, or a wheel
+    // the pane cancelled there) while history was left above: the wait for a page, what a person sees as
+    // loading.
+    const loadingFrames = traces
+      .flatMap((trace) => trace.samples)
+      .filter(
+        (sample) =>
+          sample.requestedPixels < 0 && sample.wheelPixels > sample.requestedPixels + 1 && sample.scrollTop > 1,
+      ).length;
     if (cdp) {
       type Node = {
         id: number;
@@ -231,8 +478,9 @@ async function run(name: string, engine: BrowserType) {
         children?: number[];
       };
       const { profile } = (await cdp.send("Profiler.stop")) as unknown as {
-        profile: { nodes: Node[]; samples: number[]; timeDeltas: number[] };
+        profile: { nodes: Node[]; samples: number[]; timeDeltas: number[]; startTime: number };
       };
+      cpuProfile = profile;
       // Self time inside the long tasks only (each sample's page time: the profile's start, read on
       // the page, plus the deltas so far), by function.
       const inLong = new Map<string, number>();
@@ -319,6 +567,69 @@ async function run(name: string, engine: BrowserType) {
       for (const [key, ms] of top(total, 40))
         console.log(`transcript-scroll-up profile total ${Math.round(ms)} ms ${key}`);
     }
+    if (tracer) {
+      const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
+        tracer.once("Tracing.tracingComplete", done),
+      );
+      await tracer.send("Tracing.end");
+      const { stream, dataLossOccurred } = await complete;
+      const chunks: string[] = [];
+      for (;;) {
+        const read = await tracer.send("IO.read", { handle: stream! });
+        chunks.push(read.base64Encoded ? Buffer.from(read.data, "base64").toString() : read.data);
+        if (read.eof) break;
+      }
+      await tracer.send("IO.close", { handle: stream! });
+      const text = chunks.join("");
+      const parsed = JSON.parse(text) as { traceEvents?: unknown[] } | unknown[];
+      const events = (Array.isArray(parsed) ? parsed : (parsed.traceEvents ?? [])) as Parameters<
+        typeof reportOlderSplit
+      >[0];
+      console.log(
+        `OLDER-SPLIT trace ${events.length} events, ${Math.round(text.length / 1048576)} MiB, data lost: ${dataLossOccurred === true}`,
+      );
+      const split = (await page.evaluate(
+        () => (window as unknown as { __olderSplit: Record<string, number[]> }).__olderSplit,
+      )) as Record<"reply" | "fold" | "published" | "commits", number[]>;
+      reportOlderSplit(events, cpuProfile, {
+        asks: drawnAsks,
+        ...split,
+        frames: traces.map((trace) => trace.samples.map((sample) => sample.paint)),
+        longSpans: watched.spans,
+      });
+    }
+    // RESTYLE=1: the elements restyled over the run, per painted frame and per style pass.
+    let restyled: { perFrame: number; passP95: number; passMax: number; lost: boolean } | undefined;
+    if (restyler) {
+      const complete = new Promise<{ stream?: string; dataLossOccurred?: boolean }>((done) =>
+        restyler.once("Tracing.tracingComplete", done),
+      );
+      await restyler.send("Tracing.end");
+      const { stream, dataLossOccurred } = await complete;
+      const chunks: string[] = [];
+      for (;;) {
+        const read = await restyler.send("IO.read", { handle: stream! });
+        chunks.push(read.base64Encoded ? Buffer.from(read.data, "base64").toString() : read.data);
+        if (read.eof) break;
+      }
+      await restyler.send("IO.close", { handle: stream! });
+      const parsed = JSON.parse(chunks.join("")) as { traceEvents?: unknown[] } | unknown[];
+      const events = (Array.isArray(parsed) ? parsed : (parsed.traceEvents ?? [])) as {
+        name?: string;
+        ph?: string;
+        args?: { elementCount?: number; data?: { elementCount?: number } };
+      }[];
+      const passes = events
+        .filter((event) => event.name === "UpdateLayoutTree" && (event.ph === "X" || event.ph === "E"))
+        .map((event) => event.args?.elementCount ?? event.args?.data?.elementCount ?? 0);
+      const painted = Math.max(1, watched.frames.length);
+      restyled = {
+        perFrame: round2(passes.reduce((sum, count) => sum + count, 0) / painted),
+        passP95: percentile(passes, 95),
+        passMax: Math.max(0, ...passes),
+        lost: dataLossOccurred === true,
+      };
+    }
     const reachedTop = rounds < MAX_ROUNDS;
     const pages = pane.methods.filter((method) => method === "_acpmux/events").length;
     const samples = traces.flatMap((trace) => trace.samples);
@@ -377,6 +688,7 @@ async function run(name: string, engine: BrowserType) {
       frameP50: round2(percentile(intervals, 50)),
       frameP95: round2(percentile(intervals, 95)),
       frameMax: round2(Math.max(0, ...intervals)),
+      lateFrames: intervals.filter((interval) => interval > 1000 / 120).length,
       longTasks: watched.longtasks ? watched.long.length : null,
       longTaskMs: watched.longtasks ? Math.round(watched.long.reduce((sum, ms) => sum + ms, 0)) : null,
       thumbSizeStartPct: round2(first * 100),
@@ -384,6 +696,46 @@ async function run(name: string, engine: BrowserType) {
       thumbSizeChangePct: round2(sizeChange * 100),
       thumbDown,
       thumbDownMax: round2(thumbDownMax),
+      mode: MODE,
+      fixture: FLAT ? `flat ${ROWS} rows` : `ordinary ${TURNS} turns`,
+      asks: wire.asks.length,
+      askToDrawnP50: round2(percentile(askToDrawn, 50)),
+      askToDrawnP95: round2(percentile(askToDrawn, 95)),
+      askToDrawnMax: round2(Math.max(0, ...askToDrawn)),
+      undrawnAsks,
+      askToShiftedP50: round2(percentile(askToShifted, 50)),
+      askToShiftedP95: round2(percentile(askToShifted, 95)),
+      askToShiftedMax: round2(Math.max(0, ...askToShifted)),
+      unshiftedAsks,
+      shiftedFrames: watched.frames.filter((frame) => frame.shifted > 0).length,
+      loadingFrames,
+      wirePages: wire.pages.length,
+      wireMsP50: round2(percentile(wireMs, 50)),
+      wireMsP95: round2(percentile(wireMs, 95)),
+      wireKiBP50: round2(
+        percentile(
+          wire.pages.map((each) => each.bytes / 1024),
+          50,
+        ),
+      ),
+      wireKiBMax: round2(Math.max(0, ...wire.pages.map((each) => each.bytes / 1024))),
+      // Rows mounted per painted frame while the run scrolled (`Frame.mounted`).
+      mountedRowsP95: percentile(
+        watched.frames.map((frame) => frame.mounted),
+        95,
+      ),
+      mountedRowsMax: Math.max(0, ...watched.frames.map((frame) => frame.mounted)),
+      mountedRowsPerFrame: round2(
+        watched.frames.reduce((sum, frame) => sum + frame.mounted, 0) / Math.max(1, watched.frames.length),
+      ),
+      ...(restyled
+        ? {
+            restyledPerFrame: restyled.perFrame,
+            restyledPassP95: restyled.passP95,
+            restyledPassMax: restyled.passMax,
+            restyleTraceLost: restyled.lost,
+          }
+        : {}),
     };
     for (const [key, value] of Object.entries(summary))
       if (key !== "engine") console.log(`transcript-scroll-up ${name} ${key}: ${JSON.stringify(value)}`);
@@ -398,6 +750,11 @@ async function run(name: string, engine: BrowserType) {
         .join(" ")}`,
     );
     perfRow({ name: `transcript_scroll_up.${name}.interval`, p50: summary.frameP50, p95: summary.frameP95 });
+    perfRow({
+      name: `transcript_scroll_up.${name}.${MODE}.older_page_drawn`,
+      p50: summary.askToDrawnP50,
+      p95: summary.askToDrawnP95,
+    });
     await page.close();
     return summary;
   } finally {

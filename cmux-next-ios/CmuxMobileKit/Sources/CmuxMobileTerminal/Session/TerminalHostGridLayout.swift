@@ -46,6 +46,20 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         self.visibleRows = visibleRows
     }
 
+    /// The Mac's columns the mirror follows: none on the primary screen while
+    /// the Mac's grid is the phone's own claim (sent or still on its way).
+    /// A zoom key changes the phone's columns at once and its claim reaches
+    /// the Mac a settle and a round trip later; followed meanwhile, the
+    /// mirror took the old count at the new cell width (wider than the page,
+    /// panning sideways, or narrower at its leading edge) and Ghostty
+    /// rewrapped the rows twice more: to the old count, then to the new one
+    /// when the Mac answered. A full-screen app keeps the Mac's grid until it
+    /// redraws (the alternate screen does not rewrap).
+    public static func followedHostColumns(remoteColumns: Int?, gridIsPhonesOwn: Bool, alternateScreen: Bool) -> Int? {
+        if gridIsPhonesOwn, !alternateScreen { return nil }
+        return remoteColumns
+    }
+
     /// Columns the page fits at the phone's font size.
     public var phoneColumns: Int {
         cell.width > 0 ? max(1, Int(floor(viewportWidth / cell.width))) : 0
@@ -131,14 +145,36 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         return isCapped || hostColumns != phoneColumns || hostRows != visibleRows
     }
 
+    /// The primary screen's bottom inset that pins a shorter grid to the
+    /// top of a page `pageHeight` tall whose rows start at `top`: the grid's
+    /// last row ends above the letterbox (nil: no letterbox, the last row
+    /// rests on the composer as usual).
+    public func pinnedBottomInset(pageHeight: CGFloat, top: CGFloat) -> CGFloat? {
+        guard let box = letterbox else { return nil }
+        return max(0, pageHeight - top - box.top)
+    }
+
+    /// The note's compact form, for a grid that fills the page (no
+    /// letterbox): `120×40`, plus `· 12 cols hidden` when the phone shows
+    /// only the first ``columns`` (docs/shared-terminal-sizing.md
+    /// "Showing the bounds"). Nil when the grid is the phone's.
+    public var compactNote: String? {
+        guard differsFromPhone, let hostColumns, let hostRows else { return nil }
+        let size = "\(hostColumns)×\(hostRows)"
+        return isCapped ? "\(size) · \(hostColumns - columns) cols hidden" : size
+    }
+
     /// The one-line note in the letterbox: `120×40 · set by Aziz's Mac`.
     /// `owner` is the device that set the grid, when the size state names it.
+    /// Without one the note gives the size alone: it never claims another
+    /// device it cannot name (Leo, 2026-11-15, on "39x26 set by another
+    /// device": "its not accurtae").
     public func note(owner: String?) -> String? {
         guard differsFromPhone, let hostColumns, let hostRows else { return nil }
         let size = isCapped
             ? "\(hostColumns)×\(hostRows), too wide for this iPhone (\(columns) columns shown)"
             : "\(hostColumns)×\(hostRows)"
-        guard let owner, !owner.isEmpty else { return "\(size) · set by another device" }
+        guard let owner, !owner.isEmpty else { return size }
         return "\(size) · set by \(owner)"
     }
 }

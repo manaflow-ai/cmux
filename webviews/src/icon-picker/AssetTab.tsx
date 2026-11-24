@@ -38,6 +38,7 @@ export function AssetTab({
   sink,
   strings,
   onPicked,
+  onTry,
   onKeyDown,
   prepare = prepareImage,
 }: {
@@ -45,6 +46,8 @@ export function AssetTab({
   sink: IconAssetSink | undefined;
   strings: Strings;
   onPicked: (value: IconValue) => void;
+  /** Each try starts with this, also one that this tab refuses itself (no `onPicked` then). */
+  onTry?: () => void;
   /** The picker's keys (Escape, Ctrl-Tab) while a control of this tab has focus. */
   onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   prepare?: (file: Blob) => Promise<Blob>;
@@ -56,6 +59,7 @@ export function AssetTab({
   const [dragging, setDragging] = useState(false);
 
   const run = async (work: () => Promise<IconValue>) => {
+    onTry?.();
     if (!sink) return setError(t("iconPicker.error.unavailable"));
     setBusy(true);
     setError(null);
@@ -99,7 +103,10 @@ export function AssetTab({
   };
   const submitURL = () => {
     const text = url.trim();
-    if (!/^https:\/\//i.test(text)) return setError(t("iconPicker.error.badURL"));
+    if (!/^https:\/\//i.test(text)) {
+      onTry?.();
+      return setError(t("iconPicker.error.badURL"));
+    }
     void run(() => sink!.fromURL(kind, text));
   };
 

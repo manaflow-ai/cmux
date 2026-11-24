@@ -47,7 +47,7 @@ fn grouped(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);
@@ -69,19 +69,14 @@ fn clipped(text: &str, max: usize, from_end: bool) -> &str {
     if text.len() <= max {
         return text;
     }
-    if from_end {
-        let mut start = text.len() - max;
-        while !text.is_char_boundary(start) {
-            start += 1;
-        }
-        &text[start..]
+    // Each range is on character boundaries, so `get` gives it; a range that
+    // it refused would give no excerpt, never more than `max` bytes.
+    let excerpt = if from_end {
+        text.get(text.ceil_char_boundary(text.len() - max)..)
     } else {
-        let mut end = max;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        &text[..end]
-    }
+        text.get(..text.floor_char_boundary(max))
+    };
+    excerpt.unwrap_or_default()
 }
 
 /// A fence longer than any backtick run in `text`, so the excerpt cannot
@@ -103,18 +98,17 @@ fn block(label: &str, excerpt: &str) -> String {
 
 /// The short text the message carries in place of `text`, saved as `name`.
 pub(crate) fn prompt(text: &str, name: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let count = lines.len();
-    let head =
-        clipped(&lines[..count.min(EXCERPT_LINES)].join("\n"), EXCERPT_BYTES, false).to_owned();
+    let count = text.lines().count();
+    let head = text.lines().take(EXCERPT_LINES).collect::<Vec<_>>().join("\n");
+    let head = clipped(&head, EXCERPT_BYTES, false).to_owned();
     let mut out = format!(
         "The user sent a long message ({} lines, {}), so it is attached as the file {name} instead of written here.\n\n{INSTRUCTION}\n\n",
         grouped(count),
         size(text.len()),
     );
     if count > 2 * EXCERPT_LINES {
-        let tail =
-            clipped(&lines[count - EXCERPT_LINES..].join("\n"), EXCERPT_BYTES, true).to_owned();
+        let tail = text.lines().skip(count - EXCERPT_LINES).collect::<Vec<_>>().join("\n");
+        let tail = clipped(&tail, EXCERPT_BYTES, true).to_owned();
         out.push_str(&block(&format!("Its first {EXCERPT_LINES} lines:"), &head));
         out.push_str(&format!("\n\n[{} lines not shown]\n\n", grouped(count - 2 * EXCERPT_LINES)));
         out.push_str(&block(&format!("Its last {EXCERPT_LINES} lines:"), &tail));
@@ -129,9 +123,11 @@ pub(crate) fn prompt(text: &str, name: &str) -> String {
 
 /// The file `text` is kept in: its SHA-256 and name.
 pub(crate) fn file_of(text: &str) -> (String, String) {
-    let hash: String = Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-    let name = format!("message-{}.txt", &hash[..12]);
-    (hash, name)
+    let digest = Sha256::digest(text.as_bytes());
+    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    // The first 12 digits of the hash.
+    let short: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
+    (hash, format!("message-{short}.txt"))
 }
 
 impl ConversationStore {
@@ -236,5 +232,51 @@ mod tests {
         let prompt = prompt(&text, &name);
         assert!(prompt.len() < 2 * EXCERPT_BYTES + 1024);
         assert!(prompt.contains(INSTRUCTION));
+    }
+
+    #[test]
+    fn clipped_cuts_on_a_character_boundary_at_each_end() {
+        // 12 bytes: each "a" is 1 byte and each "é" is 2.
+        let text = "aéaéaéaé";
+        assert_eq!(clipped(text, 12, false), text);
+        assert_eq!(clipped(text, 12, true), text);
+        // The limit is on a boundary.
+        assert_eq!(clipped(text, 4, false), "aéa");
+        assert_eq!(clipped(text, 5, true), "éaé");
+        // The limit is in the middle of an "é": the cut moves into the limit.
+        assert_eq!(clipped(text, 5, false), "aéa");
+        assert_eq!(clipped(text, 2, false), "a");
+        assert_eq!(clipped(text, 4, true), "aé");
+        assert_eq!(clipped(text, 0, false), "");
+        assert_eq!(clipped(text, 0, true), "");
+    }
+
+    #[test]
+    fn many_lines_give_the_first_and_the_last_lines() {
+        let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+        let prompt = prompt(&text, "message-0.txt");
+        let first: Vec<String> = (1..=40).map(|n| format!("line {n}")).collect();
+        let last: Vec<String> = (61..=100).map(|n| format!("line {n}")).collect();
+        let first = format!("Its first 40 lines:\n```\n{}\n```", first.join("\n"));
+        let last = format!("Its last 40 lines:\n```\n{}\n```", last.join("\n"));
+        assert!(prompt.contains(&first), "{prompt}");
+        assert!(prompt.contains("\n\n[20 lines not shown]\n\n"), "{prompt}");
+        assert!(prompt.ends_with(&last), "{prompt}");
+        assert!(!prompt.contains("line 41") && !prompt.contains("line 60"), "{prompt}");
+    }
+
+    #[test]
+    fn the_lines_of_a_short_text_are_all_in_its_start() {
+        let text: String = (1..=3).map(|n| format!("line {n}\n")).collect();
+        let prompt = prompt(&text, "message-0.txt");
+        assert!(prompt.contains("Its start:\n```\nline 1\nline 2\nline 3\n```"), "{prompt}");
+        assert!(prompt.ends_with("Its end:\n```\nline 1\nline 2\nline 3\n```"), "{prompt}");
+    }
+
+    #[test]
+    fn the_file_name_has_the_first_12_digits_of_the_hash() {
+        let (hash, name) = file_of("hello");
+        assert_eq!(hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(name, "message-2cf24dba5fb0.txt");
     }
 }

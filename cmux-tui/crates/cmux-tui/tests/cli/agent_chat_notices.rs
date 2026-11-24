@@ -1,5 +1,5 @@
 //! Agent chat notifications (cx-sg1qz): the daemon follows this machine's
-//! acpmux chats and posts a notification on every agent tab bound to a chat
+//! acpmux chats and posts one notification on one agent tab bound to a chat
 //! when its turn ends (done or failed) and when it starts waiting for the
 //! person. The app turns those into banners, the Dock badge and a click that
 //! opens the tab, as for any notification on a tab; the daemon reads them
@@ -34,6 +34,12 @@ fn chat(daemon: &Daemon) -> (u64, String) {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        daemon.dir.join("acpmux/trust.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     let surface = daemon.own_agent_tab();
     let started = daemon.start_chat(surface);
     assert_eq!(started["ok"], true, "{started}");
@@ -266,6 +272,76 @@ fn a_daemon_restart_while_a_chat_waits_posts_needs_input_once() {
         .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with("needs input")))
         .collect();
     assert_eq!(waiting.len(), 1, "one wait, one needs-input notice: {waiting:?}");
+
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let permission = info["result"]["pending"][0]["permissionId"].clone();
+    acpmux.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
+    );
+    asking.join().unwrap();
+}
+
+/// Another agent tab, in a new workspace, on `session`, a chat that already runs (one chat open
+/// in two windows).
+fn second_tab(daemon: &Daemon, session: &str) -> u64 {
+    let identity = daemon.rpc(json!({"id": 1, "cmd": "identify"}));
+    let host = format!("registry:{}", identity["data"]["session_id"].as_str().unwrap());
+    assert_eq!(daemon.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
+    let tab = daemon.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+        "agent_session": {"host": host, "session": session, "harness": "fake"}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    tab["data"]["surface"].as_u64().unwrap()
+}
+
+/// Every notification on `surfaces` whose title ends with `suffix`.
+fn titled(daemon: &Daemon, surfaces: &[u64], suffix: &str) -> Vec<Value> {
+    all_notices(daemon)
+        .into_iter()
+        .filter(|row| surfaces.iter().any(|surface| row["surface"] == *surface))
+        .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with(suffix)))
+        .collect()
+}
+
+/// One chat open in two tabs is still one chat: its finished turn and its wait each post one
+/// notification (one banner on the Mac, one push), on a tab that shows it, not one per tab
+/// (goal notify-every-finish: 0 duplicates).
+#[test]
+fn a_chat_open_in_two_tabs_posts_one_notice_per_turn_and_per_wait() {
+    let daemon = machine("notice-two-tabs");
+    let (surface, session) = chat(&daemon);
+    let other_surface = second_tab(&daemon, &session);
+    let (marker_surface, marker_session) = chat(&daemon);
+    let tabs = [surface, other_surface];
+    let mut marker = Acpmux::connect(&daemon, &marker_session);
+
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    acpmux.prompt(&session, "hello there");
+    // acpmux tells the daemon of every chat in order on one watch, so once another chat's
+    // later turn notified, every notice of this turn was posted.
+    marker.prompt(&marker_session, "marker one");
+    notice(&daemon, marker_surface, |row| {
+        row["body"].as_str().is_some_and(|b| b.contains("marker one"))
+    });
+    let finished = titled(&daemon, &tabs, "finished");
+    assert_eq!(finished.len(), 1, "one finished turn, one notice: {finished:?}");
+
+    let asking = {
+        let mut asker = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || asker.prompt(&session, "ask: write the file"))
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while titled(&daemon, &tabs, "needs input").is_empty() {
+        assert!(Instant::now() < deadline, "no needs-input notice: {:?}", all_notices(&daemon));
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    marker.prompt(&marker_session, "marker two");
+    notice(&daemon, marker_surface, |row| {
+        row["body"].as_str().is_some_and(|b| b.contains("marker two"))
+    });
+    let waiting = titled(&daemon, &tabs, "needs input");
+    assert_eq!(waiting.len(), 1, "one wait, one notice: {waiting:?}");
 
     let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
     let permission = info["result"]["pending"][0]["permissionId"].clone();

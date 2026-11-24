@@ -46,3 +46,6 @@ fn flooded_terminal_host_keeps_only_a_replay_window_of_scrollback() {
 
 #[path = "sized_attach.rs"]
 mod sized_attach;
+
+#[path = "restart_keeps_screen.rs"]
+mod restart_keeps_screen;

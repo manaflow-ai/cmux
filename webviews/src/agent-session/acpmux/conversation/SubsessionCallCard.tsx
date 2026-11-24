@@ -21,6 +21,9 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { ResumeControl } from "../subagents/ResumeControl";
+import { subsessionResumeRow } from "../subagents/resumeState";
+import { TurnActionsContext } from "./turnActions";
 import { useFindReveal } from "./chatFind";
 import { useStartedName } from "./startedNames";
 import { ToolGroup } from "./icons";
@@ -45,10 +48,12 @@ export type StartedGroupEntry = {
 export function SubsessionCallCard({
   call,
   tool,
+  messageAt,
   group,
 }: {
   call?: SubsessionCall;
   tool?: Tool;
+  messageAt?: number;
   group?: readonly StartedGroupEntry[];
 }) {
   if (group) return <StartedGroup entries={group} />;
@@ -57,7 +62,7 @@ export function SubsessionCallCard({
     case "start":
       return <StartedCard call={call} tool={tool} />;
     case "send":
-      return <SentLine call={call} tool={tool} />;
+      return <SentLine call={call} tool={tool} messageAt={messageAt} />;
     case "wait":
     case "list":
       return <SessionCards call={call} tool={tool} />;
@@ -159,11 +164,15 @@ function SessionCard({
   const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
+  const actions = useContext(TurnActionsContext);
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
   // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
   const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
   const state = retry ? "working" : (live?.state ?? fallback?.state);
+  // A stopped one says so and offers Resume, as a stopped helper's every row does (resumeState.ts):
+  // acpmux carries its chat on from where it stopped.
+  const stopped = !retry && live ? subsessionResumeRow(live) : undefined;
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
   const doing = waiting ? waitingLine(t, waiting) : sessionLine(live?.doing, live?.error, state === "failed", shown);
@@ -175,6 +184,8 @@ function SessionCard({
       model={live?.model ?? model}
       state={state}
       {...(retry && { stateLabel: retryLabel(t, retry) })}
+      {...(stopped && { stateLabel: t("subagents.state.cancelled") })}
+      actions={stopped && <ResumeControl agent={stopped} actions={actions} />}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
@@ -323,7 +334,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 
 /// "Sent message to tests" and the first line, the row a shell `acpmux send` draws too
 /// (SentMessageLine.tsx); it opens to the whole message and the call's Raw.
-function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
+function SentLine({
+  call,
+  tool,
+  messageAt,
+}: {
+  call: Extract<SubsessionCall, { tool: "send" }>;
+  tool: Tool;
+  messageAt?: number;
+}) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
   // Its name from the session list, else from the call that started it (a chat that left the list
@@ -333,6 +352,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
   return (
     <SentMessageLine
       tool={tool}
+      messageAt={messageAt}
       state={call.running ? "sending" : "sent"}
       target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}

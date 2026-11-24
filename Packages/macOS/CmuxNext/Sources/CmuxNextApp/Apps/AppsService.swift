@@ -7,6 +7,7 @@ import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -20,6 +21,7 @@ final class AppsService {
     unowned let services: AppServices
     let transport: DaemonAppsTransport
     let client: AppsClient
+    let overlays: AppOverlayPresenter // app overlays (`presentation.overlay`), opened by the person only
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
@@ -31,17 +33,19 @@ final class AppsService {
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
-    /// The App Store page (React, apps-web-DESIGN.md) per tab key.
+    /// The App Store page per tab key: React (apps-web-DESIGN.md), or native (Debug `apps.store.surface`).
     private var webStorePages: [String: PageWebView] = [:]
+    private var nativeStorePages: [String: AppStoreNativeView] = [:]
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges()), .media { [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
+        overlays = AppOverlayPresenter(client: client)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
@@ -71,7 +75,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -87,15 +91,16 @@ final class AppsService {
     /// per window). `appID` opens that listing, `tab` a store tab (Discover,
     /// Installed). With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
-    /// does: S22, the App Store never opens a window of its own.
+    /// does: S22, the App Store never opens a window of its own. Nothing while it is hidden (`showsAppStore`).
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        guard services.settings?.snapshot.previewFeatures == true else { return }
-        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
+        guard services.settings?.snapshot.showsAppStore == true else { return }
+        pendingRoute = AppStoreTab.route(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             // An open page moves to the route; a page this show made already opened on it.
-            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
+            webStorePages[key]?.open(route: AppStoreTab.route(appID: appID, tab: tab))
+            nativeStorePages[key]?.show(route: AppStoreTab.route(appID: appID, tab: tab))
             pendingRoute = nil
             waitingStore = nil
             return
@@ -113,15 +118,12 @@ final class AppsService {
         showStore(appID: request.appID, tab: request.tab, focus: request.focus)
     }
 
-    /// Opens an app (``AppOpenTarget``): its scene page as a tab of the active window (one per window)
-    /// or its web app as a browser tab in the active workspace,
-    /// then runs `command` (one of the app's palette ops, by name or its last
-    /// segment, for example CodeRouter's connectAccount) in the app when
-    /// given. User runs select and
-    /// focus the tab; automation opens it without moving focus.
-    /// The CodeRouter web page opens without the apps client (it talks to
-    /// this Mac's CodeRouter ops, not to the supervisor). Returns the
-    /// command's run, whose failure the caller reports.
+    /// Opens an app (``AppOpenTarget``): its scene page as a tab of the active window (one per window), its web
+    /// app as a browser tab in the active workspace, or a widget app's New Tab page, then runs `command` (one of
+    /// the app's palette ops, by name or its last segment, for example CodeRouter's connectAccount) in it when
+    /// given. User runs select and focus the tab; automation opens it without moving focus. The CodeRouter web
+    /// page opens without the apps client (it talks to this Mac's CodeRouter ops, not to the supervisor). Returns
+    /// the command's run, whose failure the caller reports.
     @discardableResult
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true, origin: ActionOrigin = .user) throws(AppsServiceError) -> ActionWork? {
         if appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web, command == nil,
@@ -144,10 +146,12 @@ final class AppsService {
                 arguments: ["url": .string(url.absoluteString)], origin: origin, focusRequested: focus))
             guard opened else { throw .noPage }
             return nil
-        case .notDeployed:
-            throw .notDeployed
-        case .none:
-            throw .noPage
+        case .notDeployed: throw .notDeployed
+        case .widget: // Its tile's New Tab page: a person's Cmd-T (`newTab`, needs no pane: the store has none), else the focused pane's.
+            guard let window = services.windows.active else { throw .noWindow }
+            guard origin == .user || window.focusedPane != nil, services.registry.perform(origin == .user ? "newTab" : NewTabPage.action, invocation: ActionInvocation(origin: origin, focusRequested: focus)) else { throw .noPage }
+        case .none: guard let show = SidebarBridgeRules().nativePaneShowAction(appID), services.registry.perform(
+            ActionID(rawValue: show), invocation: ActionInvocation(arguments: [:], origin: origin, focusRequested: focus)) else { throw .noPage }
         }
         guard let command else { return nil }
         guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {
@@ -189,10 +193,16 @@ extension AppsService: InternalPageProvider {
     var symbol: String { "bag" }
     var icon: IconName? { .store }
 
-    /// The React App Store page; it opens on the route of the show that made it. Missing page
-    /// resources (a build without the web bundles) show an empty view, never a second store.
+    /// The App Store page on its show's route: React, or native under Debug `apps.store.surface`; no web bundles, an empty view.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
+        if PageTunables.appStore.value == .native, case let registry = services.registry {
+            let run = { (action: ActionID, key: String, value: String) in _ = registry.perform(action, invocation: ActionInvocation(arguments: [key: .string(value)], origin: .user)) }
+            let store = AppStoreNativeView(client: client, changes: PageFactory(services: services).appsStoreProvider(), route: pendingRoute,
+                                           open: { run("app.open", "app", $0) }, openLink: { run("openBrowser", "url", $0.absoluteString) })
+            nativeStorePages[key] = store
+            return store
+        }
+        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? AppStoreTab.route(appID: nil, tab: nil)) else {
             return NSView()
         }
         webStorePages[key] = page
@@ -201,19 +211,11 @@ extension AppsService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
+        nativeStorePages.removeValue(forKey: key)
     }
 
     /// The page keeps its own history (its fragment).
     func history(for key: String) -> (any PageHistory)? { nil }
-
-    /// The page's fragment: a listing, else `tab` (Discover by default).
-    nonisolated static func storeRoute(appID: String?, tab: AppStoreTab?) -> String {
-        if let appID, var query = URLComponents(string: "x:") {
-            query.queryItems = [URLQueryItem(name: "app", value: appID)]
-            return "#/discover?" + (query.percentEncodedQuery ?? "")
-        }
-        return "#/" + (tab ?? .discover).rawValue
-    }
 }
 
 enum AppsServiceError: Error {

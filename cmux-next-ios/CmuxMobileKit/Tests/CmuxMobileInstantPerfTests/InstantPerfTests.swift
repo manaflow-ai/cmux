@@ -9,7 +9,8 @@ import Testing
 // same, or I mean, close enough to the exact same as the small sessions"). Each test measures one
 // metric on the SMALL and the GOD fixture (InstantPerfFixtures.swift) side by side, reports it
 // (`INSTANTPERF {json}`, InstantPerfReport.swift) and asserts its budget (3x target) and the
-// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`.
+// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`. The
+// small case's budget only warns unless CMUX_INSTANT_PERF_STRICT=1 (a quiet harness).
 //
 // a. home_list_first_screen   the first window's `home-inbox` reply bytes (what a windowing host
 //                              sends: 20 rows and the list's total) to the list the first screen
@@ -50,26 +51,24 @@ struct InstantPerfTests {
 
     @Test("home_list_first_screen")
     func homeListFirstScreen() async throws {
-        func firstScreen(_ size: InstantPerfSize) async throws -> [Double] {
+        func firstScreen(_ size: InstantPerfSize) throws -> Duration {
             let wire = HomeInboxFixture.firstWindowWire(size)
-            return try await InstantPerfReport.sample {
-                var list: MacHomeList?
-                var reply: MacHomeReply?
-                let elapsed = try ContinuousClock().measure {
-                    let read = try MacHomeReply(line: wire)
-                    reply = read
-                    list = MacHomeList(read.rows)
-                }
-                let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
-                let count = HomeInboxFixture.rowCount(size)
-                #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
-                if case .window(_, _, let total) = reply {
-                    #expect(total == count, "the window does not know the list's size")
-                } else {
-                    Issue.record("not a window: \(String(describing: reply))")
-                }
-                return elapsed
+            var list: MacHomeList?
+            var reply: MacHomeReply?
+            let elapsed = try ContinuousClock().measure {
+                let read = try MacHomeReply(line: wire)
+                reply = read
+                list = MacHomeList(read.rows)
             }
+            let shown = (list?.pinned.count ?? 0) + (list?.rows.count ?? 0)
+            let count = HomeInboxFixture.rowCount(size)
+            #expect(shown == min(count, MacHomeRows.firstWindow), "the first screen lost rows: \(shown)")
+            if case .window(_, _, let total) = reply {
+                #expect(total == count, "the window does not know the list's size")
+            } else {
+                Issue.record("not a window: \(String(describing: reply))")
+            }
+            return elapsed
         }
         /// The whole list behind the first screen (one read, off the main actor in the app): reported, not timed against the target.
         func wholeList(_ size: InstantPerfSize) async throws -> Double {
@@ -78,14 +77,42 @@ struct InstantPerfTests {
                 try ContinuousClock().measure { _ = MacHomeList(try MacHomeReply(line: wire).rows) }
             })
         }
-        let small = try await firstScreen(.small)
-        let god = try await firstScreen(.god)
+        // Their runs in turn (one warm-up each), so a busy spell on a shared host slows both sides
+        // of the ratio, not only the one timed second (docs: timing on a busy host).
+        _ = try firstScreen(.small)
+        _ = try firstScreen(.god)
+        var small: [Double] = []
+        var god: [Double] = []
+        for _ in 0..<max(InstantPerfReport.defaultRuns, 1) {
+            small.append(InstantPerfReport.ms(try firstScreen(.small)))
+            god.append(InstantPerfReport.ms(try firstScreen(.god)))
+        }
         let godWhole = try await wholeList(.god)
         InstantPerfReport.record(
             "home_list_first_screen", target: 16, small: small, god: god,
             note: String(format: "first window %ld B (20 of 20 rows) vs %ld B (20 of 5,000 rows); the whole god list (%ld B) follows off the main actor: %.1f ms",
                          HomeInboxFixture.firstWindowWire(.small).count, HomeInboxFixture.firstWindowWire(.god).count,
                          HomeInboxFixture.wire(.god).count, godWhole))
+    }
+
+    /// The small and the god first windows must differ in the list behind them alone (its
+    /// `total`, its pins, its dates), never in what their 20 rows say: `home_list_first_screen`
+    /// and its under-load twin time the two side by side, and the time to read a window follows
+    /// its previews' bytes. When each list drew its previews from its own seed, the god window
+    /// carried 17.3 KB against the small one's 13.4 KB and the bench read that as god 1.33x to
+    /// 1.47x of small (iOS simulator, kit run 45000194533) with no cost of the 5,000 rows in it.
+    /// `HomeInboxFixture.rows` now draws a preview from its row's index; this keeps it so.
+    @Test("the small and the god first windows say the same words")
+    func firstWindowsSayTheSame() {
+        func previews(_ size: InstantPerfSize) -> [String] {
+            HomeInboxFixture.rows(size).prefix(MacHomeRows.firstWindow).map { $0["preview"] as? String ?? "" }
+        }
+        let small = previews(.small)
+        let god = previews(.god)
+        let bytes = (small: small.reduce(0) { $0 + $1.utf8.count }, god: god.reduce(0) { $0 + $1.utf8.count })
+        #expect(small == god, "the first windows' previews differ: small \(bytes.small) B, god \(bytes.god) B")
+        let wire = (small: HomeInboxFixture.firstWindowWire(.small).count, god: HomeInboxFixture.firstWindowWire(.god).count)
+        #expect(abs(wire.god - wire.small) * 20 <= wire.small, "the first windows' bytes differ by over 5%: small \(wire.small) B, god \(wire.god) B")
     }
 
     @Test("home_list_one_row_update")
@@ -278,14 +305,10 @@ struct InstantPerfTests {
         let god = try await older(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_older_page", target: 50, small: small, god: god,
-            // Both sizes halved since the read's records map off the main actor and only those
-            // the page shows (simulator: small 27 to 9 ms, god 50 to 20 ms), but god's first older
-            // page carries the 2 MB log whole: about 10 ms more on the wire and in the parse,
-            // whatever the phone does with it. Next: the Mac sends a page's oversized tool output
-            // cut, with the whole read on tap. Scrolling never waits for this read any more
+            // Green since the Mac cuts a page's oversized tool output (`toolOutputMaxBytes`,
+            // OlderPageToolOutputTests): god's first older page carried a 2 MB log whole, about
+            // 6 ms more on the wire and in the parse. Scrolling never waits for this read
             // (`chat_scroll_fill`: it runs four screens ahead).
-            knownRed: [.ratio],
-            why: "god's first older page carries a 2 MB tool output whole (256 KiB plus 2 MB on the wire and parsed), small's 256 KiB",
             note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
     }
 

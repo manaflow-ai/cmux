@@ -18,6 +18,24 @@ extension MacScreenSession {
         public var framesReceived: Double = 0
         public var framesDecoded: Double = 0
         public var framesDropped: Double = 0
+        /// The host's own once-a-second counters (cmux.rd/1 `stats`), nil until the first one or from a host that
+        /// sends none: the rate it streams at, the share of packets it resent or lost, its median encode time.
+        public var hostKbps: Double?
+        public var lossPercent: Double?
+        public var encodeMsP50: Double?
+        /// The profile the host says it encodes with (`standard`, `ultra`); nil from a host too old to say. The view
+        /// labels Ultra only from this, never from the quality it asked for.
+        public var encodeProfile: String?
+    }
+
+    /// Why the last session failed, in the words of the side that knew. The failed card says
+    /// it (``MacScreenPaneModel/failedDetail``); nil when nobody said, and the card falls back.
+    public enum FailureCause: Equatable, Sendable {
+        /// The host could not serve the session: its own cmux.rd/1 `ended` (`failed: <reason>`;
+        /// capture, encoder or helper trouble on that Mac). `reason` may be empty.
+        case host(String)
+        /// This Mac's link to the host failed (`cmux rd connect`'s words: no route, a timeout).
+        case link(String)
     }
 
     /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -22,7 +23,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -136,6 +138,51 @@ test("a SendMessage's live line ends when its result arrives, through a steer an
     daemon.emit(chat, say("Looking at the base reds now."));
     await until(() => rows.some((row) => row.text?.includes("Looking at the base reds")));
     expect(sending(rows)).toEqual([]);
+  } finally {
+    client.close?.();
+  }
+});
+
+// Leo, 2026-11-21, on a coordinator whose "Sending message to ... 2m 9s" never cleared and whose
+// reply after it never showed: "there's just way too many commands that it just keeps on going
+// through". Claude Code woke on its own mid-call (a helper's notice), acpmux showed the notice as a
+// prompt, not a steer, and the prompt forgot the running call: its result found no row.
+test("a SendMessage's live line ends when a prompt lands while it runs", async () => {
+  const { AcpmuxDirectClient } = await import("../direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as Daemon;
+  const chat = mockHost.sessionId!;
+  daemon.record(chat, { mux: "user_message", msg: { text: "Tell the base-red helper to add the meta-problem" } });
+  daemon.record(chat, { mux: "turn_started", msg: {} });
+  let rows: Row[] = [];
+  const snapshots: Array<() => void> = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => snapshots.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      rows = snapshot.rows as Row[];
+      for (const wake of snapshots.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    await until(() => rows.some((row) => row.kind === "user"));
+    daemon.emit(chat, sendPending);
+    daemon.emit(chat, sendInput);
+    await until(() => sending(rows).length > 0);
+
+    daemon.emit(chat, { mux: "user_message", msg: { text: "A helper finished: the build is green" } });
+    daemon.emit(chat, sendResult);
+    daemon.emit(chat, say("Sent, and the build is green."));
+    await until(() => rows.some((row) => row.text?.includes("the build is green.")));
+    expect(sending(rows)).toEqual([]);
+    const calls = rows.filter((row) => row.kind === "activity" && JSON.stringify(row).includes(CALL));
+    expect(calls.length).toBe(1);
+    expect(JSON.stringify(calls[0])).toContain('"completed"');
   } finally {
     client.close?.();
   }

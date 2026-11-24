@@ -2507,7 +2507,7 @@
       "socketModeDesc": "Переопределить режим доступа (cmuxOnly, allowAll, off). Также принимает cmux-only/cmux_only и allow-all/allow_all",
       "workspaceIdDesc": "Устанавливается автоматически: ID текущего рабочего пространства",
       "surfaceIdDesc": "Устанавливается автоматически: ID текущей поверхности",
-      "termProgramDesc": "Установлен в ghostty",
+      "termProgramDesc": "Установлен в cmux",
       "termDesc": "Установлен в xterm-ghostty",
       "envCallout": "Устаревшие значения CMUX_SOCKET_MODE full и notifications всё ещё принимаются для совместимости.",
       "detectingCmux": "Обнаружение cmux",
@@ -3366,7 +3366,8 @@
       "darkArt": "Мрачное искусство",
       "museumIcons": "Шедевры музеев",
       "calm": "Спокойствие",
-      "dore": "Доре"
+      "dore": "Доре",
+      "eastAsian": "Живопись Восточной Азии"
     }
   },
   "testimonials": {

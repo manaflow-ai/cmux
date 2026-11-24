@@ -4,7 +4,7 @@
 //! from the hub is never forwarded to a peer.
 
 use super::*;
-use crate::mesh::{MAX_HEARTBEAT_SESSIONS, SessionRow, Target};
+use crate::mesh::{MAX_HEARTBEAT_SESSIONS, SessionRow, Target, heartbeat_meta};
 
 impl Hub {
     /// The daemon is stopping (`_acpmux/shutdown`, a signal): the relay ends with it.
@@ -35,12 +35,26 @@ impl Hub {
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (m.status != SessionStatus::Closed).then(|| {
+                    let title = m.title.as_deref().and_then(heartbeat_meta);
+                    let title_source =
+                        title.as_ref().and(m.title_source.as_deref()).and_then(heartbeat_meta);
+                    let model = super::model_options::current_model(&m);
+                    let host_build = super::views::live_host_build(s);
                     let row = SessionRow {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        state: m.status.to_string(),
+                        // A watched chat whose app exited (`app_exit.rs`).
+                        state: super::app_exit::row_status(s, m.status),
                         stuck_reason: None,
+                        cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
+                        title,
+                        title_source,
+                        name_given: Some(m.name_given),
+                        model: model.as_deref().and_then(heartbeat_meta),
+                        agent_session_id: m.agent_session_id.as_deref().and_then(heartbeat_meta),
+                        host_build: host_build.as_deref().and_then(heartbeat_meta),
+                        handle: crate::mesh::heartbeat_handle(m.handle.as_deref(), &s.id),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags
@@ -161,10 +175,10 @@ impl Hub {
     }
 }
 
-/// Whether `host` is this machine's name (never the "host" stand-in for an unusable one).
+/// Whether `host` is this machine's name on the mesh or its host name (never the "host"
+/// stand-in for an unusable one).
 pub(super) fn is_own_host(host: &str) -> bool {
-    let own = crate::pairing::machine_name();
-    own != "host" && host.eq_ignore_ascii_case(&own)
+    crate::pairing::is_this_machine(host)
 }
 
 #[cfg(test)]
@@ -177,7 +191,7 @@ mod mesh_route_tests {
     fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
         RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}),
+            summary: json!({"sessionId": id, "name": name}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),

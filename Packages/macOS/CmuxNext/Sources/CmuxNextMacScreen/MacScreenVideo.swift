@@ -9,12 +9,13 @@ import Dispatch
 @MainActor
 final class MacScreenVideo {
     private let presenter: any RemoteFramePresenter
-    private let shown: @MainActor (Int) -> Void
     private var decodeTask: Task<Void, Never>?
     private var webRTCFrames: ScreenVideoFrames?
     private var deliveryActive: MacScreenVideoLifetime?
 
-    init(presenter: any RemoteFramePresenter, shown: @escaping @MainActor (Int) -> Void) {
+    private let shown: @MainActor (MacScreenFrameCounter) -> Void
+
+    init(presenter: any RemoteFramePresenter, shown: @escaping @MainActor (MacScreenFrameCounter) -> Void) {
         self.presenter = presenter
         self.shown = shown
     }
@@ -27,39 +28,46 @@ final class MacScreenVideo {
         webRTCFrames = nil
     }
 
-    private func delivery() -> @Sendable (RemoteDecodedFrame) -> Void {
+    private func delivery(_ counter: MacScreenFrameCounter) -> @Sendable (RemoteDecodedFrame) -> Void {
         let presenter = presenter
-        let counter = MacScreenFrameCounter()
         // Callback cancellation fence: libwebrtc may already be delivering when detached.
         let active = MacScreenVideoLifetime()
         deliveryActive = active
         return { [weak self] frame in
+            // The stats and the first picture, without a main-actor hop per frame.
             let report = active.deliver {
                 presenter.present(frame)
-                return counter.tick()
+                return counter.tick(frame: frame.frame, releasedAtNanos: frame.releasedAtNanos,
+                                    decodedAtNanos: frame.decodedAtNanos)
             }
             guard report else { return }
             MainDelivery().run { [weak self] in
                 guard active.isActive else { return }
-                self?.shown(counter.take())
+                self?.shown(counter)
             }
         }
     }
 
-    func decode(_ transport: RemoteRdStreamTransport) {
+    /// Decodes an rd/1 transport's video into the presenter; returns the session's frame counter.
+    func decode(_ transport: RemoteRdStreamTransport) -> MacScreenFrameCounter {
         stop()
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: delivery())
+        let counter = MacScreenFrameCounter()
+        let pipeline = RemoteDecodePipeline(source: transport, deliver: delivery(counter), presented: { counter.shown($0) })
         // task-owner: this transport's decoder; stops with the pane or its next carrier.
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        return counter
     }
 
-    func present(_ track: VideoTrackBox) {
+    /// Presents a WebRTC fallback track through the same presenter; returns its frame counter.
+    func present(_ track: VideoTrackBox) -> MacScreenFrameCounter {
         stop()
-        let deliver = delivery()
+        let counter = MacScreenFrameCounter()
+        let deliver = delivery(counter)
         webRTCFrames = ScreenVideoFrames(track: track) { buffer in
             deliver(RemoteDecodedFrame(pixelBuffer: buffer, frame: 0, tCaptureMicros: 0,
                                        decodedAtNanos: DispatchTime.now().uptimeNanoseconds))
         }
+        return counter
     }
 }
 

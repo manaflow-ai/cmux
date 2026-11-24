@@ -21,6 +21,10 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
+    /// The card fading out after `dismiss()` (`MotionFade.omniboxPopup`); a show before it ends takes it back.
+    private var closing: OverlayHandle?
+    /// The overlay's anchor as last placed (window coordinates), so a closing card can stop taking clicks in place.
+    private var placedOrigin: NSRect?
     /// The bar's window rect the card was last placed at, and on which side,
     /// so a later layout can tell whether the card must move (`follow`).
     private var placedAnchor: NSRect?
@@ -29,7 +33,7 @@ final class OmniboxSuggestionPanel {
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
     /// The card view (tests draw it).
-    var cardView: NSView { content }
+    var cardView: NSView { content.card }
 
     /// Row views made so far (tests: typing reuses them).
     private(set) var rowViewsMade = 0
@@ -49,14 +53,23 @@ final class OmniboxSuggestionPanel {
             rows[suggestions.count...].forEach { $0.removeFromSuperview() }
             rows.removeLast(count - suggestions.count)
         }
+        let details = SuggestionRowView.shownDetails(suggestions)
         for (index, suggestion) in suggestions.enumerated() {
             if index < rows.count {
-                rows[index].show(suggestion)
+                rows[index].show(suggestion, detail: details[index])
             } else {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
+                row.show(suggestion, detail: details[index])
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                row.onPointer = { [weak self] inside, pointer in
+                    guard let self else { return }
+                    // Leaving one row for the next keeps the pointer on the card: the next row's entry takes the
+                    // highlight. Clearing it in between flashed the keyboard's row (Lucas 2026-11-14). Only leaving the
+                    // card clears the hover.
+                    if !inside, self.cardContains(screenPoint: pointer) { return }
+                    self.onHover?(inside ? index : nil, pointer)
+                }
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -64,6 +77,13 @@ final class OmniboxSuggestionPanel {
         }
         if rows.count != count { content.setAccessibilityRows(rows) }
         place(at: anchor, upward: upward, pane: pane, in: window)
+    }
+
+    /// Whether `point` (screen coordinates) is on the card.
+    private func cardContains(screenPoint point: CGPoint) -> Bool {
+        let card = content.card
+        guard let window = card.window else { return false }
+        return window.convertToScreen(card.convert(card.bounds, to: nil)).contains(point)
     }
 
     /// Sizes the card and its rows to `anchor` (the bar) and puts it under
@@ -76,8 +96,16 @@ final class OmniboxSuggestionPanel {
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
         let cardWidth = anchorRect.width + 2 * outset
-        content.setFrameSize(NSSize(width: cardWidth, height: cardHeight))
+        // Helium's card reaches above and beside the bar (`cardTopOutset`, `cardSideOutset`) up to the tabs, so the
+        // panel draws that ring too, around a cut-out where the bar paints the same fill (Lucas 2026-11-14: "we need
+        // the search to touch the tab"). Drawn in the bar's own toolbar, the strip above covered it.
+        let topReach = OmnibarStyle.cardTopOutset(bar: anchor)
+        let ring = !upward && (topReach > 0 || outset > 0)
+        let ringHeight = ring ? anchorRect.height + topReach : 0
+        content.setFrameSize(NSSize(width: cardWidth, height: cardHeight + ringHeight))
         content.cardFrame = NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
+        content.ringFrame = ring ? NSRect(x: 0, y: cardHeight, width: cardWidth, height: ringHeight) : .zero
+        content.ringHole = ring ? NSRect(x: outset, y: cardHeight, width: anchorRect.width, height: anchorRect.height) : .zero
         content.opensUpward = upward
         // Rows from the top, inset (4 at the sides, 2 above each).
         for (index, row) in rows.enumerated() {
@@ -86,23 +114,41 @@ final class OmniboxSuggestionPanel {
                                width: cardWidth - 2 * OmnibarStyle.rowSideInset, height: OmnibarStyle.rowHeight)
             // Icon and text line up with the bar's chip and text.
             row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
-            row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
+            row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset - OmnibarStyle.rowLabelTextInset
         }
         content.needsLayout = true
         // The card takes the omnibar's theme scope (its room or workspace).
         anchor.themeScope.fullStrength.root(content)
 
-        let origin = NSRect(x: anchorRect.minX - outset, y: upward ? anchorRect.maxY : anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
-        let clip = pane.convert(pane.bounds, to: nil)
+        let origin = NSRect(x: anchorRect.minX - outset, y: upward ? anchorRect.maxY : anchorRect.minY - cardHeight,
+                            width: cardWidth, height: cardHeight + ringHeight)
+        var clip = pane.convert(pane.bounds, to: nil)
+        // The ring reaches over the tab strip's bottom edge, outside the pane.
+        if ring { clip.size.height = max(clip.height, origin.maxY - clip.minY) }
+        // Only the rows take the pointer: the ring and its cut-out leave clicks to the bar and the tabs.
+        let mouseRect = content.cardFrame
+        placedOrigin = origin
+        if overlay == nil, let closing, !closing.isDismissed, content.window?.parent === window {
+            // Shown again while it fades out: the same card fades back in.
+            overlay = closing
+            self.closing = nil
+            Motion.overlays.animate(.omniboxPopup, in: content) { content.animator().alphaValue = 1 }
+        }
         if let overlay, !overlay.isDismissed, content.window?.parent === window {
             overlay.update(paneClip: clip)
-            overlay.update(anchor: origin)
+            overlay.update(anchor: origin, modalRegion: nil, mouseRect: mouseRect)
             return
         }
         overlay?.dismiss()
-        let handle = WindowOverlayHost.host(for: window).present(
-            content, options: OverlayOptions(kind: .attached, anchor: origin, layer: .pane(clip: clip))
-        )
+        closing?.dismiss()
+        closing = nil
+        var options = OverlayOptions(kind: .attached, anchor: origin, layer: .pane(clip: clip))
+        options.mouseRect = mouseRect
+        // Helium fades its popup in over 82 ms (`MotionFade.omniboxPopup`).
+        options.keepsContentAlpha = true
+        content.alphaValue = 0
+        let handle = WindowOverlayHost.host(for: window).present(content, options: options)
+        Motion.overlays.animate(.omniboxPopup, in: content) { content.animator().alphaValue = 1 }
         handle.onDismiss = { [weak self, weak handle] in
             if self?.overlay === handle { self?.overlay = nil }
         }
@@ -136,7 +182,18 @@ final class OmniboxSuggestionPanel {
         let presented = overlay
         overlay = nil
         placedAnchor = nil
-        presented?.dismiss()
+        guard let presented, !presented.isDismissed else { return }
+        closing = presented
+        // A fading card takes no clicks: they reach the page and the bar under it at once.
+        if let origin = placedOrigin { presented.update(anchor: origin, modalRegion: nil, mouseRect: .zero) }
+        placedOrigin = nil
+        Motion.overlays.animate(.omniboxPopup, in: content, { content.animator().alphaValue = 0 }, completion: { [weak self] in
+            // A panel gone with its bar (a closed tab) still takes its card off the window.
+            guard let self else { presented.dismiss(); return }
+            guard self.closing === presented else { return }
+            self.closing = nil
+            presented.dismiss()
+        })
     }
 }
 
@@ -156,6 +213,11 @@ final class SuggestionCardListView: NSView {
 final class SuggestionCardView: NSView {
     let card = SuggestionCardListView()
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
+    /// The part of the card above the rows, around the bar (zero when the card opens upward or has no outset): its top
+    /// corners rounded as the card's, `ringHole` (the bar) cut out.
+    var ringFrame: NSRect = .zero { didSet { needsLayout = true } }
+    var ringHole: NSRect = .zero { didSet { needsLayout = true } }
+    private let ring = CAShapeLayer()
     /// Above the bar: rounded at the top, not the bottom.
     var opensUpward = false { didSet { needsLayout = true } }
 
@@ -177,6 +239,8 @@ final class SuggestionCardView: NSView {
         // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
         // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
+        ring.fillRule = .evenOdd
+        layer?.addSublayer(ring)
     }
 
     @available(*, unavailable)
@@ -188,7 +252,26 @@ final class SuggestionCardView: NSView {
         card.layer?.maskedCorners = opensUpward ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         // The bar's corner (it follows the look live).
         card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ring.frame = bounds
+        ring.path = ringFrame.isEmpty ? nil : Self.ringPath(ringFrame, hole: ringHole, radius: OmnibarStyle.cardCornerRadius)
+        CATransaction.commit()
         refresh()
+    }
+
+    /// `rect` with its top corners rounded by `radius` (the view's y grows up), and `hole` as a second subpath, for an
+    /// even-odd fill.
+    static func ringPath(_ rect: NSRect, hole: NSRect, radius: CGFloat) -> CGPath {
+        let r = min(radius, rect.width / 2, rect.height)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - r, y: rect.maxY), radius: r)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY - r), radius: r)
+        path.closeSubpath()
+        if !hole.isEmpty { path.addRect(hole) }
+        return path
     }
 
     /// The card never scrolls (at most 15 rows); the wheel must not reach
@@ -209,6 +292,7 @@ final class SuggestionCardView: NSView {
     private func refresh() {
         performWithTheme {
             card.layer?.backgroundColor = OmnibarStyle.cardFill.cgColor
+            ring.fillColor = OmnibarStyle.cardFill.cgColor
         }
     }
 }

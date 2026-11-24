@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// A machine that joined the team with a one-line join token: one `kind: "joined"` row of
@@ -114,5 +115,73 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
         self.init(id: id, name: text("name") ?? text("label") ?? text("hostname") ?? id, state: state, lastHeartbeat: shownHeartbeat,
                   platform: text("platform"), hostname: text("hostname"), meshPeerId: text("meshPeerId"),
                   joinTokenId: text("joinTokenId"), mintedBy: text("mintedBy"), heartbeatAt: heartbeat)
+    }
+}
+
+extension JoinedMachine {
+    /// Whether it reported a Mac at join.
+    public var isMac: Bool { ["macos", "darwin"].contains(platform?.lowercased() ?? "") }
+
+    /// Whether New Workspace on its row dials it over the hub (``SignedInMachineDial``): online, any
+    /// platform. A Mac signed in on itself answers with its consent card; a Mac or Linux box joined by a
+    /// line or a pair code from another device admits on that join (acpmux `session_service.rs`), and one
+    /// whose acpmux predates that answers `service.off` (the row's "Update cmux on …").
+    public var opensOverHub: Bool { state == .online }
+
+    /// Its route among acpmux's (`_acpmux/machine_routes`' `machines`): the one whose hub `daemonId` is
+    /// its `meshPeerId`; with no `meshPeerId`, the only one whose host is its host name or name. Nil: none,
+    /// a `meshPeerId` acpmux doesn't list (never another Mac of the same name), or two that name the same host.
+    public func route(in routes: [[String: Any]]) -> [String: Any]? {
+        if let peer = meshPeerId { return routes.first { $0["daemonId"] as? String == peer } }
+        let names = Set([hostname, name].compactMap { $0?.lowercased() })
+        let named = routes.filter { ($0["host"] as? String).map { names.contains($0.lowercased()) } ?? false }
+        return named.count == 1 ? named.first : nil
+    }
+}
+
+/// Where New Workspace on a joined Mac reached through the hub stands, as the Machines page reads it
+/// (`cmux.machines.openJoined`, webviews/src/pages/machines/types.ts `JoinedDialAnswer`).
+public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
+    /// The other Mac allowed it, and the workspace opened there.
+    case opened
+    /// Its person hasn't answered: that Mac recorded the ask and shows its consent card.
+    case consentRequired
+    /// Its person said Not now (or turned the switch off): nothing asks again until a click.
+    case consentDeclined
+    /// It can't be reached: acpmux's reason (`service.unknown`, `machine.unlisted`, `carrier.off`) or this app's.
+    case unavailable(String)
+
+    /// The answer to a probe acpmux refused with `reason` (its `error.data.reason`).
+    public init(refusal reason: String?) {
+        switch reason {
+        case "consent_required": self = .consentRequired
+        case "consent_declined": self = .consentDeclined
+        default: self = .unavailable(reason ?? "machine.unreachable")
+        }
+    }
+
+    /// As ``init(refusal:)``, for a machine that reported `platform` at join. Only a Mac has the consent
+    /// card that answers `consent_required`; a Linux box whose acpmux still asks predates its join counting
+    /// as the consent (#51683), so it reads as `service.outdated`: the row's "Update cmux on …".
+    public init(refusal reason: String?, platform: String?) {
+        let mac = ["macos", "darwin"].contains(platform?.lowercased() ?? "")
+        if reason == "consent_required", !mac {
+            self = .unavailable(Self.outdated)
+        } else {
+            self.init(refusal: reason)
+        }
+    }
+
+    /// The reason a machine that cannot answer the ask gives (the page's update phase).
+    public static let outdated = "service.outdated"
+
+    /// The page's form: `{state, reason?}`.
+    public var json: JSONValue {
+        switch self {
+        case .opened: ["state": "opened"]
+        case .consentRequired: ["state": "consent_required"]
+        case .consentDeclined: ["state": "consent_declined"]
+        case .unavailable(let reason): ["state": "unavailable", "reason": .string(reason)]
+        }
     }
 }

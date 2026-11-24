@@ -37,6 +37,22 @@ test("the card shows this Mac with its badge and fingerprint and reads again whe
   page.unmount();
 });
 
+test("Mac rows expose Share or View screen without widening the name controls", async () => {
+  const page = await open();
+  const self = card(page.container).querySelector<HTMLElement>('[data-device="dev-mac-studio"]')!;
+  const share = self.querySelector<HTMLButtonElement>('[data-device-action="shareScreen"]')!;
+  expect(share.getAttribute("aria-label")).toBe("Share");
+  expect(share.textContent).toContain("Share");
+  await click(share);
+  const remote = card(page.container).querySelector<HTMLElement>('[data-device="dev-macbook"]')!;
+  const view = remote.querySelector<HTMLButtonElement>('[data-device-action="viewScreen"]')!;
+  expect(view.textContent).toContain("View screen");
+  expect(view.disabled).toBe(true);
+  expect(remote.querySelector('[data-device-action="shareScreen"]')).toBeNull();
+  expect(remote.querySelector("[data-device-name]")!.textContent).toBe("MacBook Pro");
+  page.unmount();
+});
+
 test("other devices show presence and an access picker that sends setAccess", async () => {
   const page = await open();
   const element = card(page.container);
@@ -113,6 +129,19 @@ test("the sharing switch sends setSharing; a permission's button sends openPermi
   // Off: the permission rows go away.
   expect(group().querySelector("[data-devices-permission]")).toBeNull();
   expect(group().querySelector('[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
+test("the agents switch is off by default and sends setAgentsMayShare", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-devices-group="sharing"] [data-devices-agents]')!;
+  expect(row().textContent).toContain("My agents can turn screen sharing and control on my machines");
+  const toggle = () => row().querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  await click(toggle());
+  expect(nonRefresh(page.provider.deviceRuns).at(-1)).toEqual({ action: "setAgentsMayShare", on: true });
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
   page.unmount();
 });
 

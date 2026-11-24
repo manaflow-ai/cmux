@@ -41,7 +41,7 @@ fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
             None => return false,
         }
     };
-    lists_command(session.meta().available_commands.as_ref(), &name)
+    lists_command(session.meta().available_commands.as_deref(), &name)
 }
 
 /// Whether an `available_commands_update` lists the command `name` (case aside).
@@ -344,7 +344,9 @@ impl Hub {
                 self.inbox_review(session);
                 json!(resumed)
             }
-            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
+            "withdraw" => {
+                json!(self.withdraw_steer(session, prompt_id, control, device, editor).await?)
+            }
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
@@ -382,19 +384,23 @@ impl Hub {
         // reach the log in the order their revisions were given, so a restart restores the last
         // words and never pairs an approval with older ones (`restore_queue`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (turn_id, run, text, revision) = {
+        let (turn_id, run, text, revision, was) = {
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // As it was, for an edit a restore's hold could not keep (`append_answered`).
+            let was = (q.run.clone(), q.preview.clone(), q.revision);
             // Approved, it runs the words the owner approved (`queue_approve.rs`).
             let again = crate::author::awaits_owner(q.run.provenance.as_ref());
             if again && !q.awaiting_owner {
                 return Err(super::queue::approved_error());
             }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
-            // Only `session/prompt` adds a hidden context (prompt_context.rs).
+            // Only `session/prompt` adds a client's hidden context (prompt_context.rs); the tools
+            // note follows the edited words (`tool_mentions.rs`), so it comes or goes with them.
             crate::prompt_context::strip_marks(&mut blocks);
+            crate::tool_mentions::add_note(&mut blocks);
             let text = prompt_text(&blocks);
             // Its images keep their names and their original files (`moved_display_parts`),
             // checked again against the blocks they name now.
@@ -432,7 +438,7 @@ impl Hub {
             if again {
                 q.revision = q.revision.saturating_add(1);
             }
-            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision), was)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         if let Some(revision) = revision {
@@ -457,7 +463,14 @@ impl Hub {
         }
         let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        self.append(session, "mux", "queue_updated", msg);
+        // An edit a restore's hold could not keep on disk is undone and refused (review of
+        // #37284 at b7496c3f, F1): b7496c3f answered it made, and a crash lost it.
+        if let Err(e) = self.append_answered(session, "mux", "queue_updated", msg) {
+            if let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) {
+                (q.run, q.preview, q.revision) = was;
+            }
+            return Err(e);
+        }
         drop(queue);
         Ok(true)
     }
@@ -471,7 +484,7 @@ impl Hub {
         index: usize,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let order: Vec<String> = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
@@ -484,10 +497,17 @@ impl Hub {
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
-            queue.iter().map(|q| q.prompt_id.clone()).collect()
-        };
+            let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+            // Logged under the lock that moved it, as `update_queued` logs an edit; one a
+            // restore's hold could not keep on disk is moved back and refused.
+            let msg = json!({"promptId": prompt_id, "order": order});
+            if let Err(e) = self.append_answered(session, "mux", "queue_order", msg) {
+                let q = queue.remove(to);
+                queue.insert(from, q);
+                return Err(e);
+            }
+        }
         session.queue_moved.notify_waiters();
-        self.append(session, "mux", "queue_order", json!({"promptId": prompt_id, "order": order}));
         Ok(true)
     }
 
@@ -613,6 +633,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         let waiting = session
@@ -627,7 +648,7 @@ impl Hub {
         };
         mine?;
         // Who may steer may take one back; taking it back raises no turn's control.
-        self.web_control_check(session, control)?;
+        self.web_control_check(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(false);

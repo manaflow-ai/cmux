@@ -1,5 +1,7 @@
 use crate::json::is_compact_value;
-use crate::row::{MAX_PREVIEW, MAX_ROW_TEXT, Outline, Placement, Row, RowError, RowHead, RowKind};
+use crate::row::{
+    MAX_PREVIEW, MAX_ROW_TEXT, Outline, Phase, Placement, Row, RowError, RowHead, RowKind,
+};
 
 fn row(body: &str) -> Row<'_> {
     Row {
@@ -10,6 +12,7 @@ fn row(body: &str) -> Row<'_> {
         group: Some(48190),
         at: 1_794_480_726,
         open: false,
+        phase: Phase::Settled,
         body,
         est: 3,
     }
@@ -22,18 +25,25 @@ fn a_row_encodes_to_the_designs_text() {
     assert_eq!(placement, Placement::Inline);
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"body":{"name":"Bash","out":"ok"},"est":3}"#
+        r#"{"id":48211,"rev":1,"kind":"tool","turn":9120,"group":48190,"at":1794480726,"open":false,"phase":"settled","body":{"name":"Bash","out":"ok"},"est":3}"#
     );
 }
 
 #[test]
 fn turn_and_group_are_left_out_when_absent() {
     let mut out = Vec::new();
-    let bare = Row { turn: None, group: None, open: true, kind: RowKind::User, ..row("{}") };
+    let bare = Row {
+        turn: None,
+        group: None,
+        open: true,
+        phase: Phase::Entering,
+        kind: RowKind::User,
+        ..row("{}")
+    };
     bare.encode(None, &mut out).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        r#"{"id":48211,"rev":1,"kind":"user","at":1794480726,"open":true,"body":{},"est":3}"#
+        r#"{"id":48211,"rev":1,"kind":"user","at":1794480726,"open":true,"phase":"entering","body":{},"est":3}"#
     );
 }
 
@@ -49,6 +59,7 @@ fn every_row_text_is_one_compact_json_value_and_its_head_reads_back() {
             group: at.is_multiple_of(3).then_some(at as u64 + 2),
             at: 1_794_480_726 + at as u64,
             open: at.is_multiple_of(4),
+            phase: Phase::ALL[at % 4],
             body: r#"{"md":["a \"quoted\" line","two"]}"#,
             est: at as u32,
         };
@@ -57,11 +68,24 @@ fn every_row_text_is_one_compact_json_value_and_its_head_reads_back() {
         assert!(is_compact_value(std::str::from_utf8(&out).unwrap()));
         let head = RowHead::parse(&out).unwrap();
         assert_eq!(
-            (head.id, head.rev, head.kind, head.turn, head.group, head.at, head.open),
-            (source.id, source.rev, kind, source.turn, source.group, source.at, source.open)
+            (head.id, head.rev, head.kind, head.turn, head.group, head.at, head.open, head.phase),
+            (
+                source.id,
+                source.rev,
+                kind,
+                source.turn,
+                source.group,
+                source.at,
+                source.open,
+                source.phase
+            )
         );
         assert!(out[head.body_at..].starts_with(source.body.as_bytes()));
     }
+    for phase in Phase::ALL {
+        assert_eq!(Phase::parse(phase.as_str()), Some(phase));
+    }
+    assert_eq!(Phase::parse("gone"), None);
     assert_eq!(RowKind::parse("nope"), None);
     assert_eq!(RowHead::parse(b"{\"id\":1}"), None);
     assert_eq!(RowHead::parse(b""), None);
@@ -172,4 +196,70 @@ fn the_json_check_takes_json_and_nothing_else() {
     assert!(!is_compact_value(&deep));
     let shallow = format!("{}{}", "[".repeat(64), "]".repeat(64));
     assert!(is_compact_value(&shallow));
+}
+
+#[test]
+fn an_existing_megabyte_blob_encodes_without_loading_its_body()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let home = tempfile::tempdir()?;
+    let (mut log, _) = crate::log::Log::open(home.path(), crate::log::Options::default())?;
+    let mut body = std::fs::File::create(home.path().join("blobs/48211"))?;
+    body.write_all(b"\"")?;
+    let chunk = [b'x'; 4096];
+    for _ in 0..256 {
+        body.write_all(&chunk)?;
+    }
+    body.write_all(b"\"")?;
+    body.sync_all()?;
+    let bytes = body.metadata()?.len();
+    assert_eq!(bytes, (1 << 20) + 2);
+    // The encoder has only the length and preview; the body argument is deliberately absent.
+    let outline = Outline { head: "{}", preview: "xxxxxxxx" };
+    let mut out = Vec::new();
+    assert_eq!(row("").encode_blob(bytes, outline, &mut out)?, Placement::Blob { bytes });
+    assert!(out.capacity() <= MAX_ROW_TEXT);
+    log.append_settled(48211, 1, crate::log::RawRange::NONE, &out)?;
+    let saved = log.row(48211).ok_or("settled row missing")?;
+    let mut read = Vec::new();
+    let mut ranges = Vec::new();
+    log.fill(&[saved], &mut read, &mut ranges)?;
+    assert_eq!(ranges.len(), 1);
+    let range = ranges.first().ok_or("settled row range missing")?;
+    assert_eq!(read.get(range.clone()).ok_or("settled row range invalid")?, out);
+    assert!(read.capacity() <= MAX_ROW_TEXT);
+    assert!(std::str::from_utf8(&out)?.contains("\"bytes\":1048578"));
+    Ok(())
+}
+
+#[test]
+fn spilled_and_in_memory_bodies_have_identical_row_text() -> Result<(), Box<dyn std::error::Error>>
+{
+    let body = format!("\"{}\"", "x".repeat(1 << 20));
+    let outline = Outline { head: r#"{"name":"tool"}"#, preview: "quote\"\n漢字" };
+    let mut expected = Vec::new();
+    row(&body).encode(Some(outline), &mut expected)?;
+    let mut actual = Vec::new();
+    row("").encode_blob(body.len() as u64, outline, &mut actual)?;
+    assert_eq!(actual, expected);
+    assert!(actual.capacity() <= MAX_ROW_TEXT);
+    assert_eq!(
+        Row { id: 0, ..row("") }.encode_blob(1, outline, &mut actual),
+        Err(RowError::ZeroId)
+    );
+    assert_eq!(
+        row("").encode_blob(1, Outline { head: "{", preview: "" }, &mut actual),
+        Err(RowError::Head)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_text_written_before_phases_reads_live_when_open_and_settled_when_not() {
+    let open = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":true,"body":{},"est":1}"#;
+    let shut = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":false,"body":{},"est":1}"#;
+    assert_eq!(RowHead::parse(open).map(|head| head.phase), Some(Phase::Live));
+    assert_eq!(RowHead::parse(shut).map(|head| head.phase), Some(Phase::Settled));
+    let unknown = br#"{"id":7,"rev":1,"kind":"text","at":1,"open":false,"phase":"gone","body":{}}"#;
+    assert_eq!(RowHead::parse(unknown), None);
 }

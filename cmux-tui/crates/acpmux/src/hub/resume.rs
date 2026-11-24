@@ -5,8 +5,8 @@
 //! A gap is time in which no sign of a model could have arrived, and the model streams held
 //! across it come back late (a busy TCP stream is retransmitted on its sender's backoff, up to
 //! about 90 s after the resume). So on a gap every running turn's silent and stalled counts start
-//! again from the resume (`silent_turn.rs`, `stalled_turn.rs`), a running chat logs one
-//! `host_notice` {text, source: "resume", gapMs, kind} naming the gap, and the daemon log says it.
+//! again from the resume (`silent_turn.rs`, `stalled_turn.rs`). The daemon logs the gap;
+//! a recovered interruption adds no record to the chat.
 //! Nothing is sent again and no tool call runs twice: the agents' own processes and their local
 //! host links (`agent_host/`) ran through the same gap and keep their sequence; only the counts
 //! that judge them are moved. The peer links redial on their own wake check (`peer_link::SleepWatch`).
@@ -119,30 +119,15 @@ impl Hub {
         let gap_ms = resume.gap_ms();
         let mut running = 0usize;
         for session in self.sessions() {
-            let Some(turn) = session.turn() else { continue };
+            if session.turn().is_none() {
+                continue;
+            }
             running += 1;
             // The stalled count, where one runs, starts again now (and a stalled end decided
             // before the gap is not carried out: `stalled_gen`).
             if Self::counted_turn(&session).is_some() {
                 self.heard_now(&session);
             }
-            let text = format!(
-                "This machine was {} for {}; the turn goes on where it was",
-                resume.kind.as_str(),
-                gap_text(gap_ms)
-            );
-            self.append(
-                &session,
-                "mux",
-                crate::server::host_notice::KIND,
-                json!({
-                    "text": text,
-                    "source": "resume",
-                    "gapMs": gap_ms,
-                    "kind": resume.kind.as_str(),
-                    "turnId": turn.turn_id,
-                }),
-            );
         }
         tracing::warn!(
             gap_ms,
@@ -171,7 +156,7 @@ impl Hub {
                 }
                 // Subscribed before the check, so a turn that starts in between is not missed.
                 let events = hub.subscribe();
-                // Appends write the chat logs: off the runtime's threads.
+                // Handle the gap and reset turn counters off the runtime's threads.
                 let checked = hub.clone();
                 let _ = tokio::task::spawn_blocking(move || checked.observe_resume(false)).await;
                 if !hub.resume_needed() {

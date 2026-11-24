@@ -10,7 +10,7 @@ the same way. The goal: every cmux cell at a tenth of the best other browser.
 ## Run it (fleet mini only, never a laptop)
 
 ```sh
-cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
+cmux-ci run --class exclusive --measurement --label bench \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> \
   --artifact artifacts/perf-bench/results.json \
   [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] \
@@ -41,6 +41,24 @@ Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
 
+## Idle tabs against Edge (`suite=tabs`)
+
+Leo, 2026-11-20 (ask-9176875aef): "we hadn't quite benchmarked the whole like idle RAM, idle CPU, idle GPU type
+stuff". `--arg=suite=tabs` runs only `xbench.py --scenario idle-tabs`: cmux NEXT (a Chromium tab) and Microsoft
+Edge (Microsoft's stable package, unpacked with `pkgutil --expand-full`, never installed) by default; any other
+browser with `--arg=browsers=`. Per round, one launch per browser; tabs open in one window to each count of
+`--arg=idle_tabs=` (default `1,10,50`), the same local idle page in every tab (each tab its own renderer:
+Chromium never shares one for an IP address), the newest shown. At each count, after `settle` seconds: the
+instance's physical footprint, then `idle` seconds of CPU and wakeups over every process, the CPU of its GPU
+process, and the Mac's GPU Device Utilization (ioreg IOAccelerator, `bench_memory.py`'s GpuSampler, as
+`perf-10x-idle.sh`'s axes). BENCH.md gets an "Idle cost as tabs grow" table; rows are `tabsN-memory`,
+`tabsN-cpu`, `tabsN-wakeups`, `tabsN-gpu-cpu`, `tabsN-gpu-util` in results.json.
+
+```sh
+cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/perf-bench.sh --ref <sha> \
+  --arg=suite=tabs --arg=cmux=nightly --artifact artifacts/perf-bench/results.json
+```
+
 ## Resource budget (`cmux-budget`)
 
 The idle cost of cmux NEXT with hidden work, against fixed budgets (`budgets.json`), rather than
@@ -55,7 +73,7 @@ process (pid, kind, command, footprint, RSS, CPU %, wakeups/s), so a PR can quot
 per process from the same measurement.
 
 ```sh
-cmux-ci run --class exclusive --measurement --pool perf-lead --label bench --target-worker cmux20-bench \
+cmux-ci run --class exclusive --measurement --label bench --target-worker cmux20-bench \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> --artifact artifacts/perf-bench/results.json \
   --arg=browsers=cmux-budget --arg=launches=0 --arg=rounds=1 --arg=tabswitch=off --arg=palette=off
 ```
@@ -113,8 +131,8 @@ The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4
 login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
 macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
 no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
-`--measurement --pool perf-lead --label bench --target-worker cmux20-bench`; the nightly job does (cmux20 is
-owner-only for pool perf-lead, so the controller refuses any other `--label bench` step). It has bun and node under
+`--measurement --label bench` (add `--target-worker cmux20-bench` to pin it); the nightly job does. No `--pool`: the
+perf-lead reservation was lifted 2026-11-06 and the controller refuses a job whose pool reserves no worker. It has bun and node under
 `~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
 CI hosts; `baseline/apple-m4-pro-macos27.json` came from one (cmuxs-Mac-mini 6, load 3 to 8). The aws-m4pro
 minis start the app but its control socket never appears (a252), so they cannot run xbench.
@@ -137,8 +155,11 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   contentful paint, visibility changes (+2 rAF) and video playback to the harness.
   The scroll page scrolls itself 4 px per frame; the video page records a 720p
   clip from a canvas and loops it (no downloaded media, any engine). No network rows.
-- **Profiles**: one template per browser (one launch, 45 s settle, quit); every
-  launch runs on its own APFS clone. HOME and CFFIXED_USER_HOME point into the run
+- **Profiles**: one template per browser (one launch, quit once its first-run writes
+  end: at least 75 s, past Chromium's 60 s component-updater check, then 30 s with
+  no file written, at most 150 s; `settle_template`); every launch runs on its own
+  APFS clone. The old 45 s template left the component downloads (23 to 62 MB) to
+  every measured launch's Home window. HOME and CFFIXED_USER_HOME point into the run
   folder. cmux runs with `CMUX_NEXT_NO_ACTIVATE=1`, a scratch config with updates off.
 - **Driving**: Chromium browsers over CDP's HTTP endpoints (`/json/new`,
   `/json/activate`, `/json/close`) with `--remote-debugging-port --no-first-run
@@ -169,7 +190,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
 ## Chrome parity (`suite=parity`)
 
 The CHROME PARITY BENCH (m91): one table of cmux NEXT against the host's own Google Chrome stable for every
-interaction a person feels, each light and under load, at 120 Hz. It is a bench, never a CI gate or perf-gate row.
+interaction a person feels, each light and under load, at 120 Hz. It is a bench, not a CI gate or perf-gate row.
 
 ```
 cmux-ci run --class exclusive --display --measurement --target-worker cmux22 \
@@ -338,7 +359,7 @@ $BH selftest               # the safety rules with 4 to 6 threads for at most 10
 
 ## The shared `real` session (`session_real.py`)
 
-One bench session of the size of the person who uses the app (read from his session daemon on
+One bench session of the size of a large session of real use (read from one session daemon on
 2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
 bench that has a session-size arm uses this script; the count tests use the same mix rule
 (`SessionFixtureSize.real`, the test fixture size of #40488). Fleet minis only.
@@ -347,7 +368,7 @@ bench that has a session-size arm uses this script; the count tests use the same
 S=scripts/perf-bench/session_real.py
 # The saved session of one bench app, made by the bundle's own daemon with no app (1 to 3 minutes):
 python3 $S build --app "/path/cmux DEV <tag>.app" --to /path/saved/<tag>
-# One launch on it: restore time, read-back counts, agents and clients as his, then your steps:
+# One launch on it: restore time, read-back counts, agents and clients as in the `real` session, then your steps:
 python3 $S launch --app "/path/cmux DEV <tag>.app" --saved /path/saved/<tag> --out /path/out \
   --steps "counts,agents,clients:13,measure:--seconds 30,map"
 # Or with your own bench driver: install, launch with BENCH_LAUNCH_KEEP_STATE=1, uninstall.
@@ -403,10 +424,10 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   `terminal-resources`), not every program of that name on the host, and refuses counts that are
   not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
   lower bound that is not judged; an error reply of the command is exit 1.
-- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as on his Mac)
+- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as in real use)
   types the stored resume command, so on a host with `claude` on its PATH an agent terminal runs the real
   `claude --resume session-real-real-NNNN` (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals, 12.6 GB footprint,
-  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
+  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as one of real use does. `agents` then makes
   the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
   the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
   it, and types the start line when only the shell is left and that shell is 25 s old (the product types its resume
@@ -431,3 +452,23 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   fewer other workspaces than `--runs` the row is short and that is a fault. For the same map at another size, give `build` and `agents`
   the same counts in proportion, for example 60 workspaces:
   `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.
+
+## rivals: agent apps and browsers, first install to idle ceiling
+
+Leo, 2026-11-22 (ask-7c96907088): "did you guys do it against the fresh starts first install type timings? [...]
+and after shutdown or whatever. restarting a computer. or close enough to it. and gauging our ram/cpu ceiling and
+growth too probably. compare more exhaustively. much more. compare to claude and codex and t3 code too."
+
+`rivals.py` runs one session per app, one app at a time, each in an empty home: a new copy of the vendor's
+bundle opened for the first time (first install), quit, `sudo -n purge` and opened again (close to a restart),
+`--warm` warm relaunches, then an idle soak. Rows and method: the `rivals.py` docstring. Apps: cmux NEXT (the
+newest nightly-next DMG), Claude, Codex, T3 Code, Slack, Chrome, Edge and Helium (fetch_browsers.py, the vendors'
+own downloads), Safari, and Rex when the host has `/Applications/Rex.app` (a beta with no public download). Every
+app is signed out, so an agent app's window is its first screen.
+
+    cmux-ci run --class exclusive --measurement --label bench --script scripts/measure/rivals.sh --ref SHA \
+      --artifact artifacts/rivals/results.json [--arg=apps=cmux,claude,codex] [--arg=soak=300]
+
+Local, against bundles you have: `python3 scripts/perf-bench/rivals.py run --out /tmp/rv --app cmux=/path/cmux.app
+--app claude=/Applications/Claude.app --apps cmux,claude`, then `rivals.py report --out /tmp/rv --md RIVALS.md`.
+The registered bench is `cmux-bench rivals` (scripts/bench/benches/rivals.py).

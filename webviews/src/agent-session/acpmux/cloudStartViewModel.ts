@@ -56,7 +56,32 @@ const PHASE_KEYS: Record<string, StringKey> = {
   checkout: "cloudStartup.phase.checkout",
   submodules: "cloudStartup.phase.submodules",
   lfs: "cloudStartup.phase.lfs",
+  // A copy's steps before its first file (cmux-tui `link/sync_cli.rs`).
+  prepare: "cloudStartup.phase.prepare",
+  folders: "cloudStartup.phase.folders",
 };
+
+/** Why a seed copied the folder instead, by its `fallback_code` (cmux-tui `link/seed/plan.rs`, `link/seed_cli.rs`). */
+const FALLBACK_KEYS: Record<string, StringKey> = {
+  not_git: "cloudStartup.because.notGit",
+  no_remote: "cloudStartup.because.noRemote",
+  ambiguous_remote: "cloudStartup.because.noRemote",
+  not_github: "cloudStartup.because.notGithub",
+  no_base: "cloudStartup.because.noBase",
+  unmerged: "cloudStartup.because.unmerged",
+  submodule_local_work: "cloudStartup.because.submodule",
+  "seed.needs_github": "cloudStartup.because.needsGithub",
+  "seed.base_missing": "cloudStartup.because.noBase",
+  "seed.clone_failed": "cloudStartup.because.cloneFailed",
+  machine_outdated: "cloudStartup.because.machineOutdated",
+  "seed.unavailable": "cloudStartup.because.machineOutdated",
+};
+
+/** "Copying the folder instead", with why in plain words when the code is one the card knows. */
+function copyInstead(fallback: string, t: Translate): string {
+  const reason = FALLBACK_KEYS[fallback];
+  return reason ? t("cloudStartup.copyInsteadBecause", { reason: t(reason) }) : t("cloudStartup.copyInstead");
+}
 
 function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate, language: string): string | undefined {
   if (!operation) return undefined;
@@ -66,10 +91,10 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
   if (operation.phase === "cached") parts.push(t("cloudStartup.cached"));
   else if (operation.phase === "complete") {
     // The row's check mark says it finished; only a seed that copied instead says so.
-    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
   } else if (operation.phase === "copy" || progress?.filesTotal !== undefined) {
     // The streamed copy: files, then bytes.
-    if (operation.fallback) parts.push(t("cloudStartup.copyInstead"));
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
     if (progress?.filesTotal !== undefined)
       parts.push(
         t("cloudStartup.copyingFiles", {
@@ -84,6 +109,8 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
   } else if (operation.phase === "upload") {
     parts.push(t("cloudStartup.phase.upload", { size: size(progress?.bytesTotal ?? progress?.receivedBytes) ?? "" }));
   } else {
+    // A copy's steps before its files keep saying why it copies.
+    if (operation.fallback) parts.push(copyInstead(operation.fallback, t));
     const key = operation.phase ? PHASE_KEYS[operation.phase] : undefined;
     parts.push(key ? t(key) : operation.phase);
     const total = progress?.totalObjects;
@@ -91,6 +118,11 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
       parts.push(`${Math.min(100, Math.floor((progress.objects / total) * 100))}%`);
     else if (progress?.receivedBytes) parts.push(size(progress.receivedBytes));
   }
+  // A first pass of a very large folder: the files it left here, so the copy does not read as complete.
+  if (operation.leftOnMac)
+    parts.push(
+      t("cloudStartup.leftOnMac", { n: operation.leftOnMac, count: operation.leftOnMac.toLocaleString(language) }),
+    );
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
@@ -103,6 +135,18 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.harness": "Started {harness}",
   "cloudStartup.harnessStarting": "Starting {harness}",
   "cloudStartup.copyInstead": "Copying the folder instead",
+  "cloudStartup.copyInsteadBecause": "Copying the folder instead, because {reason}",
+  "cloudStartup.because.notGit": "it is not a git repository",
+  "cloudStartup.because.noRemote": "its repository has no remote to clone from",
+  "cloudStartup.because.notGithub": "its remote is not on GitHub",
+  "cloudStartup.because.noBase": "none of its commits are on GitHub",
+  "cloudStartup.because.unmerged": "it has unresolved merge conflicts",
+  "cloudStartup.because.submodule": "a submodule is at a commit that is not on GitHub",
+  "cloudStartup.because.needsGithub": "the Cloud machine can't read the repository",
+  "cloudStartup.because.cloneFailed": "the Cloud machine could not clone the repository",
+  "cloudStartup.because.machineOutdated": "the Cloud machine needs an update to clone",
+  "cloudStartup.phase.prepare": "Checking files",
+  "cloudStartup.phase.folders": "Making folders",
   "cloudStartup.copyingFiles": "{done} of {total} files",
   "cloudStartup.ofSize": "{done} of {total}",
   "cloudStartup.installApp": "Install the cmux GitHub App to clone it next time",
@@ -113,13 +157,22 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.phase.checkout": "Checking out files",
   "cloudStartup.phase.submodules": "Getting submodules",
   "cloudStartup.phase.lfs": "Getting large files",
+  "cloudStart.stage.machine": "Starting your Cloud machine",
+  "cloudStart.stage.clone": "Copying your project",
+  "cloudStart.stage.setup": "Running your setup script",
+  "cloudStart.eta.underMinute": "usually under a minute",
+  "cloudStart.eta.seconds": "usually a few seconds",
+  "cloudStart.eta.setupFirst": "a few minutes the first time",
+  "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
+  "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
+const defaultTranslate: Translate = (key, values = {}) =>
+  (DEFAULT_STARTUP_STRINGS[values.n === 1 ? `${key}#one` : key] ?? DEFAULT_STARTUP_STRINGS[key] ?? key)
+    .replace("{harness}", String(values.harness ?? "Harness"))
+    .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 export function startupChecklist(
   start: CloudStartProgress,
-  t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[key] ?? key)
-      .replace("{harness}", String(values.harness ?? "Harness"))
-      .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
+  t: Translate = defaultTranslate,
   now = Date.now(),
   language: string = paneLanguage(),
 ): ChecklistStep[] {
@@ -206,4 +259,78 @@ export function startupChecklist(
     duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt, now),
   };
   return [machine, clone, setup, harness];
+}
+
+/// The one line the quiet start view shows while a Cloud start is on its way: the stage it is on,
+/// why the chat waits (a reason) and how long that stage usually takes (an ETA), never a bare
+/// "Thinking" (Leo, 2026-11-09: "the ergonomic part is super big for us."). `step` and `steps` count
+/// the stages this start runs (a skipped clone or setup is not one), for a progress hint.
+export type QuietStage = {
+  id: ChecklistStep["id"];
+  /// What the start does now: "Starting your Cloud machine".
+  label: string;
+  /// How long it usually takes, or the copy's own progress when the host reports it.
+  eta: string;
+  /// When this stage began (ms since epoch), when the host said: the line's clock counts from it.
+  since?: number;
+  step: number;
+  steps: number;
+};
+
+/// The stage a start on its way is at, from the same rows the checklist shows (`startupChecklist`):
+/// the running row, else the first that has not run after the last that finished. Setup counts only
+/// once the host reports it, so a host that sends only the older `step` never reads as running a
+/// setup script. None once the agent has started or the start failed: the view falls back to its
+/// Thinking line or its failure.
+export function quietStage(
+  start: CloudStartProgress,
+  rows: ChecklistStep[] = startupChecklist(start),
+  t: Translate = defaultTranslate,
+): QuietStage | undefined {
+  if (start.state === "failed" || start.initialized) return undefined;
+  const counted = rows.filter((row) => row.status !== "skipped" && (row.id !== "setup" || start.setup !== undefined));
+  // A host that reports only timestamps leaves an earlier row pending after a later one finished
+  // (a machine with no `step` once its clone is done): the stage is the first pending row after the
+  // last finished one.
+  const lastDone = counted.reduce((last, row, index) => (row.status === "done" ? index : last), -1);
+  const current =
+    counted.find((row) => row.status === "running") ??
+    counted.find((row, index) => index > lastDone && row.status === "pending");
+  if (!current) return undefined;
+  const eta =
+    current.id === "machine"
+      ? t("cloudStart.eta.underMinute")
+      : current.id === "clone"
+        ? current.status === "running" && current.detail && !start.clone?.error
+          ? current.detail
+          : t("cloudStart.eta.underMinute")
+        : current.id === "setup"
+          ? start.setup?.status === "ready"
+            ? t("cloudStart.eta.seconds")
+            : t("cloudStart.eta.setupFirst")
+          : t("cloudStart.eta.seconds");
+  const since =
+    current.id === "machine"
+      ? start.machineStartedAt
+      : current.id === "clone"
+        ? start.clone?.startedAt
+        : current.id === "setup"
+          ? start.setup?.startedAt
+          : start.harnessStartedAt;
+  const label =
+    current.id === "machine"
+      ? t("cloudStart.stage.machine")
+      : current.id === "clone"
+        ? t("cloudStart.stage.clone")
+        : current.id === "setup"
+          ? t("cloudStart.stage.setup")
+          : current.label;
+  return {
+    id: current.id,
+    label,
+    eta,
+    ...(since !== undefined ? { since } : {}),
+    step: counted.indexOf(current) + 1,
+    steps: counted.length,
+  };
 }

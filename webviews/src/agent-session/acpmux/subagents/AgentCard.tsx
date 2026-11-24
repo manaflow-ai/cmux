@@ -50,6 +50,8 @@ export type AgentCardProps = {
   findItems?: DisclosureRowProps["findItems"];
   /// The complete localized disclosure label, with its name in the locale's word order.
   disclosureLabel?: ReactNode;
+  /// Controls at the line's end, after its state (a stopped one's Resume, ResumeControl.tsx).
+  actions?: ReactNode;
   children?: ReactNode;
 };
 
@@ -72,6 +74,7 @@ export function AgentCard({
   disclosureKey,
   findItems,
   disclosureLabel,
+  actions,
   children,
 }: AgentCardProps) {
   const t = useT();
@@ -119,6 +122,7 @@ export function AgentCard({
         openLabel={openLabel ?? t("subagents.open", { name })}
         onOpen={onOpen}
         openSession={onOpen ? sessionId : undefined}
+        actions={actions}
       >
         {children}
       </DisclosureRow>
@@ -159,6 +163,7 @@ export function AgentCard({
           {time ? ` · ${time}` : ""}
         </span>
       )}
+      {actions}
     </>
   );
   return (

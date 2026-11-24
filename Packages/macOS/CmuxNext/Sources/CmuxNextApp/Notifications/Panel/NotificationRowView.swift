@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextNotifications
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A press opens it;
@@ -31,7 +32,7 @@ final class NotificationRowView: NSView {
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.insetCornerRadius
+        layer?.cornerRadius = Metrics.insetCornerRadius // radius-allow: a list row nested in the panel, concentric with it
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         build(now: now)
@@ -87,7 +88,7 @@ final class NotificationRowView: NSView {
 
     private func build(now: Date) {
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: Metrics.space2, height: Metrics.space2))
+        dot.layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: Metrics.space2, height: Metrics.space2)) // radius-allow: the unread dot
         dot.isHidden = !row.unread
         dot.translatesAutoresizingMaskIntoConstraints = false
 
@@ -171,7 +172,7 @@ final class NotificationRowView: NSView {
     /// The press already opened it.
     override func mouseUp(with event: NSEvent) {}
 
-    override func menu(for event: NSEvent) -> NSMenu? { callbacks.menu() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(callbacks.menu()) }
 
     override func accessibilityPerformPress() -> Bool {
         callbacks.open()

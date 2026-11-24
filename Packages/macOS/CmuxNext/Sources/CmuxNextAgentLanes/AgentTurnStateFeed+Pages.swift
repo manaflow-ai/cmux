@@ -17,10 +17,16 @@ public nonisolated struct AgentWatchPage: Sendable {
     public var lanes: [String: AgentActivityLane] = [:]
     public var startedBy: [String: String] = [:]
     public var sessionNames: [String: String] = [:]
+    /// Each session's identity (acpmux `displayName`, `formerNames`, `icon`), when it has one.
+    public var identities: [String: AgentSessionIdentity] = [:]
     /// Each peer's row of a session id (chats of other machines), by session id, then by peer.
     public var peers: [String: [String: AgentPeerRow]] = [:]
     /// Where the rest of the list starts; nil on its last page.
     public var next: String?
+    /// The list position the watch's first page is current to, and its daemon run
+    /// (``AgentListFollow``); nil from an acpmux that stamps none, and on a later page.
+    public var listSeq: UInt64?
+    public var listEpoch: String?
 
     public init() {}
 
@@ -35,11 +41,15 @@ public nonisolated struct AgentWatchPage: Sendable {
         lanes = AgentTurnStateFeed.Message.lanes(result)
         startedBy = AgentTurnStateStore.startedBy(result)
         sessionNames = AgentTurnStates.sessionNames(result)
+        identities = AgentSessionIdentity.identities(result)
         peers = AgentPeerRow.rows(result)
         next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        listSeq = Self.listSeq(result["listSeq"])
+        listEpoch = result["listEpoch"] as? String
     }
 
-    /// Lays `later`, the next page of the same list, over this one.
+    /// Lays `later`, the next page of the same list, over this one (the list's position is the
+    /// first page's).
     public mutating func merge(_ later: AgentWatchPage) {
         states.merge(later.states)
         lastMessages.merge(later.lastMessages) { $1 }
@@ -50,6 +60,7 @@ public nonisolated struct AgentWatchPage: Sendable {
         lanes.merge(later.lanes) { $1 }
         startedBy.merge(later.startedBy) { $1 }
         sessionNames.merge(later.sessionNames) { $1 }
+        identities.merge(later.identities) { $1 }
         peers.merge(later.peers) { $0.merging($1) { $1 } }
         next = later.next
     }

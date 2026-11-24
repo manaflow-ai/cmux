@@ -7,12 +7,14 @@
 pub mod agent_check;
 pub mod ask;
 pub mod capability;
-pub mod harness_login;
+pub mod hybrid;
+pub mod hybrid_show;
+pub mod list_wait;
 pub mod machine_bootstrap;
 pub mod machine_config;
 pub mod machine_create;
-pub mod machine_login;
 pub mod machine_repo;
+pub mod machine_route;
 pub mod moves;
 pub mod sequence;
 pub mod start;

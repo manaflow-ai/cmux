@@ -15,6 +15,7 @@ import Testing
         var stderrTail: String { "" }
         init() { (lines, output) = AsyncStream.makeStream(of: MacScreenRdMessage.self) }
         func start(_ role: MacScreenRdProcess.Role) { state.withLock { $0.started = true } }
+        func startServe() async throws { start(.serve) }
         func send<Value: Encodable>(_ value: Value) {}
         // Closing stdin does not finish stdout; the final decision can still be buffered there.
         func stop() { state.withLock { $0.stops += 1 } }

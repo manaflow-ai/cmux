@@ -3,9 +3,11 @@ import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextKeepAwake
+import CmuxNextNotifications
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow
+import CmuxNextUpdater
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
@@ -16,11 +18,13 @@ enum WindowHandlers {
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
-            let link = SettingsDeepLink(invocation)
-            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
+            let link = SettingsDeepLink(invocation), cardRoute = link.route ?? SettingsPageLayout.pageOnlyCardRoute(link.setting)
+            try context.services.settingsWindow.show(section: link.section, setting: cardRoute == nil ? link.setting : nil, focus: invocation.allowsViewChange, route: cardRoute)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
+        ToastActions(openTuning: { try context.services.debugSettings.show(selection: .section(CmuxToastTunables.section.id), focus: $0) }, window: { context.services.windows.active?.window }, themeColors: { context.services.themes.catalog.colors },
+                     cards: [CmuxToastPlaygroundCard(title: "GitHub star ask") { _ = context.services.updater.debugStarPrompt(press: nil) }]).bind(into: registry)
         DebugTunableSwitchActions(show: "hostPressure.showWarning", hide: "hostPressure.hideWarning", tunable: HostPressureTunables.enabled).bind(into: registry)
         // DEV and NIGHTLY (`isDebugOnly`): the per-action budget's HUD; it never takes the keys.
         registry.bindEffect("debug.actionLatencyHUD", effect: { _ in
@@ -42,8 +46,8 @@ enum WindowHandlers {
         })
         DebugTunableChoiceAction(id: "debug.sidebarToggleIcon", argument: "icon", suggestions: ActionSuggestions.debugSidebarToggleIcons,
                                  tunable: SidebarToggleIcon.tunable).bind(into: registry)
-        DebugTunableChoiceAction(id: "debug.statusIconSet", argument: "set", suggestions: ActionSuggestions.debugStatusIconSets,
-                                 tunable: StatusIconSet.tunable).bind(into: registry)
+        DebugTunableChoiceAction(id: "debug.statusIconSet", argument: "set", suggestions: ActionSuggestions.debugStatusIconSets, tunable: StatusIconSet.tunable).bind(into: registry)
+        registry.bindEffect("debug.densityOverlayPlayground", effect: { [playground = DensityOverlayPlaygroundWindow()] _ in playground.show(); return .done })
         // Debug-only actions reach the person only while Internal Developer Mode is on, read at each palette
         // open and key press (no restart); scripts reach them wherever developer tools exist.
         registry.debugActions = DebugActionGate(isOn: { [weak services = context.services] in

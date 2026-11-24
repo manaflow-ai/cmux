@@ -56,6 +56,58 @@ pub(super) fn each<'a>(
     let mut d = serde_json::Deserializer::from_str(raw.get());
     d.deserialize_seq(Items(&mut f)).map_err(|_| Error::InvalidJson)?
 }
+/// Visit an object's members one at a time, keys borrowed where they have no escapes.
+/// Anything but an object visits nothing.
+pub(super) fn entries<'a>(
+    raw: &'a RawValue,
+    mut f: impl FnMut(&str, &'a RawValue),
+) -> Result<(), Error> {
+    struct Key<'de>(Cow<'de, str>);
+    impl<'de> Deserialize<'de> for Key<'de> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct Text;
+            impl<'de> Visitor<'de> for Text {
+                type Value = Cow<'de, str>;
+                fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.write_str("a key")
+                }
+                fn visit_borrowed_str<E: serde::de::Error>(
+                    self,
+                    s: &'de str,
+                ) -> Result<Self::Value, E> {
+                    Ok(Cow::Borrowed(s))
+                }
+                fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
+                    Ok(Cow::Owned(s.into()))
+                }
+            }
+            d.deserialize_str(Text).map(Key)
+        }
+    }
+    struct Members<'f, F>(&'f mut F);
+    impl<'de, F: FnMut(&str, &'de RawValue)> Visitor<'de> for Members<'_, F> {
+        type Value = ();
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("an object")
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+            while let Some(Key(key)) = map.next_key::<Key<'de>>()? {
+                let value: &'de RawValue = map.next_value()?;
+                (self.0)(&key, value);
+            }
+            Ok(())
+        }
+    }
+    if !raw.get().starts_with('{') {
+        return Ok(());
+    }
+    let mut d = serde_json::Deserializer::from_str(raw.get());
+    d.deserialize_map(Members(&mut f)).map_err(|_| Error::InvalidJson)
+}
+/// A whole number at least zero, or none: a float, a negative or another type is none.
+pub(super) fn count(raw: Option<&RawValue>) -> Option<u64> {
+    raw.and_then(|raw| raw.get().parse::<u64>().ok())
+}
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub(super) struct Meta<'a> {
@@ -157,6 +209,15 @@ pub(super) fn content(
     Ok(())
 }
 
+pub(super) fn decoded_len(raw: &RawValue) -> Result<u64, Error> {
+    let mut length = 0u64;
+    content(raw, 0, &mut |text| {
+        length = length.saturating_add(text.len() as u64);
+        Ok(())
+    })?;
+    Ok(length)
+}
+
 pub(super) struct Output<'a> {
     bytes: &'a [u8],
     pub ops: Vec<Op>,
@@ -192,5 +253,8 @@ impl<'a> Output<'a> {
         let range = RawRange { offset, length: raw.get().len() };
         debug_assert!(offset.saturating_add(range.length) <= self.bytes.len());
         self.emit(Change::Body { id, field, append, source: BodySource::Input(range) });
+    }
+    pub fn raw_body(&mut self, id: u64, field: BodyField, append: bool, place: u64, span: u64) {
+        self.emit(Change::Body { id, field, append, source: BodySource::Raw { place, span } });
     }
 }

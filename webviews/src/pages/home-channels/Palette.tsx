@@ -16,6 +16,7 @@ import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
 import { fixtureRank, type PaletteRankEntry, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
+import { keycapLegend } from "../../ui/keycapLegend";
 
 export type PaletteGroup = "conversations" | "threads" | "actions";
 
@@ -155,7 +156,7 @@ export function Palette({
         if (!open) onClose();
       }}
       label={label}
-      className="lg-palette"
+      className="lg-palette ui-glass ui-glass-floats ui-glass-transient"
       backdropClassName="lg-scrim"
     >
       <Combobox
@@ -173,6 +174,8 @@ export function Palette({
         inputClassName="lg-palette-input"
         listClassName="lg-palette-list"
         itemClassName="lg-palette-row"
+        empty={t("switcher.none")}
+        emptyClassName="lg-palette-none"
         renderItem={(id) => {
           const item = byId.get(id);
           if (!item) return null;
@@ -187,13 +190,12 @@ export function Palette({
                 <span className="lg-palette-mark">{item.mark}</span>
                 <span className="lg-palette-title">{item.title}</span>
                 {item.meta && <span className="lg-palette-meta">{item.meta}</span>}
-                {item.shortcut && <kbd className="lg-kbd">{item.shortcut}</kbd>}
+                {item.shortcut && <kbd className="lg-kbd">{keycapLegend(item.shortcut)}</kbd>}
               </span>
             </>
           );
         }}
       />
-      {results.length === 0 && <p className="lg-palette-none">{t("switcher.none")}</p>}
       <p className="lg-palette-hint" aria-hidden="true">
         {t("switcher.hint")}
       </p>

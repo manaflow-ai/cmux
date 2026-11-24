@@ -40,7 +40,15 @@ export type ScriptedTurn =
   | "steer-tools"
   | "thought-text"
   | ArrivalTurn
-  | ToggleTurn;
+  | ToggleTurn
+  | FoldStreamTurn;
+
+/// The fold-stream turn (stream-follow-smooth.test.ts; Leo, 2026-11-22: "the animation or whatever for
+/// when im at the bottom and the text is streaming to be a bit jarring ... esp in tandem with how
+/// aggressively we're folding claude code chats"): a long Claude reply at Claude's cadence with two
+/// runs of tool calls between its segments, a call that prints, and the turn's end folding its work.
+export const FOLD_STREAM_TURN = "fold-stream";
+export type FoldStreamTurn = typeof FOLD_STREAM_TURN;
 
 /// The turn-transition turns, in the order of Leo's words.
 export const TRANSITION_TURNS = ["text-tool", "burst-thought", "tool-group", "steer-tools", "thought-text"] as const;
@@ -110,10 +118,13 @@ export async function playScriptedTurn(
 ): Promise<void> {
   const ANSWER_ID = SCRIPTED_ANSWER_ID;
   const base = history(historyTurns);
+  // The turn happens now, after the chat was opened: a row from before the open never enters
+  // (openBreakpoint.ts). The script's times stay relative to its prompt at 100_000.
+  const now = Date.now() - 100_000;
   const prompt: AcpmuxRow = {
     id: SCRIPTED_PROMPT_ID,
     version: 1,
-    at: 100_000,
+    at: 100_000 + now,
     kind: "user",
     text: "Why does the relay fall over?",
   };
@@ -124,7 +135,22 @@ export async function playScriptedTurn(
   let ended = false;
   const put = (row: Omit<AcpmuxRow, "version">) => {
     version += 1;
-    turn.set(row.id, { ...row, version } as AcpmuxRow);
+    // A call's own times are on the same clock as its row's (a call that ended after the steer was
+    // sent ends after it here too: turns.ts afterSends compares them).
+    const shift = (at: number | undefined) => (at === undefined ? undefined : at + now);
+    const items = row.items?.map((item) =>
+      item.tool && (item.tool.startedAt !== undefined || item.tool.endedAt !== undefined)
+        ? {
+            ...item,
+            tool: {
+              ...item.tool,
+              ...(item.tool.startedAt !== undefined && { startedAt: shift(item.tool.startedAt) }),
+              ...(item.tool.endedAt !== undefined && { endedAt: shift(item.tool.endedAt) }),
+            },
+          }
+        : item,
+    );
+    turn.set(row.id, { ...row, ...(items && { items }), at: row.at + now, version } as AcpmuxRow);
   };
   const emit = () => {
     if (scheduled) return;
@@ -144,7 +170,12 @@ export async function playScriptedTurn(
     if (done) put({ id, at, kind: "assistant", text: source, streaming: false });
     emit();
   };
-  if (isToggle(scenario)) {
+  if (scenario === FOLD_STREAM_TURN) {
+    step("prompt");
+    show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
+    await wait(300);
+    await playFoldStream({ put, emit, stream, step, show, wait });
+  } else if (isToggle(scenario)) {
     step("prompt");
     show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
     await wait(300);
@@ -321,6 +352,64 @@ async function playToggle(
   await streaming;
 }
 
+/// The fold-stream turn: three segments of a reply, each streamed at the run's cadence, with a run of
+/// reads between the first two and a run with a printing shell call between the last two. Each call
+/// starts (a line above the live line), runs, finishes, and the next one joins its row.
+async function playFoldStream({ put, emit, stream, step, wait }: TransitionParts): Promise<void> {
+  const paragraphs = REPLY.split("\n\n");
+  const runCalls = async (row: string, at: number, calls: [string, string][], first: number) => {
+    const items: NonNullable<AcpmuxRow["items"]> = [];
+    for (const [offset, [title, kind]] of calls.entries()) {
+      const index = first + offset;
+      step(`${row}-call-${offset + 1}`);
+      const call =
+        kind === "execute"
+          ? { ...printingCall("in_progress"), tool: { ...printingCall("in_progress").tool, id: `call-${index}` } }
+          : toolItem(index, title, kind, "in_progress");
+      items.push(call);
+      put(activityRow(row, at, [...items]));
+      emit();
+      await wait(220);
+      items[offset] =
+        kind === "execute"
+          ? { ...printingCall("completed"), tool: { ...printingCall("completed").tool, id: `call-${index}` } }
+          : toolItem(index, title, kind, "completed");
+      put(activityRow(row, at, [...items]));
+      emit();
+      await wait(90);
+    }
+  };
+  const segment = async (id: string, at: number, text: string) => {
+    step(`${id}-stream`);
+    await stream(id, at, text, false);
+    put({ id, at, kind: "assistant", text, streaming: false });
+    emit();
+  };
+  await segment(SCRIPTED_ANSWER_ID, 100_001, paragraphs.slice(0, 2).join("\n\n"));
+  await runCalls(
+    "live-run-1",
+    100_002,
+    [
+      ["Read relay.ts", "read"],
+      ["Grep reconnect", "search"],
+      ["Read retry.ts", "read"],
+    ],
+    0,
+  );
+  await segment(`${SCRIPTED_ANSWER_ID}-2`, 100_010, paragraphs.slice(2, 4).join("\n\n"));
+  await runCalls(
+    "live-run-2",
+    100_011,
+    [
+      ["rg -n reconnect src", "execute"],
+      ["Read socket.ts", "read"],
+    ],
+    3,
+  );
+  step(`${SCRIPTED_ANSWER_ID}-3-stream`);
+  await stream(`${SCRIPTED_ANSWER_ID}-3`, 100_020, paragraphs.slice(4, 9).join("\n\n"), false);
+}
+
 async function playTransition(
   turn: TransitionTurn,
   { put, emit, stream, step, show, wait }: TransitionParts,
@@ -415,7 +504,9 @@ async function playTransition(
     emit();
     await wait(250);
     step("tool-done");
-    put(activityRow("live-activity-1", 100_002, [toolItem(0, "Read relay.ts", "read", "completed")]));
+    // It ends after the steer was sent (direct.ts stamps a call's end with its event's time).
+    const done = toolItem(0, "Read relay.ts", "read", "completed");
+    put(activityRow("live-activity-1", 100_002, [{ ...done, tool: { ...done.tool, endedAt: 100_007 } }]));
     emit();
     await wait(150);
     // The agent reads the steer as its next text starts (direct.ts landSteer).

@@ -13,6 +13,8 @@ then stores the values with `put`; the plaintext never leaves the job that made 
 
     # later, as an account that can write the target repository's environment secrets:
     python3 scripts/ci/sealed_secrets.py put BUNDLE.json
+    # or, for a provision target with multiple destinations:
+    python3 scripts/ci/sealed_secrets.py put BUNDLE_DIRECTORY
 
 An environment of None seals to the repository's own Actions secrets instead (a job with no `environment:`
 reads those, such as cmux-platform's ci.yml): `put` then needs write access to that repository's secrets.
@@ -177,12 +179,20 @@ def put(bundle, run=subprocess.run, log=print):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    put_command = commands.add_parser("put", help="store a bundle's sealed values in its target environment")
+    put_command = commands.add_parser("put", help="store one bundle or every bundle in a directory")
     put_command.add_argument("bundle")
     args = parser.parse_args(argv)
     try:
         if args.command == "put":
-            put(read_bundle(args.bundle))
+            path = Path(args.bundle)
+            if path.is_dir():
+                bundles = sorted(path.glob("bundle-*.json"))
+                if not bundles:
+                    raise SealError(f"{path} contains no sealed bundle files")
+                for bundle in bundles:
+                    put(read_bundle(bundle))
+            else:
+                put(read_bundle(path))
     except SealError as error:
         print(f"sealed_secrets: {error}", file=sys.stderr)
         return 1

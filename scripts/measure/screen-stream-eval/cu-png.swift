@@ -74,7 +74,7 @@ func scaled(_ buffer: CVPixelBuffer) -> CGImage? {
           let data = context.data else { return nil }
     var destination = vImage_Buffer(data: data, height: vImagePixelCount(size.1), width: vImagePixelCount(size.0),
                                     rowBytes: context.bytesPerRow)
-    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling)) == kvImageNoError else { return nil }
+    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil } // as ComputerUseFrameRing.scaled
     return context.makeImage()
 }
 
@@ -129,6 +129,17 @@ var second = (start: unixMs(), bytes: 0, frames: 0, ms: [Double]())
 var allMs: [Double] = [], allCPU: [Double] = [], allBytes: [Double] = []
 var wentGo = false
 var next = Date()
+// Fixed one-second buckets, each stamped at its end as rd's series is (eval.py takes a row as
+// one second and keeps rows whose stamp falls in a phase): a late tick never stretches a bucket.
+// A frame rolls them first, so a frame sent after a boundary (an encode that ran past it) counts
+// in the second it was sent in, not the one before (review of #42020, F1).
+func rollBuckets(to now: UInt64) {
+    while now >= second.start + 1000 {
+        series.append(["unix_ms": second.start + 1000, "bytes": second.bytes, "frames": second.frames,
+                       "encode_ms": p50(second.ms) as Any])
+        second = (second.start + 1000, 0, 0, [])
+    }
+}
 while Date() < end {
     next = next.addingTimeInterval(interval)
     newest.lock.lock()
@@ -140,6 +151,7 @@ while Date() < end {
         if let image = scaled(buffer), let data = png(image) {
             let url = "data:image/png;base64,\(data.base64EncodedString())"
             let ms = Date().timeIntervalSince(t0) * 1000, cpu = threadCPUms() - c0
+            rollBuckets(to: unixMs())
             second.bytes += url.utf8.count
             second.frames += 1
             second.ms.append(ms)
@@ -152,12 +164,7 @@ while Date() < end {
             }
         }
     }
-    let now = unixMs()
-    if now - second.start >= 1000 {
-        series.append(["unix_ms": second.start, "bytes": second.bytes, "frames": second.frames,
-                       "encode_ms": p50(second.ms) as Any])
-        second = (now, 0, 0, [])
-    }
+    rollBuckets(to: unixMs())
     let wait = next.timeIntervalSinceNow
     if wait > 0 { Thread.sleep(forTimeInterval: wait) }
 }

@@ -179,17 +179,21 @@ test("a fork's transcript names the chat its history above came from", async () 
 // transcript row (review of #37629, F1).
 test("a failed fork says so in a toast, not a transcript row", async () => {
   const { client, shown, answers } = await forkingClient();
-  const toasts: string[] = [];
-  client.toastSink = (text) => toasts.push(text);
+  const toasts: [string, string | undefined][] = [];
+  client.toastSink = (text, kind) => toasts.push([text, kind]);
+  const warn = console.warn;
+  console.warn = () => undefined;
   try {
     const forked = client.fork("live", undefined, true);
     await Promise.resolve();
     answers[0]!.reject(new Error("the chat has no finished turn"));
     expect(await forked).toBeUndefined();
     expect(shown.rows.some((row) => row.kind === "notice")).toBe(false);
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]).toContain("the chat has no finished turn");
+    // Plain words, drawn as an error; acpmux's own text goes to the log (audit 2026-11-12).
+    const { translate } = await import("../i18n");
+    expect(toasts).toEqual([[translate("notice.forkFailed"), "error"]]);
   } finally {
+    console.warn = warn;
     client.close();
   }
 });

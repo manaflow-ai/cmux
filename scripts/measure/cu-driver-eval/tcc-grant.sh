@@ -39,7 +39,7 @@ for path in "$@"; do
   # client_type 1 is a path. An app bundle's executable is also looked up by the bundle's id
   # (client_type 0), so it gets a row under that id too.
   clients=("1:$path")
-  if [[ "$path" == *.app/Contents/MacOS/* ]]; then
+  if [[ "$path" == *.app/Contents/MacOS/* && -f "${path%/MacOS/*}/Info.plist" ]]; then
     bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${path%/MacOS/*}/Info.plist" 2>/dev/null)
     [[ "$bundle_id" =~ ^[A-Za-z0-9.-]+$ ]] && clients+=("0:$bundle_id")
   fi

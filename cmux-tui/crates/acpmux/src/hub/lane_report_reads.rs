@@ -398,8 +398,9 @@ impl Hub {
         let Ok(session) = self.resolve(parent) else { return };
         // Validate provenance and remove under the same lock: a person's edit must never
         // disappear because an earlier snapshot still called the prompt a lane report.
+        let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
         let (removed, mut ledger) = {
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            let queue = &mut *queue;
             let indices: Vec<usize> = queue
                 .iter()
                 .enumerate()
@@ -433,6 +434,8 @@ impl Hub {
             })
             .collect();
         drop(ledger);
+        // Taken out and logged under one lock, as `remove_queued_by` does.
+        drop(queue);
         for (id, text, provenance) in archived {
             self.lane_report_delivered_read(&session, lane, &id, &text, &provenance);
         }

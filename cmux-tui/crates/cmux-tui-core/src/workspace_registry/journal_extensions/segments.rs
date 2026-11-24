@@ -4,6 +4,34 @@
 
 use super::*;
 
+/// The seal's delete of the journal rows it moved into a segment, without
+/// the zero pages of `secure_delete=ON`.
+///
+/// The registry connection zeroes what a delete frees, so removed data does
+/// not stay readable in free pages. The rows a seal deletes are not removed
+/// data: the segment the same transaction inserts holds every one of them.
+/// Zeroing them wrote each overflow page they left (37% of the registry WAL
+/// frames on one Mac, 2026-11-13), then the checkpoint wrote it again.
+/// `FAST` still clears the cells in the pages the delete writes anyway and
+/// leaves the freed pages alone. Dropping the guard turns `ON` back on, on
+/// the error paths too, so every other delete zeroes as before.
+struct DeleteOfKeptRows<'connection>(&'connection Connection);
+
+impl<'connection> DeleteOfKeptRows<'connection> {
+    fn begin(connection: &'connection Connection) -> anyhow::Result<Self> {
+        connection.execute_batch("PRAGMA secure_delete=FAST;")?;
+        Ok(Self(connection))
+    }
+}
+
+impl Drop for DeleteOfKeptRows<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.execute_batch("PRAGMA secure_delete=ON;") {
+            eprintln!("cmux-tui: secure_delete was not turned back on after a seal: {error:#}");
+        }
+    }
+}
+
 /// Free pages one [`WorkspaceRegistry::incremental_journal_vacuum`] step
 /// returns (1 MiB): what bounds the time the step holds the registry.
 const JOURNAL_VACUUM_STEP_PAGES: u64 = 256;
@@ -274,10 +302,13 @@ impl WorkspaceRegistry {
             )?;
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
-        let deleted = tx.execute(
-            "DELETE FROM session_journal WHERE sequence > ?1 AND sequence <= ?2",
-            params![i64::try_from(plan.archived_end)?, i64::try_from(plan.through_sequence)?],
-        )?;
+        let deleted = {
+            let _kept = DeleteOfKeptRows::begin(&tx)?;
+            tx.execute(
+                "DELETE FROM session_journal WHERE sequence > ?1 AND sequence <= ?2",
+                params![i64::try_from(plan.archived_end)?, i64::try_from(plan.through_sequence)?],
+            )?
+        };
         anyhow::ensure!(
             deleted == usize::try_from(plan.through_sequence - plan.archived_end)?,
             "journal segment source range changed before commit"

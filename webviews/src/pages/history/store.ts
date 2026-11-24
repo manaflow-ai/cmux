@@ -3,6 +3,7 @@
 // the page keeps no optimistic copy: a remove or clear re-reads after the provider confirms.
 // React reads it through `useSyncExternalStore` (no effects); tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
@@ -32,6 +33,8 @@ export type Connection = "connecting" | "connected" | "disconnected";
 export interface HistorySnapshot {
   text: string;
   filter: HistoryFilter;
+  /** How far back the list reaches (the When menu); "all" reads every entry. */
+  range: HistoryRange;
   grouping: HistoryGrouping;
   entries: HistoryEntry[];
   groups: HistoryGroup[];
@@ -81,6 +84,7 @@ export class HistoryStore {
     this.snapshot = {
       text: "",
       filter: "all",
+      range: "all",
       grouping: "day",
       entries: [],
       groups: [],
@@ -328,6 +332,12 @@ export class HistoryStore {
     void this.reload();
   }
 
+  setRange(range: HistoryRange): void {
+    if (range === this.snapshot.range) return;
+    this.set({ range });
+    void this.reload();
+  }
+
   setGrouping(grouping: HistoryGrouping): void {
     if (grouping === this.snapshot.grouping) return;
     this.set({ grouping, groups: groupEntries(this.snapshot.entries, grouping) });
@@ -341,8 +351,9 @@ export class HistoryStore {
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
-    const { text, filter } = this.snapshot;
+    const { text, filter, range } = this.snapshot;
     const params: HistoryListParams = { kinds: filterKinds(filter), text, limit: PAGE_LIMIT };
+    if (range !== "all") params.range = range;
     if (!this.snapshot.loading) this.set({ loading: true });
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);
@@ -439,13 +450,12 @@ export class HistoryStore {
 /** The waits before each re-read of a list that is not complete; the last repeats. */
 const PENDING_WAITS_MS = [1000, 2000, 4000, 8000];
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 function failure(error: unknown): Partial<HistorySnapshot> {
   if (isPageError(error) && error.code === LINK_CLOSED) {
-    return { connection: "disconnected", error: error.message };
+    return { connection: "disconnected", error: message(error) };
   }
   return { error: message(error) };
 }

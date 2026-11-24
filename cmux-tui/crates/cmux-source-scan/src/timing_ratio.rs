@@ -393,9 +393,13 @@ impl<'ast> Visit<'ast> for SpreadScan<'_> {
         visit::visit_local(self, l);
     }
     fn visit_block(&mut self, b: &'ast Block) {
+        // A name the block binds from a spread fn's tuple ends with the block (review of
+        // cmux#42384, F1), as the fns it defines do.
+        let outer = self.names.clone();
         self.blocks.push(block_items(b));
         visit::visit_block(self, b);
         self.blocks.pop();
+        self.names = outer;
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         let Some(conds) = assert_conds(mac) else {

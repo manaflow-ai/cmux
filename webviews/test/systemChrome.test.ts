@@ -64,6 +64,23 @@ describe("useSystemChrome", () => {
     ]);
   });
 
+  // chat-100k-flat.bench.ts launches through launchServer (it reads the browser's pid); unwrapped, that ran
+  // Playwright's own chrome-headless-shell, which the perf runner never installs (perf cron run 43737495243).
+  test("launchServer runs the same browser as launch", async () => {
+    const calls: unknown[] = [];
+    const chromium = {
+      ...fakeBrowserType(),
+      launchServer: async (options?: Options) => (calls.push(options), "server"),
+    };
+    useSystemChrome(chromium, { CMUX_CHROME_HEADLESS_SHELL: "/cache/chrome-headless-shell" });
+    await chromium.launchServer({ headless: true, args: ["--process-per-site"] });
+    await chromium.launchServer({ headless: false });
+    expect(calls).toEqual([
+      { headless: true, args: ["--process-per-site"], executablePath: "/cache/chrome-headless-shell" },
+      { headless: false, channel: "chrome" },
+    ]);
+  });
+
   test("CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1 leaves Playwright's own Chromium", async () => {
     const chromium = fakeBrowserType();
     useSystemChrome(chromium, { CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM: "1" });
