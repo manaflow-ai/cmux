@@ -38,6 +38,11 @@ const PROBE_CONNECT: Duration = Duration::from_secs(10);
 /// connect budget still accommodates a first handshake or a slow ssh login.
 const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
+/// How often a redial of a URL that already carried this peer starts a fresh TCP connect while
+/// none has connected. The pair matrix's direct path after a 60 s outage: the link opened 9.9 s
+/// after the network came back, its dial waiting on the SYN sent 16 s before.
+const URL_REDIAL_AGAIN: Duration = Duration::from_secs(2);
+
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
 pub(crate) type BoxDuplex = Box<dyn Duplex>;
@@ -612,21 +617,6 @@ impl Peer {
         }
     }
 
-    /// How long one dial of the configured URL may take. A first connect gets the whole
-    /// `connect` budget. A redial of a URL that already carried this peer gets the direct
-    /// paths' `DIRECT_REDIAL_CONNECT`, or four of this peer's measured retransmit timeouts
-    /// when its link answers slower than that (a TCP connect, a TLS exchange and the upgrade
-    /// are about four round trips). Without it, a dial sent into an outage rides its SYN
-    /// retransmissions (1, 2, 4, 8, 16 s) up to 30 s, and the link opens that long after the
-    /// network is back: the pair matrix's direct 60 s sleep resumed 9.9 s after the wake.
-    pub(super) fn url_connect_deadline(&self) -> Duration {
-        if !self.linked_once.load(Ordering::SeqCst) {
-            return self.timings.connect;
-        }
-        let measured = self.with_silence(|silence| silence.rto()).saturating_mul(4);
-        self.timings.connect.min(DIRECT_REDIAL_CONNECT.max(measured))
-    }
-
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
     async fn open_url(&self) -> Result<Opened, String> {
         // The peer token never crosses a network in clear.
@@ -653,8 +643,15 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
-            let tcp =
-                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| e.to_string())?;
+            // A URL that already carried this peer is dialed again every `URL_REDIAL_AGAIN`
+            // while no attempt connected (`happy_dial::connect_tcp_again`): a dial sent into an
+            // outage otherwise waits out its SYN retransmissions after the network is back.
+            let tcp = if self.linked_once.load(Ordering::SeqCst) {
+                crate::happy_dial::connect_tcp_again(&host, port, URL_REDIAL_AGAIN).await
+            } else {
+                crate::happy_dial::connect_tcp(&host, port).await
+            }
+            .map_err(|e| e.to_string())?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
@@ -674,8 +671,7 @@ impl Peer {
                 e.to_string()
             })
         };
-        let deadline = self.url_connect_deadline();
-        let (ws, _) = match tokio::time::timeout(deadline, connect).await {
+        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
             Ok(Ok(opened)) => opened,
             // A listener that predates the early request refuses the upgrade: dial without.
             Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
@@ -683,7 +679,7 @@ impl Peer {
                 return Box::pin(self.open_url()).await;
             }
             Ok(Err(error)) => return Err(error),
-            Err(_) => return Err(connect_timed_out(deadline)),
+            Err(_) => return Err(connect_timed_out(self.timings.connect)),
         };
         Ok(Opened {
             ws: OpenedWs::Url(Box::new(ws)),

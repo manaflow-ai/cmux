@@ -168,3 +168,61 @@ async fn a_name_with_no_aaaa_dials_ipv4_as_before() {
     let (body, _) = get(resolving_to(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]), port).await;
     assert_eq!(body, "v4");
 }
+
+#[tokio::test(start_paused = true)]
+async fn again_starts_a_fresh_attempt_every_interval_and_the_first_to_connect_wins() {
+    let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = started.clone();
+    let begun = tokio::time::Instant::now();
+    // Attempt 0 hangs (a SYN into an outage); attempt 2 connects 100 ms after it starts.
+    let won = again(Duration::from_secs(2), move || {
+        let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        async move {
+            if n == 2 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok(n)
+            } else {
+                std::future::pending::<io::Result<usize>>().await
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(won, 2);
+    assert_eq!(begun.elapsed(), Duration::from_millis(4100));
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn again_returns_a_lone_attempts_error_at_once() {
+    let begun = tokio::time::Instant::now();
+    let error = again(Duration::from_secs(2), || async {
+        Err::<(), _>(io::Error::from(io::ErrorKind::ConnectionRefused))
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
+    assert_eq!(begun.elapsed(), Duration::ZERO);
+}
+
+#[tokio::test(start_paused = true)]
+async fn again_keeps_waiting_on_a_hung_attempt_when_a_later_one_fails() {
+    let started = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = started.clone();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        again(Duration::from_secs(2), move || {
+            let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                if n == 0 {
+                    std::future::pending::<io::Result<()>>().await
+                } else {
+                    Err(io::Error::from(io::ErrorKind::ConnectionRefused))
+                }
+            }
+        }),
+    )
+    .await;
+    assert!(outcome.is_err(), "a failed later attempt must not end the call while one runs");
+    assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
