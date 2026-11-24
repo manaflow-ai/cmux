@@ -155,6 +155,7 @@
    "unchecked": {
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxHomeCore": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentList": 2,
     "CmuxNextAgentPane": 5,
