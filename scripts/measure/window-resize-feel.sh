@@ -4,11 +4,14 @@
 # once per arm, each a fresh launch with its own CMUX_CEF_* resize-sync settings, and returns the films:
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --display \
 #     --script scripts/measure/window-resize-feel.sh --ref <sha> [--arg=--config=bench] \
-#     [--arg=--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...] [--arg=--mode=window|pane|both] \
+#     [--arg=--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...] [--arg=--mode=window|pane|both] [--arg=--cpu-load=AVG] \
 #     --artifact window-resize-feel.tar
 # An arm sets CMUX_CEF_LIVE_RESIZE_SYNC_MS (window live resize), CMUX_CEF_DRAG_RESIZE_SYNC_MS (pane drag) and
 # CMUX_CEF_RESIZE_SYNC_FRAME_SHARE (the deadline's cap as a share of a frame) for the app; a build that reads none of
 # them runs every arm the same. Default arms: base:0:0:0.5. Every other argument goes to window-resize-feel.py.
+# --cpu-load=AVG films under load (Leo 2026-11-23: "i want all our resizing at any cpu to be able to happen in
+# lockstep"): ceil(AVG/4) spinners of scripts/measure/qos-load-bench/spin.c, 4 threads each, as split-spring.sh
+# runs them, and waits up to 240 s for the 1-minute load average to reach 90% of AVG before the first arm.
 # The artifact: <arm>/report.json, <arm>/feel-<mode>-<n>.mov, <arm>/run.log. Judges nothing.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -31,11 +34,12 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-reload_config=() feel_args=() arms="base:0:0:0.5"
+reload_config=() feel_args=() arms="base:0:0:0.5" load_target="" spin_pids=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --arms=*) arms="${arg#--arms=}" ;;
+    --cpu-load=*) load_target="${arg#--cpu-load=}" ;;
     *) feel_args+=("$arg") ;;
   esac
 done
@@ -47,9 +51,28 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 # shellcheck disable=SC2329 # run by the trap below
-cleanup() { python3 scripts/cmux-next/tag_teardown.py "$app" || true; }
+cleanup() {
+  local pid
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do kill "$pid" 2>/dev/null || true; done  # the spinners this script started, by PID
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do wait "$pid" 2>/dev/null || true; done
+  python3 scripts/cmux-next/tag_teardown.py "$app" || true
+}
 trap cleanup EXIT
 mkdir -p "$out/films"
+if [[ -n "$load_target" ]]; then
+  [[ "$load_target" =~ ^[0-9]+$ ]] || { echo "window-resize-feel: --cpu-load wants a whole load average, got $load_target" >&2; exit 2; }
+  spinners=$(( (load_target + 3) / 4 ))
+  cc -O2 -o "$out/spin" scripts/measure/qos-load-bench/spin.c
+  for _ in $(seq "$spinners"); do "$out/spin" & spin_pids+=($!); done
+  loadavg=0
+  for _ in $(seq 240); do
+    loadavg="$(sysctl -n vm.loadavg | awk '{print $2}')"
+    awk -v l="$loadavg" -v t="$load_target" 'BEGIN { exit !(l >= 0.9 * t) }' && break
+    sleep 1
+  done
+  echo "window-resize-feel: CPU-LOAD $spinners spinners, $((spinners * 4)) threads on $(sysctl -n hw.ncpu) cores; target $load_target, 1-minute load average $loadavg"
+  printf '{"target": %s, "spinners": %s, "loadavg_at_start": %s}\n' "$load_target" "$spinners" "$loadavg" > "$out/films/cpu-load.json"
+fi
 made=0
 IFS=',' read -r -a arm_list <<< "$arms"
 for arm in "${arm_list[@]}"; do
@@ -65,7 +88,7 @@ for arm in "${arm_list[@]}"; do
   python3 scripts/cmux-next/tag_teardown.py "$app" > /dev/null 2>&1 || true
   sleep 3  # the last arm's helpers exit before the next launch
 done
-(cd "$out/films" && find . \( -name 'report.json' -o -name 'run.log' -o -name '*.mov' \) -print0 \
+(cd "$out/films" && find . \( -name 'report.json' -o -name 'cpu-load.json' -o -name 'run.log' -o -name '*.mov' \) -print0 \
   | tar -cf "$OLDPWD/window-resize-feel.tar" --null -T -) || true
 echo "window-resize-feel: $made of ${#arm_list[@]} arms ran; artifact $(du -h window-resize-feel.tar 2>/dev/null | cut -f1)"
 [[ "$made" -gt 0 ]]

@@ -61,7 +61,8 @@ PANES = ("browser", "chat")
 GESTURES = ("divider", "sidebar", "window-edge")
 # The window corner's moves (points, window-local): in, out, in, out.
 EDGE_DRAGS = ((-200, -100), (200, 100), (-200, -100), (200, 100))
-TARGETS = ["dividers", "panes", "page", "window"]
+# `controls`: each pane's top-right toolbar (TabStripDebug.controlsSample), for the lockstep count.
+TARGETS = ["dividers", "panes", "page", "window", "controls"]
 
 
 def _vertical(sample: dict) -> list:
@@ -315,6 +316,26 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
 STRIP_EVERY = 6
 
 
+def _controls_lag(samples: list[dict]) -> set[int]:
+    """Frames where a pane's top-right buttons are off their rest place against the pane's trailing edge (>1 pt).
+
+    Rows are `[minX, maxX, top, paneMaxX, buttonsMaxX]`, matched by order; a frame whose row count changed is skipped."""
+    rest = samples[0].get("controls") or [] if samples else []
+    lagging: set[int] = set()
+    for i, sample in enumerate(samples):
+        rows = sample.get("controls") or []
+        if len(rows) != len(rest):
+            continue
+        for row, base in zip(rows, rest):
+            if len(row) < 5 or len(base) < 5:
+                continue
+            if abs((row[3] - row[1]) - (base[3] - base[1])) > 1:
+                lagging.add(i)
+            if row[4] >= 0 and base[4] >= 0 and abs((row[3] - row[4]) - (base[3] - base[4])) > 1:
+                lagging.add(i)
+    return lagging
+
+
 def judge_drag(trace: dict, refresh: float) -> dict:
     gesture = trace.get("gesture") or "divider"
     chat = trace.get("pane") == "chat"
@@ -362,19 +383,23 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     window = [(i, float((sample.get("window") or [0])[0])) for i, sample in enumerate(samples)]
     # What moved the pane, and the area it should have taken from it.
     area_lags: list[int] = []
+    expected: dict[int, float] = {}
     if gesture == "divider" and divider:
         pane_row = _pane_row(samples[0], chat_pane) if chat else None
         page_right = float(pane_row[1]) >= divider[0][1] if pane_row is not None else True
         if page_right:
             total = area[0][1] + divider[0][1]
             area_lags = lag_frames([(i, total - v) for i, v in divider], area)
+            expected = {i: total - v for i, v in divider}
         else:
             offset = divider[0][1] - area[0][1]
             area_lags = lag_frames([(i, v - offset) for i, v in divider], area)
+            expected = {i: v - offset for i, v in divider}
         driver_series = divider
     elif gesture == "window-edge":
         total = area[0][1] - window[0][1]
         area_lags = lag_frames([(i, v + total) for i, v in window], area)
+        expected = {i: v + total for i, v in window}
         driver_series = window
     else:
         driver_series = area
@@ -399,6 +424,7 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     moving = [i for (i, a), (_, b) in zip(driver_series, driver_series[1:]) if abs(b - a) > 0.5]
     first, last = (moving[0], moving[-1] + 1) if moving else (0, 0)
     layout_lags, stale, relayouts, settle_ms = [], 0, 0, None
+    stale_at: set[int] = set()
     if page:
         for index, width in changes([(float(i), v) for i, v in area])[1:]:
             wall = walls[int(index)]
@@ -411,6 +437,7 @@ def judge_drag(trace: dict, refresh: float) -> dict:
             shown = [w for t, w in page if t <= wall + refresh / 2]
             if shown and abs(shown[-1] - width) > 0.5:
                 stale += 1
+                stale_at.add(index)
         if moving:
             during = [w for t, w in page if walls[first] <= t <= walls[min(last, len(walls) - 1)] + refresh]
             relayouts = len(changes([(0.0, w) for w in during])) - 1 if during else 0
@@ -425,6 +452,14 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     page_times = [t for t, _ in page if walls[first] <= t <= walls[min(last, len(walls) - 1)] + refresh] if moving else []
     page_dropped = sum(max(0, round((b - a) / refresh) - 1) for a, b in zip(page_times, page_times[1:])
                        if b - a > 1.5 * refresh)
+
+    # Lockstep: frames, while the pane moved, where its page area or its top-right buttons were not where the
+    # divider (or window) put them that frame. Leo wants 0 at any CPU load.
+    moving_set = set(range(first, last + 1)) if moving else set()
+    off_area = {i for i, a in area if i in expected and abs(expected[i] - a) > 1}
+    off_controls = _controls_lag(samples)
+    # A page whose pixels show another width than its area that frame (`stale_frames`) is out of lockstep too.
+    lockstep = sorted((off_area | off_controls | stale_at) & moving_set)
 
     def spread(values: list[float], scale: float = 1.0) -> dict | None:
         """p50/p95/max of `values` times `scale`; None when nothing was measured (never a zero lag)."""
@@ -448,6 +483,10 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         "hosted_matched": sum(1 for _, _, source in pixels if source == "hosted"),
         "area_moving_frames": sum(1 for a, b in zip(area, area[1:]) if abs(b[1] - a[1]) > 0.5),
         "area_lag": spread(area_lags),
+        "lockstep_lag_frames": len(lockstep),
+        "controls_lag_frames": len(off_controls & moving_set),
+        "controls_measured": bool(samples[0].get("controls")),
+        "frame_ms": spread(intervals),
         "edge_lag": spread(edge_lags),
         "layout_lag": spread(layout_lags),
         "layout_lag_ms": spread(layout_lags, refresh),
@@ -483,6 +522,9 @@ def _summary(measured: list[dict]) -> dict:
         "relayouts": sum(drag["relayouts"] for drag in measured),
         "settle_ms_max": max(settles, default=None),
         "area_lag_max": worst("area_lag", "max"),
+        "lockstep_lag_frames": sum(drag["lockstep_lag_frames"] for drag in measured),
+        "controls_lag_frames": sum(drag["controls_lag_frames"] for drag in measured),
+        "frame_ms_p95": worst("frame_ms", "p95"),
         "edge_lag_max": worst("edge_lag", "max"),
         "unmatched_page_window": sum(drag["unmatched_page_window"] for drag in measured),
         "detached_frames": sum(drag["detached_frames"] for drag in measured),
@@ -521,7 +563,10 @@ def markdown_row(verdict: dict) -> str:
     what = {"divider": "a dragged divider", "sidebar": "a toggled sidebar", "window-edge": "a dragged window corner"}
     gesture = verdict.get("gesture")
     page = "Agent chat" if verdict.get("pane") == "chat" else "Chromium page"
-    return (f"| split_resize | ok | | | | {page} beside {what.get(gesture, 'a resized pane')}: page edge trails the pane "
+    return (f"| split_resize | ok | | | | {page} beside {what.get(gesture, 'a resized pane')}: "
+            f"out of lockstep in {verdict.get('lockstep_lag_frames', 0)} frames "
+            f"({verdict.get('controls_lag_frames', 0)} with the top-right buttons off), drag frame p95 "
+            f"{shown(verdict.get('frame_ms_p95'))} ms; page edge trails the pane "
             f"≤{shown(verdict['edge_lag_max'])} frames ({verdict['unmatched_page_window']} samples with no page window, "
             f"{verdict.get('detached_frames', 0)} detached); "
             f"laid out at its area's width {shown(verdict['layout_lag_p50'])}/{shown(verdict['layout_lag_p95'])}/"

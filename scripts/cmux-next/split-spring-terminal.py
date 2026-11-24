@@ -69,6 +69,20 @@ if "--suite=memory-agents" in sys.argv:
 if "--suite=cef-resize" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
+# `--suite=feel-film`: film pane-divider and window drags (scripts/measure/window-resize-feel.py, feel-<mode>-<n>.mov
+# and report.json in --out), so a before/after film pair runs through the allowlisted fleet entry, under
+# split-spring.sh --cpu-load=AVG (Leo 2026-11-23: "i want all our resizing at any cpu to be able to happen in lockstep").
+if "--suite=feel-film" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "measure", "window-resize-feel.py")
+    rest, skip = [], False
+    for a in sys.argv[1:]:
+        if skip:
+            skip = False
+        elif a == "--json":
+            skip = True
+        elif a != "--suite=feel-film" and not a.startswith("--json="):
+            rest.append(a)
+    os.execv(sys.executable, [sys.executable, suite] + rest)
 # `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
 # live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
 # (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).

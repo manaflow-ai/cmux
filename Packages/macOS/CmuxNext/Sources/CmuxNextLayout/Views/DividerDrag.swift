@@ -117,10 +117,34 @@ struct DividerDrag {
     }
 
     /// The frame tick (`LayoutFrameInput`): writes the pointer and keys the drag's events left waiting, once.
+    ///
+    /// Late latch (games read the mouse at the last moment before a frame; Leo: "i want all our resizing at any cpu to
+    /// be able to happen in lockstep"): the point written is where the pointer is now, not where the last delivered
+    /// event saw it. On a busy main thread the moves queue behind other work, so the newest event can be frames old
+    /// when the tick runs; the live pointer is what the person sees, and the divider and every pane land on it in this
+    /// frame. A drag whose events have caught up writes the same point; one with no physical button down (a synthetic
+    /// drag) writes its events' point as before.
     func applyWaiting() { // perf-hot: 4ms motion-frame
-        guard let drag = screen.activeDrag, drag.waiting else { return }
+        guard let drag = screen.activeDrag, drag.pointer != nil else { return }
+        let live = screen.window.flatMap { window in
+            Self.latched(event: drag.lastWindowPoint, live: window.mouseLocationOutsideOfEventStream,
+                         buttonDown: NSEvent.pressedMouseButtons & 1 != 0)
+        }
+        guard drag.waiting || live != nil else { return }
         screen.activeDrag?.waiting = false
-        apply(at: drag.lastWindowPoint, phase: .changed)
+        let point = live ?? drag.lastWindowPoint
+        if live != nil {
+            screen.activeDrag?.lastWindowPoint = point
+            screen.activeDrag?.sample(contentPoint(fromWindow: point, kind: drag.kind), at: CACurrentMediaTime())
+        }
+        apply(at: point, phase: .changed)
+    }
+
+    /// The live pointer (window coordinates) when it is ahead of the last event's `event` point by more than a quarter
+    /// point while the left button is down; nil to keep the event's point.
+    nonisolated static func latched(event: NSPoint, live: NSPoint, buttonDown: Bool) -> NSPoint? {
+        guard buttonDown, live.x.isFinite, live.y.isFinite, hypot(live.x - event.x, live.y - event.y) > 0.25 else { return nil }
+        return live
     }
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
