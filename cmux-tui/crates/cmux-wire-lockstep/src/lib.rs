@@ -427,35 +427,42 @@ impl Tap {
 /// The base manifest for `protocol` a lockstep test runs against: `$CMUX_WIRE_BASE_DIR/<protocol>.json`
 /// when CI wrote the PR base's manifests there (`wire-lockstep-check --export-base DIR`), else
 /// `fallback` (the committed head manifest, which still catches undeclared names).
-pub fn base_manifest(protocol: &str, fallback: &str) -> Manifest {
+pub fn base_manifest(protocol: &str, fallback: &str) -> Result<Manifest, String> {
     if let Some(dir) = std::env::var_os("CMUX_WIRE_BASE_DIR") {
         let path = std::path::Path::new(&dir).join(format!("{protocol}.json"));
         if let Ok(text) = std::fs::read_to_string(&path)
             && let Ok(manifest) = Manifest::from_json(&text)
         {
-            return manifest;
+            return Ok(manifest);
         }
     }
-    Manifest::from_json(fallback).unwrap_or_else(|e| panic!("{protocol} manifest: {e}"))
+    Manifest::from_json(fallback).map_err(|e| format!("{protocol} manifest: {e}"))
 }
 
 /// Compares a protocol's generated manifest with its committed file; with
-/// `CMUX_UPDATE_WIRE_MANIFEST=1` rewrites the file instead. For a protocol crate's snapshot test.
-pub fn assert_manifest_current(generated: &Manifest, committed_path: &std::path::Path) {
+/// `CMUX_UPDATE_WIRE_MANIFEST=1` rewrites the file instead. For a protocol crate's snapshot test:
+/// `assert_manifest_current(..).unwrap()` there.
+pub fn assert_manifest_current(
+    generated: &Manifest,
+    committed_path: &std::path::Path,
+) -> Result<(), String> {
     let errors = generated.validate();
-    assert!(errors.is_empty(), "{} manifest: {}", generated.protocol, errors.join("; "));
+    if !errors.is_empty() {
+        return Err(format!("{} manifest: {}", generated.protocol, errors.join("; ")));
+    }
     let fresh = generated.to_json();
     if std::env::var_os("CMUX_UPDATE_WIRE_MANIFEST").is_some() {
-        std::fs::write(committed_path, &fresh)
-            .unwrap_or_else(|e| panic!("write {}: {e}", committed_path.display()));
-        return;
+        return std::fs::write(committed_path, &fresh)
+            .map_err(|e| format!("write {}: {e}", committed_path.display()));
     }
     let committed = std::fs::read_to_string(committed_path).unwrap_or_default();
-    assert!(
-        committed == fresh,
-        "{} is stale: rerun this test with CMUX_UPDATE_WIRE_MANIFEST=1 and commit it\n----- generated -----\n{fresh}",
-        committed_path.display()
-    );
+    if committed != fresh {
+        return Err(format!(
+            "{} is stale: rerun this test with CMUX_UPDATE_WIRE_MANIFEST=1 and commit it\n----- generated -----\n{fresh}",
+            committed_path.display()
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
