@@ -53,7 +53,7 @@ import Testing
         ("callback ?sid=s3ss10n&page=2", "s3ss10n"),
         ("pushed with ghp_0123456789abcdefghij", "ghp_0123456789abcdefghij"),
         ("jwt eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl", "eyJzdWIiOi"),
-        ("aws AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP"),
+        ("aws AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE"),
         ("card 4111 1111 1111 1111", "4111 1111 1111 1111"),
         ("mail alice@example.com", "alice@example.com"),
         ("redis://admin:pw@db.internal/0", "admin:pw"),
