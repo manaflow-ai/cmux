@@ -239,6 +239,8 @@ pub mod person_tokens;
 pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]

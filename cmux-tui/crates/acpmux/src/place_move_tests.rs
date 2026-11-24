@@ -20,12 +20,6 @@ fn a_place_parses_each_mode_and_refuses_junk() {
     assert_eq!(back, json!({"mode": "machine", "machine": "mini"}));
 }
 
-#[test]
-fn a_chat_with_no_stored_mode_is_pinned_to_the_machine_it_is_on() {
-    assert_eq!(effective(None, here()), PlaceMode::Machine { id: "mac".into() });
-    assert_eq!(effective(Some(PlaceMode::Auto), here()), PlaceMode::Auto);
-}
-
 fn proc(pid: u32, ppid: u32, command: &str) -> Proc {
     Proc { pid, ppid, command: command.into() }
 }
