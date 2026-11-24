@@ -8133,30 +8133,6 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
-    typealias SwiftType = Data?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterData.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterData.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
     typealias SwiftType = Int32?
 
@@ -8245,6 +8221,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -8373,56 +8373,6 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeLocalEndpoint: FfiConverterRustBuffer {
-    typealias SwiftType = [LocalEndpoint]
-
-    public static func write(_ value: [LocalEndpoint], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeLocalEndpoint.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalEndpoint] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [LocalEndpoint]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeLocalEndpoint.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
-    typealias SwiftType = [LocalTxt]
-
-    public static func write(_ value: [LocalTxt], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeLocalTxt.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalTxt] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [LocalTxt]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeLocalTxt.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -8540,6 +8490,56 @@ fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeKeychainLeftover.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLocalEndpoint: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalEndpoint]
+
+    public static func write(_ value: [LocalEndpoint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalEndpoint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalEndpoint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalEndpoint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalEndpoint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalTxt]
+
+    public static func write(_ value: [LocalTxt], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalTxt.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalTxt] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalTxt]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalTxt.read(from: &buf))
         }
         return seq
     }
@@ -9078,6 +9078,98 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
 })
 }
 /**
+ * Dial Mac `mac_device_id` from this phone (`device_id`) through its local hub at `endpoints`
+ * (what the browser resolved; best first is decided here), with no service involved. The
+ * everyday dial (`connect`) already takes this path by itself when the Mac is nearby; this is the
+ * explicit form, for a caller that holds the addresses.
+ */
+public func connectLocal(deviceId: String, macDeviceId: String, endpoints: [LocalEndpoint], transport: Transport, observer: LinkObserver?)async throws  -> LinkHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_connect_local(FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),FfiConverterTypeTransport_lower(transport),FfiConverterOptionTypeLinkObserver.lower(observer)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLinkHandle_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+/**
+ * Whether the ad with TXT `txt` is Mac `mac_device_id` (and the key `identity_public_key`, when
+ * both the ad and the caller carry one). For a browser that wants to filter before it resolves.
+ */
+public func localLinkMatches(txt: [LocalTxt], macDeviceId: String, identityPublicKey: Data?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_matches(
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+})
+}
+/**
+ * Whether Mac `mac_device_id` is nearby now (its ad is live and matches).
+ */
+public func localLinkNearby(macDeviceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_nearby(
+        FfiConverterString.lower(macDeviceId),$0
+    )
+})
+}
+/**
+ * The browser resolved (or refreshed) service `instance`. Returns whether it is a cmux ad with an
+ * address the phone can dial (anything else is ignored).
+ */
+public func localLinkObserve(instance: String, txt: [LocalTxt], endpoints: [LocalEndpoint]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_observe(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),$0
+    )
+})
+}
+/**
+ * The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
+ * (nil: forget the key). Its ad is then trusted only with the key tag of that key. The key is the
+ * bytes the Mac hashes for its tag: its X9.63 identity key as lowercase hex (`MacPins`), so a
+ * phone hands over exactly what it pinned. Device ids compare without case, as the pins do.
+ */
+public func localLinkPair(macDeviceId: String, identityPublicKey: Data?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_pair(
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+}
+}
+/**
+ * The browser saw service `instance` go away.
+ */
+public func localLinkRemove(instance: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_remove(
+        FfiConverterString.lower(instance),$0
+    )
+}
+}
+/**
+ * Whether the browser should resolve service `instance` (ad TXT `txt`) now. Resolving opens a
+ * connection to the Mac's hub, so it is worth it only for the ad of a Mac this phone paired with,
+ * carrying the tag of the key it pinned, and not again while that instance's addresses are still
+ * live (a TXT refresh of the same ad changes nothing). Another phone's Mac is never touched.
+ */
+public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_wants_resolve(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),$0
+    )
+})
+}
+/**
  * The `answer` channel's args for `card`.
  */
 public func pairRequestsAnswerArgs(card: PairRequestCard, allow: Bool) -> [String: String]  {
@@ -9140,82 +9232,6 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
         FfiConverterSequenceString.lower(capabilities),$0
     )
 })
-}
-/**
- * Dial Mac `mac_device_id` from this phone (`device_id`) through its local hub at `endpoints`
- * (what the browser resolved; best first is decided here), with no service involved. The
- * everyday dial (`connect`) already takes this path by itself when the Mac is nearby; this is the
- * explicit form, for a caller that holds the addresses.
- */
-public func connectLocal(deviceId: String, macDeviceId: String, endpoints: [LocalEndpoint], transport: Transport, observer: LinkObserver?)async throws  -> LinkHandle  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_func_connect_local(FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),FfiConverterTypeTransport_lower(transport),FfiConverterOptionTypeLinkObserver.lower(observer)
-                )
-            },
-            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
-            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
-            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
-            liftFunc: FfiConverterTypeLinkHandle_lift,
-            errorHandler: FfiConverterTypeCmuxMobileError_lift
-        )
-}
-/**
- * Whether the ad with TXT `txt` is Mac `mac_device_id` (and the key `identity_public_key`, when
- * both the ad and the caller carry one). For a browser that wants to filter before it resolves.
- */
-public func localLinkMatches(txt: [LocalTxt], macDeviceId: String, identityPublicKey: Data?) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_local_link_matches(
-        FfiConverterSequenceTypeLocalTxt.lower(txt),
-        FfiConverterString.lower(macDeviceId),
-        FfiConverterOptionData.lower(identityPublicKey),$0
-    )
-})
-}
-/**
- * Whether Mac `mac_device_id` is nearby now (its ad is live and matches).
- */
-public func localLinkNearby(macDeviceId: String) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_local_link_nearby(
-        FfiConverterString.lower(macDeviceId),$0
-    )
-})
-}
-/**
- * The browser resolved (or refreshed) service `instance`. Returns whether it is a cmux ad with an
- * address the phone can dial (anything else is ignored).
- */
-public func localLinkObserve(instance: String, txt: [LocalTxt], endpoints: [LocalEndpoint]) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_local_link_observe(
-        FfiConverterString.lower(instance),
-        FfiConverterSequenceTypeLocalTxt.lower(txt),
-        FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),$0
-    )
-})
-}
-/**
- * The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
- * (nil: forget the key). Its ad is then trusted only with the key tag of that key.
- */
-public func localLinkPair(macDeviceId: String, identityPublicKey: Data?)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_local_link_pair(
-        FfiConverterString.lower(macDeviceId),
-        FfiConverterOptionData.lower(identityPublicKey),$0
-    )
-}
-}
-/**
- * The browser saw service `instance` go away.
- */
-public func localLinkRemove(instance: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_local_link_remove(
-        FfiConverterString.lower(instance),$0
-    )
-}
 }
 /**
  * The approval for the tap happening now, unsigned: call it only from the tap.
@@ -9405,6 +9421,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_local() != 37246) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_matches() != 16597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_nearby() != 37142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_observe() != 50449) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_pair() != 8011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_remove() != 50001) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_answer_args() != 5979) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9421,24 +9458,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_local() != 37246) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_matches() != 16597) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_nearby() != 37142) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_observe() != 50449) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_pair() != 39167) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_remove() != 50001) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_draft() != 27332) {
