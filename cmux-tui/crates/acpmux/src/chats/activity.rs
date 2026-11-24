@@ -5,30 +5,15 @@
 //! can change either reaches every chats watcher as
 //! `_acpmux/chat_changed {kind: "activity", key, attention, preview}`
 //! (no index read, so a scan holding the index lock never delays it).
+//!
+//! This half is what the chat lists read: [`ChatActivity`] and which records change it. The
+//! sessions' half (reading a session's attention and preview, the hub's cache of the closed
+//! sessions' part) is the hub's, `hub/chat_activity.rs`.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use cmux_chat_index::{AdapterKind, ChatKey};
 use serde_json::{Value, json};
-
-use super::{SeqChange, key_text};
-use crate::hub::{Hub, Session};
-use crate::store::SessionStatus;
-use cmux_json::JsonSet as _;
-
-#[cfg(test)]
-#[path = "activity_tests.rs"]
-mod tests;
-
-// Every scale test reads Linux process counters (cfg target_os = "linux").
-#[cfg(all(test, target_os = "linux"))]
-#[path = "activity_scale_tests.rs"]
-mod scale_tests;
-
-/// The longest preview sent, in characters: one sidebar line and some.
-const PREVIEW_CHARS: usize = 160;
 
 /// The record kinds after which a session's attention or preview may differ:
 /// a status change (running, waiting, read), the end of a turn, and every
@@ -51,80 +36,8 @@ pub fn changes_activity(kind: &str) -> bool {
     )
 }
 
-/// The indexed chat a session continues: the store of its profile's family
-/// and the agent's session id. Only adoptable families have one.
-pub fn session_chat_key(session: &Session) -> Option<ChatKey> {
-    session.read_meta(|meta| {
-        let harness = match meta.family.as_deref()? {
-            "claude" => AdapterKind::ClaudeCode,
-            "codex" => AdapterKind::Codex,
-            _ => return None,
-        };
-        Some(ChatKey { harness, session_id: meta.agent_session_id.clone()? })
-    })
-}
-
-/// What the session needs from the person, most urgent first; None while
-/// it needs nothing (idle, working, or closed).
-pub fn attention(session: &Session) -> Option<&'static str> {
-    let (status, failed, unread) = session.read_meta(|meta| {
-        (
-            meta.status,
-            meta.last_turn.as_ref().and_then(|t| t.get("status")).and_then(Value::as_str)
-                == Some("failed"),
-            meta.unread,
-        )
-    });
-    match status {
-        SessionStatus::Closed => return None,
-        SessionStatus::Waiting => return Some("needsInput"),
-        _ if session.has_pending_permissions() => return Some("needsInput"),
-        // An open sub-session below it asks: the run stalls there (`hub/asks_below.rs`).
-        _ if session.waits_below() => return Some("needsInput"),
-        SessionStatus::Running => return None,
-        _ => {}
-    }
-    if failed {
-        Some("failed")
-    } else if unread {
-        Some("unread")
-    } else {
-        None
-    }
-}
-
-/// The `attention` and `preview` fields of a session's chat, and the name and icon it was given
-/// (`displayName`, `icon`; null without one), so a chat list names the chat as the session list
-/// does. An image icon stays off, as on the session row (`list_tee/summary.rs`): clients fetch it.
-pub fn activity_fields(session: &Session) -> Value {
-    let (preview, given, icon) = session.read_meta(|meta| {
-        let preview = meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
-            let line = p.split_whitespace().collect::<Vec<_>>().join(" ");
-            line.chars().take(PREVIEW_CHARS).collect::<String>()
-        });
-        let given = meta.handle.clone().filter(|h| crate::session_handle::valid(h));
-        let icon = meta
-            .icon
-            .as_ref()
-            .and_then(|icon| serde_json::to_value(icon).ok())
-            .filter(|icon| icon.get("kind").and_then(Value::as_str) != Some("image"));
-        (preview, given, icon)
-    });
-    json!({"attention": attention(session), "preview": preview, "displayName": given, "icon": icon})
-}
-
-/// The `_acpmux/chat_changed` params of a session's chat activity, when the
-/// session continues an indexable chat.
-pub fn activity_change(hub: &Hub, session: &Session) -> Option<Value> {
-    let key = session_chat_key(session)?;
-    let mut change = hub.chat_activity_fields(session);
-    change.set("kind", json!("activity"));
-    change.set("key", json!(key_text(&key)));
-    Some(change)
-}
-
 /// One chat's newest session: its `updated_at`, its id (the larger id wins a tie) and its fields.
-type Newest = (u64, String, Value);
+pub(crate) type Newest = (u64, String, Value);
 
 /// The activity of every chat a session continues, by chat key: the closed sessions' part built
 /// once and shared until one of them changes (`ActivityCache`), the live sessions' part read now.
@@ -139,6 +52,16 @@ pub struct ChatActivity {
 }
 
 impl ChatActivity {
+    /// The closed sessions' part, the live sessions' part, and when the first tag read for it
+    /// expires (the hub builds it, `hub/chat_activity.rs`).
+    pub(crate) fn new(
+        closed: Arc<HashMap<String, Newest>>,
+        live: HashMap<String, Newest>,
+        expires_at: Option<u64>,
+    ) -> Self {
+        Self { closed, live, expires_at }
+    }
+
     /// When the first tag read for this activity expires (`expires_at`).
     pub fn expires_at(&self) -> Option<u64> {
         self.expires_at
@@ -177,6 +100,7 @@ impl ChatActivity {
         }
     }
 }
+<<<<<<< ours
 
 /// The closed sessions' chat activity, shared by every reader (each chats watcher on each change
 /// batch, each window refresh, each page): with thousands of closed sessions, rebuilding it per
@@ -431,3 +355,5 @@ impl Hub {
             .collect()
     }
 }
+=======
+>>>>>>> theirs
