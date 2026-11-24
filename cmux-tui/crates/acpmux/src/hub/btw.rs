@@ -1130,6 +1130,67 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    /// `_acpmux/sessions {topLevelOnly}` reads this daemon's rows as their summaries say: a side
+    /// chat and a session another chat's agent started are left out of the whole list and of
+    /// every page, and each row's summary agrees (`session_order::top_level_summary`, what a
+    /// peer's mirrored row is read by).
+    #[tokio::test]
+    async fn top_level_only_leaves_out_side_chats_and_started_sessions() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let publish = |id: &str, updated: u64, spawned_by: Option<&str>| {
+            let mut meta = side_meta("claude", &std::env::temp_dir());
+            meta.id = id.to_owned();
+            meta.name = id.to_owned();
+            meta.updated_at = updated;
+            if let Some(parent) = spawned_by {
+                meta.tags.insert(
+                    crate::meta_fields::SPAWNED_BY_TAG.to_owned(),
+                    crate::store::Tag { value: parent.to_owned(), expires_at: None },
+                );
+            }
+            let session = hub.make_session(meta);
+            hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+            session
+        };
+        let chat = publish("chat", 9, None);
+        let task = publish("task", 8, None);
+        let started = publish("started", 7, Some("chat"));
+        let other = publish("other", 6, None);
+        hub.mark_side(&task, &chat, true).expect("the caller's own new session");
+        for (session, top) in [(&chat, true), (&task, false), (&started, false), (&other, true)] {
+            let summary = hub.session_summary(session);
+            assert_eq!(crate::session_order::top_level_summary(&summary), top, "{summary}");
+        }
+        let ids = |text: &str| -> Vec<String> {
+            let reply: Value = serde_json::from_str(text).unwrap();
+            let rows = reply["sessions"].as_array().unwrap();
+            rows.iter().map(|row| row["sessionId"].as_str().unwrap().to_owned()).collect()
+        };
+        let all = hub.session_list_text(&json!({}), false, true, usize::MAX).unwrap();
+        assert_eq!(ids(&all), ["chat", "task", "started", "other"]);
+        let top = hub.session_list_text(&json!({"topLevelOnly": true}), false, true, usize::MAX);
+        assert_eq!(ids(&top.unwrap()), ["chat", "other"]);
+        for limit in 1..=3 {
+            let (mut read, mut cursor) = (Vec::new(), Value::Null);
+            loop {
+                let params = json!({"topLevelOnly": true, "localOnly": true, "limit": limit, "cursor": cursor});
+                let (rows, next) = hub.session_page_rows(&params, false).unwrap();
+                for row in rows {
+                    let super::super::list_guard::BuiltRow::Tree(row) = row else {
+                        panic!("own row")
+                    };
+                    read.push(row["sessionId"].as_str().unwrap().to_owned());
+                }
+                cursor = next.unwrap_or(Value::Null);
+                if cursor.is_null() {
+                    break;
+                }
+            }
+            assert_eq!(read, ["chat", "other"], "limit {limit}");
+        }
+        hub.shutdown_all().await;
+    }
+
     /// A profile's `${home}` store is expanded as at spawn; the parent's raw env
     /// (what cleanup used before) leaves the template, which `HarnessHomes` skips.
     #[tokio::test]
