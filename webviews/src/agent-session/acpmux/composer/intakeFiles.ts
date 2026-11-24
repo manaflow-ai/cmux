@@ -39,6 +39,8 @@ export type IntakeError = AttachmentError | { text: string; final?: boolean };
 export type IntakeEvents = {
   /// File `index` is this chip now.
   ready?(index: number, attachment: ComposerAttachment): void;
+  /// The local path lookup missed these files. Their chips now show byte preparation or transfer.
+  needsBytes?(indices: number[]): void;
   /// Another chip already represents this file.
   duplicate?(index: number): void;
   /// File `index` could not be attached, and why.
@@ -95,6 +97,7 @@ export async function intakeFiles(
   };
   // Publish native links before reading anything, even when siblings have only clipboard bytes.
   const imagePaths = new Set<string>();
+  const missing: number[] = [];
   files.forEach((file, index) => {
     const path = known?.[index];
     if (path) {
@@ -113,12 +116,13 @@ export async function intakeFiles(
         mimeType: file.type || "application/octet-stream",
         size: file.size,
       });
-    }
+    } else missing.push(index);
   });
   // Clipboard tools may hand the browser two copies of a screenshot. Distinct native paths
   // identify distinct files even when the contents match.
-  const pathless = files.filter((_, index) => !known?.[index]);
-  if (pathless.length === 0) return { attachments: links.filter(Boolean) };
+  if (missing.length === 0) return { attachments: links.filter(Boolean) };
+  if (options.localPaths) events.needsBytes?.(missing);
+  const pathless = missing.map((index) => files[index]!);
   const unique = options.deduplicateImages ? filesOnce(pathless) : pathless;
   const kept = Array.isArray(unique) ? unique : await unique;
   let next = 0;

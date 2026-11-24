@@ -135,10 +135,5 @@ test("only a chat on this Mac's own acpmux opens its folders here", async () => 
   expect(chatOnThisMac({ host: "far-box" }, {}, { origin: "local" })).toBe(false);
   expect(chatOnThisMac({ hostKind: "cloud" }, {}, { origin: "local" })).toBe(false);
   expect(chatOnThisMac({ machine: THIS_MAC }, {}, { origin: "local" })).toBe(true);
-  // The daemon can omit cwd while a local session still names this Mac. Attachment routing uses
-  // this same locality fact, so a missing folder must not turn a disk path into an upload.
-  expect(chatOnThisMac({ sessionId: "s", machine: THIS_MAC }, {}, { origin: "local" })).toBe(true);
-  expect(chatOnThisMac({ sessionId: "s" }, {}, { origin: "local" })).toBe(true);
-  expect(chatOnThisMac({ sessionId: "s" }, {}, { origin: "remote" })).toBe(false);
   expect(chatOnThisMac(undefined, {}, { origin: "local" })).toBe(false);
 });

@@ -137,6 +137,8 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// The host is looking up this local gesture in its path records. No bytes are being transferred.
+  resolvingPath?: boolean;
   /// The browser already knows the file's byte count before the host returns its path.
   fileSize?: number;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
@@ -461,6 +463,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         id: again ?? crypto.randomUUID(),
         name: file.name,
         image,
+        ...(lookup ? { resolvingPath: true } : {}),
         ...(!image && !video && !isMadeFile(file) ? { fileSize: file.size } : {}),
         ...(video ? { video: true } : {}),
         ...(!isMadeFile(file) && (image || video)
@@ -721,6 +724,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         {
           ready,
           duplicate: settle,
+          needsBytes: (indices) => {
+            const ids = new Set(indices.filter(owns).map((index) => shown[index]!.id));
+            setPending((chips) => chips.map((chip) => (ids.has(chip.id) ? { ...chip, resolvingPath: false } : chip)));
+          },
           failed,
           uploading: (index) => {
             const image = made[index];
