@@ -52,8 +52,8 @@ function SummaryPlacementGallery({ placement, title, summary, next }: Props) {
 }
 
 const CHAT = {
-  title: "claude-sr2-coord-old",
-  summary: "I posted cosmic-gray's 14-day permission-stall history on the tracking issue",
+  title: "release-coordinator",
+  summary: "I posted build-box's 14-day permission-stall history on the tracking issue",
   next: "Wait for the owner's read",
 };
 
