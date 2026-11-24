@@ -206,7 +206,8 @@ export const MAP: MapEntry[] = [
     when: "Other agents' messages steer into a running turn between its commands (a hold, then a go).",
     wrong:
       'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be and instead as if it were a message?"',
-    expected: "Rule d: each received line sits on the tool rows' pitch (at most 8 from a tool row or another received line).",
+    expected:
+      "Rule d: each received line sits on the tool rows' pitch (at most 8 from a tool row or another received line).",
     scenario: "messages-mid-turn",
   },
   {
