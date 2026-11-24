@@ -415,6 +415,8 @@ class Run:
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        if self.args.evict_idle_secs is not None:
+            env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
         return env
 
     def start(self):
@@ -616,6 +618,29 @@ class Run:
             except (OSError, RuntimeError, ValueError) as exc:
                 self.error("attach", exc)
 
+    def open_probe(self, k):
+        """--open-probe K: opens K idle chats as the app does (attach, newest 400 records), each on a fresh
+        connection, after the last idle window so it moves no memory number. With --evict-idle-secs those
+        chats are evicted rows, so this is the open of an evicted chat; without it, of a resident one."""
+        picks = random.Random(self.count).sample(self.idle, min(k, len(self.idle)))
+        took = []
+        for sid in picks:
+            try:
+                c = Acp(self.acp_sock, timeout=60)
+                t0 = time.monotonic()
+                c.call("_acpmux/attach", {"sessionId": sid, "limit": 400})
+                took.append((time.monotonic() - t0) * 1000)
+                c.close()
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.error("open probe", exc)
+        if not took:
+            return None
+        took.sort()
+        out = {"n": len(took), "p50": round(took[len(took) // 2], 2), "p95": round(took[int(len(took) * 0.95) - 1 if len(took) > 1 else 0], 2),
+               "max": round(took[-1], 2)}
+        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} {json.dumps(out)}", flush=True)
+        return out
+
     @staticmethod
     def drain(conn):
         try:
@@ -802,6 +827,8 @@ def run_count(args, count):
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
+        if args.open_probe > 0:
+            result["open_ms"] = run.open_probe(args.open_probe)
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -900,6 +927,10 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
+    p.add_argument("--evict-idle-secs", type=int, default=None,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--open-probe", type=int, default=0,
+                   help="after the last day, time opening (attach) this many idle chats; prints INFINITE-OPEN")
     p.add_argument("--settle", type=float, default=5)
     p.add_argument("--window", type=float, default=10, help="idle window seconds per sample")
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")

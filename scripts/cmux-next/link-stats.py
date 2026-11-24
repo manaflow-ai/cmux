@@ -85,6 +85,10 @@ def stat_of(event):
             "setupMs": num(j.get("setupMs")) if j["reason"] == "first" or "marks" in j else None,
             "continent": code(j.get("continent")) or "?", "country": code(j.get("country")) or "?",
             "hubColo": code(j.get("hubColo")) or "?",
+            # Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`): absent with no key typed.
+            **{f"{k}{f}": num(j.get(f"{k}{f}"), 100_000 if f == "N" else 600_000)
+               for k in ("echo", "ack") for f in ("N", "P50", "P95", "P99")},
+            "spikeCount": num(j.get("spikeCount"), 100_000) or 0,
         }
     return None
 
@@ -116,6 +120,13 @@ def summarize(stats, total):
         "loss": round(sum(s["lost"] for s in stats) / pings, 4) if pings else None,
         "setup_p50": percentile(setup, 50), "setup_p95": percentile(setup, 95),
     }
+    keys = sum(s["echoN"] or 0 for s in stats)
+    for k in ("echo", "ack"):
+        # A window's p50 weighted by its keys; its p99 once per window (each window's own tail).
+        out[f"{k}_p50"] = percentile([(s[f"{k}P50"], s[f"{k}N"]) for s in stats if s[f"{k}N"]], 50)
+        out[f"{k}_tail_p99"] = percentile([(s[f"{k}P99"], 1) for s in stats if s[f"{k}N"]], 99)
+    out["keys"] = keys
+    out["spikes_per_1k_keys"] = round(1000 * sum(s["spikeCount"] for s in stats) / keys, 1) if keys else None
     return out
 
 
@@ -162,7 +173,8 @@ def aggregate(stats, min_group=5, by_country=False):
 
 
 COLUMNS = ["transport", "path", "continent", "country", "hubColo", "stats", "links", "share", "rtt_p50", "rtt_p95",
-           "rtt_p99", "rtt_tail_p95", "loss", "setup_p50", "setup_p95"]
+           "rtt_p99", "rtt_tail_p95", "loss", "setup_p50", "setup_p95",
+           "keys", "echo_p50", "echo_tail_p99", "ack_p50", "ack_tail_p99", "spikes_per_1k_keys"]
 
 
 def render(rows):

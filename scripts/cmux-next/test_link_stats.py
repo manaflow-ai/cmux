@@ -78,6 +78,14 @@ class Aggregate(unittest.TestCase):
         self.assertEqual(group["rtt_p95"], 60)
         self.assertEqual(group["setup_p50"], 800)
 
+    def test_keystroke_round_trips(self):
+        keys = dict(echoN=100, echoP50=45, echoP95=140, echoP99=1900, ackN=100, ackP50=38, ackP95=120, ackP99=1880,
+                    spikeCount=3)
+        group = ls.aggregate(self.stats(5, **keys) + self.stats(5), 5)[1]
+        self.assertEqual((group["keys"], group["echo_p50"], group["echo_tail_p99"], group["ack_p50"]), (500, 45, 1900, 38))
+        self.assertEqual(group["spikes_per_1k_keys"], 30.0)
+        self.assertIsNone(ls.aggregate(self.stats(5), 5)[1]["spikes_per_1k_keys"])
+
     def test_share_across_paths(self):
         rows = ls.aggregate(self.stats(6) + self.stats(2, path="direct"), 1)
         share = {r["path"]: r["share"] for r in rows if r["continent"] == "all"}

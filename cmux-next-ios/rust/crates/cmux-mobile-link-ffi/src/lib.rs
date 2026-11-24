@@ -1440,6 +1440,20 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
+/// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
+#[uniffi::export]
+pub fn record_key_ack(ack_ms: u32) {
+    cmux_mobile_link::key_echo::record_ack(ack_ms);
+}
+
+/// The first terminal output after a typed batch came `echo_ms` after its first
+/// key's tap; `ack_ms` when the Mac's answer to that batch had already come.
+#[uniffi::export]
+pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
+    cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
+}
+
 /// This process's build space (`set_build_space`); nil: none (no header).
 static BUILD_SPACE: Mutex<Option<BuildSpace>> = Mutex::new(None);
 
