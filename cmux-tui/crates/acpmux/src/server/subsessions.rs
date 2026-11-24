@@ -156,9 +156,22 @@ async fn handle(
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
                 != crate::hub::Control::Web,
         };
+        // RFD 0144 piece 7: a working sub-agent on a fork of this Cloud machine, only with the
+        // hidden `cloud.autoCloud` key on (`placement/sub_fork.rs`); off, nothing here runs.
+        let sub_fork = crate::placement::sub_fork::start_plan(
+            crate::placement::sub_fork::enabled(),
+            req.worktree,
+            crate::placement::sub_fork::this_machine().as_deref(),
+        );
+        let checkout = req.cwd.clone().unwrap_or_else(|| parent.meta().cwd.clone());
+        let fork_outcome =
+            crate::placement::sub_fork::on_start(&sub_fork, &req.prompt, &checkout).await;
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
             started.set("placed", json!(placed));
+        }
+        if let Some(outcome) = fork_outcome {
+            started.set("subFork", json!(outcome));
         }
         return Ok(started);
     }
