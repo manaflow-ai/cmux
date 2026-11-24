@@ -30,6 +30,7 @@
 //! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
+mod delay_window;
 mod device;
 mod error;
 mod mesh;
