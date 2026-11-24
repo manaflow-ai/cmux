@@ -1,0 +1,22 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/leo-customizer",
+  "name": "Leo's Customizer",
+  "version": "0.1.0",
+  "description": "One-click customizations in the bottom-left sidebar, in groups: Look, Sidebar, Chat, Quick toggles, Actions. Each row shows its current value.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderCustomizer",
+      "title": "Customize",
+      "symbol": "slider.horizontal.3",
+      "options": { "defaultRegion": "bottom", "maxRows": 14 }
+    }
+  },
+  "scopes": {
+    "settings:read": "Show each row's current value (theme file, densities, text sizes, on or off).",
+    "actions:run": "Run the cmux action a row names when you click it (sidebar density, animations, open Settings at a row, start a Customize chat)."
+  }
+}
