@@ -3553,8 +3553,11 @@ public protocol TabsMirrorProtocol: AnyObject, Sendable {
     func setNear(tabIds: [String])  -> [Data]
     
     /**
-     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
      * Before a first manifest nothing is known to be unused, so nothing is returned.
+     * The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+     * still named a deleted blob would keep the Mac from sending it when a row names it again
+     * (a page reopened shows its old favicon hash).
      */
     func unreferenced(onDisk: [String])  -> [String]
     
@@ -3697,8 +3700,11 @@ open func setNear(tabIds: [String]) -> [Data]  {
 }
     
     /**
-     * Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
+     * Of `on_disk`, the blob names no row shows any more: the ones the phone deletes.
      * Before a first manifest nothing is known to be unused, so nothing is returned.
+     * The mirror stops holding them: the mirror lives across reconnects, and a `have` that
+     * still named a deleted blob would keep the Mac from sending it when a row names it again
+     * (a page reopened shows its old favicon hash).
      */
 open func unreferenced(onDisk: [String]) -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
@@ -9142,7 +9148,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_set_near() != 32850) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_unreferenced() != 34539) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_unreferenced() != 27006) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_tabsmirror_want_frame() != 2782) {

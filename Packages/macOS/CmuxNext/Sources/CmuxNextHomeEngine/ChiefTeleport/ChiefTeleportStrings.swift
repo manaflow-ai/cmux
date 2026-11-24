@@ -11,8 +11,6 @@ nonisolated enum ChiefTeleportStrings {
     static var rollingBack: String { text("home.teleport.rollingBack", "Rolling back…") }
     static var rolledBack: String { text("home.teleport.rolledBack", "Rolled back to This Mac") }
     static var help: String { text("home.teleport.help", "Moves the Chief to another Mac or to cmux Cloud") }
-    /// The Chief card's row label.
-    static var row: String { text("home.teleport.row", "Runs On") }
     static func checking(_ name: String) -> String { format("home.teleport.checking", "Checking %@…", name) }
     static func moving(_ name: String) -> String { format("home.teleport.moving", "Moving to %@…", name) }
     static func verifying(_ name: String) -> String { format("home.teleport.verifying", "Verifying %@…", name) }
