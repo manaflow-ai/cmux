@@ -6,8 +6,8 @@
 // reads (the newest reply row, where it paints) jump from one frame to the next.
 import type { Sample } from "../browser/send-stream-motion.harness";
 
-/// A frame-to-frame move past this reads as a jolt at 60 Hz: 11.5 px, half a line (the chat font's line is 22.75 px),
-/// 690 px/s, past any speed a reader follows text at.
+/// A frame-to-frame move past this reads as a jolt at 60 Hz: half a line (22.75 px at the chat font),
+/// 680 px/s, past any speed a reader follows text at.
 export const JOLT_PX = 11.5;
 
 const r2 = (value: number) => Math.round(value * 100) / 100;

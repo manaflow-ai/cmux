@@ -9,7 +9,7 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 /// just look at how they do it" and "we need to slim down": `send` shipped. Then, 2026-11-22: "it's
 /// just not great design to have the jolts. esp in tandem with how aggressively we're folding claude
 /// code chats. it's not smooth": `steady` ships, measured at 60 Hz in test/stream-follow-smooth.test.ts
-/// (the newest reply text: no frame past half a line, 11.5 px, where `send` stepped up to 90 px). To try another arm,
+/// (the newest reply text: no frame past half a line, where `send` stepped up to 90 px). To try another arm,
 /// set `cmux.experiments` to `{"follow-motion":"chunk"}` in the pane's web inspector and reload.
 export const followMotion = defineExperiment({
   id: "follow-motion",
