@@ -1001,3 +1001,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_lint_ios_conventions_scope.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_train_shadow_judge.py"
+lane = "manual"
+reason = "The shadow landing train is a measurement, not a path to base, so no workflow step runs its test. Run python3 tests/test_ci_train_shadow_judge.py yourself after changing scripts/ci/train_shadow_judge.py (about 10 s, no build)."
