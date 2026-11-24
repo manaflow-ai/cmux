@@ -37,6 +37,7 @@ METRICS = [
     ("fail", "Failures per n (no content within the bound, or an event lost or doubled)"),
 ]
 LINE = re.compile(r"(PAIRCELL(?:-NA)?) (\{.*\})\s*$")
+LONG_HOLDS = set()  # "long-30m" labels folded into the long column (a hold shorter than 60 min)
 
 
 def parse(paths):
@@ -55,6 +56,9 @@ def parse(paths):
                 except json.JSONDecodeError:
                     continue
                 key = tuple(str(d.get(k, "*")) for k in ("pair", "path", "condition", "load", "metric"))
+                if re.fullmatch(r"long-\d+m", key[2]):
+                    LONG_HOLDS.add(f"{key[0]} {key[1]} {key[3]}: {key[2]}")
+                    key = key[:2] + ("long",) + key[3:]
                 if m.group(1) == "PAIRCELL-NA":
                     na[key] = str(d.get("reason", "no reason given"))
                     continue
@@ -178,6 +182,8 @@ def markdown(summary, na, hosts, rigs, command):
     lines.append("streaming; duress = loaded host (50 sessions, a 10,000-message chat, a chat streaming while measured).")
     lines.append("Link profiles: `cmux-tui/crates/cmux-fault/link-profiles.json`. Every number: shaped link in-process, CI runner,")
     lines.append("no simulator; the host OS per row is in the last section.")
+    if LONG_HOLDS:
+        lines.append(f"Long cells held shorter than 60 min (label = hold): {'; '.join(sorted(LONG_HOLDS))}.")
     lines.append("")
     head = "| pair | path | " + " | ".join(f"{c} {l}" for c in CONDITIONS for l in LOADS) + " |"
     sep = "|---|---|" + "---|" * (len(CONDITIONS) * len(LOADS))
@@ -237,6 +243,7 @@ def selftest():
             'PAIRCELL {"pair":"ios-mac","path":"direct","condition":"loss","load":"idle","metric":"fail","value":0,"run":1}',
             'PAIRCELL {"pair":"ios-mac","path":"direct","condition":"loss","load":"idle","metric":"resume_ms","value":5000,"run":0}',
             'PAIRCELL-NA {"pair":"ios-linux","path":"direct","condition":"*","load":"*","metric":"*","reason":"no route (x.rs:1)"}',
+            'PAIRCELL {"pair":"mac-linux","path":"relay","condition":"long-30m","load":"idle","metric":"delta_bytes","value":2048,"run":0}',
         ]
     )
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as f:
@@ -255,6 +262,8 @@ def selftest():
     md = markdown(s, na, hosts, rigs, "cmd")
     assert "| ios-mac | direct | 200 |" in md, md
     assert "1/2" in md and "n/a" in md
+    assert s[("mac-linux", "relay", "long", "idle", "delta_bytes")]["p50"] == 2048, s
+    assert "mac-linux relay idle: long-30m" in md, md
     print("selftest ok")
 
 
