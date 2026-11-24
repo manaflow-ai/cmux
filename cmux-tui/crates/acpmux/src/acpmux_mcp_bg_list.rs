@@ -478,7 +478,10 @@ mod tests {
         assert!(after * 2 < before, "{after} of {before} bytes: less than half was cut");
         // full: true is the call that asks for everything, and still gets it.
         let (whole, _) = page(json!({"full": true})).apply(as_the_daemon_lists(2), NOW);
-        assert_eq!(whole["tasks"], as_the_daemon_lists(2)["tasks"]);
+        // Newest first, as every page lists, and each row whole.
+        let mut listed: Vec<Value> = as_the_daemon_lists(2)["tasks"].as_array().unwrap().clone();
+        listed.reverse();
+        assert_eq!(whole["tasks"], json!(listed));
         assert!(whole.get("sessionId").is_none(), "nothing hoisted out of a full page");
     }
 
