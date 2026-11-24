@@ -1191,6 +1191,9 @@ struct SentAttachments: View {
     @State private var fetched: [String: Data] = [:]
     /// Thumbnails decoded off the main thread, by picture id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
+    /// Pictures whose bytes could not be read or decoded: their tile shows what they are (name,
+    /// size), not the waiting fill forever.
+    @State private var unreadable: Set<String> = []
     private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
@@ -1251,6 +1254,13 @@ struct SentAttachments: View {
         preview = FilePreviewRequest(artifacts: artifacts, source: source, start: ordered.firstIndex { $0.id == attachment.id } ?? 0)
     }
 
+    /// What a sent picture whose bytes cannot be read shows: its name, and its size when known.
+    static func lastKnown(_ attachment: AgentAttachment) -> String {
+        let name = attachment.name.isEmpty ? String(localized: "Photo") : attachment.name
+        guard let bytes = attachment.byteCount, bytes > 0 else { return name }
+        return "\(name)\n\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
+    }
+
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         let side = SentAttachmentThumbnails.side(size)
@@ -1262,6 +1272,21 @@ struct SentAttachments: View {
             if let picture, let image = decoded[picture.id]
                 ?? (picture.data ?? fetched[picture.id]).flatMap({ thumbnails.image(picture, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let picture, unreadable.contains(picture.id) {
+                // Its bytes are not to be had: the last known of it (its name and size), never a
+                // waiting state.
+                Color.cmuxMobileFill.overlay {
+                    VStack(spacing: 4) {
+                        Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3)
+                        Text(SentAttachments.lastKnown(attachment))
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                }
             } else {
                 Color.cmuxMobileFill.overlay {
                     Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3).foregroundStyle(.secondary)
@@ -1281,8 +1306,14 @@ struct SentAttachments: View {
                 fetched[picture.id] = loaded
                 data = loaded
             }
-            guard let data, decoded[picture.id] == nil else { return }
-            if let image = await thumbnails.decode(picture, data: data, side: side) { decoded[picture.id] = image }
+            guard !Task.isCancelled else { return }
+            guard let data else { unreadable.insert(picture.id); return }
+            guard decoded[picture.id] == nil else { return }
+            if let image = await thumbnails.decode(picture, data: data, side: side) {
+                decoded[picture.id] = image
+            } else if !Task.isCancelled {
+                unreadable.insert(picture.id)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel(Text(attachment.video.map { "Video, \(attachment.name), \(AgentVideo.length($0.durationMs))" }

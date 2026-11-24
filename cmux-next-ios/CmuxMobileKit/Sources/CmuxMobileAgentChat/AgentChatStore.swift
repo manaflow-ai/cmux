@@ -1800,7 +1800,11 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
