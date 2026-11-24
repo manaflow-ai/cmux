@@ -437,6 +437,33 @@ export default componentEntry<Props>({
       },
       note: "The waiting line above the line a late recovery turns into: each one row, so the change moves nothing above the composer. The raw error never shows.",
     },
+    // Leo, 2026-11-21: "am seeing a lot of these in the ui". The app refused every handshake
+    // (#49148) and the line said only "Something went wrong, so that didn't go through.".
+    "refused-open": {
+      props: {
+        message: "cmux blocked opening this chat. That’s a bug in cmux, not something you did.",
+        detail: 'transport.intent_invalid: initialize: unknown param "_meta"',
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "Picked. A refused handshake names what failed (opening this chat) on the same one-row line; what the app refused and why wait behind Details. Nothing above the composer moves.",
+    },
+    "refused-before": {
+      props: {
+        message: "Something went wrong, so that didn’t go through.",
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "Before, not shipped: the generic line Leo saw, with nothing behind it. It names neither what failed nor why.",
+    },
+    "refused-inline": {
+      props: {
+        message: 'cmux blocked opening this chat (initialize: unknown param "_meta").',
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "Alternate, not shipped: the reason on the line itself. Says why, but puts the app's protocol words in front of the person and wraps to two rows at narrow widths.",
+    },
     enable: {
       props: {
         message: "Claude Code is not enabled for this folder.",

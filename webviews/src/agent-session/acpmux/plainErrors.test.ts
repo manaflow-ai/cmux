@@ -51,7 +51,7 @@ const ALLOWED: Record<string, string> = {
   // follow-up that gives each a plain sentence and Details.
   "acpmux/newtab/NewTabScreen.tsx|setStartError({ error: errorMessage(error)":
     "follow-up: New Tab card open/archive refusal",
-  "acpmux/conversation/DiagramBlock.tsx|setFailure(error instanceof Error ? error.message":
+  "acpmux/conversation/DiagramBlock.tsx|setFailure({ reason: error instanceof Error ? error.message":
     "follow-up: diagram render error, shown with the diagram's code",
   'acpmux/AddAccountDialog.tsx|t("environment.saveFailed", { reason: failure instanceof Error ? failure.message':
     "follow-up: Add Account save",

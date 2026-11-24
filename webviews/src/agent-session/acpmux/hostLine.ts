@@ -115,13 +115,29 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
     return raw && raw !== line ? { line, detail: raw } : { line };
   }
   if (!raw) return { line: t("host.unavailable") };
+  const refusal = raw === knownRefusalText(error, undefined, false);
+  // A refusal the pane words keeps what was refused and why behind Details: the line alone once
+  // hid a refused handshake for hours ("Something went wrong", Leo 2026-11-21, #49148).
+  const why = refusal ? refusalDetail(error) : undefined;
+  if (refusal && !isRawDaemonText(raw)) return why ? { line: raw, detail: why } : { line: raw };
   const written =
     raw === t("host.tooLarge") ||
-    raw === knownRefusalText(error) ||
     // Only the app's handshake refusal (AgentPaneHandshakeReply.swift, code host_unavailable) carries
     // a localized line; other coded native errors (a protocol failure's `native.invalid_request`) keep
     // their raw text, so they go behind Details.
     (error instanceof NativeError && error.code === "host_unavailable" && error.message === raw);
   if (written && !isRawDaemonText(raw)) return { line: raw };
   return { line: t("host.unavailable"), detail: raw };
+}
+
+/// What the app's host refused and why, for Details: the method (`initialize`) and the host's own
+/// reason (`unknown param "_meta"`, AcpmuxPaneMethods `refusal` `data.detail`), as direct.ts copies
+/// them onto the error. Undefined when the refusal names neither.
+export function refusalDetail(error: unknown): string | undefined {
+  const fields = fieldsOf(error);
+  const method = typeof fields?.method === "string" && fields.method ? fields.method : undefined;
+  const detail = typeof fields?.detail === "string" && fields.detail ? fields.detail : undefined;
+  const code = typeof fields?.code === "string" && fields.code ? fields.code : undefined;
+  if (!method && !detail) return undefined;
+  return [code, method, detail].filter(Boolean).join(": ");
 }

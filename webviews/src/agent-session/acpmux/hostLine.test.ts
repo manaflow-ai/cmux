@@ -9,7 +9,8 @@ import { translate } from "./i18n";
 import { AcpmuxRpcError } from "./handoff/protocol";
 import { NativeError } from "./nativeError";
 import { HOST_ERROR_DEADLINE_MS, hostErrorShows, hostIsReconnecting } from "./hostRetry";
-import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure } from "./hostLine";
+import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure, refusalDetail } from "./hostLine";
+import { errorMessage } from "./transportErrors";
 
 // acpmux's refusal for a request on a peer that is down, as the daemon words it (peer_link.rs
 // `unreachable_error`) and as direct.ts hands it on (`reason` copied from `data.reason`).
@@ -173,4 +174,54 @@ test("cloudMachineAsleep: paused and starting stages sleep, ready and failed do 
     false,
     false,
   ]);
+});
+
+// Leo, 2026-11-21: "am seeing a lot of these in the ui". The app refused every handshake
+// (`initialize`, `unknown param "_meta"`, #49148) and the line read "Something went wrong, so that
+// didn't go through." with nothing behind it. As direct.ts hands a host refusal on.
+const hostRefusal = (method: string, detail?: string) =>
+  Object.assign(
+    new AcpmuxRpcError({
+      code: -32601,
+      message: "Refused by the cmux host",
+      data: { code: "transport.intent_invalid", origin: "native", method, ...(detail ? { detail } : {}) },
+    }),
+    { code: "transport.intent_invalid", method, ...(detail ? { detail } : {}) },
+  );
+
+test("a refused handshake says the chat's open was blocked, and Details says what and why", () => {
+  const refused = hostRefusal("initialize", 'unknown param "_meta"');
+  const line = errorMessage(refused);
+  expect(line).toBe(translate("transport.intentInvalidOpen"));
+  expect(line).not.toBe(translate("transport.intentInvalid"));
+  expect(hostLineText(refused, line, translate)).toEqual({
+    line,
+    detail: 'transport.intent_invalid: initialize: unknown param "_meta"',
+  });
+});
+
+test("a refusal the line words generically still names its method and reason behind Details", () => {
+  const refused = hostRefusal("_acpmux/watch", 'unknown param "limit"');
+  const line = errorMessage(refused);
+  expect(line).toBe(translate("transport.intentInvalid"));
+  expect(hostLineText(refused, line, translate).detail).toBe(
+    'transport.intent_invalid: _acpmux/watch: unknown param "limit"',
+  );
+  expect(refusalDetail(new Error("x"))).toBeUndefined();
+});
+
+test("rendering the host line again does not log the refusal again", () => {
+  const refused = hostRefusal("initialize", 'unknown param "_meta"');
+  const line = errorMessage(refused);
+  const original = console.error;
+  let logged = 0;
+  console.error = () => {
+    logged += 1;
+  };
+  try {
+    for (let i = 0; i < 5; i += 1) hostLineText(refused, line, translate);
+  } finally {
+    console.error = original;
+  }
+  expect(logged).toBe(0);
 });
