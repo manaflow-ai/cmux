@@ -499,7 +499,7 @@ extension LinkMachine.Phase {
             default: break
             }
         }
-        switch self {
+        return switch self {
         case .idle: nil
         case .macOffline: "Offline"
         case .signedOut: "Signed out"
@@ -520,7 +520,7 @@ extension LinkMachine.Phase {
             default: break
             }
         }
-        switch self {
+        return switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
         case .signedOut: "This device was signed out (the cmux service refused a fresh token)"
