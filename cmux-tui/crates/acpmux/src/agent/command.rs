@@ -79,9 +79,6 @@ pub(crate) async fn harness_command_ready(
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
-/// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
-pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
-
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
         .map(|(k, v)| {
@@ -282,13 +279,6 @@ fn build_harness_command(
     // The app the daemon follows is not the agent's: a daemon its commands start must not
     // follow it too (`daemon/owner_exit.rs`).
     cmd.env_remove(crate::owner_exit::OWNER_APP_PID_ENV);
-    // A tool call's bound in the daemon's env (a bounded command started the daemon) is not
-    // the agent's: the fleet's orphan reaper ends a process past its CMUX_DEADLINE, so an agent
-    // that inherited it was SIGTERMed (`subrouter: exit status 143`) mid-turn, also after a
-    // relaunch handed it to the next daemon.
-    for key in CALL_BOUND_ENV {
-        cmd.env_remove(key);
-    }
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -664,25 +654,17 @@ mod tests {
 
     use super::*;
 
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
-    /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
+    /// must not, or the fleet's orphan reaper ends the agent once the bound passes. The bound
+    /// is a starter's turn value, which `harness_command` removes from every agent.
     #[test]
     fn an_agent_never_inherits_a_tool_calls_deadline() {
-        let profile: HarnessProfile =
-            serde_json::from_value(serde_json::json!({ "argv": ["claude"] })).unwrap();
-        let cmd = harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
-        let removed: Vec<String> = cmd
-            .as_std()
-            .get_envs()
-            .filter(|(_, value)| value.is_none())
-            .map(|(key, _)| key.to_string_lossy().into_owned())
-            .collect();
-        for key in CALL_BOUND_ENV {
-            assert!(removed.iter().any(|k| k == key), "{key} must be removed: {removed:?}");
+        for key in ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"] {
+            assert!(crate::config::is_caller_scoped_key(key), "{key} must be caller-scoped");
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
