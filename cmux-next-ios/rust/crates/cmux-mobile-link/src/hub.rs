@@ -205,8 +205,11 @@ pub struct HubSource {
     closed: watch::Receiver<bool>,
     task: tokio::task::JoinHandle<()>,
     /// Hub frames from the other source (`to` this one), opened.
-    synced: Arc<std::sync::Mutex<Vec<(HubPos, Vec<u8>)>>>,
+    synced: Synced,
 }
+
+/// Events the other source sent this one, opened, until taken.
+type Synced = Arc<std::sync::Mutex<Vec<(HubPos, Vec<u8>)>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum HubSendError {
@@ -224,7 +227,7 @@ impl HubSource {
         let (notice_tx, notices) = mpsc::unbounded_channel();
         let (closed_tx, closed) = watch::channel(false);
         let key = params.key();
-        let synced = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let synced: Synced = Arc::new(std::sync::Mutex::new(Vec::new()));
         let (sync_key, sync_into) = (key.clone(), Arc::clone(&synced));
         let task = tokio::spawn(async move {
             loop {

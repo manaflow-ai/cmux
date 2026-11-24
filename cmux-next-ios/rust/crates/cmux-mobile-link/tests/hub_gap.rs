@@ -69,15 +69,18 @@ fn event(seq: u64) -> Vec<u8> {
 
 #[derive(Debug)]
 struct Run {
-    /// The longest silence across the kill.
+    /// The phone's silence across the kill: the last event the Mac wrote
+    /// arriving, to the first event after it arriving.
     gap: Duration,
+    /// How late the first event after the kill arrived, from when it was written.
+    next_late: Duration,
     /// The latest any event arrived after it was written.
     worst_late: Duration,
     missing: u64,
     duplicates: u64,
 }
 
-fn score(start: Instant, killed: Instant, arrivals: &[(u64, Instant)]) -> Run {
+fn score(start: Instant, arrivals: &[(u64, Instant)]) -> Run {
     let mut first = BTreeMap::new();
     let mut duplicates = 0;
     for (seq, at) in arrivals {
@@ -86,17 +89,23 @@ fn score(start: Instant, killed: Instant, arrivals: &[(u64, Instant)]) -> Run {
         }
     }
     let missing = (1..=EVENTS).filter(|seq| !first.contains_key(seq)).count() as u64;
-    let mut times: Vec<Instant> = arrivals.iter().map(|(_, at)| *at).collect();
-    times.sort();
-    let before = times.iter().rev().find(|at| **at <= killed).copied().unwrap_or(killed);
-    let after = times.iter().find(|at| **at > killed).copied();
-    let gap = after.map_or(Duration::MAX, |after| after - before);
+    // The stall a user sees: from the last event the dead Mac wrote reaching the
+    // phone to the first event after it reaching the phone.
+    let last_before = first.range(..=KILL_AT).map(|(_, at)| *at).max();
+    let first_after = first.range(KILL_AT + 1..).map(|(_, at)| *at).min();
+    let gap = match (last_before, first_after) {
+        (Some(before), Some(after)) => after.saturating_duration_since(before),
+        _ => Duration::MAX,
+    };
+    let next_late = first
+        .get(&(KILL_AT + 1))
+        .map_or(Duration::MAX, |at| at.saturating_duration_since(written(start, KILL_AT + 1)));
     let worst_late = first
         .iter()
         .map(|(seq, at)| at.saturating_duration_since(written(start, *seq)))
         .max()
         .unwrap_or(Duration::MAX);
-    Run { gap, worst_late, missing, duplicates }
+    Run { gap, next_late, worst_late, missing, duplicates }
 }
 
 fn tunnel_options() -> DialOptions {
@@ -174,7 +183,7 @@ fn read_stream(
     })
 }
 
-async fn before(seed: u64) -> Run {
+async fn before(seed: u64) -> (Run, Duration, Duration) {
     set_link_profile(Some(cmux_mobile_link::testing::LinkProfile::named(PROFILE)), seed);
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let start = Arc::new(OnceLock::new());
@@ -201,7 +210,7 @@ async fn before(seed: u64) -> Run {
         dial::connect(&phone, &dial_id, TransportKind::WireGuard, &tunnel_options(), phone_config.clone())
             .await
             .expect("dial the Mac");
-    machine.handle(&Event::DialSucceeded { generation, path: connected.path.borrow().clone() });
+    machine.handle(&Event::DialSucceeded { generation, path: *connected.path.borrow() });
     let session_id = connected.session_id.clone();
 
     let log_start = Instant::now() + Duration::from_millis(500);
@@ -254,6 +263,7 @@ async fn before(seed: u64) -> Run {
             panic!("seed {seed}: the dead Mac was never noticed");
         }
     };
+    let detected = Instant::now();
     let effects = machine.handle(&Event::ProbeFailed { generation, reason: failure });
     let Some(Effect::Dial { generation: redial, .. }) =
         effects.iter().find(|e| matches!(e, Effect::Dial { .. })).cloned()
@@ -264,7 +274,8 @@ async fn before(seed: u64) -> Run {
     let vm = dial::connect(&phone, &vm_id, TransportKind::WireGuard, &tunnel_options(), phone_config)
         .await
         .expect("dial the VM");
-    machine.handle(&Event::DialSucceeded { generation: redial, path: vm.path.borrow().clone() });
+    let redialed = Instant::now();
+    machine.handle(&Event::DialSucceeded { generation: redial, path: *vm.path.borrow() });
     let resume = arrivals.lock().unwrap().iter().map(|(seq, _)| *seq).max().unwrap_or(0) + 1;
     readers.push(read_stream(
         vm.link.open("stream", serde_json::json!({"from": resume})).await.unwrap(),
@@ -284,7 +295,7 @@ async fn before(seed: u64) -> Run {
     wireguard::simulate_blackout(Some(&session_id), false, false);
     set_link_profile(None, 0);
     let arrivals = arrivals.lock().unwrap().clone();
-    score(log_start, killed, &arrivals)
+    (score(log_start, &arrivals), detected.saturating_duration_since(killed), redialed - detected)
 }
 
 async fn after(seed: u64) -> (Run, u64) {
@@ -351,13 +362,13 @@ async fn after(seed: u64) -> (Run, u64) {
     reader.abort();
     let stats = hub.stats(&session);
     let arrivals = arrivals.lock().unwrap().clone();
-    (score(log_start, killed, &arrivals), stats.dropped)
+    (score(log_start, &arrivals), stats.dropped)
 }
 
-fn p50_worst(runs: &[Run]) -> (Duration, Duration) {
-    let mut gaps: Vec<Duration> = runs.iter().map(|r| r.gap).collect();
-    gaps.sort();
-    (gaps[gaps.len() / 2], *gaps.last().unwrap())
+fn p50_worst(values: impl Iterator<Item = Duration>) -> (Duration, Duration) {
+    let mut values: Vec<Duration> = values.collect();
+    values.sort();
+    (values[values.len() / 2], *values.last().unwrap())
 }
 
 /// The numbers RFD 0142 R6 quotes. Timed (about two minutes); run by hand.
@@ -372,35 +383,48 @@ async fn hub_gap_when_the_mac_dies_mid_stream() {
     let mut befores = Vec::new();
     let mut afters = Vec::new();
     for seed in SEEDS {
-        let run = before(seed).await;
+        let (run, detect, redial) = before(seed).await;
         eprintln!(
-            "HUBGAP before seed={seed} profile={PROFILE} gap_ms={} worst_late_ms={} missing={} dups={}",
+            "HUBGAP before seed={seed} profile={PROFILE} gap_ms={} next_late_ms={} worst_late_ms={} missing={} dups={} detect_ms={} redial_ms={}",
             ms(run.gap),
+            ms(run.next_late),
             ms(run.worst_late),
             run.missing,
-            run.duplicates
+            run.duplicates,
+            ms(detect),
+            ms(redial)
         );
         befores.push(run);
         let (run, dropped) = after(seed).await;
         eprintln!(
-            "HUBGAP after  seed={seed} profile={PROFILE} gap_ms={} worst_late_ms={} missing={} dups={} relay_dropped={dropped}",
+            "HUBGAP after  seed={seed} profile={PROFILE} gap_ms={} next_late_ms={} worst_late_ms={} missing={} dups={} relay_dropped={dropped}",
             ms(run.gap),
+            ms(run.next_late),
             ms(run.worst_late),
             run.missing,
             run.duplicates
         );
         afters.push(run);
     }
-    let (bp50, bworst) = p50_worst(&befores);
-    let (ap50, aworst) = p50_worst(&afters);
+    // The headline is the stall a user sees: how late the first event after
+    // the kill reaches the phone. The arrival-to-arrival gap reads short when
+    // the last events before the kill were stuck behind the dead link too.
+    let (bp50, bworst) = p50_worst(befores.iter().map(|r| r.next_late));
+    let (ap50, aworst) = p50_worst(afters.iter().map(|r| r.next_late));
+    let (bg50, bgw) = p50_worst(befores.iter().map(|r| r.gap));
+    let (ag50, agw) = p50_worst(afters.iter().map(|r| r.gap));
     eprintln!(
-        "HUBGAP summary profile={PROFILE} seeds={} events every {} ms, Mac dies after event {KILL_AT}: before gap p50 {} ms worst {} ms; after gap p50 {} ms worst {} ms",
+        "HUBGAP summary profile={PROFILE} seeds={} events every {} ms, Mac dies after event {KILL_AT}: first event after the kill late by p50/worst: before {}/{} ms, after {}/{} ms; arrival gap p50/worst: before {}/{} ms, after {}/{} ms",
         SEEDS.len(),
         ms(PERIOD),
         ms(bp50),
         ms(bworst),
         ms(ap50),
-        ms(aworst)
+        ms(aworst),
+        ms(bg50),
+        ms(bgw),
+        ms(ag50),
+        ms(agw)
     );
     for run in befores.iter().chain(&afters) {
         assert_eq!(run.missing, 0, "{run:?}");

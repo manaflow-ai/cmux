@@ -132,6 +132,7 @@ fn notice(value: serde_json::Value) -> Message {
 
 async fn serve(stream: tokio::net::TcpStream, mode: FakeHubMode, state: Arc<Mutex<State>>) {
     let mut joined = None;
+    #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
     let callback = |request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
         match mode {
             FakeHubMode::NoRoute => return Err(refuse(404, "not found")),
