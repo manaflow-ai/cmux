@@ -31,13 +31,17 @@ public final class MainThreadHangWatchdog: Sendable {
         public var sampleStacks: Bool
         /// How many stalls ``recentStalls()`` keeps (oldest dropped).
         public var capacity: Int
+        /// A hang this long gets ``onHardHang`` once, before iOS's own watchdog kills the app
+        /// (the restore marker); nil: none.
+        public var hardHangThreshold: Duration?
 
         public init(threshold: Duration = .milliseconds(100), hangThreshold: Duration = .seconds(2),
-                    sampleStacks: Bool = true, capacity: Int = 32) {
+                    sampleStacks: Bool = true, capacity: Int = 32, hardHangThreshold: Duration? = .seconds(8)) {
             self.threshold = threshold
             self.hangThreshold = hangThreshold
             self.sampleStacks = sampleStacks
             self.capacity = capacity
+            self.hardHangThreshold = hardHangThreshold
         }
     }
 
@@ -66,6 +70,9 @@ public final class MainThreadHangWatchdog: Sendable {
     /// it counts as one.
     let sampleAfterNanos: UInt64
     let hangNanos: UInt64
+    let hardHangNanos: UInt64?
+    /// Known main-thread waits; the watchdog thread cancels any past its bound.
+    public let waits: MainThreadWaitRegistry
     let uptime: @Sendable () -> UInt64
     let alarm = HangWatchdogAlarm()
     let logger = Logger(subsystem: "dev.cmux.mobile", category: "hangs")
@@ -87,6 +94,7 @@ public final class MainThreadHangWatchdog: Sendable {
     private let observers = Mutex<ObserverBox?>(nil)
     private let stallSink = Mutex<(@Sendable (Stall) -> Void)?>(nil)
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    private let hardHangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
     #if DEBUG
     /// Runs on the watchdog thread right after a stall sample (tests).
     let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
@@ -94,16 +102,19 @@ public final class MainThreadHangWatchdog: Sendable {
     let watchdogWakes = Atomic<UInt64>(0)
     #endif
 
-    public convenience init(configuration: Configuration = Configuration()) {
-        self.init(configuration: configuration, uptime: { MainThreadHangWatchdog.now() })
+    public convenience init(configuration: Configuration = Configuration(), waits: MainThreadWaitRegistry = .shared) {
+        self.init(configuration: configuration, waits: waits, uptime: { MainThreadHangWatchdog.now() })
     }
 
-    init(configuration: Configuration, uptime: @escaping @Sendable () -> UInt64) {
+    init(configuration: Configuration, waits: MainThreadWaitRegistry = MainThreadWaitRegistry(), uptime: @escaping @Sendable () -> UInt64) {
         self.configuration = configuration
+        self.waits = waits
         self.uptime = uptime
         thresholdNanos = Self.nanos(configuration.threshold, minimum: 1_000_000)
         sampleAfterNanos = thresholdNanos / 5 * 3
-        hangNanos = max(Self.nanos(configuration.hangThreshold, minimum: 1_000_000), thresholdNanos)
+        let hang = max(Self.nanos(configuration.hangThreshold, minimum: 1_000_000), Self.nanos(configuration.threshold, minimum: 1_000_000))
+        hangNanos = hang
+        hardHangNanos = configuration.hardHangThreshold.map { max(Self.nanos($0, minimum: 1_000_000), hang) }
     }
 
     /// `CLOCK_UPTIME_RAW` in nanoseconds: the clock every beat is stamped with.
@@ -128,6 +139,13 @@ public final class MainThreadHangWatchdog: Sendable {
     public var onHang: (@Sendable (Hang) -> Void)? {
         get { hangSink.withLock { $0 } }
         set { hangSink.withLock { $0 = newValue } }
+    }
+
+    /// Runs once per hang on the watchdog thread when it reaches the hard bound (8 s), while
+    /// the main thread is still stuck: the restore marker's moment. Never kills anything.
+    public var onHardHang: (@Sendable (Hang) -> Void)? {
+        get { hardHangSink.withLock { $0 } }
+        set { hardHangSink.withLock { $0 = newValue } }
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
@@ -166,6 +184,7 @@ public final class MainThreadHangWatchdog: Sendable {
             logger.error("main-thread watchdog: no kqueue; stalls are timed, not sampled")
             return
         }
+        waits.setWaker { [alarm] in alarm.wake() }
         let watcher = Thread { [self] in watch(sampler: sampler) }
         watcher.name = "cmux main-thread hang watchdog"
         watcher.qualityOfService = .userInteractive
@@ -177,6 +196,7 @@ public final class MainThreadHangWatchdog: Sendable {
         if let box = observers.withLock({ box in defer { box = nil }; return box }) {
             for observer in box.observers { CFRunLoopObserverInvalidate(observer) }
         }
+        waits.setWaker(nil)
         alarm.wake()
     }
 
@@ -244,7 +264,12 @@ public final class MainThreadHangWatchdog: Sendable {
         publishSample(count: 0, beat: .max)
         var sampledBeat: UInt64 = .max
         var hang: OpenHang?
+        var hardBeat: UInt64 = .max
         while running.load(ordering: .acquiring) {
+            // A known wait past its bound ends now, from here (the main thread may be the one stuck).
+            for label in waits.cancelExpired(now: uptime()) {
+                logger.error("cancelled main-thread wait \(label, privacy: .public): past its bound")
+            }
             if let open = hang, beatSequence.load(ordering: .acquiring) != open.beat {
                 hang = nil
                 finishHang(open)
@@ -252,7 +277,7 @@ public final class MainThreadHangWatchdog: Sendable {
             if mainAsleep.load(ordering: .acquiring) {
                 // Parked until a main turn outlasts the sample delay (its alarm) or stop(). A wake
                 // between the check and the wait is not lost: the kernel keeps the fired timer.
-                waitForAlarm(nanos: nil)
+                waitForAlarm(nanos: untilNextWait())
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
@@ -276,17 +301,32 @@ public final class MainThreadHangWatchdog: Sendable {
                 hang = open
                 report(Hang(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: elapsed)), addresses: addresses, ended: false))
             }
+            if let hardHangNanos, let open = hang, open.beat == beat, hardBeat != beat, elapsed >= hardHangNanos, stalled(beat) {
+                hardBeat = beat
+                logger.fault("main thread hard hang: stuck \(elapsed / 1_000_000) ms; restore marker written")
+                hardHangSink.withLock { $0 }?(Hang(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: elapsed)), addresses: open.addresses, ended: false))
+            }
             // The next deadline of this turn; none left: wait for its end (the heartbeat wakes us).
             var next: UInt64?
             if beat != sampledBeat {
                 next = sampleAfterNanos > elapsed ? sampleAfterNanos - elapsed : 0
             } else if hang?.beat != beat {
                 next = hangNanos > elapsed ? hangNanos - elapsed : 0
+            } else if let hardHangNanos, hardBeat != beat {
+                next = hardHangNanos > elapsed ? hardHangNanos - elapsed : 0
             }
+            if let wait = untilNextWait() { next = min(next ?? wait, wait) }
             waitForAlarm(nanos: next.map { max($0, 1_000_000) })
         }
         // Stopped mid-hang: the duration so far.
         if let open = hang { finishHang(open) }
+    }
+
+    /// Nanoseconds until the earliest registered wait's bound; nil with none.
+    private func untilNextWait() -> UInt64? {
+        guard let deadline = waits.nextDeadline() else { return nil }
+        let now = uptime()
+        return deadline > now ? deadline - now : 0
     }
 
     private func stalled(_ beat: UInt64) -> Bool {
