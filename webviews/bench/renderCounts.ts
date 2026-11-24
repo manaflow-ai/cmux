@@ -36,6 +36,9 @@ export interface RenderCounts {
   /// props object with the same values: the parent rendered and nothing memoized it), `state#i` (its i-th
   /// hook's state changed), `context` (neither: a context it reads changed).
   why: Record<string, number>;
+  /// Commits by what started them: the re-rendered components no rendered component is above, with why,
+  /// joined by ` + ` (`AcpmuxPane state#42:{..}`). A commit that re-rendered nothing is `(nothing)`.
+  starts: Record<string, number>;
   /// Whether the names look minified (most are one or two letters): then the by-name rows mean nothing.
   minified: boolean;
 }
@@ -51,6 +54,7 @@ function renderCountProbe() {
     sibling: Fiber | null;
     alternate: Fiber | null;
     memoizedProps: unknown;
+    lanes?: number;
   };
   const w = window as unknown as Record<string, unknown>;
   if (w.__cmuxRenderCounts) return;
@@ -71,7 +75,10 @@ function renderCountProbe() {
     byComponent: new Map<string, number>(),
     mountsByComponent: new Map<string, number>(),
     why: new Map<string, number>(),
+    starts: new Map<string, number>(),
   };
+  /// This commit's re-rendered components with no rendered component above them.
+  let started: string[] = [];
   const nameOf = (fiber: Fiber): string => {
     let type = fiber.type as { displayName?: string; name?: string; render?: unknown; type?: unknown } | null;
     if (fiber.tag === MemoComponent || fiber.tag === SimpleMemoComponent)
@@ -81,7 +88,7 @@ function renderCountProbe() {
     return (type && (type.displayName || type.name)) || "(anonymous)";
   };
   const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
-  const rendered = (fiber: Fiber, mount: boolean) => {
+  const rendered = (fiber: Fiber, mount: boolean, top = false) => {
     if (!components.has(fiber.tag)) {
       if (fiber.tag === HostComponent && (mount || fiber.memoizedProps !== fiber.alternate?.memoizedProps))
         state.host += 1;
@@ -95,7 +102,11 @@ function renderCountProbe() {
     if (mount) {
       state.mounts += 1;
       bump(state.mountsByComponent, name);
-    } else bump(state.why, `${name} ${whyRendered(fiber)}`);
+    } else {
+      const why = `${name} ${whyRendered(fiber)}`;
+      bump(state.why, why);
+      if (top && started.length < 6) started.push(why);
+    }
   };
   // Why a fiber that was there before rendered again: the props that changed (by key; `same props` when
   // the parent passed a new props object with every value the same, which is a missing memo), the hooks
@@ -142,20 +153,30 @@ function renderCountProbe() {
     }
     return reasons.length ? reasons.join(" ") : "context";
   };
-  const mountTree = (fiber: Fiber | null) => {
+  // `top`: no component above it rendered this commit, so its first component mount names what started it.
+  const mountTree = (fiber: Fiber | null, top = false) => {
     for (let at = fiber; at; at = at.sibling) {
       rendered(at, true);
-      mountTree(at.child);
+      if (top && components.has(at.tag) && at.tag !== MemoComponent) {
+        if (started.length < 6) started.push(`${nameOf(at)} mount`);
+        mountTree(at.child);
+      } else mountTree(at.child, top);
     }
   };
   // `next` is this commit's fiber, `prev` the one it replaced. A parent that bailed out keeps its old child
   // list (`next.child === prev.child`): nothing under it rendered, so the walk stops there.
-  const update = (next: Fiber, prev: Fiber) => {
-    if (components.has(next.tag) ? (next.flags & PerformedWork) !== 0 : true) rendered(next, false);
+  // `under`: a component above `next` rendered in this commit (so `next` did not start it).
+  const update = (next: Fiber, prev: Fiber, under = false) => {
+    const ran = components.has(next.tag) && next.tag !== MemoComponent && (next.flags & PerformedWork) !== 0;
+    if (components.has(next.tag) ? (next.flags & PerformedWork) !== 0 : true) rendered(next, false, !under);
+    // An update was scheduled on it (its old fiber carries the lanes) and its render gave the same state:
+    // React ran it and threw the result away (no PerformedWork). Named so an empty commit says who.
+    else if (!under && next.tag !== MemoComponent && (prev.lanes ?? 0) !== 0 && started.length < 6)
+      started.push(`${nameOf(next)} bailed`);
     if (next.child === prev.child) return;
     for (let child = next.child; child; child = child.sibling) {
-      if (child.alternate) update(child, child.alternate);
-      else mountTree({ ...child, sibling: null } as Fiber);
+      if (child.alternate) update(child, child.alternate, under || ran);
+      else mountTree({ ...child, sibling: null } as Fiber, !(under || ran));
     }
   };
   const hook = {
@@ -175,8 +196,10 @@ function renderCountProbe() {
       state.commits += 1;
       const current = root.current;
       const prev = current.alternate;
+      started = [];
       if (!prev) mountTree(current.child);
       else update(current, prev);
+      bump(state.starts, started.length ? started.join(" + ") : `(nothing) ${nameOf(current.child ?? current)}`);
     },
   };
   w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
@@ -190,6 +213,7 @@ function renderCountProbe() {
         byComponent: new Map(),
         mountsByComponent: new Map(),
         why: new Map(),
+        starts: new Map(),
       };
     },
     take() {
@@ -203,6 +227,7 @@ function renderCountProbe() {
         mountsByComponent: Object.fromEntries(state.mountsByComponent),
         host: state.host,
         why: Object.fromEntries(state.why),
+        starts: Object.fromEntries(state.starts),
         minified: names.length > 4 && short / names.length > 0.5,
       };
     },
@@ -249,6 +274,7 @@ export function perEvent(counts: RenderCounts, per: number): RenderCounts {
     mountsByComponent: each(counts.mountsByComponent),
     host: div(counts.host),
     why: each(counts.why),
+    starts: each(counts.starts),
   };
 }
 
