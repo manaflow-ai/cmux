@@ -50,6 +50,12 @@ public struct ScreenShareAction {
         screenShare: () -> AgentPaneActionRun,
     ) -> AgentPaneActionRun {
         if id == "session.screenShare" { return screenShare() }
+        // Computer Use Setup takes no target (the CLI refuses one): it runs untargeted, as the CLI runs it. With the
+        // pane's tab as its target, a New Tab page's provisional tab was refused as "That tab is no longer open", and
+        // `@computer-use`'s send showed the fallback notice instead of the setup window (CMUX-682).
+        if id == AgentPaneComputerUseState.setupAction {
+            return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user), showsInApp: showsInApp)
+        }
         guard let target = target() else { return .notRun }
         return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? machine : nil), showsInApp: showsInApp)
     }
