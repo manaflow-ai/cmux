@@ -1,0 +1,1548 @@
+diff --git a/webviews/src/agent-session/acpmux/Localizable.xcstrings b/webviews/src/agent-session/acpmux/Localizable.xcstrings
+index 61407fc680a6..041430f34c16 100644
+--- a/webviews/src/agent-session/acpmux/Localizable.xcstrings
++++ b/webviews/src/agent-session/acpmux/Localizable.xcstrings
+@@ -88937,138 +88937,6 @@
+         }
+       }
+     },
+-    "backgroundTasks.noOutputYet": {
+-      "comment": "Agent pane: a background command's card while it has printed nothing yet",
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
+-          "stringUnit": {
+-            "state": "translated",
+-            "value": "No output yet"
+-          }
+-        },
+-        "ar": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "لا توجد مخرجات بعد"
+-          }
+-        },
+-        "bs": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Još nema izlaza"
+-          }
+-        },
+-        "da": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Intet output endnu"
+-          }
+-        },
+-        "de": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Noch keine Ausgabe"
+-          }
+-        },
+-        "es": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Aún no hay salida"
+-          }
+-        },
+-        "fr": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Pas encore de sortie"
+-          }
+-        },
+-        "it": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Ancora nessun output"
+-          }
+-        },
+-        "ja": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "まだ出力はありません"
+-          }
+-        },
+-        "km": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "មិនទាន់មានលទ្ធផលនៅឡើយ"
+-          }
+-        },
+-        "ko": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "아직 출력 없음"
+-          }
+-        },
+-        "nb": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Ingen utdata ennå"
+-          }
+-        },
+-        "pl": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Brak danych wyjściowych"
+-          }
+-        },
+-        "pt-BR": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Ainda sem saída"
+-          }
+-        },
+-        "ru": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Вывода пока нет"
+-          }
+-        },
+-        "th": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "ยังไม่มีเอาต์พุต"
+-          }
+-        },
+-        "tr": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Henüz çıktı yok"
+-          }
+-        },
+-        "uk": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Виводу ще немає"
+-          }
+-        },
+-        "vi": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "Chưa có đầu ra"
+-          }
+-        },
+-        "zh-Hans": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "暂无输出"
+-          }
+-        },
+-        "zh-Hant": {
+-          "stringUnit": {
+-            "state": "needs_review",
+-            "value": "尚無輸出"
+-          }
+-        }
+-      }
+-    },
+     "backgroundTasks.finished": {
+       "comment": "Agent pane Background tasks panel: the folded group of an agent's finished tasks",
+       "extractionState": "manual",
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.gallery.tsx b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.gallery.tsx
+index b2594ddac226..0340facb815c 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.gallery.tsx
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.gallery.tsx
+@@ -2,7 +2,7 @@
+ // A background command in the Background tasks panel, rendered as Claude Desktop's panel renders it
+ // (Leo, 2026-11-07: "only showing the terminal thing, I don't think is very useful ... They have it
+ // as a properly rendered thing"): "Running N" with each running command as a card, open, its full
+-// command in mono, wrapped, then its output streaming or "No output yet"; then "Finished N", folded.
++// command in mono, wrapped, then its output streaming (nothing under the command until it prints); then "Finished N", folded.
+ // The output comes through the reader the composer hat's tail polls (BackgroundTaskOutputContext),
+ // answered here by a fixture. Light and dark come from the gallery's appearance axis.
+ import { componentEntry } from "../../../gallery/format";
+@@ -123,7 +123,7 @@ export default componentEntry<Props>({
+   load: async () => GalleryCardPanel,
+   variants: {
+     "running-no-output": {
+-      note: "A command that has printed nothing yet: Running 1, its card open with the full command and No output yet.",
++      note: "A command that has printed nothing yet: Running 1, its card open with the full command in the Shell block and no filler line.",
+       props: { shape: "empty" },
+     },
+     "running-output": {
+@@ -135,7 +135,7 @@ export default componentEntry<Props>({
+       props: { shape: "long" },
+     },
+     "finished-collapsed": {
+-      note: "One running and three finished: Finished 3 is folded under Running 1, with Clear finished in the header.",
++      note: "One running and three finished: Finished 3 is folded under Running 1, with Clear finished on the Finished heading (shown on its hover).",
+       props: { shape: "finished" },
+     },
+     "finished-expanded": {
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.tsx b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.tsx
+index cfefa9aa10bb..58e5ff53c449 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.tsx
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTaskCard.tsx
+@@ -1,9 +1,12 @@
+ // A background command rendered as a card, as Claude Desktop's Background tasks panel draws one, in
+ // place of a bare terminal tab (Leo, 2026-11-07: "only showing the terminal thing, I don't think is
+-// very useful ... They have it as a properly rendered thing"). Its head is the task's title, its
+-// time and its Stop; open, its body is the full command in mono, wrapped and never cut to one line,
+-// then the end of what it printed, streaming while it runs ("No output yet" until it prints), then
+-// Open in terminal as a secondary action.
++// very useful ... They have it as a properly rendered thing"). Its head is the task's terminal glyph,
++// title, time and Stop; open, its body is the chat's own Shell block (conversation/ShellBlock.tsx: the
++// `$` prompt and the command's words in their colours, an eight-line output box that follows a running
++// command, Wrap and Copy on hover). A command that has printed nothing shows its command alone, with
++// no filler line. Open in terminal is an action on the head that shows when the card is hovered or
++// focused (Leo, 2026-11-24: "the open in terminal is odd as a behaviour and looks bad to be showing
++// all the time").
+ //
+ // One body serves every surface: the composer hat's expanded row (subagents/BackgroundTaskTail.tsx)
+ // and the Background tasks panel's command rows (BackgroundTasksPanel.tsx). The output comes from
+@@ -12,20 +15,17 @@
+ // unmounts.
+ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+ import { useFold } from "../conversation/fold";
+-import { tailLines, useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
++import { useLiveBackgroundTaskOutput } from "../conversation/backgroundTaskOutput";
++import { ShellBlock } from "../conversation/ShellBlock";
+ import { TerminalSquare } from "../conversation/icons";
+ import { useT } from "../i18n";
+ import { Icon } from "../icons/Icon";
+ import "./backgroundTaskCard.css";
+ import { WithFacts } from "../chips/FactsHoverCard";
+ 
+-/// How many of the last lines of output a card shows.
+-const CARD_TAIL_LINES = 12;
+-
+-/// The command and its latest output, with `children` (the surface's actions) under them. Reads
+-/// only while `open`; with `readOutput` false (a host that cannot read it) it shows the command alone.
+-/// A surface that draws its own last line (the hat's time, state and actions on one centre line)
+-/// passes `foot`, which says "No output yet" itself (`empty`) in place of the body's own line.
++/// The command and its latest output as the chat's Shell block, with `foot` (the surface's own last
++/// line) under it. Reads only while `open`; with `readOutput` false (a host that cannot read it) it
++/// shows the command alone.
+ export function BackgroundTaskBody({
+   command,
+   toolCallId,
+@@ -33,41 +33,26 @@ export function BackgroundTaskBody({
+   open,
+   readOutput = true,
+   foot,
+-  children,
+ }: {
+   command: string;
+   toolCallId?: string;
+   processId?: string;
+   open: boolean;
+   readOutput?: boolean;
+-  foot?: (empty: boolean) => ReactNode;
+-  children?: ReactNode;
++  foot?: ReactNode;
+ }) {
+-  const t = useT();
+   const read = useLiveBackgroundTaskOutput(toolCallId, processId, open && readOutput);
+-  const output = tailLines(read.output, CARD_TAIL_LINES);
+-  // "No output yet" only where output can come: a process acpmux keeps none for says nothing.
+-  const empty = readOutput && !output && !read.unavailable;
+-  const outputRef = useRef<HTMLPreElement>(null);
+-  // New output keeps the newest line in view.
+-  useLayoutEffect(() => {
+-    if (open && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+-  }, [open, output]);
+   return (
+     <div className="acpmux-bg-card__body-inner" data-running={read.running || undefined}>
+-      <code className="acpmux-bg-card__command">
+-        <span className="acpmux-bg-card__prompt" aria-hidden="true">
+-          ${" "}
+-        </span>
+-        {command}
+-      </code>
+-      {readOutput && output && (
+-        <pre ref={outputRef} className="acpmux-bg-card__output">
+-          {output}
+-        </pre>
+-      )}
+-      {foot ? foot(empty) : empty && <p className="acpmux-bg-card__empty">{t("backgroundTasks.noOutputYet")}</p>}
+-      {children}
++      <ShellBlock
++        command={command}
++        output={readOutput ? read.output : undefined}
++        cut={read.cut}
++        exitCode={read.exitCode}
++        live={read.running}
++        whole
++        footer={foot}
++      />
+     </div>
+   );
+ }
+@@ -134,13 +119,27 @@ export function BackgroundTaskCard({
+               aria-expanded={open}
+               onClick={() => setOpen(!open)}
+             >
++              <span className="acpmux-bg-card__glyph" aria-hidden="true">
++                <TerminalSquare size={14} />
++              </span>
++              <span className="acpmux-bg-card__title">{title}</span>
+               <span className="acpmux-bg-card__disclosure" aria-hidden="true">
+                 <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+               </span>
+-              <span className="acpmux-bg-card__title">{title}</span>
+             </button>
+           )}
+         </WithFacts>
++        {onOpenTerminal && (
++          <button
++            type="button"
++            className="acpmux-bg-card__terminal"
++            aria-label={t("shell.openInTerminal")}
++            title={t("shell.openInTerminal")}
++            onClick={onOpenTerminal}
++          >
++            <Icon name="view.tab.trailing" size={14} />
++          </button>
++        )}
+         {time !== undefined && <span className="acpmux-bg-card__time">{time}</span>}
+         {stop}
+       </div>
+@@ -152,16 +151,7 @@ export function BackgroundTaskCard({
+             processId={processId}
+             open={open}
+             readOutput={readOutput}
+-          >
+-            {onOpenTerminal && (
+-              <div className="acpmux-bg-card__actions">
+-                <button type="button" className="acpmux-bg-card__action" onClick={onOpenTerminal}>
+-                  <TerminalSquare />
+-                  {t("shell.openInTerminal")}
+-                </button>
+-              </div>
+-            )}
+-          </BackgroundTaskBody>
++          />
+         </div>
+       )}
+     </div>
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.gallery.ts b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.gallery.ts
+index 382a5b548a53..9c52b5964bc9 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.gallery.ts
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.gallery.ts
+@@ -326,7 +326,7 @@ export default agentPaneEntry({
+       play: finishedOpen,
+     },
+     transcript: {
+-      note: "A click on an agent opens its transcript in place on the same frame, with back, expand and close; the spinner under it while it runs.",
++      note: "A click on an agent opens its transcript in place on the same frame, with back, expand and close; no spinner-only row under its last call.",
+       snapshot: snapshot(true),
+       play: async (ctx) => {
+         await openDocument(ctx);
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.tsx b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.tsx
+index b42f5aed7d0e..a476be885abf 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.tsx
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.tsx
+@@ -3,7 +3,8 @@
+ // glass and type. It docks in the chat's right column, under the side panel when one is open
+ // (App.tsx, backgroundTasks.css), so it splits below what is already on the right.
+ //
+-// Top to bottom: the head (Background tasks, then Clear finished, Expand and Close); then a block per
++// Top to bottom: the head (Background tasks, then Expand and Close; none at all as a tab of its own,
++// which already names it; Clear finished is a text button on the Finished heading's hover); then a block per
+ // agent (backgroundTasks.ts): its name, which opens its transcript, its time and, while it runs, its
+ // stop button; under it the counts line, "39 tasks, 3 failed" with the failures in the danger colour,
+ // which opens its tasks: the running ones first, each with its time and its own stop button, then
+@@ -40,7 +41,8 @@ import {
+   type ReactNode,
+ } from "react";
+ import { formatDuration, spanDuration } from "../conversation/turns";
+-import { ChevronLeft, Close, Expand } from "../conversation/icons";
++import { Bot, ChevronLeft, Close, Expand, TerminalSquare } from "../conversation/icons";
++import { experimentArm } from "../../../experiments/experiment";
+ import { useT, type Translate } from "../i18n";
+ import { Icon } from "../icons/Icon";
+ import type { AcpmuxRow } from "../model";
+@@ -58,6 +60,7 @@ import {
+   type StopTarget,
+ } from "./backgroundTasks";
+ import { BackgroundTaskCard } from "./BackgroundTaskCard";
++import { backgroundTasksRows } from "./backgroundTasksRows.experiment";
+ import { FOCUS_FRESH_MS } from "./openBackgroundTasks";
+ import { SubagentTranscript } from "./SubagentTranscript";
+ import { NestedAgents } from "./subagentTranscriptModel";
+@@ -75,7 +78,7 @@ export type WorkflowReads = { sessionId?: string; chat: string; connection: stri
+ const Workflows = createContext<WorkflowReads | undefined>(undefined);
+ 
+ /// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
+-/// a command's card shows its command alone, never a "No output yet" that would never change.
++/// a command's card shows its command alone.
+ const ReadsOutput = createContext(true);
+ 
+ /// The gallery's arms (BackgroundTasksPanel.gallery.tsx). `nested` is Claude Desktop's shape and
+@@ -142,6 +145,8 @@ export function BackgroundTasksPanel({
+   onOpenCommand?(task: BackgroundTask): void;
+ }) {
+   const t = useT();
++  // Read once per panel: the arm is the gallery's override or a dogfood key, never a per-row read.
++  const [rowsLook] = useState(() => experimentArm(backgroundTasksRows));
+   const live = anyRunning(groups);
+   const now = useNow(live);
+   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
+@@ -202,12 +207,17 @@ export function BackgroundTasksPanel({
+             title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
+             back={drill ? back : undefined}
+             backLabel={t("backgroundTasks.back")}
+-            clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
+             expanded={expanded}
+             onExpand={onExpand}
+             onClose={onClose}
+           >
+-            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
++            <div
++              ref={list}
++              className="acpmux-bg__list"
++              data-look={look}
++              data-rows={rowsLook}
++              hidden={drill !== undefined}
++            >
+               {groups.length === 0 ? (
+                 <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+               ) : (
+@@ -217,6 +227,9 @@ export function BackgroundTasksPanel({
+                     id={section.id}
+                     count={section.groups.length + section.commands.length}
+                     openAt={focusedIn(section.commands, target)}
++                    onClear={
++                      section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
++                    }
+                   >
+                     {section.commands.map((task) => (
+                       <TaskRow
+@@ -284,12 +297,16 @@ function Section({
+   id,
+   count,
+   openAt,
++  onClear,
+   children,
+ }: {
+   id: PanelSection["id"];
+   count: number;
+   /// A request to open on a command under it (`focus`): each new one opens the heading.
+   openAt?: number;
++  /// Finished only: clears the ended groups. A text button on the heading's own line, shown while the
++  /// heading is hovered or has focus (Leo, 2026-11-24: "there is for some reason a garbage can").
++  onClear?(): void;
+   children: ReactNode;
+ }) {
+   const t = useT();
+@@ -301,17 +318,24 @@ function Section({
+   }
+   return (
+     <div className="acpmux-bg__section" data-section={id}>
+-      <Button
+-        variant="ghost"
+-        type="button"
+-        className="acpmux-bg__fold acpmux-bg__section-head"
+-        aria-expanded={open}
+-        onClick={() => setOpen(!open)}
+-      >
+-        <Disclosure open={open} />
+-        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
+-        <span className="acpmux-bg__section-count">{count}</span>
+-      </Button>
++      <div className="acpmux-bg__section-bar">
++        <Button
++          variant="ghost"
++          type="button"
++          className="acpmux-bg__fold acpmux-bg__section-head"
++          aria-expanded={open}
++          onClick={() => setOpen(!open)}
++        >
++          <Disclosure open={open} />
++          <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
++          <span className="acpmux-bg__section-count">{count}</span>
++        </Button>
++        {onClear && (
++          <Button variant="ghost" type="button" size="sm" className="acpmux-bg__clear" onClick={onClear}>
++            {t("backgroundTasks.clearFinished")}
++          </Button>
++        )}
++      </div>
+       {open && children}
+     </div>
+   );
+@@ -383,7 +407,6 @@ function PanelFrame({
+   title,
+   back,
+   backLabel,
+-  clear,
+   expanded,
+   onExpand,
+   onClose,
+@@ -392,7 +415,6 @@ function PanelFrame({
+   title: string;
+   back?: () => void;
+   backLabel?: string;
+-  clear?: () => void;
+   expanded: boolean;
+   /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+   onExpand?(): void;
+@@ -402,10 +424,16 @@ function PanelFrame({
+ }) {
+   const t = useT();
+   const expandLabel = t(expanded ? "backgroundTasks.collapse" : "backgroundTasks.expand");
++  // The panel as a tab of its own (backgroundPane.ts): the tab already says "Background tasks", so the
++  // list has no head at all (Leo, 2026-11-24: "background tasks title is bad and spaced so far down and
++  // ugly and maybe redundant and could be cut entirely"); a drill-in keeps back and the agent's name.
++  const ownTab = !onExpand && !onClose;
++  const headed = Boolean(back) || !ownTab;
+   return (
+     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape steps back or closes from anywhere inside.
+     <section
+       className="acpmux-bg"
++      data-headless={!headed || undefined}
+       aria-label={t("backgroundTasks.title")}
+       data-expanded={expanded || undefined}
+       // ui-allow: Escape steps back out of a transcript, else closes the panel
+@@ -416,67 +444,55 @@ function PanelFrame({
+         else onClose?.();
+       }}
+     >
+-      <header className="acpmux-bg__head">
+-        {back && (
+-          <Button
+-            variant="ghost"
+-            type="button"
+-            className="acpmux-bg__icon"
+-            size="sm"
+-            icon
+-            aria-label={backLabel}
+-            onClick={back}
+-          >
+-            <ChevronLeft size={14} />
+-          </Button>
+-        )}
+-        <h2 className="acpmux-bg__title">{title}</h2>
+-        <span className="acpmux-bg__tools">
+-          {clear && (
+-            <Button
+-              variant="ghost"
+-              type="button"
+-              className="acpmux-bg__icon"
+-              size="sm"
+-              icon
+-              aria-label={t("backgroundTasks.clearFinished")}
+-              title={t("backgroundTasks.clearFinished")}
+-              onClick={clear}
+-            >
+-              <Icon name="action.delete" size={14} />
+-            </Button>
+-          )}
+-          {onExpand && (
+-            <Button
+-              variant="ghost"
+-              type="button"
+-              className="acpmux-bg__icon"
+-              size="sm"
+-              icon
+-              aria-label={expandLabel}
+-              title={expandLabel}
+-              aria-pressed={expanded}
+-              onClick={onExpand}
+-            >
+-              <Expand size={14} />
+-            </Button>
+-          )}
+-          {onClose && (
++      {headed && (
++        <header className="acpmux-bg__head">
++          {back && (
+             <Button
+               variant="ghost"
+               type="button"
+               className="acpmux-bg__icon"
+               size="sm"
+               icon
+-              aria-label={t("backgroundTasks.close")}
+-              title={t("backgroundTasks.close")}
+-              onClick={onClose}
++              aria-label={backLabel}
++              onClick={back}
+             >
+-              <Close size={14} />
++              <ChevronLeft size={14} />
+             </Button>
+           )}
+-        </span>
+-      </header>
++          <h2 className="acpmux-bg__title">{title}</h2>
++          <span className="acpmux-bg__tools">
++            {onExpand && (
++              <Button
++                variant="ghost"
++                type="button"
++                className="acpmux-bg__icon"
++                size="sm"
++                icon
++                aria-label={expandLabel}
++                title={expandLabel}
++                aria-pressed={expanded}
++                onClick={onExpand}
++              >
++                <Expand size={14} />
++              </Button>
++            )}
++            {onClose && (
++              <Button
++                variant="ghost"
++                type="button"
++                className="acpmux-bg__icon"
++                size="sm"
++                icon
++                aria-label={t("backgroundTasks.close")}
++                title={t("backgroundTasks.close")}
++                onClick={onClose}
++              >
++                <Close size={14} />
++              </Button>
++            )}
++          </span>
++        </header>
++      )}
+       {children}
+     </section>
+   );
+@@ -529,6 +545,7 @@ function GroupBlock({
+     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
+       <div className="acpmux-bg__agent">
+         <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
++          <KindGlyph kind="agent" />
+           <span className="acpmux-bg__label">{group.name}</span>
+           {opens && (
+             <span className="acpmux-bg__chevron" aria-hidden="true">
+@@ -593,6 +610,14 @@ function Counts({ total, failed }: { total: number; failed: number }) {
+   );
+ }
+ 
++/// What a row is, by its leading glyph, as the chat's tool rows lead with theirs: an agent is the bot,
++/// a command or a tool call the terminal.
++const KindGlyph = ({ kind }: { kind: "agent" | "command" }) => (
++  <span className="acpmux-bg__glyph" data-kind={kind} aria-hidden="true">
++    {kind === "agent" ? <Bot size={14} /> : <TerminalSquare size={14} />}
++  </span>
++);
++
+ const Disclosure = ({ open }: { open: boolean }) => (
+   <span className="acpmux-bg__disclosure" aria-hidden="true">
+     <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+@@ -721,13 +746,16 @@ function TaskRow({
+         ? () => onOpenCommand(task)
+         : undefined;
+   return (
+-    <div className="acpmux-bg__task" data-state={task.state}>
++    <div className="acpmux-bg__task" data-state={task.state} data-kind={task.kind === "agent" ? "agent" : "command"}>
+       <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
+-        {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
+-        <span className="acpmux-bg__disclosure" aria-hidden="true">
+-          <Icon name="disclosure.collapsed" size={12} row />
+-        </span>
++        {/* A running task's time and Stop say it runs: it leads with the same glyph as one that ended. */}
++        <KindGlyph kind={task.kind === "agent" ? "agent" : "command"} />
+         <span className="acpmux-bg__label">{task.title}</span>
++        {opens && (
++          <span className="acpmux-bg__chevron" aria-hidden="true">
++            <Icon name="disclosure.collapsed" size={12} row />
++          </span>
++        )}
+       </Button>
+       <Clock
+         className="acpmux-bg__time"
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksRows.gallery.tsx b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksRows.gallery.tsx
+new file mode 100644
+index 000000000000..e758902ff236
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/BackgroundTasksRows.gallery.tsx
+@@ -0,0 +1,183 @@
++// l10n-allow-file: gallery fixtures (agents, commands, their output), not shipped UI.
++// The Background tasks panel as a tab of its own, redesigned (Leo, 2026-11-24: "this bugged? or had an
++// ultra slow load. and looked like ass ... there is no delineation between subagents and tool calls").
++// No title (the tab says it), agents and commands told apart by a leading glyph, a command's output in
++// the chat's Shell block with no "No output yet" filler, Open in terminal and Clear finished only on
++// hover, and a drill-in with no empty spinner row. The three arms of backgroundTasksRows.experiment.ts
++// differ in how the blocks sit; compare them in `compare`.
++import { componentEntry } from "../../../gallery/format";
++import { minutesAgo } from "../../../gallery/clock";
++import { activity, row, tool, user } from "../../../gallery/fixtures/acpmux";
++import type { PlayContext } from "../../../gallery/play";
++import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "../conversation/backgroundTaskOutput";
++import type { AcpmuxRow } from "../model";
++import type { BackgroundCommand } from "../session-info/processes";
++import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
++import { backgroundGroups } from "./backgroundTasks";
++import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
++import { backgroundTasksRows } from "./backgroundTasksRows.experiment";
++
++type Shape = "list" | "drill" | "idle";
++type Props = { shape: Shape };
++
++const SESSION = "gallery-bg-rows";
++
++const agent = (id: string, task: string, minutes: number, fields: Partial<Subagent> = {}): Subagent => ({
++  id,
++  parent: null,
++  name: task,
++  task,
++  kind: "general-purpose",
++  state: "running",
++  startedAt: minutesAgo(minutes),
++  background: true,
++  ...fields,
++});
++
++const STATUS = agent("agent-status", "Graceful thinking/tool-call status animation", 12);
++const AUDIT = agent("agent-audit", "Audit the composer menus for fade-in", 31, {
++  state: "completed",
++  endedAt: minutesAgo(12),
++});
++
++const call = (title: string, minutes: number, seconds?: number) =>
++  tool(title, "execute", seconds === undefined ? "in_progress" : "completed", {
++    description: title,
++    startedAt: minutesAgo(minutes),
++    ...(seconds !== undefined && { endedAt: minutesAgo(minutes) + seconds * 1000, output: "ok" }),
++  });
++
++const VIEWS: Record<string, AcpmuxRow[]> = {
++  [STATUS.id]: [
++    user("Make the thinking and tool-call status animate gracefully", 12, { id: "status-ask" }),
++    activity([call("Read the shimmer styles", 11, 3), call("Check status and owner of PR 50470", 1)], 11, {
++      id: "status-steps",
++    }),
++  ],
++  [AUDIT.id]: [user("Audit the composer menus for fade-in", 31, { id: "audit-ask" })],
++};
++
++const running = (id: string, command: string, description: string, minutes: number): BackgroundCommand => ({
++  id,
++  command,
++  description,
++  state: "running",
++  toolCallId: `call-${id}`,
++  processId: `proc-${id}`,
++  startedAt: minutesAgo(minutes),
++});
++const finished = (id: string, command: string, description: string, minutes: number, ran: number) => ({
++  ...running(id, command, description, minutes),
++  state: "completed" as const,
++  processId: undefined,
++  endedAt: minutesAgo(minutes) + ran * 1000,
++});
++
++const OUTPUT = [
++  "bun test v1.3.4",
++  "",
++  "test/background-tasks-open.test.tsx:",
++  "(pass) splits its agents under Running and Finished [12.40ms]",
++  "(pass) an agent's row opens its transcript [8.02ms]",
++  "",
++  " 41 pass",
++  " 0 fail",
++].join("\n");
++
++const COMMANDS: BackgroundCommand[] = [
++  running("a", "cd webviews && bun test test/background-tasks-open.test.tsx", "Run the panel tests", 0.4),
++  running("b", "gh pr checks 50470 --watch", "Wait for the PR's checks", 0.2),
++  finished("c", "git fetch origin feat-cmux-next", "Fetch the base", 6, 4),
++  finished("d", "scripts/web-lint.sh", "Lint the web changes", 2, 38),
++];
++
++const encode = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
++const reader: BackgroundTaskOutputReader = {
++  sessionId: SESSION,
++  source: {
++    listProcesses: async () => ({
++      processes: COMMANDS.map((command) => ({
++        id: command.processId ?? command.id,
++        toolCallId: command.toolCallId,
++        state: command.state === "running" ? "running" : "exited",
++        harness: "claude",
++      })),
++    }),
++    tailProcess: async (processId: string) => ({
++      data: processId === "proc-a" ? encode(OUTPUT + "\n") : "",
++      fromByte: 0,
++    }),
++  },
++};
++
++function RowsPanel({ shape }: Props) {
++  const rows = [row(SUBAGENTS, 12, { id: "bg-group", subagents: [STATUS, AUDIT] })];
++  const groups = backgroundGroups({
++    rows,
++    views: VIEWS,
++    commands: shape === "idle" ? [] : COMMANDS,
++    sessions: [],
++    chatName: "This chat",
++    sessionId: SESSION,
++  });
++  return (
++    <BackgroundTaskOutputContext.Provider value={reader}>
++      <div className="acpmux-shell" style={{ height: "100%" }}>
++        <BackgroundTasksPanel
++          groups={groups}
++          views={VIEWS}
++          initialDrill={shape === "drill" ? { agentId: STATUS.id } : undefined}
++          onStop={async () => undefined}
++          onClearFinished={() => undefined}
++          onOpenCommand={() => undefined}
++        />
++      </div>
++    </BackgroundTaskOutputContext.Provider>
++  );
++}
++
++const openFinished = async (ctx: PlayContext) => {
++  await ctx.waitFor(() => ctx.document.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
++  await ctx.click({ selector: '[data-section="finished"] .acpmux-bg__section-head' });
++};
++
++export default componentEntry<Props>({
++  id: "agent-pane.background-tasks-rows",
++  title: "Background tasks: rows and chrome",
++  area: "Agent pane",
++  pane: true,
++  height: 640,
++  widths: { narrow: 360, normal: 520 },
++  covers: [
++    "agent-session/acpmux/backgroundTasks/BackgroundTasksPanel.tsx",
++    "agent-session/acpmux/backgroundTasks/SubagentTranscript.tsx",
++    "agent-session/acpmux/backgroundTasks/BackgroundTaskCard.tsx",
++  ],
++  experiment: {
++    definition: backgroundTasksRows,
++    script: [{ name: "finished", run: openFinished }],
++  },
++  load: async () => RowsPanel,
++  variants: {
++    list: {
++      note: "The tab's list: no title, agents (bot glyph) and commands (terminal glyph) told apart, a command's output in the chat's Shell block.",
++      props: { shape: "list" },
++    },
++    "hover-actions": {
++      note: "The pointer on a command's card shows Open in terminal on its head; Clear finished shows only on the Finished heading's hover.",
++      props: { shape: "list" },
++      play: async (ctx) => {
++        await openFinished(ctx);
++        await ctx.hover({ selector: '[data-section="finished"] .acpmux-bg__section-head' });
++      },
++    },
++    "drill-in": {
++      note: "An agent opened: back and its name, compact; its running call carries its own spinner and no empty spinner row follows it.",
++      props: { shape: "drill" },
++    },
++    idle: {
++      note: "Only agents, no commands.",
++      props: { shape: "idle" },
++    },
++  },
++});
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/SubagentTranscript.tsx b/webviews/src/agent-session/acpmux/backgroundTasks/SubagentTranscript.tsx
+index edc164455559..5d8a4804206e 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/SubagentTranscript.tsx
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/SubagentTranscript.tsx
+@@ -1,8 +1,8 @@
+ // A subagent's transcript inside the Background tasks panel (BackgroundTasksPanel.tsx): its replies,
+ // and between them its work: a stretch of two or more tool calls folds under one quiet line, "Ran 11
+ // commands, read a file, 2 failed", which opens to its steps, each thought under "Thought process" and
+-// each call on a line that opens to what it ran and said; a lone call keeps its own line. The shared
+-// spinner sits under the last row while it runs. Claude Code's drill-in, in our type (Leo, 2026-11-09:
++// each call on a line that opens to what it ran and said; a lone call keeps its own line. A running
++// call carries its own spinner; the shared one shows only while the agent has no row yet. Claude Code's drill-in, in our type (Leo, 2026-11-09:
+ // "this claude background tasks thing and being able to click into subagents'/helpers' stuff is really
+ // good"); before, every call and every thought drew a line of its own (transcriptRuns.experiment.ts
+ // keeps that as its `lines` arm).
+@@ -27,7 +27,7 @@ import { experimentArm } from "../../../experiments/experiment";
+ import { entranceAllowed } from "../../shared/pageReveal";
+ import { useFold } from "../conversation/fold";
+ import { Markdown } from "../conversation/Markdown";
+-import { Spinner } from "../conversation/icons";
++import { Bot, Spinner } from "../conversation/icons";
+ import { toolRunSummary } from "../conversation/toolRunSummary";
+ import { useT } from "../i18n";
+ import { Icon } from "../icons/Icon";
+@@ -318,7 +318,9 @@ export function SubagentTranscript({
+         );
+       })}
+       {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
+-      {running && last === undefined && (
++      {/* A spinner of its own only while nothing else shows the agent works: a running call carries its
++          own, and an empty spinner-only row under the last one said nothing (Leo, 2026-11-24). */}
++      {running && last === undefined && units.length === 0 && !notice && (
+         <div className="acpmux-bg__working">
+           <Spinner size={14} loading />
+         </div>
+@@ -431,7 +433,7 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
+   const { open: openAgent, stop } = useContext(NestedAgents);
+   const open = opens ? openAgent : undefined;
+   return (
+-    <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
++    <div className="acpmux-bg__task" data-state={running ? "running" : "done"} data-kind="agent">
+       <Button
+         variant="ghost"
+         type="button"
+@@ -442,11 +444,16 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
+         {running ? (
+           <Spinner size={12} loading />
+         ) : (
+-          <span className="acpmux-bg__disclosure" aria-hidden="true">
+-            <Icon name="disclosure.collapsed" size={12} row />
++          <span className="acpmux-bg__glyph" data-kind="agent" aria-hidden="true">
++            <Bot size={14} />
+           </span>
+         )}
+         <span className="acpmux-bg__label">{name}</span>
++        {open && (
++          <span className="acpmux-bg__chevron" aria-hidden="true">
++            <Icon name="disclosure.collapsed" size={12} row />
++          </span>
++        )}
+       </Button>
+       {running && stop?.(id, name)}
+     </div>
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css
+index d1b11cb1d61f..dd6491a03b29 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css
+@@ -37,6 +37,7 @@
+ .acpmux-bg-card__toggle:focus-visible {
+   outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
+ }
++.acpmux-bg-card__glyph,
+ .acpmux-bg-card__disclosure {
+   display: inline-flex;
+   flex: none;
+@@ -55,65 +56,52 @@
+   font-size: var(--text-detail);
+   font-variant-numeric: tabular-nums;
+ }
+-/* The body lines up under the title, past the disclosure. */
+-.acpmux-bg-card__body-inner {
+-  display: flex;
+-  flex-direction: column;
+-  gap: var(--ds-space-1);
+-  min-width: 0;
+-  padding: 0 var(--ds-space-3) var(--ds-space-2) calc(var(--ds-space-2) * 2 + var(--ds-icon-12));
+-}
+-/* The whole command, wrapped: never cut to one line. */
+-.acpmux-bg-card__command,
+-.acpmux-bg-card__output {
+-  display: block;
+-  min-width: 0;
+-  margin: 0;
++/* A command's row is its terminal glyph, then its title in the muted tone: an agent's row (the panel's
++   `acpmux-bg__task`) leads with the agent glyph in the normal one. */
++.acpmux-bg-card__title {
+   color: var(--agent-muted);
+-  font-family: var(--cv-mono, ui-monospace, monospace);
+-  font-size: var(--text-detail);
+-  line-height: var(--text-detail--line-height);
+-  white-space: pre-wrap;
+-  overflow-wrap: anywhere;
+ }
+-.acpmux-bg-card__command {
++.acpmux-bg-card[data-state="running"] .acpmux-bg-card__title {
+   color: var(--agent-text);
+ }
+-.acpmux-bg-card__prompt {
+-  color: var(--agent-muted);
+-  user-select: none;
+-}
+-.acpmux-bg-card__output {
+-  max-height: calc(var(--text-detail--line-height) * 12);
+-  overflow: auto;
+-}
+-.acpmux-bg-card__empty {
+-  margin: 0;
+-  color: var(--agent-muted);
+-  font-size: var(--text-detail);
+-  line-height: var(--text-detail--line-height);
+-}
+-.acpmux-bg-card__actions {
+-  display: flex;
+-  flex-wrap: wrap;
+-  gap: var(--ds-space-2);
++.acpmux-bg-card[data-state="failed"] .acpmux-bg-card__title {
++  color: var(--agent-status-failure);
+ }
+-.acpmux-bg-card__action {
++/* Open in terminal: on the head, shown while the card is hovered or has focus, never at rest. */
++.acpmux-bg-card__terminal {
++  appearance: none;
++  flex: none;
+   display: inline-flex;
+   align-items: center;
+-  gap: var(--ds-space-1);
+-  border: 0;
++  justify-content: center;
++  width: var(--ds-control-compact);
++  height: var(--ds-control-compact);
+   padding: 0;
+-  color: var(--agent-muted);
++  border: 0;
++  border-radius: var(--ds-radius-control);
+   background: transparent;
+-  font: inherit;
+-  font-size: var(--text-detail);
++  color: var(--agent-muted);
+   cursor: default;
++  opacity: 0;
+ }
+-.acpmux-bg-card__action:hover,
+-.acpmux-bg-card__action:focus-visible {
++.acpmux-bg-card:hover .acpmux-bg-card__terminal,
++.acpmux-bg-card:has([data-popup-open]) .acpmux-bg-card__terminal,
++.acpmux-bg-card:is(:has([data-popup-open]), :focus-within) .acpmux-bg-card__terminal,
++.acpmux-bg-card__terminal:focus-visible {
++  opacity: 1;
++}
++.acpmux-bg-card__terminal:hover {
++  background: var(--ds-color-hover);
+   color: var(--agent-text);
+ }
++.acpmux-bg-card__terminal:focus-visible {
++  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
++}
++/* The body is the chat's Shell block, inset under the head's glyph. */
++.acpmux-bg-card__body-inner {
++  min-width: 0;
++  padding: 0 var(--ds-space-2) var(--ds-space-2);
++}
+ /* In the composer hat the tail already sits under the row's title: no inset of its own. */
+ .acpmux-running-tray__tail .acpmux-bg-card__body-inner {
+   padding: 0;
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasks.css b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasks.css
+index 1b81c70af787..59585cc824b2 100644
+--- a/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasks.css
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasks.css
+@@ -89,7 +89,7 @@
+   letter-spacing: var(--text-body--letter-spacing);
+ }
+ .acpmux-bg__head {
+-  flex: 0 0 calc(var(--ds-control-row) + var(--ds-space-4));
++  flex: 0 0 var(--ds-control-primary);
+   display: flex;
+   align-items: center;
+   gap: var(--ds-space-2);
+@@ -154,7 +154,12 @@
+ /* The list's first heading ("Running 5") stands clear of the header's tools rather than against
+    them (Leo, 2026-11-05: "we have a lot of work to do regarding spacing"). */
+ .acpmux-bg__list {
+-  padding-top: var(--ds-space-4);
++  padding-top: var(--ds-space-2);
++}
++/* As its own tab there is no head (Leo, 2026-11-24: the title was "spaced so far down"): the list
++   starts under the tab row. */
++.acpmux-bg[data-headless] .acpmux-bg__list {
++  padding-top: var(--ds-space-3);
+ }
+ .acpmux-bg__empty {
+   margin: var(--ds-space-4) var(--ds-space-2);
+@@ -245,15 +250,30 @@
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+-.acpmux-bg__agent .acpmux-bg__label {
+-  font-weight: var(--weight-emphasis);
+-}
+ .acpmux-bg__chevron,
+ .acpmux-bg__disclosure {
+   flex: none;
+   display: inline-flex;
+   color: var(--agent-muted);
+ }
++/* A row's kind, by its leading glyph (BackgroundTasksPanel.tsx `KindGlyph`): an agent's in the normal
++   tone, a command's or tool call's muted, with its title muted too. */
++.acpmux-bg__glyph {
++  flex: none;
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  color: var(--agent-muted);
++}
++.acpmux-bg__glyph[data-kind="agent"] {
++  color: var(--agent-text);
++}
++.acpmux-bg__task[data-kind="command"] {
++  color: var(--agent-muted);
++}
++.acpmux-bg__task[data-kind="command"][data-state="running"] .acpmux-bg__label {
++  color: var(--agent-text);
++}
+ .acpmux-bg__time {
+   flex: none;
+   min-width: var(--ds-space-48);
+@@ -354,6 +374,45 @@
+ .acpmux-bg__section-count {
+   font-variant-numeric: tabular-nums;
+ }
++/* Finished's heading: its Clear finished is a text button at the line's end, shown while the heading is
++   hovered or has focus, never a bare icon at rest. */
++.acpmux-bg__section-bar {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--ds-space-2);
++  min-width: 0;
++}
++.acpmux-bg__clear.ui-btn {
++  appearance: none;
++  flex: none;
++  height: auto;
++  min-height: var(--ds-control-compact);
++  padding: 0 var(--ds-space-2);
++  border: none;
++  border-radius: var(--ds-radius-control);
++  background: none;
++  color: var(--agent-muted);
++  font: inherit;
++  font-size: var(--text-detail);
++  letter-spacing: var(--text-detail--letter-spacing);
++  cursor: default;
++  opacity: 0;
++}
++.acpmux-bg__section-bar:hover .acpmux-bg__clear.ui-btn,
++.acpmux-bg__section-bar:has([data-popup-open]) .acpmux-bg__clear.ui-btn,
++.acpmux-bg__section-bar:is(:has([data-popup-open]), :focus-within) .acpmux-bg__clear.ui-btn,
++.acpmux-bg__clear.ui-btn:focus-visible {
++  opacity: 1;
++}
++.acpmux-bg__clear.ui-btn:hover:not(:disabled) {
++  background: var(--ds-color-hover);
++  color: var(--agent-text);
++}
++.acpmux-bg__clear.ui-btn:focus-visible {
++  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
++  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
++}
+ .acpmux-bg__list[hidden] {
+   display: none;
+ }
+@@ -362,9 +421,41 @@
+   padding-left: var(--ds-space-2);
+ }
+ 
++/* ---------- Rows look (backgroundTasksRows.experiment.ts) ---------- */
++/* rule: no tinted block; agents are parted by a hairline, their tasks stand in a rail. */
++.acpmux-bg__list[data-rows="rule"] .acpmux-bg__group {
++  background: none;
++  border-radius: 0;
++  padding: var(--ds-space-1) 0;
++}
++.acpmux-bg__list[data-rows="rule"] .acpmux-bg__group + .acpmux-bg__group {
++  margin-top: var(--ds-space-1);
++  box-shadow: inset 0 var(--cmux-hairline) 0 var(--agent-border);
++}
++.acpmux-bg__list[data-rows="rule"] .acpmux-bg-card {
++  background: none;
++}
++.acpmux-bg__list[data-rows="rule"] .acpmux-bg__tasks {
++  margin-left: var(--ds-space-3);
++  padding-left: var(--ds-space-2);
++  box-shadow: inset var(--cmux-hairline) 0 0 var(--agent-border);
++}
++/* tile: the glyph sits in a small tile, the agents' in the accent, the commands' neutral. */
++.acpmux-bg__list[data-rows="tile"] .acpmux-bg__glyph,
++.acpmux-bg__list[data-rows="tile"] .acpmux-bg-card__glyph {
++  width: var(--ds-control-compact);
++  height: var(--ds-control-compact);
++  border-radius: var(--ds-radius-control);
++  background: var(--ds-color-hover);
++}
++.acpmux-bg__list[data-rows="tile"] .acpmux-bg__glyph[data-kind="agent"] {
++  color: var(--agent-accent);
++  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
++}
++
+ /* ---------- A subagent's transcript ---------- */
+ .acpmux-bg__transcript {
+-  padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-4);
++  padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
+   display: flex;
+   flex-direction: column;
+   gap: var(--ds-space-2);
+@@ -463,6 +554,10 @@
+   width: var(--ds-icon-12);
+   height: var(--ds-icon-12);
+ }
++.acpmux-bg .ui-btn:not([data-icon]) .acpmux-bg__glyph svg {
++  width: var(--ds-icon-14);
++  height: var(--ds-icon-14);
++}
+ .acpmux-bg__name.ui-btn[data-disabled],
+ .acpmux-bg__task-open.ui-btn[data-disabled] {
+   opacity: 1;
+diff --git a/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasksRows.experiment.ts b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasksRows.experiment.ts
+new file mode 100644
+index 000000000000..b5b1755144b4
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasksRows.experiment.ts
+@@ -0,0 +1,29 @@
++// l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
++import { defineExperiment } from "../../../experiments/experiment";
++
++/// How the Background tasks panel (BackgroundTasksPanel.tsx) tells an agent's row from a command's
++/// (Leo, 2026-11-24: "there is no delineation between subagents and tool calls"). Compare the arms in
++/// the gallery's `agent-pane.background-tasks-rows`. Every arm leads an agent's row with the agent glyph
++/// and its title at normal weight, and a command's or tool call's row with the terminal glyph in the
++/// muted tone, as the chat's tool rows lead with theirs; the arms differ in how the blocks sit.
++export const backgroundTasksRows = defineExperiment({
++  id: "background-tasks-rows",
++  title: "Background tasks rows",
++  description:
++    "Agents and commands told apart by a leading glyph: on the tinted agent blocks, on bare blocks parted by a rule, or in a small tile.",
++  arms: {
++    glyphs: {
++      label: "Glyphs on blocks",
++      description: "The agent glyph or the terminal glyph leads each row; each agent keeps its tinted block.",
++    },
++    rule: {
++      label: "Glyphs, parted by a rule",
++      description: "As Glyphs, with no tinted block: agents are parted by a hairline and their tasks stand in a rail.",
++    },
++    tile: {
++      label: "Glyphs in tiles",
++      description: "Each row's glyph sits in a small tinted tile, the agents' in the accent, the commands' neutral.",
++    },
++  },
++  defaultArm: "glyphs",
++});
+diff --git a/webviews/src/agent-session/acpmux/subagents/BackgroundTaskTail.tsx b/webviews/src/agent-session/acpmux/subagents/BackgroundTaskTail.tsx
+index bb841e5b0006..17655dde2132 100644
+--- a/webviews/src/agent-session/acpmux/subagents/BackgroundTaskTail.tsx
++++ b/webviews/src/agent-session/acpmux/subagents/BackgroundTaskTail.tsx
+@@ -7,9 +7,9 @@ import type { CommandLink } from "../session-info/commandRules";
+ import type { BackgroundCommand } from "../session-info/processes";
+ 
+ /// Expanded tray-only preview of a running command, the shared card's body
+-/// (backgroundTasks/BackgroundTaskCard.tsx): the whole command as typed, its latest output or "No
+-/// output yet", then its owner, elapsed time, what it is about (a pull request or a run, `link`) and
+-/// Open in terminal. Its polling lifetime is owned by the row's disclosure, so streaming transcript
++/// (backgroundTasks/BackgroundTaskCard.tsx): the chat's Shell block (the command as typed, its latest
++/// output; nothing under it while it has printed none), then its owner, elapsed time, what it is about
++/// (a pull request or a run, `link`) and, on hover or focus, Open in terminal. Its polling lifetime is owned by the row's disclosure, so streaming transcript
+ /// tokens never reach this component.
+ export function BackgroundTaskTail({
+   command,
+@@ -43,12 +43,11 @@ export function BackgroundTaskTail({
+         processId={command.processId}
+         open={open}
+         readOutput={readOutput}
+-        foot={(empty) => (
++        foot={
+           <>
+-            {/* One line under the command, on its left edge: its time, "No output yet" while it has printed nothing
+-              and its actions, all at the detail size on one centre line (Leo, 2026-11-07: "wildly misaligned
+-              at the bottom"). */}
+-            {(owner || elapsed || empty || link || onOpenTerminal || onOpenOwner) && (
++            {/* One line under the command, on its left edge: its time and its actions, all at the detail
++              size on one centre line (Leo, 2026-11-07: "wildly misaligned at the bottom"). */}
++            {(owner || elapsed || link || onOpenTerminal || onOpenOwner) && (
+               <div className="acpmux-running-tray__tail-foot">
+                 {(owner || elapsed) && (
+                   <span className="acpmux-running-tray__meta">
+@@ -57,7 +56,6 @@ export function BackgroundTaskTail({
+                     {elapsed}
+                   </span>
+                 )}
+-                {empty && <span className="acpmux-running-tray__meta">{t("backgroundTasks.noOutputYet")}</span>}
+                 {link && (
+                   <a href={link.url} target="_blank" rel="noreferrer">
+                     <Icon name="link.external" size={12} row />
+@@ -71,7 +69,7 @@ export function BackgroundTaskTail({
+                   </button>
+                 )}
+                 {onOpenTerminal && (
+-                  <button type="button" onClick={onOpenTerminal}>
++                  <button type="button" className="acpmux-running-tray__terminal" onClick={onOpenTerminal}>
+                     <TerminalSquare />
+                     {t("shell.openInTerminal")}
+                   </button>
+@@ -79,7 +77,7 @@ export function BackgroundTaskTail({
+               </div>
+             )}
+           </>
+-        )}
++        }
+       />
+     </div>
+   );
+diff --git a/webviews/src/agent-session/acpmux/subagents/subagents.css b/webviews/src/agent-session/acpmux/subagents/subagents.css
+index 07e0d04d32e4..887c5bb3818d 100644
+--- a/webviews/src/agent-session/acpmux/subagents/subagents.css
++++ b/webviews/src/agent-session/acpmux/subagents/subagents.css
+@@ -1257,18 +1257,6 @@ button.cv-subagent > :last-child {
+   font-size: var(--text-detail);
+   line-height: var(--text-detail--line-height);
+ }
+-.acpmux-running-tray__tail pre {
+-  max-height: calc(var(--text-detail--line-height) * 10);
+-  min-width: 0;
+-  margin: 0;
+-  overflow: auto;
+-  color: var(--agent-muted);
+-  font-family: var(--cv-mono, ui-monospace, monospace);
+-  font-size: var(--text-detail);
+-  line-height: var(--text-detail--line-height);
+-  white-space: pre-wrap;
+-  overflow-wrap: anywhere;
+-}
+ .acpmux-running-tray__command {
+   min-width: 0;
+   color: var(--agent-muted);
+@@ -1288,8 +1276,8 @@ button.cv-subagent > :last-child {
+   overflow: hidden;
+   text-overflow: ellipsis;
+ }
+-.acpmux-running-tray__tail a,
+-.acpmux-running-tray__tail button {
++.acpmux-running-tray__tail-foot a,
++.acpmux-running-tray__tail-foot button {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--ds-space-1);
+@@ -1301,17 +1289,26 @@ button.cv-subagent > :last-child {
+   font: inherit;
+   cursor: default;
+ }
+-.acpmux-running-tray__tail a {
++.acpmux-running-tray__tail-foot a {
+   text-decoration: none;
+ }
+ /* The actions stand a little apart from the time and state before them. */
+ .acpmux-running-tray__tail-foot > :is(a, button):not(:first-child) {
+   margin-inline-start: var(--ds-space-2);
+ }
+-.acpmux-running-tray__tail a:hover,
+-.acpmux-running-tray__tail a:focus-visible,
+-.acpmux-running-tray__tail button:hover,
+-.acpmux-running-tray__tail button:focus-visible {
++/* Open in terminal shows while the open row is hovered or has focus, never at rest (Leo, 2026-11-24). */
++.acpmux-running-tray__tail-foot .acpmux-running-tray__terminal {
++  opacity: 0;
++}
++.acpmux-running-tray__tail:hover .acpmux-running-tray__terminal,
++.acpmux-running-tray__tail:has([data-popup-open]) .acpmux-running-tray__terminal,
++.acpmux-running-tray__tail:is(:has([data-popup-open]), :focus-within) .acpmux-running-tray__terminal {
++  opacity: 1;
++}
++.acpmux-running-tray__tail-foot a:hover,
++.acpmux-running-tray__tail-foot a:focus-visible,
++.acpmux-running-tray__tail-foot button:hover,
++.acpmux-running-tray__tail-foot button:focus-visible {
+   color: var(--agent-text);
+ }
+ .acpmux-running-tray[data-placement="after-latest-message"] {
+diff --git a/webviews/test/agent-pane-background-tasks.test.ts b/webviews/test/agent-pane-background-tasks.test.ts
+index e1c857637980..e1963459855b 100644
+--- a/webviews/test/agent-pane-background-tasks.test.ts
++++ b/webviews/test/agent-pane-background-tasks.test.ts
+@@ -479,7 +479,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
+     const card = panelCard(page, "npm run dev");
+     await card.waitFor({ timeout: 5_000 });
+     expect(
+-      await page.locator('.acpmux-bg__section[data-section="finished"] > button').getAttribute("aria-expanded"),
++      await page
++        .locator('.acpmux-bg__section[data-section="finished"] .acpmux-bg__section-head')
++        .getAttribute("aria-expanded"),
+     ).toBe("true");
+     expect(await card.getAttribute("data-open")).toBe("true");
+     expect(await card.getAttribute("data-focused")).toBe("true");
+diff --git a/webviews/test/background-task-card-browser.test.ts b/webviews/test/background-task-card-browser.test.ts
+index a086b87ba9b0..29ce15565125 100644
+--- a/webviews/test/background-task-card-browser.test.ts
++++ b/webviews/test/background-task-card-browser.test.ts
+@@ -4,7 +4,7 @@
+ // A background command in the Background tasks panel renders as Claude Desktop's panel renders it
+ // (Leo, 2026-11-07: "only showing the terminal thing, I don't think is very useful ... They have it
+ // as a properly rendered thing"): under "Running N" each running command is a card, open, with its
+-// whole command in mono, wrapped, and its output streaming ("No output yet" until it prints); the
++// whole command in mono, wrapped, and its output streaming (nothing under the command until it prints); the
+ // ended ones are under "Finished N", folded. Real Chromium on the gallery stage
+ // (backgroundTasks/BackgroundTaskCard.gallery.tsx), light and dark.
+ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+@@ -64,16 +64,16 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
+       test(`a running command's card shows its whole command and its output (${colorScheme})`, async () => {
+         const { page, errors } = await stage("running-output", colorScheme);
+         try {
+-          await page.locator(".acpmux-bg-card__output").waitFor({ timeout: 30_000 });
++          await page.locator(".cv-shell__output").waitFor({ timeout: 30_000 });
+           const card = await page.evaluate(() => ({
+-            command: document.querySelector(".acpmux-bg-card__command")?.textContent ?? "",
+-            output: document.querySelector(".acpmux-bg-card__output")?.textContent ?? "",
++            command: document.querySelector(".cv-shell__command")?.textContent ?? "",
++            output: document.querySelector(".cv-shell__output")?.textContent ?? "",
+             title: document.querySelector(".acpmux-bg-card__title")?.textContent ?? "",
+             open: document.querySelector(".acpmux-bg-card__toggle")?.getAttribute("aria-expanded"),
+           }));
+           expect(card.title).toBe("Run the panel tests");
+           expect(card.open).toBe("true");
+-          expect(card.command).toContain("cd webviews && bun test test/background-tasks-open.test.tsx");
++          expect(card.command).toContain("bun test test/background-tasks-open.test.tsx");
+           expect(card.output).toContain("41 pass");
+           expect(await heads(page)).toEqual([{ text: "Running1", open: "true" }]);
+           expect(errors).toEqual([]);
+@@ -82,12 +82,13 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
+         }
+       });
+ 
+-    test("a command that printed nothing says No output yet", async () => {
++    test("a command that printed nothing shows its command alone, with no filler line", async () => {
+       const { page } = await stage("running-no-output");
+       try {
+-        await page.locator(".acpmux-bg-card__empty").waitFor({ timeout: 30_000 });
+-        expect(await page.locator(".acpmux-bg-card__empty").textContent()).toBe("No output yet");
+-        expect(await page.locator(".acpmux-bg-card__command").textContent()).toContain("gh pr checks 37840 --watch");
++        await page.locator(".cv-shell__command").waitFor({ timeout: 30_000 });
++        expect(await page.locator(".cv-shell__command").textContent()).toContain("gh pr checks 37840 --watch");
++        expect(await page.getByText("No output yet").count()).toBe(0);
++        expect(await page.locator(".cv-shell__output").count()).toBe(0);
+       } finally {
+         await page.close();
+       }
+@@ -96,7 +97,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
+     test("a long multi-line command shows in full, wrapped, never cut to one line", async () => {
+       const { page } = await stage("long-command");
+       try {
+-        const command = page.locator(".acpmux-bg-card__command");
++        const command = page.locator(".cv-shell__command");
+         await command.waitFor({ timeout: 30_000 });
+         const seen = await command.evaluate((node) => {
+           const style = getComputedStyle(node);
+@@ -131,12 +132,10 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
+         await page.waitForFunction(() => document.querySelectorAll(".acpmux-bg-card").length === 4);
+         // The finished cards are folded; one opens to its command in place.
+         const finished = page.locator('[data-section="finished"] .acpmux-bg-card');
+-        expect(await finished.locator(".acpmux-bg-card__command").count()).toBe(0);
++        expect(await finished.locator(".cv-shell__command").count()).toBe(0);
+         await finished.first().locator(".acpmux-bg-card__toggle").click();
+-        await finished.first().locator(".acpmux-bg-card__command").waitFor();
+-        expect(await finished.first().locator(".acpmux-bg-card__command").textContent()).toContain(
+-          "scripts/web-lint.sh",
+-        );
++        await finished.first().locator(".cv-shell__command").waitFor();
++        expect(await finished.first().locator(".cv-shell__command").textContent()).toContain("scripts/web-lint.sh");
+       } finally {
+         await page.close();
+       }
+diff --git a/webviews/test/background-tasks-open.test.tsx b/webviews/test/background-tasks-open.test.tsx
+index b99a9f80f061..36684262990a 100644
+--- a/webviews/test/background-tasks-open.test.tsx
++++ b/webviews/test/background-tasks-open.test.tsx
+@@ -316,16 +316,18 @@ describe("Background tasks opens as a tab in the right column", () => {
+     expect(await openBackgroundPane(async () => Promise.reject(new Error("no host")), "Background tasks")).toBe(false);
+   });
+ 
+-  test("in its own tab the header keeps Clear finished, without Expand or Close", async () => {
++  test("in its own tab there is no header: no title, no Expand or Close, and Clear finished is on the Finished heading", async () => {
+     const host = dom.window.document.getElementById("root")!;
+     const root = createRoot(host);
+     await act(async () =>
+       root.render(createElement(BackgroundTasksPanel, { groups: GROUPS, views: VIEWS, onClearFinished: () => {} })),
+     );
+-    const labels = [...host.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
+-    expect(labels).not.toContain("Expand");
+-    expect(labels).not.toContain("Close");
+-    expect(host.querySelector(".acpmux-bg__title")?.textContent).toBe("Background tasks");
++    // The tab already says "Background tasks" (Leo, 2026-11-24: "could be cut entirely").
++    expect(host.querySelector(".acpmux-bg__head")).toBeNull();
++    expect(host.querySelector(".acpmux-bg__title")).toBeNull();
++    const clear = host.querySelector('[data-section="finished"] .acpmux-bg__clear');
++    expect(clear?.textContent).toBe("Clear finished");
++    expect(host.querySelector(".acpmux-bg__head .acpmux-bg__clear")).toBeNull();
+     await act(async () => root.unmount());
+   });
+ });
+diff --git a/webviews/test/running-strip.test.ts b/webviews/test/running-strip.test.ts
+index 646ccd1fc6ba..9cc8dba1f701 100644
+--- a/webviews/test/running-strip.test.ts
++++ b/webviews/test/running-strip.test.ts
+@@ -200,11 +200,11 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+       await page.waitForSelector(".acpmux-running-tray");
+       await openRunningTray(page);
+       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
+-      await page.waitForSelector(".acpmux-running-tray__tail button");
++      await page.waitForSelector(".acpmux-running-tray__terminal");
+       await page.waitForSelector(".acpmux-running-tray__tail a");
+       const fit = await page.evaluate(() => {
+         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
+-        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
++        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail-foot :is(a, button)")].map(
+           (control) => {
+             const box = control.getBoundingClientRect();
+             return { left: box.left - tail.left, right: tail.right - box.right };
+@@ -221,7 +221,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+     }
+   });
+ 
+-  test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
++  test("an open command's time and Open in terminal share one line, Open in terminal shown on hover", async () => {
+     // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
+     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
+     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
+@@ -233,7 +233,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+       await page.waitForSelector(".acpmux-running-tray");
+       await openRunningTray(page);
+       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
+-      await page.waitForSelector(".acpmux-running-tray__tail button");
++      await page.waitForSelector(".acpmux-running-tray__terminal");
+       await page.mouse.move(0, 0);
+       const line = await page.evaluate(() => {
+         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!;
+@@ -245,14 +245,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+           const bottom = Math.max(...rects.map((rect) => rect.bottom));
+           return { left: rects[0]!.left, middle: (top + bottom) / 2 };
+         };
+-        const leaf = (text: string) =>
+-          [...tail.querySelectorAll<HTMLElement>("*")].find(
+-            (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
+-          ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
+-        const command = tail.querySelector(".acpmux-bg-card__command")!;
++        const command = tail.querySelector(".cv-shell")!;
+         const time = tail.querySelector(".acpmux-running-tray__meta")!;
+-        const state = leaf("No output yet");
+-        const button = tail.querySelector("button")!;
++        const button = tail.querySelector(".acpmux-running-tray__terminal")!;
+         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
+         const labelRange = document.createRange();
+         labelRange.selectNodeContents(label);
+@@ -260,18 +255,13 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+         const icon = button.querySelector("svg")!.getBoundingClientRect();
+         const size = (element: Element) => getComputedStyle(element).fontSize;
+         return {
+-          commandLeft: textBox(command).left,
++          commandLeft: command.getBoundingClientRect().left,
+           timeLeft: textBox(time).left,
+-          middles: [
+-            textBox(time).middle,
+-            textBox(state).middle,
+-            labelRect.top + labelRect.height / 2,
+-            icon.top + icon.height / 2,
+-          ],
+-          sizes: [size(time), size(state), size(button)],
++          middles: [textBox(time).middle, labelRect.top + labelRect.height / 2, icon.top + icon.height / 2],
++          sizes: [size(time), size(button)],
+         };
+       });
+-      expect(Math.abs(line.timeLeft - line.commandLeft)).toBeLessThan(1);
++      expect(line.timeLeft).toBeGreaterThanOrEqual(line.commandLeft - 0.5);
+       const [first, ...rest] = line.middles;
+       for (const middle of rest) expect(Math.abs(middle - first!)).toBeLessThan(1);
+       expect(new Set(line.sizes).size).toBe(1);
+@@ -416,8 +406,12 @@ await requireBrowserLane("running-strip.test.ts", async () => {
+       await page.click(command);
+       await settle(page);
+       expect(await opened()).toEqual([]);
+-      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+-      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
++      await page.waitForSelector(
++        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
++      );
++      await page.click(
++        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
++      );
+       expect(await opened()).toEqual(["command:w/1"]);
+     } finally {
+       await page.close();
