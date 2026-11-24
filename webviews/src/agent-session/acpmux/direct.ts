@@ -795,6 +795,15 @@ const SWITCH_HOLD_MS = 1_500;
 /// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
 /// ends as soon as both are in or either fails; this limit is only for a read that never answers.
 const GAP_HOLD_MS = 30_000;
+/// The widest hole between the records the pane holds and an attach's page that the open waits on
+/// (one `_acpmux/events` read). A wider one (a long chat that ran on for hours while the pane was
+/// away, or while its gap read kept failing) is read after the open, which the chat's connection
+/// and its "Waiting for the agent service" line do not wait on; every hole is drawn once, when all
+/// of it is in (`fetchMissedEvents`). Read forward and drawn read by read, the rows above the newest
+/// turn were swapped for later and later stretches of the past while the open waited on all of
+/// them, and the turn's Thinking clock and the subsession chip read the stretch being drawn (Leo,
+/// 2026-11-17: "THIS KIND OF RERENDER RESHIFT RE-MOVING EVERYTHING IS UNACCEPTABLE").
+export const BRIDGE_MAX_SEQS = 5_000;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -1039,6 +1048,12 @@ const PROCESS_LIST_PAGE = 1_000;
 /// Pages one read of a chat's process list takes at most (100,000 processes): past it the daemon
 /// is naming new cursors without end.
 const PROCESS_LIST_MAX_PAGES = 100;
+
+/// Whether records held whole through `heldThrough` are too far behind an attach's page that starts
+/// at `pageOldest` for the open to wait on the read between them (`BRIDGE_MAX_SEQS`).
+export function bridgeTooWide(heldThrough: number, pageOldest: number): boolean {
+  return heldThrough > 0 && pageOldest > heldThrough + 1 + BRIDGE_MAX_SEQS;
+}
 
 /// The chat a client held when its connection was lost, handed to the client the page connects
 /// next (`carriedChat`, `connect`). Leo, 2026-11-11: "it keeps showing and then hiding, and then
@@ -2812,8 +2827,8 @@ export class AcpmuxDirectClient {
           if (oldest > 0)
             for (const [key, gap] of this.gapReads)
               if (gap.sessionId === sessionId && oldest <= gap.seq + 1) this.gapReads.delete(key);
-          if (resumeAfter > 0 && oldest > resumeAfter + 1)
-            await this.fetchMissedEvents(sessionId, generation, resumeAfter, false).catch((error: unknown) => {
+          if (resumeAfter > 0 && oldest > resumeAfter + 1) {
+            const bridge = this.fetchMissedEvents(sessionId, generation, resumeAfter, false).catch((error: unknown) => {
               // The gap stays: usage before the new page is no longer whole (the turn's tokens hide).
               if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
                 this.usageFromSeq = Math.max(this.usageFromSeq, oldest);
@@ -2821,6 +2836,12 @@ export class AcpmuxDirectClient {
               }
               throw error;
             });
+            // A hole wider than one read is read after the open (`BRIDGE_MAX_SEQS`): the chat is
+            // connected and drawn from its page meanwhile, and the hole draws once, when it is in. A
+            // read that fails leaves it open (`gapReads`) for the next resume.
+            if (bridgeTooWide(resumeAfter, oldest)) void bridge.catch(ignore);
+            else await bridge;
+          }
         }
       } else if (this.host.adopt) {
         await this.adoptChat(this.host.adopt);
@@ -3366,8 +3387,13 @@ export class AcpmuxDirectClient {
     try {
       const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
       const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
-      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
-        await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
+      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration) {
+        const bridge = this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
+        // A hole wider than one read draws once, when it is in, without holding the copy's frame
+        // that long (`BRIDGE_MAX_SEQS`); one that fails stays open (`gapReads`).
+        if (bridgeTooWide(copy.lastSeq, oldest)) void bridge.catch(ignore);
+        else await bridge;
+      }
     } catch (error) {
       // A reconnect's attach took the copy over meanwhile: its outcome decides.
       if (mine !== this.copyAttaches) return;
@@ -4122,27 +4148,34 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
+    // The hole stays open from `afterSeq` until every read is in: one that fails part way leaves
+    // none of it drawn, and the next read starts from the same place.
+    this.gapReads.set(key, { sessionId, seq: afterSeq });
+    // Every read is in before any is drawn, then folded once. Drawn read by read, the rows above the
+    // newest turn were swapped for each read's stretch in turn, and the live state was replayed onto
+    // each read's last record (a Thinking clock from hours before, the subsessions of then).
+    const missed: EventRecord[] = [];
     for (let cursor = afterSeq; ;) {
-      this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
-        limit: 5_000,
+        limit: BRIDGE_MAX_SEQS,
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       // A window whose newest records are left (`newerLeft`) takes only what falls inside it: the rest comes back
       // with the reads forward (`loadNewer`), never as one read of the whole stretch.
       const window = this.newerLeft?.after;
       const read = records(result?.events);
-      const missed = window === undefined ? read : read.filter((event) => event.seq <= window);
-      mergeIntoHeld(this.events, missed);
-      if (missed.length) acpmuxPerf.recordsTaken("read", missed.length, missed.at(-1)!.seq);
-      this.sawPrompts(missed);
-      // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
-      this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined, cursor + 1);
-      if (result?.hasMore !== true || missed.length === 0 || missed.length < read.length) break;
-      cursor = Math.max(cursor, ...missed.map((event) => event.seq));
+      const taken = window === undefined ? read : read.filter((event) => event.seq <= window);
+      for (const event of taken) missed.push(event);
+      if (result?.hasMore !== true || taken.length === 0 || taken.length < read.length) break;
+      cursor = Math.max(cursor, ...taken.map((event) => event.seq));
     }
+    mergeIntoHeld(this.events, missed);
+    if (missed.length) acpmuxPerf.recordsTaken("read", missed.length, missed.at(-1)!.seq);
+    this.sawPrompts(missed);
+    // Only what the hole changed is folded again (`rebuild`'s `changedFrom`): past its start.
+    this.rebuildKeepingLiveState(replayLiveState ? afterSeq : undefined, afterSeq + 1);
     // Read through: this read's hole is filled, and so is any older failed read's that starts at
     // or past this one's start (everything after `afterSeq` is in now).
     for (const [other, gap] of this.gapReads)
@@ -6115,6 +6148,14 @@ export class AcpmuxDirectClient {
       const replyOf = result?.session?.createdAt;
       if (replyOf !== this.rowsGeneration || (lastSeq !== undefined && lastSeq < forward.afterSeq)) {
         this.wire.lifecycle("forward attach fell back", { sessionId, afterSeq: forward.afterSeq, lastSeq });
+        return this.attach(sessionId, generation, keptThrough, tries);
+      }
+      // A forward page that leaves more than one read (`BRIDGE_MAX_SEQS`) to the log's end, or an end
+      // it does not say, is not laid: it would draw the hole's oldest stretch under the rows held, the
+      // newest turn not yet in sight, while the rest is read. The newest page is attached instead,
+      // and the hole to it is read after the open and drawn once (`open`).
+      if (result?.hasMore === true && (lastSeq === undefined || lastSeq > forward.afterSeq + BRIDGE_MAX_SEQS)) {
+        this.wire.lifecycle("forward attach too wide", { sessionId, afterSeq: forward.afterSeq, lastSeq });
         return this.attach(sessionId, generation, keptThrough, tries);
       }
       const newest = page.length > 0 ? Math.max(...page.map((event) => event.seq)) : 0;
