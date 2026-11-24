@@ -1075,6 +1075,40 @@ fn outside_git_heavy_folders_secrets_and_links_stay_and_are_named() {
     assert_eq!(summary["skipped_counts"]["special"], json!(1));
 }
 
+/// A missing input is visible to the receiver as missing. An outside link is
+/// named for the person, while a Git-ignored file remains silent today.
+#[test]
+fn missing_ignored_and_outside_files_are_absent_and_outside_name_is_reported() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("chat");
+    std::fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q", "-b", "main"]);
+    std::fs::write(folder.join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(folder.join("ignored.txt"), "needed build input\n").unwrap();
+    std::fs::write(folder.join("present.txt"), "arrived\n").unwrap();
+    git(&folder, &["add", ".gitignore", "present.txt"]);
+    git(&folder, &["commit", "-q", "-m", "fixture"]);
+    std::fs::write(root.join("outside.txt"), "needed source\n").unwrap();
+    std::os::unix::fs::symlink(root.join("outside.txt"), folder.join("outside-link")).unwrap();
+
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/chat");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("present.txt")).unwrap(), "arrived\n");
+    assert!(!remote.join("ignored.txt").exists(), "a Git-ignored input was synced");
+    assert!(std::fs::symlink_metadata(remote.join("outside-link")).is_err());
+
+    let named = skipped_by_path(&summary);
+    assert_eq!(
+        named.get("outside-link").map(String::as_str),
+        Some("a symlink (to a place outside the folder)")
+    );
+    assert!(!named.contains_key("ignored.txt"), "Git-ignored files are silent today: {summary}");
+}
+
 /// The `skipped_files` of an answer by path: why each was left out.
 fn skipped_by_path(answer: &Value) -> std::collections::BTreeMap<String, String> {
     answer["skipped_files"]
