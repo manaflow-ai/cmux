@@ -78,6 +78,7 @@ await requireBrowserLane("opened-run-rhythm-browser.test.ts", async () => {
     await page.addInitScript(() => {
       (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
         "background-turn-look": "line",
+        "claude-turn-fold": "runs",
       };
     });
     await page.goto(
