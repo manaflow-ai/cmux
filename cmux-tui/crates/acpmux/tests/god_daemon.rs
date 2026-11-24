@@ -1403,6 +1403,12 @@ async fn god_and_small_homes_in_one_harness() {
         let shape = match name.trim() {
             "small" => Shape::small(),
             "god" => Shape::god_from_env(),
+            // The god chat in a home of 50, 500 or 5,000 chats: the app's attach and list at
+            // each size, one harness (Leo, 2026-11-19: the GUI too coupled to load, size and
+            // history).
+            "sessions50" => Shape { name: "sessions50", chats: 50, ..Shape::god_from_env() },
+            "sessions500" => Shape { name: "sessions500", chats: 500, ..Shape::god_from_env() },
+            "sessions5000" => Shape { name: "sessions5000", chats: 5000, ..Shape::god_from_env() },
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(shape, dhat).await;

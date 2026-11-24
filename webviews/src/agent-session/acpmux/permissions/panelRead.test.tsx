@@ -2,13 +2,16 @@
 // with nothing at first and one quiet line past the deadline, never a Refresh button (Leo,
 // 2026-11-22: "vacuous decisions like that should be just done"). A failed answer keeps Refresh,
 // and an answer in doubt keeps Check and retry (retry-prompt-ok: it sends the decision again).
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../../test/support/domTeardown";
 import type { PermissionClientState } from "./protocol";
 import { importWithDom } from "../../../../test/support/importWithDom";
+// The panel's imports reach computerUseState.ts, which installs a window hook on load; this file
+// removes it when it is done (test/support/leakDetector.ts).
+const hadComputerUseHook = "cmuxAcpmuxComputerUseState" in globalThis;
 const { setLastingGrace, LASTING_MS } = await importWithDom(() => import("../../../ui/lasting"));
 const { PermissionPanel } = await importWithDom(() => import("./Panel"));
 
@@ -47,6 +50,10 @@ function installDom(): HTMLElement {
   });
   return dom.window.document.getElementById("root")!;
 }
+
+afterAll(() => {
+  if (!hadComputerUseHook) delete (globalThis as Record<string, unknown>).cmuxAcpmuxComputerUseState;
+});
 
 afterEach(async () => {
   setLastingGrace(LASTING_MS);
