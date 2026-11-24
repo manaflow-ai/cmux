@@ -206,6 +206,7 @@ struct TaskComposerScreen: View {
                 attachMenu
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        if !creator.cloudTaskTargets.isEmpty { placePill }
                         if onCloud {
                             cloudAgentPill
                         } else {
@@ -329,6 +330,26 @@ struct TaskComposerScreen: View {
     /// and each one gets the task in its own workspace.
     /// On a Cloud machine the agent is Claude, asking before it acts (the machine's start takes
     /// no other agent from a phone): a label, not a menu.
+    /// Where it runs, one tap from the prompt: shown once a Cloud machine is listed (with Macs
+    /// only, the place stays in Task Options as before).
+    private var placePill: some View {
+        TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
+            HStack(spacing: 7) {
+                Image(systemName: onCloud ? "cloud" : "desktopcomputer").accessibilityHidden(true)
+                Text(onCloud ? (cloud?.name ?? "Cloud") : macName).lineLimit(1).fixedSize()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
+            }
+            .modifier(TaskComposerPillLabel(isError: false))
+        }
+        .disabled(sent != nil)
+        .accessibilityLabel("Runs on")
+        .accessibilityValue(onCloud ? (cloud?.name ?? "Cloud") : macName)
+        .accessibilityIdentifier("taskComposer.place")
+    }
+
     private var cloudAgentPill: some View {
         HStack(spacing: 7) {
             AgentBrandMark(agent: "claude", size: 16, style: .brand)

@@ -122,18 +122,7 @@ struct TaskComposerOptionsSheet: View {
         let macs = creator.taskMacs
         let clouds = creator.cloudTaskTargets
         if macs.count > 1 || !clouds.isEmpty, let shown = placeName {
-            Menu {
-                Picker("Runs on", selection: Binding(get: { placeTag }, set: { choose($0) })) {
-                    ForEach(macs) { Label(sameNames.displayName($0), systemImage: "desktopcomputer").tag("mac:" + $0.id) }
-                }
-                if !clouds.isEmpty {
-                    Section("Cloud") {
-                        Picker("Cloud", selection: Binding(get: { placeTag }, set: { choose($0) })) {
-                            ForEach(clouds) { Label($0.name, systemImage: "cloud").tag("cloud:" + $0.id) }
-                        }
-                    }
-                }
-            } label: {
+            TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
                 routeLabel(symbol: onCloud ? "cloud" : "desktopcomputer", title: onCloud ? "Cloud machine" : "Mac", value: shown,
                            chevron: "chevron.up.chevron.down")
             }
@@ -151,20 +140,6 @@ struct TaskComposerOptionsSheet: View {
     private var placeName: String? {
         if onCloud { return cloud?.name ?? "Not reachable now" }
         return mac.map { sameNames.displayName($0) }
-    }
-
-    private var placeTag: String {
-        if let id = draft.cloudID { return "cloud:" + id }
-        return mac.map { "mac:" + $0.id } ?? ""
-    }
-
-    private func choose(_ tag: String) {
-        guard sent == nil else { return }
-        if tag.hasPrefix("cloud:") {
-            creator.taskDraft.chooseCloud(String(tag.dropFirst(6)))
-        } else if tag.hasPrefix("mac:") {
-            creator.taskDraft.chooseMac(String(tag.dropFirst(4)))
-        }
     }
 
     @ViewBuilder private var folderRow: some View {
@@ -345,3 +320,44 @@ struct TaskComposerDraftRow: View {
     }
 }
 #endif
+
+/// Where a task runs, as a menu: the Macs, then the Cloud machines under their own heading. Task
+/// Options' Mac row and the composer's place pill open it.
+struct TaskPlaceMenu<MenuLabel: View>: View {
+    let creator: WorkspaceCreator
+    let sameNames: MacNameDisambiguation
+    let sent: TaskDraft?
+    @ViewBuilder let label: () -> MenuLabel
+
+    var body: some View {
+        Menu {
+            Picker("Runs on", selection: Binding(get: { tag }, set: { choose($0) })) {
+                ForEach(creator.taskMacs) { Label(sameNames.displayName($0), systemImage: "desktopcomputer").tag("mac:" + $0.id) }
+            }
+            if !creator.cloudTaskTargets.isEmpty {
+                Section("Cloud") {
+                    Picker("Cloud", selection: Binding(get: { tag }, set: { choose($0) })) {
+                        ForEach(creator.cloudTaskTargets) { Label($0.name, systemImage: "cloud").tag("cloud:" + $0.id) }
+                    }
+                }
+            }
+        } label: {
+            label()
+        }
+    }
+
+    private var tag: String {
+        let draft = creator.taskDraft
+        if let id = draft.cloudID { return "cloud:" + id }
+        return creator.taskMac(for: draft).map { "mac:" + $0.id } ?? ""
+    }
+
+    private func choose(_ tag: String) {
+        guard sent == nil else { return }
+        if tag.hasPrefix("cloud:") {
+            creator.taskDraft.chooseCloud(String(tag.dropFirst(6)))
+        } else if tag.hasPrefix("mac:") {
+            creator.taskDraft.chooseMac(String(tag.dropFirst(4)))
+        }
+    }
+}
