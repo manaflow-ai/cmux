@@ -85,6 +85,17 @@ pub fn choose(facts: LinkFacts) -> Pattern {
     Pattern::Xx
 }
 
+/// Whether a reconnect opens every lane link at once instead of its first link and then the rest.
+///
+/// The first link of a first meeting goes alone: its welcome is where the client learns the
+/// peer's key and whether it takes IK, and the other links need both. A client that already pins
+/// the key and holds the offer (a reconnect, or a ticket) learns nothing from that first welcome,
+/// so waiting for it only costs a link's whole setup. An invitation never opens at once: its
+/// welcome waits on a person's approval, and the other links enroll after it.
+pub fn open_lanes_at_once(facts: LinkFacts) -> bool {
+    !facts.invitation && facts.pinned_peer && facts.peer_takes_ik
+}
+
 /// What a peer said it can do, in its welcome. Every field is optional on the wire, so a peer
 /// that predates a capability reads as not having it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,6 +225,18 @@ mod tests {
         assert_eq!(choose(LinkFacts { carries_bearer_secret: true, ..resume }), Pattern::Xx);
         assert_eq!(choose(LinkFacts { invitation: true, ..resume }), Pattern::XxPsk3);
         assert_eq!(choose(LinkFacts::default()), Pattern::Xx);
+    }
+
+    #[test]
+    fn lanes_open_at_once_only_with_a_pinned_key_and_the_peers_ik_offer() {
+        let resume = LinkFacts { pinned_peer: true, peer_takes_ik: true, ..LinkFacts::default() };
+        assert!(open_lanes_at_once(resume));
+        // A grant keeps each link on XX, but the key and the offer are known: still at once.
+        assert!(open_lanes_at_once(LinkFacts { carries_bearer_secret: true, ..resume }));
+        assert!(!open_lanes_at_once(LinkFacts { pinned_peer: false, ..resume }));
+        assert!(!open_lanes_at_once(LinkFacts { peer_takes_ik: false, ..resume }));
+        assert!(!open_lanes_at_once(LinkFacts { invitation: true, ..resume }));
+        assert!(!open_lanes_at_once(LinkFacts::default()));
     }
 
     #[test]

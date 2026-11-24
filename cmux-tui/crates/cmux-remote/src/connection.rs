@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_braid_session::LinkFacts;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -1597,6 +1598,56 @@ async fn establish_physical_links(
         .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
     let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
+    let subsequent_auth = match config.auth {
+        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+        ref other => other.clone(),
+    };
+    // A reconnect that pins the daemon's key and holds its IK offer learns nothing from its
+    // first link's welcome, so every lane link opens at once: the reconnect costs one link's
+    // setup, not two in a row (`cmux_braid_session::open_lanes_at_once`).
+    if let Some(pinned) = config.expected_daemon.filter(|_| {
+        cmux_braid_session::open_lanes_at_once(LinkFacts {
+            invitation: matches!(config.auth, ClientAuthMode::Invitation { .. }),
+            pinned_peer: true,
+            peer_takes_ik: daemon_takes_ik,
+            carries_bearer_secret: matches!(config.auth, ClientAuthMode::Grant { .. }),
+        })
+    }) {
+        let context = LinkHandshakeContext {
+            generation,
+            expected_daemon: Some(pinned),
+            connection_attempt,
+            daemon_takes_ik,
+        };
+        let mut pending = bindings
+            .into_iter()
+            .enumerate()
+            .map(|(index, lanes)| {
+                let auth = if index == 0 { config.auth.clone() } else { subsequent_auth.clone() };
+                let link =
+                    authenticate_one(group.clone(), config, auth, lanes, resume.clone(), context);
+                async move { (index, link.await) }
+            })
+            .collect::<FuturesUnordered<_>>();
+        let mut opened = Vec::new();
+        let mut daemon_resume = None;
+        // Every welcome has to offer IK for the next reconnect to keep it.
+        let mut takes_ik = true;
+        while let Some((index, result)) = pending.next().await {
+            let (lanes, link, link_resume) = result?;
+            if daemon_resume.get_or_insert_with(|| link_resume.clone()) != &link_resume {
+                return Err(ConnectionError::Protocol(
+                    "daemon reported inconsistent resume cursors across lane links".into(),
+                ));
+            }
+            takes_ik &= link.peer_takes_ik();
+            opened.push((index, LinkRoute { lanes, link: Arc::new(link) }));
+        }
+        opened.sort_by_key(|(index, _)| *index);
+        let routes = opened.into_iter().map(|(_, route)| route).collect();
+        let link = LaneMuxLink::new(format!("lanes+{}", group.description()), routes)?;
+        return Ok((link, pinned, daemon_resume.unwrap_or_default(), takes_ik));
+    }
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
@@ -1618,10 +1669,6 @@ async fn establish_physical_links(
     let daemon_takes_ik = first.peer_takes_ik();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
-        ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ref other => other.clone(),
-    };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {
         pending.push(authenticate_one(

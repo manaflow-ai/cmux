@@ -223,11 +223,36 @@ async fn ik_to_the_wrong_key_fails_the_handshake() {
 // ---------------------------------------------------------------------------------------------
 // A real daemon.
 
-/// A link group that delays every frame by [`ONE_WAY`] each way, charges a round trip per open
-/// (a carrier dial), and keeps every frame the client sent, per link, for the replay test.
+/// The one-way latency and carrier open cost of a modelled path.
+#[derive(Clone, Copy, Debug)]
+struct Path {
+    one_way: Duration,
+    /// Round trips a link's open costs before its first byte: 1 for a direct WebSocket (its
+    /// upgrade on a warm connection), 2 for a relay (the socket's upgrade, then `Connect` and the
+    /// relay's inline `Ready`).
+    open_round_trips: u32,
+}
+
+impl Path {
+    /// The direct path the B8 numbers were measured on.
+    const DIRECT_50: Self = Self { one_way: ONE_WAY, open_round_trips: 1 };
+
+    fn round_trip(self) -> Duration {
+        self.one_way * 2
+    }
+
+    fn open_cost(self) -> Duration {
+        self.round_trip() * self.open_round_trips
+    }
+}
+
+/// A link group that delays every frame by its path's one-way latency each way, charges the
+/// path's open cost per open (a carrier dial), and keeps every frame the client sent, per link,
+/// for the replay test.
 struct DelayedGroup {
     inner: Arc<dyn LinkGroup>,
     sent: Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>,
+    path: Path,
 }
 
 struct DelayedLink {
@@ -235,10 +260,11 @@ struct DelayedLink {
     out: mpsc::UnboundedSender<(Instant, Bytes)>,
     inc: Mutex<mpsc::UnboundedReceiver<Result<Option<(Instant, Bytes)>, LinkError>>>,
     sent: Arc<StdMutex<Vec<Bytes>>>,
+    one_way: Duration,
 }
 
 impl DelayedLink {
-    fn new(inner: Box<dyn FrameLink>, sent: Arc<StdMutex<Vec<Bytes>>>) -> Self {
+    fn new(inner: Box<dyn FrameLink>, sent: Arc<StdMutex<Vec<Bytes>>>, one_way: Duration) -> Self {
         let inner: Arc<dyn FrameLink> = Arc::from(inner);
         let (out, mut to_send) = mpsc::unbounded_channel::<(Instant, Bytes)>();
         tokio::spawn({
@@ -260,14 +286,14 @@ impl DelayedLink {
                     let next = inner.receive().await;
                     let end = !matches!(next, Ok(Some(_)));
                     let next =
-                        next.map(|frame| frame.map(|frame| (Instant::now() + ONE_WAY, frame)));
+                        next.map(|frame| frame.map(|frame| (Instant::now() + one_way, frame)));
                     if arrived.send(next).is_err() || end {
                         return;
                     }
                 }
             }
         });
-        Self { inner, out, inc: Mutex::new(inc), sent }
+        Self { inner, out, inc: Mutex::new(inc), sent, one_way }
     }
 }
 
@@ -283,7 +309,7 @@ impl FrameLink for DelayedLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         self.sent.lock().unwrap().push(frame.clone());
-        self.out.send((Instant::now() + ONE_WAY, frame)).map_err(|_| LinkError::Closed)
+        self.out.send((Instant::now() + self.one_way, frame)).map_err(|_| LinkError::Closed)
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
@@ -313,11 +339,11 @@ impl LinkGroup for DelayedGroup {
     }
 
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
-        tokio::time::sleep(ONE_WAY * 2).await;
+        tokio::time::sleep(self.path.open_cost()).await;
         let link = self.inner.open(request).await?;
         let sent = Arc::new(StdMutex::new(Vec::new()));
         self.sent.lock().unwrap().push((request, sent.clone()));
-        Ok(Box::new(DelayedLink::new(link, sent)))
+        Ok(Box::new(DelayedLink::new(link, sent, self.path.one_way)))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -350,39 +376,48 @@ async fn daemon() -> Daemon {
 type Sent = Arc<StdMutex<Vec<(LinkRequest, Arc<StdMutex<Vec<Bytes>>>)>>>;
 
 async fn group(daemon: &Daemon, session: SessionId, sent: &Sent) -> Arc<dyn LinkGroup> {
+    group_on(daemon, session, sent, Path::DIRECT_50, LanePolicy::Isolated).await
+}
+
+async fn group_on(
+    daemon: &Daemon,
+    session: SessionId,
+    sent: &Sent,
+    path: Path,
+    lane_policy: LanePolicy,
+) -> Arc<dyn LinkGroup> {
     let endpoint =
         Url::parse(&format!("ws://127.0.0.1:{}/v1/link", daemon.server.local_addr().port()))
             .unwrap();
     let inner = DirectWebSocketProvider::new(65_535)
         .with_carrier_auth(true)
-        .connect(ConnectRequest {
-            endpoint,
-            session,
-            lane_policy: LanePolicy::Isolated,
-            routing: Default::default(),
-        })
+        .connect(ConnectRequest { endpoint, session, lane_policy, routing: Default::default() })
         .await
         .unwrap();
-    Arc::new(DelayedGroup { inner, sent: sent.clone() })
+    Arc::new(DelayedGroup { inner, sent: sent.clone(), path })
 }
 
-/// Reconnects at [`ONE_WAY`], the time each took, after a first connect. The first redial learns
+/// Reconnects on `path`, the time each took, after a first connect. The first redial learns
 /// nothing new (the first connect's welcome already offered IK), so every one runs IK.
-async fn reconnect_times(runs: usize) -> (Duration, Vec<Duration>) {
+async fn reconnect_times(
+    runs: usize,
+    path: Path,
+    lane_policy: LanePolicy,
+) -> (Duration, Vec<Duration>) {
     let mut daemon = daemon().await;
     let session = SessionId([21; 16]);
     let sent = Sent::default();
     let identity = StaticIdentity::generate().unwrap();
     let started = Instant::now();
     let client = ClientConnection::connect(
-        group(&daemon, session, &sent).await,
+        group_on(&daemon, session, &sent, path, lane_policy).await,
         ClientConnectionConfig {
             identity,
             expected_daemon: Some(daemon.auth.identity().public_key()),
             auth: ClientAuthMode::Carrier,
             device_name: "ik-resume-client".into(),
             session,
-            lane_policy: LanePolicy::Isolated,
+            lane_policy,
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy { maximum_attempts: Some(1), ..Default::default() },
         },
@@ -393,7 +428,7 @@ async fn reconnect_times(runs: usize) -> (Duration, Vec<Duration>) {
     let accepted = daemon.accepted.recv().await.unwrap();
     let mut times = Vec::new();
     for n in 0..runs {
-        let replacement = group(&daemon, session, &sent).await;
+        let replacement = group_on(&daemon, session, &sent, path, lane_policy).await;
         let started = Instant::now();
         client.reconnect(replacement).await.unwrap();
         times.push(started.elapsed());
@@ -416,7 +451,7 @@ fn median(times: &mut [Duration]) -> Duration {
 /// round trips.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_reconnect_saves_a_round_trip_per_link_phase() {
-    let (first, mut times) = reconnect_times(20).await;
+    let (first, mut times) = reconnect_times(20, Path::DIRECT_50, LanePolicy::Isolated).await;
     let median = median(&mut times);
     eprintln!(
         "ik-resume one-way {ONE_WAY:?}: first connect {first:?}, reconnect median {median:?} \
@@ -428,8 +463,33 @@ async fn a_reconnect_saves_a_round_trip_per_link_phase() {
     // A reconnect is an open then each phase's handshake and link-ready, plus the session's own
     // resume exchange. Measured at 25 ms one way: base (XX on every link) median 331 ms, IK 229 ms,
     // one round trip saved per phase. The bound sits between the two: XX on either phase lands
-    // above it.
+    // above it. Opening every lane link at once removes the second phase: about 4 round trips
+    // (one open, the IK exchange, link-ready, the session's resume) where two phases took 6.
     assert!(median < ONE_WAY * 11, "reconnect took {median:?}: IK did not take");
+}
+
+/// The before/after rows at 50 and 150 ms round trips, on a direct path (an open is one round
+/// trip) and a relay-like one (two), with a Cloud client's `Auto` lanes (three links). Prints one
+/// line per row; `CMUX_IK_RESUME_RUNS` sets the reconnects per row (default 8).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resume_rows_at_50_and_150_ms() {
+    let runs =
+        std::env::var("CMUX_IK_RESUME_RUNS").ok().and_then(|runs| runs.parse().ok()).unwrap_or(8);
+    for one_way in [Duration::from_millis(25), Duration::from_millis(75)] {
+        for open_round_trips in [1, 2] {
+            let path = Path { one_way, open_round_trips };
+            let (first, mut times) = reconnect_times(runs, path, LanePolicy::Auto).await;
+            let median = median(&mut times);
+            eprintln!(
+                "resume-row rtt={:?} open_rtts={open_round_trips} first={first:?} \
+                 reconnect_median={median:?} min={:?} max={:?} n={}",
+                path.round_trip(),
+                times[0],
+                times[times.len() - 1],
+                times.len()
+            );
+        }
+    }
 }
 
 /// A recorded IK resume (prelude and first message) replayed later reaches a daemon that already
