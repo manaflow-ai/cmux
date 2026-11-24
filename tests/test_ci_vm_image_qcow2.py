@@ -3,6 +3,7 @@ verifies and whose contents match (RFD 0100 step 6). Needs qemu-img; skipped on 
 
 from __future__ import annotations
 import hashlib
+import io
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "vm-image-qcow2.sh"
+PRESIGN = ROOT / "scripts" / "ci" / "r2-presign.py"
 HAS_QEMU = shutil.which("qemu-img") is not None
 HAS_ROOTFS_TOOLS = HAS_QEMU and all(shutil.which(t) for t in ("mkfs.ext4", "fakeroot", "debugfs", "zstd"))
 
@@ -64,8 +66,6 @@ class Qcow2ExportTest(unittest.TestCase):
             data = b"cmux-vm\n"
             info = tarfile.TarInfo("etc/hostname")
             info.size, info.mode = len(data), 0o644
-            import io
-
             tar.addfile(info, io.BytesIO(data))
         zst = self.tmp / "rootfs.tar.zst"
         run("zstd", "-q", str(tarball), "-o", str(zst))
@@ -84,6 +84,28 @@ class Qcow2ExportTest(unittest.TestCase):
         for args in ([], ["--raw", "x.raw"], ["--raw", "x", "--out", "x.img"], ["--raw", "a", "--rootfs-tar", "b", "--out", "x.qcow2"]):
             r = subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env={**os.environ, "PATH": os.environ.get("PATH", "")})
             self.assertEqual(r.returncode, 2, (args, r.stderr))
+
+
+class PresignTest(unittest.TestCase):
+    def test_presigned_put_matches_botocore(self) -> None:
+        # The signature botocore 1.34 gives for the same request (path style, region auto, fixed clock).
+        env = {**os.environ, "AWS_ACCESS_KEY_ID": "AKIDEXAMPLE", "AWS_SECRET_ACCESS_KEY": "SECRET/KEY",
+               "AWS_DEFAULT_REGION": "auto", "CMUX_R2_PRESIGN_AMZ_DATE": "20260102T030405Z"}
+        url = subprocess.run(
+            ["python3", str(PRESIGN), "--endpoint-url", "https://acct.r2.cloudflarestorage.com", "--bucket",
+             "cmux-fleet-artifacts", "--key", "cmux-vm-image/ci-1-1/rootfs a+b.tar.zst", "--method", "PUT"],
+            check=True, capture_output=True, text=True, env=env).stdout.strip()
+        self.assertEqual(url, (
+            "https://acct.r2.cloudflarestorage.com/cmux-fleet-artifacts/cmux-vm-image/ci-1-1/rootfs%20a%2Bb.tar.zst"
+            "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDEXAMPLE%2F20260102%2Fauto%2Fs3%2Faws4_request"
+            "&X-Amz-Date=20260102T030405Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host"
+            "&X-Amz-Signature=bc44ec4caf16fbb1307615072ff96e5272fa4b8753815547b3db23e8008bbfc6"))
+
+    def test_presign_refuses_without_key(self) -> None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("AWS_")}
+        r = subprocess.run(["python3", str(PRESIGN), "--endpoint-url", "https://a.example", "--bucket", "b", "--key", "k"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 2)
 
 
 if __name__ == "__main__":
