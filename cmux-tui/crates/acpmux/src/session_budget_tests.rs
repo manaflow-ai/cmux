@@ -167,8 +167,19 @@ fn lanes_are_found_by_a_full_or_short_host_name() {
 fn status_carries_its_version_and_what_it_was_sized_from() {
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
-    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}));
+    let totals =
+        (session_total_from(&reader(&[]), &host, &b), hosts_total_from(&reader(&[]), &host, 16384));
+    let v = status(
+        &b,
+        &b,
+        (&totals.0, &totals.1),
+        &host,
+        serde_json::json!({"enabled": true, "use": []}),
+    );
     assert_eq!(v["version"], VERSION);
+    assert_eq!(v["perSession"]["memoryMaxBytes"], GB60 / 6 * 2);
+    assert_eq!(v["hostsSlice"]["memoryMaxBytes"], GB60 * 85 / 100);
+    assert_eq!(v["hostsSlice"]["cpuQuotaPercent"], 1440);
     assert_eq!(v["perScope"]["cpuQuotaPercent"], 1200);
     assert_eq!(v["perScope"]["diskBytes"], 8 * GIB);
     assert_eq!(v["sizedFrom"]["lanes"], 6);
@@ -182,27 +193,104 @@ fn the_budget_line_reads_old_this_and_newer_daemons() {
     assert_eq!(budget_line(&Value::Null), None);
     assert_eq!(budget_line(&serde_json::json!({"version": 1})), None);
 
-    // This version.
+    // Version 1: per-scope budgets, no totals.
+    let v1 = serde_json::json!({
+        "version": 1,
+        "perScope": {"memoryMaxBytes": 20 * GIB, "memoryHighBytes": 18 * GIB,
+                     "cpuQuotaPercent": 1200, "cpuWeight": 50, "diskBytes": 8 * GIB},
+        "perTaskScope": {"memoryMaxBytes": 20 * GIB},
+        "sizedFrom": {"lanes": 6},
+        "watch": {"use": []},
+    });
+    assert_eq!(
+        budget_line(&v1).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes"
+    );
+
+    // This version (2): the totals too.
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
+    let session = session_total_from(&reader(&[]), &host, &b);
+    let hosts = hosts_total_from(&reader(&[("ACPMUX_HOSTS_MEMORY_MAX_MB", "0")]), &host, 16384);
     let watch =
         serde_json::json!({"use": [{"state": "ok"}, {"state": "over"}, {"state": "stopped"}]});
     assert_eq!(
-        budget_line(&status(&b, &b, &host, watch)).unwrap(),
-        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes, 2 scope(s) over"
+        budget_line(&status(&b, &b, (&session, &hosts), &host, watch)).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, session total 20.0G, \
+         hosts total off, sized for 6 lanes, 2 scope(s) over"
     );
 
     // A newer daemon: fields this CLI does not know, and some it knows missing.
     let newer = serde_json::json!({
-        "version": 2,
+        "version": 3,
+        "perSession": {"memoryMaxBytes": 2 * GIB, "ioMax": "a shape this CLI does not know"},
+        "hostsSlice": "not an object",
         "perScope": {"memoryMaxBytes": 0, "cpuWeight": 30, "netWeight": 9, "diskBytes": GIB},
         "aggregate": {"slice": "acpmuxlanes.slice"},
         "watch": {"use": "a shape this CLI does not know"},
     });
     assert_eq!(
         budget_line(&newer).unwrap(),
-        "mem off (high off), cpu no ceiling weight 30, disk 1.0G"
+        "mem off (high off), cpu no ceiling weight 30, disk 1.0G, session total 2.0G"
     );
+}
+
+#[test]
+fn a_session_total_defaults_to_one_scopes_budget_and_each_knob_overrides_or_turns_off() {
+    let host = lane_host();
+    let b = Budget::read(&reader(&[]), &host);
+    let t = session_total_from(&reader(&[]), &host, &b);
+    assert_eq!(t.memory_max, GB60 / 6 * 2);
+    assert_eq!(t.tasks_max, b.tasks_max.map(|n| n * 2));
+    assert_eq!(t.cpu_quota, 1200);
+    assert!(t.on());
+    let set = reader(&[
+        ("ACPMUX_SESSION_TOTAL_MEMORY_MB", "4096"),
+        ("ACPMUX_SESSION_TOTAL_TASKS_MAX", "500"),
+        ("ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT", "25"),
+    ]);
+    let t = session_total_from(&set, &host, &b);
+    assert_eq!((t.memory_max, t.tasks_max, t.cpu_quota), (4096 * MIB, Some(500), 400));
+    let off = reader(&[
+        ("ACPMUX_SESSION_TOTAL_MEMORY_MB", "0"),
+        ("ACPMUX_SESSION_TOTAL_TASKS_MAX", "0"),
+        ("ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT", "0"),
+    ]);
+    let t = session_total_from(&off, &host, &b);
+    assert!(!t.on(), "{t:?}");
+    assert!(t.bus_properties().is_empty());
+    assert_eq!(
+        t.properties(),
+        vec![
+            ("MemoryMax", "infinity".into()),
+            ("TasksMax", "infinity".into()),
+            ("CPUQuota", String::new())
+        ]
+    );
+}
+
+#[test]
+fn the_hosts_total_is_most_of_the_ram_and_cores_and_each_knob_overrides_or_turns_off() {
+    let host = lane_host();
+    let t = hosts_total_from(&reader(&[]), &host, 16384);
+    assert_eq!((t.memory_max, t.tasks_max, t.cpu_quota), (GB60 * 85 / 100, Some(16384), 1440));
+    assert_eq!(
+        t.bus_properties(),
+        vec![
+            ["MemoryMax".to_owned(), "t".into(), (GB60 * 85 / 100).to_string()],
+            ["TasksMax".into(), "t".into(), "16384".into()],
+            ["CPUQuotaPerSecUSec".into(), "t".into(), "14400000".into()],
+        ]
+    );
+    assert_eq!(t.properties()[2], ("CPUQuota", "1440%".to_owned()));
+    let off = reader(&[
+        ("ACPMUX_HOSTS_MEMORY_MAX_MB", "0"),
+        ("ACPMUX_HOSTS_TASKS_MAX", "0"),
+        ("ACPMUX_HOSTS_CPU_QUOTA_PCT", "0"),
+    ]);
+    assert!(!hosts_total_from(&off, &host, 16384).on());
+    let set = reader(&[("ACPMUX_HOSTS_MEMORY_MAX_MB", "30720")]);
+    assert_eq!(hosts_total_from(&set, &host, 16384).memory_max, 30 * GIB);
 }
 
 #[test]
