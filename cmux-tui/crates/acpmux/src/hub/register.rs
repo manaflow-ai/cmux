@@ -40,34 +40,61 @@ pub const AUTO_FEATURE: &str = "registerAuto";
 /// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
 /// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
 /// alone never makes a chat deliverable. Read once, at the first use.
-static REGISTERED: std::sync::LazyLock<std::sync::Mutex<Option<HashSet<String>>>> =
+///
+/// This lock guards memory only, never a disk read or write (RFD 0124 R6): [`is_registered`] is
+/// asked under the hub's sessions lock (`renewed_name`), so a write held here on a stalled or
+/// full disk held every `ls` behind it.
+static REGISTERED: std::sync::LazyLock<crate::worker_lock::Mutex<Option<HashSet<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Held across the file's write, so writes go one at a time, each with the set as of its start:
+/// a later write never loses to an older set.
+static WRITING: std::sync::LazyLock<crate::worker_lock::Mutex<()>> =
     std::sync::LazyLock::new(Default::default);
 
 fn registered_file() -> PathBuf {
     crate::config::home().join("bridge-registered.json")
 }
 
+fn read_registered_file() -> HashSet<String> {
+    crate::qos::off_worker(|| std::fs::read(registered_file()))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .map(|ids| ids.into_iter().collect())
+        .unwrap_or_default()
+}
+
 fn with_registered<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    let loaded = {
+        let kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        kept.is_some()
+    };
+    // The first use reads the file with no lock held; a racing first use reads it too, and the
+    // first to land keeps its copy.
+    let read = (!loaded).then(read_registered_file);
     let mut kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let set = kept.get_or_insert_with(|| {
-        std::fs::read(registered_file())
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
-            .map(|ids| ids.into_iter().collect())
-            .unwrap_or_default()
-    });
+    let set = kept.get_or_insert_with(|| read.unwrap_or_default());
     f(set)
 }
 
-/// Keeps chat `id` registered, across a daemon restart. The file is written while the record's
-/// lock is held, so two registrations at once never write an older set over a newer one.
+/// Reads the registered set now, at the daemon's start, so no request is the first use that
+/// reads the file.
+pub(crate) fn load_registered() {
+    with_registered(|_| ());
+}
+
+/// Keeps chat `id` registered, across a daemon restart. The set is changed in memory, then
+/// written with only [`WRITING`] held, off the runtime's workers: a stalled disk holds this
+/// registration alone, never a reader of the set.
 fn mark_registered(id: &str) -> anyhow::Result<()> {
-    with_registered(|set| -> anyhow::Result<()> {
-        set.insert(id.to_owned());
+    with_registered(|set| set.insert(id.to_owned()));
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let bytes = with_registered(|set| {
         let mut ids: Vec<&String> = set.iter().collect();
         ids.sort();
-        crate::agent_tools::write_private(&registered_file(), &serde_json::to_vec(&ids)?)
-    })
+        serde_json::to_vec(&ids)
+    })?;
+    crate::qos::off_worker(|| crate::agent_tools::write_private(&registered_file(), &bytes))
 }
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).
@@ -204,16 +231,28 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
+        let renew = req.renew;
         let found = tokio::task::spawn_blocking(move || {
             // Only the caller's own processes: never past this daemon, which a desktop shell may
             // have started.
-            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
+            let ancestry = crate::sender_harness::ancestors(peer_pid);
+            if renew && ancestry.is_empty() {
+                // Its reply deadline may have passed before this worker ran. Leave the token
+                // and the proof cache alone so the next hook can prove the session immediately.
+                return Ok(None);
+            }
             let live = crate::claude_peers::live(&homes.claude);
-            nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
+            nearest_claude(&below_daemon(ancestry), &live, socket.as_deref())
+                .map(|peer| Some(Found::Claude(peer)))
+                .ok_or_else(not_found)
         })
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .ok_or_else(not_found)?;
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+        let Some(found) = found else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal caller unavailable", "retryable": true}),
+            );
+        };
         // A registered Claude Code chat is delivered only with its session's own token (never the
         // undocumented peer key), so a shell that has none registers nothing.
         if req.token.is_none() || req.socket.is_none() {
@@ -231,7 +270,13 @@ impl Hub {
         let claude_home = self.harness_homes().claude;
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
-        let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
+        let Some((started, launched_for)) =
+            prove_claude(claimed, &claude_home, &inbox, renew).await?
+        else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal inbox unavailable", "retryable": true}),
+            );
+        };
         // A chat registered before its Claude Code restarted takes the new process's token with
         // no code when the kernel's record of that process's launch names its conversation
         // (`--resume ID`): the code already went once, and the takeover rule below holds it to
@@ -301,13 +346,18 @@ impl Hub {
         // session's restart has it), and never while the process it is registered to still runs:
         // the registry's session id is anyone's to write.
         if let Some(s) = shown.as_ref().filter(|s| is_registered(s)) {
-            let kept = crate::claude_peers::kept_token(&crate::config::home(), &s.id);
+            // Files: off the runtime's workers (RFD 0124 R6).
+            let kept = crate::qos::off_worker(|| {
+                crate::claude_peers::kept_token(&crate::config::home(), &s.id)
+            });
             let same =
                 kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
             if !same {
                 let recorded_live = kept.as_ref().is_some_and(|k| {
                     k.started.is_some()
-                        && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
+                        && crate::qos::off_worker(|| {
+                            crate::claude_peers::started_at(&claude_home, k.pid)
+                        }) == k.started
                 });
                 if recorded_live {
                     return Err(unproven(format!(
@@ -368,6 +418,8 @@ impl Hub {
             // (`bridge.rs` `note_unreached`).
             let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
             self.set_tags(&session, tags.as_object(), &unreachable, None);
+            // Its row reads disconnected once this process exits (`app_exit.rs`).
+            self.follow_app(&session, pid);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
@@ -377,12 +429,15 @@ impl Hub {
                         token,
                         started: Some(started),
                     };
-                    crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
-                        RpcError::internal(format!("could not keep the token: {e}"))
-                    })?;
+                    crate::qos::off_worker(|| {
+                        crate::claude_peers::save_token(&home, &session.id, &kept)
+                    })
+                    .map_err(|e| RpcError::internal(format!("could not keep the token: {e}")))?;
                     token_kept = true;
                 }
-                _ => crate::claude_peers::forget_token(&home, &session.id),
+                _ => crate::qos::off_worker(|| {
+                    crate::claude_peers::forget_token(&home, &session.id);
+                }),
             }
         }
         self.append(
@@ -478,18 +533,24 @@ static PENDING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u
 /// The proof a registry entry's process gives before anything it says is taken: Claude Code by
 /// its signature, the listener on `inbox` (this user's), the only live claimant of its
 /// conversation, and, when the kernel's record of its launch names a conversation, that one. Its
-/// proven `startedAt`, and the conversation its launch named.
+/// proven `startedAt`, and the conversation its launch named. A renewal with no inbox
+/// observation can retry immediately. An observed mismatch is always refused.
 async fn prove_claude(
     claimed: &crate::claude_peers::Peer,
     claude_home: &std::path::Path,
     inbox: &std::path::Path,
-) -> Result<(u64, Option<String>), RpcError> {
-    if !crate::claude_peers::inbox_is(inbox, claimed.pid).await {
-        return Err(unproven(format!(
-            "the inbox {} is not process {}'s",
-            inbox.display(),
-            claimed.pid
-        )));
+    renew: bool,
+) -> Result<Option<(u64, Option<String>)>, RpcError> {
+    match crate::claude_peers::inbox_proof(inbox, claimed.pid).await {
+        Ok(true) => {}
+        Err(_) if renew => return Ok(None),
+        _ => {
+            return Err(unproven(format!(
+                "the inbox {} is not process {}'s",
+                inbox.display(),
+                claimed.pid
+            )));
+        }
     }
     let (peer, home) = (claimed.clone(), claude_home.to_path_buf());
     tokio::task::spawn_blocking(move || {
@@ -509,7 +570,7 @@ async fn prove_claude(
         }
         let started = crate::claude_peers::started_at(&home, peer.pid)
             .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
-        Ok((started, launched_for))
+        Ok(Some((started, launched_for)))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -542,7 +603,7 @@ async fn send_code(
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(claimed.pid, pending);
     let uuid = uuid::Uuid::now_v7().to_string();
     let from = crate::claude_peers::from_address("register");
-    crate::claude_peers::deliver(claude_home, claimed, &text, &uuid, &from, Some(token))
+    crate::claude_peers::deliver(claude_home, claimed, text.as_str(), &uuid, &from, Some(token))
         .await
         .map_err(|e| unproven(format!("could not deliver the code: {e}")))?;
     Ok(json!({"pending": true, "name": name, "pid": claimed.pid}))
@@ -624,6 +685,26 @@ mod tests {
         assert_eq!(nearest_claude(&ancestry, &live, Some(other)), None);
         // Not under any listed session: nothing.
         assert_eq!(nearest_claude(&[50, 45, 1], &live, None), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_retries_an_unavailable_inbox_but_rejects_the_wrong_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("inbox.sock");
+        let claimed = peer(0, socket.to_str().unwrap());
+        assert_eq!(prove_claude(&claimed, dir.path(), &socket, true).await.unwrap(), None);
+        assert!(prove_claude(&claimed, dir.path(), &socket, false).await.is_err());
+
+        // Once it answers, this process owns the socket. The wrong PID is a hard failure.
+        let _listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        assert!(!crate::claude_peers::inbox_proof(&socket, claimed.pid).await.unwrap());
+        assert!(prove_claude(&claimed, dir.path(), &socket, true).await.is_err());
+        let link = dir.path().join("link.sock");
+        std::os::unix::fs::symlink(&socket, &link).unwrap();
+        let owner = peer(std::process::id(), link.to_str().unwrap());
+        assert!(!crate::claude_peers::inbox_proof(&link, owner.pid).await.unwrap());
+        assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
     }
 
     #[test]

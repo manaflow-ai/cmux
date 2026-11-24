@@ -53,6 +53,10 @@ test("the categories are the approved ones, in order", () => {
     "accounts",
     // Mobile stays its own page (Lucas 2026-11-11).
     "mobile",
+    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
+    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
+    // couldnt find settings devices control").
+    "devices",
     // More: the pages a person opens less often.
     "newTab",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
@@ -60,12 +64,15 @@ test("the categories are the approved ones, in order", () => {
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
     // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
     "keys",
-    // Devices holds what Server showed, and its old id opens it (next test).
-    "devices",
+    // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
+    // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
+    "integrations",
     "import",
     "privacy",
     "advanced",

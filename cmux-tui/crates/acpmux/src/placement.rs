@@ -43,7 +43,26 @@
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
 
+pub(crate) mod command_sampler;
+pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
+pub mod sub_fork;
+
+/// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
+pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
+
+/// Whether the AutoCloud key is on in the settings file now, read straight from the file each
+/// call. A missing or unreadable file, or anything but a literal `true`, is off. Every RFD 0144
+/// placer (the command placer's shadow, sub-agent forks) reads the key through this one helper.
+pub fn auto_cloud_on() -> bool {
+    use crate::user_settings::{self, Settings};
+    matches!(user_settings::read(), Settings::Parsed(doc) if auto_cloud_in(&doc))
+}
+
+/// Whether a parsed settings document turns AutoCloud on (`true` only, never a truthy string).
+pub fn auto_cloud_in(doc: &Value) -> bool {
+    crate::user_settings::value(doc, AUTO_CLOUD_KEY) == Some(Value::Bool(true))
+}
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -286,6 +305,45 @@ pub fn interactive(registry: Option<&Value>, name: &str) -> bool {
 /// registry or for a machine it does not list.
 pub fn personal(registry: Option<&Value>, name: &str) -> bool {
     interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
+}
+
+/// Why a move's `--machine auto` never picks `name` (by name or alias), from the registry:
+/// a person's own machine (`personal`: `interactive`, `leo-mac`, `attended` or `leo-apps`, which
+/// the registry describes as one nothing shared may depend on), or a last-resort host
+/// (`lanes.last_resort`), which takes no agent lane. A hold or reservation is `held`'s.
+/// `None`: auto may pick it. A move that names the machine is the caller's choice.
+pub fn auto_move_refusal(registry: Option<&Value>, name: &str) -> Option<String> {
+    if personal(registry, name) {
+        return Some(
+            "a person's own machine (fleet-registry.json interactive, leo-mac, attended or \
+             leo-apps): never a dependency, so auto never moves a chat there; name it to"
+                .into(),
+        );
+    }
+    last_resort(registry, name).then(|| {
+        "a last-resort host (fleet-registry.json lanes.last_resort): it takes captures and \
+         builds, never an agent lane; name it to"
+            .into()
+    })
+}
+
+/// Whether `row`'s only fault is a build that differs from this one (`outdated`, its disk copy
+/// stale): with that left out it is up (`peer_down`). A move goes over ssh to the peer's own
+/// daemon, so such a peer can still take one.
+pub fn only_outdated(row: &Value) -> bool {
+    if row.get("outdated").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    let mut row = row.clone();
+    if let Some(o) = row.as_object_mut() {
+        o.remove("outdated");
+    }
+    peer_down(&row).is_none()
+}
+
+/// The one command that refreshes the outdated peer `name`'s build (`cli/peer_status.rs`).
+pub fn refresh_command(name: &str) -> String {
+    format!("acpmux machine update {name}")
 }
 
 /// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
@@ -606,6 +664,8 @@ struct Weighed {
     /// Its lanes against its cap (`Lanes::cap_state`).
     cap: CapState,
     why: String,
+    /// Free RAM in bytes from the reading: the new-chat chip's "This Mac: 12 GB free".
+    ram_free: Option<f64>,
 }
 
 impl Weighed {
@@ -658,6 +718,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         unknown: !known,
         cap: CapState::Unknown,
         why: String::new(),
+        ram_free: None,
     };
     let Some(lanes) = lanes else {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
@@ -675,6 +736,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     let mut parts = Vec::new();
     let mut rooms = Vec::new();
     if let Some(free) = reading(h, "/ram/freeBytes") {
+        w.ram_free = Some(free);
         parts.push(format!("{:.0} GB RAM free", free / GB));
         rooms.push(("RAM", (free / GB - lanes.reserved_gb) / lanes.per_lane_gb));
     }
@@ -746,7 +808,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 /// takes it anyway), "why": TEXT, "room": LANES|null (the pick's), "localOver": TEXT|null (why
 /// this machine is over its budget, room or swap), "work": "agent"|"build", "tier": {index, of}|null (the
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
-/// live, why, refused}]}`.
+/// live, why, ramFree, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
@@ -872,6 +934,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "tier": w.tier.as_ref().map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
             "live": w.live,
             "why": w.why,
+            // Free RAM in bytes (null without a reading): place_mode's chip.
+            "ramFree": w.ram_free,
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,

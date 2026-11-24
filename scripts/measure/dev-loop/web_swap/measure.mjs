@@ -349,10 +349,14 @@ try {
   // fs_event: a raw fs.watch on a fresh directory beside the edited file, write to callback.
   const probeDir = await fs.mkdtemp(path.join(webviews, PANE, ".dev-loop-fs-"));
   for (let i = 0; i < Math.max(N, 10); i += 1) {
-    const file = path.join(probeDir, "probe.txt");
+    // A fresh name per round, and no callback counts before the write starts: FSEvents can deliver the
+    // previous round's write late, which with start still 0 read as an epoch (1.8e12 ms) floor.
+    const name = `probe-${i}.txt`;
+    const file = path.join(probeDir, name);
     const sample = await new Promise((resolve, reject) => {
       let start = 0;
-      const watcher = fsWatch(probeDir, () => {
+      const watcher = fsWatch(probeDir, (_event, changed) => {
+        if (start === 0 || (changed && path.basename(String(changed)) !== name)) return;
         watcher.close();
         clearTimeout(timer);
         resolve(now() - start);

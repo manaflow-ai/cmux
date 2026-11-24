@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
+/* cmux-tui mux protocol 12, IR edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -568,6 +568,7 @@ export type HomeInboxRow = {
   "chief"?: string;
   "chief_state"?: HomeChiefState;
   "id": string;
+  "index"?: bigint;
   "kind": HomeInboxKind;
   "last_author"?: string;
   "marked_unread": boolean;
@@ -602,6 +603,7 @@ export type IdMapping = {
 
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -622,6 +624,7 @@ export type IdentifyResult = {
   "machine_platform"?: MachinePlatform;
   "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
+  "min_api_version"?: (string) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -1363,6 +1366,11 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetClientInfoResult = {
+  "api_revision"?: number;
+  "api_version"?: string;
+};
+
 export type SetHostSizePolicyResult = {
   "policy": HostSizePolicy;
 };
@@ -1847,6 +1855,7 @@ export type TerminalResumeCommandResult = {
 
 export type Tree = {
   "generation"?: string;
+  "next"?: bigint;
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "terminal_revision"?: bigint;

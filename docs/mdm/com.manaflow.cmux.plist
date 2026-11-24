@@ -260,7 +260,7 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>An extension id that draws New Tab, such as "local/showcase-newtab". Unset: cmux's own.</string>
+			<string>An extension that draws over the New Tab composer, by its id, such as "local/showcase-newtab". The composer always stays. Not used by the native New Tab page.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabApp</string>
 			<key>pfm_title</key>
@@ -624,6 +624,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.</string>
+			<key>pfm_name</key>
+			<string>app.warnBeforeQuitShortcut</string>
+			<key>pfm_title</key>
+			<string>Warn Before Quitting with ⌘Q</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<real>0.66666666666666663</real>
 			<key>pfm_description</key>
 			<string>A share of the window width, for Fixed Width new columns.</string>
@@ -747,7 +759,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Off: cmux asks before downloading. It always asks before restarting.</string>
 			<key>pfm_name</key>
@@ -1024,22 +1036,6 @@
 				<string>1password</string>
 				<string>bitwarden</string>
 				<string>com.apple.systempreferences</string>
-				<string>com.apple.Terminal</string>
-				<string>com.googlecode.iterm2</string>
-				<string>com.mitchellh.ghostty</string>
-				<string>net.kovidgoyal.kitty</string>
-				<string>com.github.wez.wezterm</string>
-				<string>org.alacritty</string>
-				<string>dev.warp.*</string>
-				<string>windowsterminal.exe</string>
-				<string>cmd.exe</string>
-				<string>powershell.exe</string>
-				<string>pwsh.exe</string>
-				<string>org.gnome.Terminal</string>
-				<string>org.gnome.Ptyxis</string>
-				<string>org.kde.konsole</string>
-				<string>com.cmuxterm.app</string>
-				<string>com.cmuxterm.app.*</string>
 			</array>
 			<key>pfm_description</key>
 			<string>Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.</string>
@@ -1115,7 +1111,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>adaptive</string>
+			<string>openai</string>
 			<key>pfm_description</key>
 			<string>What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.</string>
 			<key>pfm_name</key>
@@ -1662,13 +1658,25 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
-			<string>The cmux app on your iPhone can open this Mac's workspaces, on the same account.</string>
+			<string>The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.</string>
 			<key>pfm_name</key>
 			<string>mobile.allowIPhoneConnections</string>
 			<key>pfm_title</key>
 			<string>Allow iPhone Connections</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A new phone signed in to your account connects without asking you first. Other accounts never connect.</string>
+			<key>pfm_name</key>
+			<string>mobile.autoApprovePhones</string>
+			<key>pfm_title</key>
+			<string>Approve Phone Requests Automatically</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -2288,6 +2296,34 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Compresses the older parts of long chats. Run cmux chats warm to undo.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldSegments</string>
+			<key>pfm_title</key>
+			<string>Compress Long Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>3</integer>
+			<key>pfm_description</key>
+			<string>Higher levels use less disk and take longer to compress.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.coldSegmentsLevel</string>
+			<key>pfm_range_max</key>
+			<real>19</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Long Chat Compression Level</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>never</string>
 			<key>pfm_description</key>
 			<string>Archives chats after a period of no activity. Chats that are running or have background work never are.</string>
@@ -2407,6 +2443,30 @@
 			<string>Idle For</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.</string>
+			<key>pfm_name</key>
+			<string>worktrees.autoCleanup</string>
+			<key>pfm_title</key>
+			<string>Clean Up Agent Worktrees</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.</string>
+			<key>pfm_name</key>
+			<string>worktrees.cleanBuildCaches</string>
+			<key>pfm_title</key>
+			<string>Clean Up Build Caches</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2698,6 +2758,16 @@
 			<string>Highlight Color</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>customize.doctorNotice</string>
+			<key>pfm_title</key>
+			<string>Customization notices</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -3486,6 +3556,35 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
+			<string>Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundPlacement</string>
+			<key>pfm_title</key>
+			<string>Background Placement</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The backgrounds shown before, newest first, so one click goes back.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundRecents</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Recent Backgrounds</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
 			<string>Display ID to daily, folder:&lt;path&gt;, desktop, a background or none.</string>
 			<key>pfm_name</key>
 			<string>appearance.displayBackgrounds</string>
@@ -3867,6 +3966,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.</string>
+			<key>pfm_name</key>
+			<string>appearance.liquidGlass</string>
+			<key>pfm_title</key>
+			<string>Liquid Glass</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>tabs</string>
 			<key>pfm_description</key>
 			<string>How the focused pane stands out.</string>
@@ -3975,6 +4086,25 @@
 			<string>Title Area Contrast</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>flush</string>
+			<key>pfm_description</key>
+			<string>How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.</string>
+			<key>pfm_name</key>
+			<string>appearance.cornerFlush</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>flush</string>
+				<string>flush-tight</string>
+				<string>flush-goo</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Selected Tab Shape</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5468,6 +5598,37 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>cmux</string>
+			<key>pfm_description</key>
+			<string>How messages, cards and spacing look.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.transcriptLook</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>cmux</string>
+				<string>claude</string>
+				<string>codex</string>
+				<string>studio</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Transcript Look</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<dict/>
+			<key>pfm_description</key>
+			<string>Token values that override the transcript look.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.transcriptTokens</string>
+			<key>pfm_title</key>
+			<string>Transcript Look Tokens</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>After a chat with many corrections, shows a better first prompt.</string>
@@ -6821,7 +6982,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>folder</string>
+			<string>auto</string>
 			<key>pfm_description</key>
 			<string>How a group draws. Folders shows plain folders; Sections shows plain headings.</string>
 			<key>pfm_name</key>
@@ -6833,6 +6994,9 @@
 				<string>glass</string>
 				<string>solid</string>
 				<string>sections</string>
+				<string>chip</string>
+				<string>tree</string>
+				<string>card</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Group Background</string>
@@ -7065,6 +7229,48 @@
 			<string>Wrap Around</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Sidebar sections to hide, by id. The section of the selected workspace always shows.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sections.hidden</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Hidden Sections</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Sidebar sections to show first in their part of the sidebar, in this order, by id.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sections.order</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Section Order</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -7737,6 +7943,45 @@
 			<string>Second Line Order</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The lines each workspace row shows, as lists of items, such as [["icon", "name", "branch"], ["agentStatus"]]. Up to 3 lines of 6 items; the name always leads the first line. Nested; see `cmux settings schema` for its shape.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.lines</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>array</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Row Layout</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout. Nested; see `cmux settings schema` for its shape.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.linesByKind</string>
+			<key>pfm_title</key>
+			<string>Row Layout by Kind</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts. Nested; see `cmux settings schema` for its shape.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.linesByAgent</string>
+			<key>pfm_title</key>
+			<string>Row Layout by Agent</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
 		</dict>
 		<dict>
 			<key>pfm_name</key>
@@ -9729,6 +9974,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>How toasts and prompts draw: glass, an opaque surface, or flat with a thin edge and no shadow.</string>
+			<key>pfm_name</key>
+			<string>notifications.toast.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>solid</string>
+				<string>flat</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Toast Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Agent and cmux notify notifications go to your feed and can reach your iPhone.</string>
@@ -10660,6 +10923,40 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Where the mode, model and effort sit: under the box or inside it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.composerLook</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>studio</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Composer Look</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bottom</string>
+			<key>pfm_description</key>
+			<string>Where the message box sits in a chat with no messages yet.</string>
+			<key>pfm_name</key>
+			<string>agentPane.emptyChatComposerPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bottom</string>
+				<string>center</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Empty Chat Message Box</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_description</key>
 			<string>The display size for agent chat. Cmd-0 resets it.</string>
@@ -10815,6 +11112,18 @@
 			<string>macScreen.shareWithoutAsking</string>
 			<key>pfm_title</key>
 			<string>Share This Mac Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.</string>
+			<key>pfm_name</key>
+			<string>macScreen.onlyPersonStartsViewing</string>
+			<key>pfm_title</key>
+			<string>Only Your Click Starts Viewing a Screen</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

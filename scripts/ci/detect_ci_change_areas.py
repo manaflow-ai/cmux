@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -213,6 +214,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/language-boundaries.toml",
     ".github/nightly-known-bad.json",
     ".github/nightly-step-coverage.json",
+    ".github/post-merge-batch.json",
     ".github/post-merge-checks.json",
     ".github/release-thanks.json",
     ".github/review-fabric-policy.json",
@@ -221,6 +223,7 @@ _NON_RUNNING_FILES = frozenset({
     ".github/single-host-fallbacks.json",
     ".github/swift-warning-budget.tsv",
     ".github/warm-sources.json",
+    ".github/workflow-job-bounds.json",
 })
 
 
@@ -248,12 +251,42 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
+LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
+
+
+@lru_cache(maxsize=None)
+def _tree_is_complete(root: str) -> bool:
+    """True when the tree at `root` holds every file the helper walk searches.
+
+    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
+    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
+    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
+    files, so before its first search it widens the checkout to the table's patterns: the tree
+    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
+    complete already. False when the table or the widening fails, which the walk reads as
+    "could not search" and answers every area.
+    """
+    def git(*args: str, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
+
+    try:
+        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
+            return True
+        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
+        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
+        return widened.returncode == 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         # -I: a binary file (an image, an archive) names no helper.
         ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
@@ -276,6 +309,8 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
 def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
     """The tracked files under `pathspec` that _files_naming() can return: the
     non-empty text files. None when git cannot search the tree."""
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
         ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
         capture_output=True, text=True,
@@ -348,28 +383,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-# The credentialed `changes` router accepts only the current attempt's
-# validated Linux placement. Its test-path references still run on Linux;
-# an unknown needs expression must continue to fail open below.
-_PORTABLE_ROUTER_LINUX_TERM = (
-    "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
-    "contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && "
-    "needs.portable-placement.outputs.linux_runner ||"
-)
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "").replace(_PORTABLE_ROUTER_LINUX_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")

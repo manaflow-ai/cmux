@@ -13,6 +13,7 @@ use crate::agent_host::{self, Liveness};
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
+mod checkpoint;
 mod journal;
 
 /// How long adoption waits for the next replayed entry of one host to be logged before it recovers
@@ -22,7 +23,7 @@ use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
@@ -173,8 +174,8 @@ impl Hub {
     /// (its `initialize`), which only this reattach answers. Two at once make one link
     /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
     /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
-    /// waits for it), whose link broke because an entry could not be logged (the next request
-    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// waits for it), whose link broke because an entry could not be logged (`reach_broken_link`
+    /// retries that one with a backoff: a full disk must not loop here), that another agent took the session from,
     /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
     pub(super) async fn reach_lost_link(
         self: &Arc<Self>,
@@ -229,6 +230,61 @@ impl Hub {
                 tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
                 false
             }
+        }
+    }
+
+    /// Reach `child` again after its link broke on an entry the store could not log (a full disk,
+    /// F20): the reattach replays from the last logged entry, so the open turn gets its words and
+    /// its answer and the prompts queued behind it run. The next request cannot do it: it queues
+    /// behind that turn, which nothing else ends. While the store still cannot log, the replay
+    /// breaks the link again and this tries again after a backoff (250 ms doubling to 5 s), so a
+    /// full disk costs one connect and one failed write per try, never a loop. One per link
+    /// (`ChildAgent::claim_broken_retry`); it ends once the link reads clean, or the agent exits,
+    /// is replaced or ended, or the hub shuts down.
+    pub(super) async fn reach_broken_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) {
+        const FIRST: std::time::Duration = std::time::Duration::from_millis(250);
+        const MOST: std::time::Duration = std::time::Duration::from_secs(5);
+        let mut backoff = FIRST;
+        loop {
+            tokio::time::sleep(backoff).await;
+            let still_asked =
+                session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+            let over = !still_asked
+                || child.has_exited()
+                || child.is_retired()
+                || child.ended_on_purpose()
+                || self.shutting_down()
+                || self.full_access_managed_off();
+            if over || !child.is_broken() {
+                child.release_broken_retry();
+                // A break between the look and the release found this retry still claimed and
+                // started none: take it again.
+                if over || !child.is_broken() || !child.claim_broken_retry() {
+                    return;
+                }
+            }
+            let off = self.off_latch();
+            match child.reattach_if_lost().await {
+                Ok(true) => {
+                    self.append(
+                        session,
+                        "mux",
+                        "host_reattached",
+                        json!({"reason": "entry_unlogged"}),
+                    );
+                    let _ = self.judged_after_reattach(session, child, &off).await;
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    session = %session.id,
+                    "agent host reattach after an unlogged entry failed: {e:#}"
+                ),
+            }
+            backoff = (backoff * 2).min(MOST);
         }
     }
 
@@ -597,12 +653,12 @@ impl Hub {
     }
 
     pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.session_get(id)
     }
 
     pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
         self.append(session, "mux", "host_unadoptable", detail);
-        self.set_status(session, SessionStatus::Disconnected);
+        self.set_status(session, NotWaiting::Disconnected);
         self.save_meta(session);
     }
 
@@ -683,7 +739,7 @@ impl Hub {
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
             .read_whole_log(session, move |hub, s| {
-                (hub.last_host_seq(s, &of), hub.subagents_in_log(s), hub.log_turn_open(s))
+                (hub.last_host_seq(s, &of), hub.subagents_from_log(s, &of), hub.log_turn_open(s))
             })
             .await?;
         // The subagents the host still runs, before its first replayed line reaches the tap:
@@ -838,9 +894,10 @@ impl Hub {
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
-            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
-            self.set_status(session, status);
+            match self.open_ask(session, &state) {
+                Some(reason) => self.set_waiting(session, reason),
+                None => self.set_status(session, super::NotWaiting::Ready),
+            }
             drop(state);
         }
         self.restart_unproven(session, proven);
@@ -966,7 +1023,7 @@ impl Hub {
                     *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
-                    self.set_status(session, SessionStatus::Running);
+                    self.set_status(session, NotWaiting::Running);
                     // Its cap counts from its start, as logged (`turn_cap.rs`).
                     self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
@@ -1296,7 +1353,7 @@ impl Hub {
                    "personInstance": self.person.instance(), "request": request.clone(),
                    "agentRequestId": agent_request_id.clone()}),
         );
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, super::WaitReason::of_request(&request));
         // A chat restored as Waiting changes no status here, so its parent's count of asks below
         // is decided now: a new daemon starts every count at none (`asks_below.rs`).
         self.refresh_parent_asks_below(session);
@@ -1316,17 +1373,13 @@ impl Hub {
             hub.append(&s, "mux", "permission_decision", decision);
             {
                 let state = s.permissions.lock().unwrap_or_else(|e| e.into_inner());
-                if state.pending.is_empty()
-                    && s.status() == SessionStatus::Waiting
-                    && !hub.secrets.waiting_in(&s.id)
-                {
-                    let next = if s.turn().is_some() {
-                        SessionStatus::Running
+                hub.settle_after_ask(&s, &state, || {
+                    if s.turn().is_some() {
+                        super::NotWaiting::Running
                     } else {
-                        SessionStatus::Ready
-                    };
-                    hub.set_status(&s, next);
-                }
+                        super::NotWaiting::Ready
+                    }
+                });
             }
             // An ancestor's answer: written under its fence (`subsession_answer.rs`).
             let fence = hub.answer_fences.lock().unwrap().remove(&permission_id);

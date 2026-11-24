@@ -15,9 +15,8 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     }
 
     /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
-    /// default, `.none`) on every other channel.
+    /// on (the schema's default) on every channel since Leo 2026-11-07 ("Yeah, let's do that, man"),
+    /// so the value it fills matches the schema; a channel whose default is off would differ here.
     ///
     /// `mobile.allowIPhoneConnections` is on in a DEV build (`BuildStatePaths.isolatesSharedState`): DEV builds
     /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to
@@ -67,6 +66,8 @@ extension SettingsController {
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
         if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
+        // Resetting an explicit group style returns ownership to the sidebar look.
+        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

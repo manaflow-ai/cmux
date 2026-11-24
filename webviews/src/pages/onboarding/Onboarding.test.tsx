@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LASTING_MS, setLastingGrace } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -10,9 +11,9 @@ import { OnboardingStore } from "./store";
 
 const strings = createStrings(table, ["en"]);
 
-function render(state: OnboardingState, look?: AgentsLook): string {
+function render(state: OnboardingState, look?: AgentsLook, online?: boolean): string {
   const store = new OnboardingStore(null, state);
-  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} />);
+  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} online={online} />);
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
@@ -42,7 +43,9 @@ describe("agents", () => {
   });
   test("the status line for each state", () => {
     expect(text(render(agentsState("checking")))).toContain("Checking…");
-    expect(text(render(agentsState("none")))).toContain("No agent CLIs found on this Mac.");
+    expect(text(render(agentsState("none")))).toContain(
+      "No agent CLIs found on this Mac. Install Claude Code or Codex, then sign in from Settings.",
+    );
     expect(text(render(agentsState("signingIn")))).toContain(
       "Finish signing in in the terminal tab, then come back here.",
     );
@@ -64,6 +67,31 @@ describe("agents", () => {
       expect(html).toContain(`data-look="${look}"`);
       expect(html.match(/class="onb-agent"/g)?.length).toBe(4);
     }
+  });
+});
+
+describe("offline", () => {
+  const line = "This Mac is offline. Sign-ins and installs work once it’s back.";
+  test("one line under the title on every scaffold step once offline has lasted", () => {
+    // A static render has no time to pass: a zero grace stands for an outage past the quiet bound
+    // (offline.test.tsx checks the bound itself).
+    setLastingGrace(0);
+    try {
+      for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
+        const html = render(state, undefined, false);
+        expect(html.split('class="onb-offline"').length - 1).toBe(1);
+        expect(text(html)).toContain(line);
+      }
+    } finally {
+      setLastingGrace(LASTING_MS);
+    }
+  });
+  test("a blip (offline under the quiet bound) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, false)).not.toContain("onb-offline");
+  });
+  test("online (and server markup with no window) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, true)).not.toContain("onb-offline");
+    expect(render(agentsState("mixed"))).not.toContain("onb-offline");
   });
 });
 
@@ -105,7 +133,7 @@ describe("import", () => {
     const html = render(importState("finished"));
     expect(html).toContain('title="The profile’s history database is locked by the browser."');
     expect(text(html)).toContain(
-      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
+      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine. Passwords skipped: 9. Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
     );
   });
   test("the folder explainer replaces the list", () => {
@@ -153,61 +181,44 @@ describe("computer use", () => {
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
   });
-});
-
-describe("cmux tools", () => {
-  const settingsPlace = "You can change this later in Settings > Agents.";
-  test("asks before giving anything: the question, Claude Code and Codex found, Not Now and Turn On", () => {
-    const html = render(agentToolsState("found"));
+  const footnote =
+    "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
+  test("the footnote under the grants says the helper runs on its own", () => {
+    expect(text(render(computerUseState("fresh")))).toContain(footnote);
+    expect(text(render(computerUseState("allGranted")))).toContain(footnote);
+  });
+  test("a note on why Allow cannot help takes the footnote's place", () => {
+    const words = text(render(computerUseState("helperFailed")));
+    expect(words).toContain("The cmux Computer Use helper did not respond.");
+    expect(words).not.toContain(footnote);
+  });
+  test("finished: the done view replaces the head and rows", () => {
+    const html = render(computerUseState("finished"));
     const words = text(html);
-    expect(words).toContain("Use cmux Tools in Your Agents?");
-    expect(words).toContain("Agents you start in cmux get cmux’s tools, Computer Use included");
-    expect(words).toContain("cmux never changes your agents’ own settings.");
-    expect(html).toContain('data-agent="claude"');
-    expect(html).toContain('data-agent="codex"');
-    expect(html.match(/data-tools="ready"/g)?.length).toBe(2);
-    expect(words).toContain("Found on this Mac");
-    expect(words).toContain("Not Now");
-    expect(html).toMatch(/data-primary="addTools"/);
-    expect(words).toContain("Turn On");
-    expect(words).toContain(settingsPlace);
+    expect(words).toContain("Computer Use Is Ready");
+    expect(words).toContain("Setup is complete. You can now ask agents to use apps on your Mac.");
+    expect(words).not.toContain("Turn On Computer Use");
+    expect(html).not.toContain('class="onb-grant"');
+    expect(words).not.toContain(footnote);
+    expect(words).toContain("Done");
   });
-  test("none found and still checking say so, and still name the place in Settings", () => {
-    const none = text(render(agentToolsState("none")));
-    expect(none).toContain("No coding agents found on this Mac yet.");
-    expect(none).toContain(settingsPlace);
-    expect(text(render(agentToolsState("checking")))).toContain("Checking…");
+  test("opened with every grant on: the rows and the ready line, no done view", () => {
+    const words = text(render(computerUseState("allGranted")));
+    expect(words).toContain("Turn On Computer Use");
+    expect(words).not.toContain("Computer Use Is Ready");
   });
-  test("while Turn On runs the primary waits; on, declined and failed answers end on Done with no Not Now", () => {
-    const adding = render(agentToolsState("adding"));
-    expect(text(adding)).toContain("Turning on…");
-    expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
-    const added = render(agentToolsState("added"));
-    expect(text(added)).toContain("Done. Agents you start in cmux’s terminals and agent chats get cmux’s tools.");
-    expect(added.match(/data-tools="terminals"/g)?.length).toBe(2);
-    expect(text(added)).toContain("Gets cmux’s tools in cmux");
-    expect(added).toMatch(/data-primary="done"/);
-    expect(text(added)).not.toContain("Not Now");
-    const declined = text(render(agentToolsState("declined")));
-    expect(declined).toContain("Agents you start in cmux won’t get cmux’s tools.");
-    expect(declined).toContain("Off in cmux");
-    expect(text(render(agentToolsState("failed")))).toContain(
-      "Couldn’t save your choice. You can try again in Settings.",
-    );
+  test("screenshots just allowed: its row asks to allow screen capture, the bypass warning expected", () => {
+    const html = render(computerUseState("confirmingCapture"));
+    const words = text(html);
+    expect(words).toContain("macOS asks for confirmation. Allow screen capture.");
+    expect(words).toContain("The system “bypass” warning is expected here.");
+    expect(words).not.toContain("Lets agents see the window they work in");
+    expect(words).toContain("Lets agents click and type in your apps");
   });
-  test("Add and Not Now are the footer's two gestures: next and skip", async () => {
-    const calls: string[] = [];
-    const store = new OnboardingStore({
-      call: async <R,>(op: string): Promise<R> => {
-        calls.push(op);
-        return {} as R;
-      },
-      subscribe: async () => () => {},
-      handle: () => () => {},
-    });
-    store.call(OPS.next);
-    store.call(OPS.skip);
-    expect(calls).toEqual([OPS.next, OPS.skip]);
+  test("no capture note before Screenshots was allowed here", () => {
+    const words = text(render(computerUseState("oneGranted")));
+    expect(words).not.toContain("macOS asks for confirmation.");
+    expect(words).toContain("Lets agents see the window they work in");
   });
 });
 

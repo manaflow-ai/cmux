@@ -147,7 +147,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
 
 fn origin(value: Option<String>) -> Result<String> {
     let value = value
-        .or_else(|| std::env::var("CMUX_PLATFORM_ORIGIN").ok())
+        .or_else(cmux_cloud_client::backend::platform_origin_env)
         .unwrap_or_else(|| DEFAULT_HUB.to_owned());
     let parsed =
         reqwest::Url::parse(value.trim()).map_err(|_| anyhow!("hub origin is malformed"))?;
@@ -313,6 +313,20 @@ fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     Some(record)
 }
 
+/// This box's node key as its hub knows it (`wgPublicKey`, the hub's `daemonId`), for a join
+/// [`joined_device_at`] counts as live: the route another machine of the account dials this one
+/// by (`--via-machine KEY`). A cmux Remote invitation carries it (`via_machine`), so redeeming one
+/// elsewhere needs no key passed by hand. None for a box that is not joined.
+pub fn joined_node_key_at(home: &std::path::Path) -> Option<String> {
+    joined_device_at(home)?;
+    let key = load_at(home).ok().flatten()?.wg_public_key;
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(&key)
+        .is_ok_and(|bytes| bytes.len() == 32)
+        .then_some(key)
+}
+
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that
 /// cannot be read counts as no join (the daemon's own check reports it).
 ///
@@ -420,16 +434,22 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
 
-/// Adds the `sameUser` entry to a joined `meshRelay` that has none. True when it changed
-/// config.json. A relay that is not the join's, or none, is left alone.
+/// Adds the `sameUser` entry to a joined `meshRelay` that has none, or marks the one an older
+/// join wrote with its `maxPolicy` ([`upgrade_join_entries`]). True when it changed config.json.
+/// A relay that is not the join's, or none, is left alone.
 fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
     let mut config = crate::config::Config::load()?;
     let Some(relay) = config.mesh_relay.as_mut() else { return Ok(false) };
-    if relay.credential.as_deref() != Some("join")
-        || relay.control_from.iter().any(|entry| entry.same_user)
-    {
+    if relay.credential.as_deref() != Some("join") {
         return Ok(false);
+    }
+    let upgraded = upgrade_join_entries(&mut relay.control_from);
+    if relay.control_from.iter().any(|entry| entry.same_user) {
+        if upgraded {
+            config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
+        }
+        return Ok(upgraded);
     }
     // Only the entry is added; every other relay setting stays as the owner left it.
     relay.control_from.push(crate::mesh_http::MeshControlFrom::same_user());
@@ -443,10 +463,23 @@ fn joined_control_from(
     previous: Option<crate::mesh_http::MeshRelayConfig>,
 ) -> Vec<crate::mesh_http::MeshControlFrom> {
     let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
+    upgrade_join_entries(&mut control_from);
     if !control_from.iter().any(|entry| entry.same_user) {
         control_from.push(crate::mesh_http::MeshControlFrom::same_user());
     }
     control_from
+}
+
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+fn upgrade_join_entries(control_from: &mut [crate::mesh_http::MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = crate::mesh_http::MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
 }
 
 fn mesh_relay_configured() -> bool {
@@ -480,6 +513,18 @@ pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
 /// A stored hub origin, checked as `host join` checks it.
 pub(crate) fn hub_origin(value: &str) -> Result<String> {
     origin(Some(value.to_owned()))
+}
+
+/// The person a cmux access token acts for (its `sub` claim, unverified: the hub checks the
+/// token itself), as a safe id, for `host enroll-self --user-id` (`cmux device add` joins the Mac
+/// that ran it as that person). None for a token that is no JWT or names no one.
+pub fn access_token_user(token: &str) -> Option<String> {
+    sent_credential::user(token).and_then(|user| safe_id(&user))
+}
+
+/// `value`, else `CMUX_PLATFORM_ORIGIN`, else production, checked as `host join` checks it.
+pub(crate) fn hub_origin_or_default(value: Option<String>) -> Result<String> {
+    origin(value)
 }
 
 /// The relay client reads the joined bearer in-process from the owner-only store.
@@ -536,11 +581,11 @@ pub(crate) fn credential_present() -> Result<bool> {
         .map(|value| {
             value.is_some_and(|record| !copied_here(&state_dir(), &record, current.as_deref()))
         })
-        .map_err(|_| store_error().into())
+        .map_err(|e| store_error_from(e).into())
 }
 
 pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
-    let Some(record) = load().map_err(|_| store_error())? else { return Ok(false) };
+    let Some(record) = load().map_err(store_error_from)? else { return Ok(false) };
     // A copy of another box's join is no join of this one: the new join line makes one.
     if replace
         || join_incomplete()?
@@ -551,11 +596,11 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
     let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
-    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(store_error_from)?;
     // Repair a previous config-save failure before reporting idempotent success. A sign-in's
     // join leaves a relay the person set up as it is.
     relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
-        .map_err(|_| store_error())?;
+        .map_err(store_error_from)?;
     match report {
         Report::Quiet => {}
         Report::Json => {
@@ -579,12 +624,18 @@ fn warn_existing_helpers() {
 }
 
 fn store_error() -> crate::cli::errors::AppError {
-    crate::cli::errors::AppError::new(
-        crate::cli::errors::Code::Runtime,
-        "join.store",
-        "local machine store unavailable",
-    )
-    .with_exit(5)
+    store_error_with("local machine store unavailable".to_string())
+}
+
+/// [`store_error`] that names what failed (a path refused, a lock held, a write that did not land),
+/// so a join that stops here says why. Its cause is a local file or lock error, never a token.
+pub(crate) fn store_error_from(cause: impl std::fmt::Display) -> crate::cli::errors::AppError {
+    store_error_with(format!("local machine store unavailable: {cause:#}"))
+}
+
+fn store_error_with(message: String) -> crate::cli::errors::AppError {
+    crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", message)
+        .with_exit(5)
 }
 
 pub async fn join_with_token(
@@ -777,7 +828,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
@@ -787,6 +838,15 @@ pub(crate) fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_store_error_names_its_cause() {
+        // 2026-11-21: a join that stopped at the store said only "unavailable".
+        let cause = std::io::Error::other("home is a symlink");
+        let error = super::store_error_from(cause);
+        assert_eq!(error.message, "local machine store unavailable: home is a symlink");
+        assert_eq!(super::store_error().message, "local machine store unavailable");
+    }
+
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
 
     #[test]
@@ -1384,6 +1444,17 @@ mod tests {
         let previous =
             MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
         assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+        // The entry an older join wrote (no `maxPolicy`) becomes today's; one with a cap the
+        // owner chose keeps it.
+        let unmarked = MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() };
+        let previous = MeshRelayConfig { control_from: vec![unmarked], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![MeshControlFrom::same_user()]);
+        let capped = MeshControlFrom {
+            max_policy: Some(crate::config::PermissionPolicy::Ask),
+            ..MeshControlFrom::same_user()
+        };
+        let previous = MeshRelayConfig { control_from: vec![capped.clone()], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![capped]);
     }
 
     #[test]

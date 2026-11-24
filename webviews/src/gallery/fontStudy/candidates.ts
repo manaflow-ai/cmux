@@ -43,12 +43,20 @@ import geist from "../../agent-session/acpmux/chatFonts/Geist-latin-wght.woff2";
 import plexSans from "../../agent-session/acpmux/chatFonts/IBMPlexSans-latin-wght.woff2";
 import roboto from "../../agent-session/acpmux/chatFonts/Roboto-latin-wght.woff2";
 import sourceSans from "../../agent-session/acpmux/chatFonts/SourceSans3-latin-wght.woff2";
+import cmuxSans from "../../agent-session/acpmux/chatFonts/cmuxSans-latin-wght.woff2";
+import cmuxSansSquat from "../../agent-session/acpmux/chatFonts/cmuxSansSquat-latin-wght.woff2";
+import cmuxSansCandy from "../../agent-session/acpmux/chatFonts/cmuxSansCandy-latin-wght.woff2";
+import cmuxSansOpen from "../../agent-session/acpmux/chatFonts/cmuxSansOpen-latin-wght.woff2";
 
 /// A face: its files, each a weight range (a variable axis) or one static weight.
 type Face = { family: string; files: { url: string; weight: string }[] };
-const variable = (family: string, url: string): Face => ({ family, files: [{ url, weight: "100 900" }] });
+const variable = (family: string, url: string, weight = "100 900"): Face => ({ family, files: [{ url, weight }] });
 
 export const FACES = {
+  cmuxSans: variable("Study cmux Sans", cmuxSans, "200 900"),
+  cmuxSansSquat: variable("Study cmux Sans Squat", cmuxSansSquat, "200 900"),
+  cmuxSansCandy: variable("Study cmux Sans Candy", cmuxSansCandy, "200 900"),
+  cmuxSansOpen: variable("Study cmux Sans Open", cmuxSansOpen, "200 900"),
   atkinson: variable("Study Atkinson Hyperlegible Next", atkinson),
   cmuxSansB: variable("Study cmux Sans B", cmuxSansB),
   cmuxSansC: variable("Study cmux Sans C", cmuxSansC),
@@ -258,6 +266,37 @@ export const PAIRINGS: readonly Pairing[] = [
     why: "Both forms: the most distinct cmux Sans, still Source's own drawings.",
     ui: "cmuxSansCLG",
     tracking: CMUX_SANS_TRACKING,
+  },
+  // cmux Sans and its three personalities. Leo, 2026-11-19: cmux Sans looks "a bit like generic school
+  // font ... It just doesn't have that like pizzazz"; he likes squat faces. Each is an opt-in interface
+  // font choice (chatUiFont.ts); SansPersonality.gallery.ts sets them side by side.
+  {
+    id: "cmux-sans",
+    label: "cmux Sans",
+    why: "Today's bundled cmux Sans: Source Sans 3 with an 8 % taller lowercase.",
+    ui: "cmuxSans",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-squat",
+    label: "cmux Sans Squat",
+    why: "108 % wide, a bigger x-height and a touch heavier: squat and sturdy.",
+    ui: "cmuxSansSquat",
+    tracking: { caption: -0.002, detail: -0.006, body: -0.01, field: -0.012, title: -0.016, heading: -0.024 },
+  },
+  {
+    id: "cmux-sans-candy",
+    label: "cmux Sans Candy",
+    why: "Single-storey a, tailed l, 105 % wide and heavier: round and friendly.",
+    ui: "cmuxSansCandy",
+    tracking: { caption: 0.004, detail: 0, body: -0.006, field: -0.008, title: -0.012, heading: -0.02 },
+  },
+  {
+    id: "cmux-sans-open",
+    label: "cmux Sans Open",
+    why: "cmux Sans spaced like Quillet: looser sidebearings, 4 % wider, a wider word space.",
+    ui: "cmuxSansOpen",
+    tracking: { caption: 0.006, detail: 0.003, body: 0, field: -0.002, title: -0.006, heading: -0.012 },
   },
   { id: "fira-sans", label: "Fira Sans", why: "Mozilla's humanist sans, Meta's lineage.", ui: "fira" },
   { id: "figtree", label: "Figtree", why: "Friendly geometric with a large x-height.", ui: "figtree" },

@@ -76,7 +76,9 @@ public nonisolated enum WindowBackgroundSetting {
                                                       message: "expected one of \(choices)"))
             }
         }
-        return WindowBackgroundOverride(opacity: opacity, material: material)
+        let (cellBackgrounds, cellDiagnostic) = TerminalCellBackgroundsSetting.parse(root)
+        if let cellDiagnostic { diagnostics.append(cellDiagnostic) }
+        return WindowBackgroundOverride(opacity: opacity, material: material, cellBackgrounds: cellBackgrounds)
     }
 
     /// `appearance.inactiveWindowDim`; a missing key is the default (0), a bad value the default plus a diagnostic.

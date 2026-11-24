@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f'
+IR_SHA256 = 'edd365380654689985f3f1c18f1a98fa386f9d427f7cbc03b0b8a08a3aea0d6a'
 
 
 @dataclass(frozen=True)
@@ -1183,6 +1183,28 @@ COMMANDS = {
             'turns': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-scheduled-list': CommandMetadata(
+        'conversation-scheduled-list',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-scheduled-op': CommandMetadata(
+        'conversation-scheduled-op',
+        'local-admin',
+        12,
+        'conversation-scheduled-v1',
+        ('local-admin',),
+        None,
+        {
+            'op': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-search': CommandMetadata(
         'conversation-search',
         'local-admin',
@@ -1785,7 +1807,12 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'ids': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
             'owners': CommandFieldMetadata(None, None),
+            'scope': CommandFieldMetadata(None, None),
+            'since': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
@@ -1977,6 +2004,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'after': CommandFieldMetadata(12, 'list-workspaces-page-v1'),
             'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
             'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
         },
@@ -2648,6 +2676,16 @@ COMMANDS = {
         {
         },
     ),
+    'process-census': CommandMetadata(
+        'process-census',
+        'local-admin',
+        12,
+        'process-census-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'process-info': CommandMetadata(
         'process-info',
         'control',
@@ -3228,6 +3266,7 @@ COMMANDS = {
         None,
         {
             'api_revision': CommandFieldMetadata(12, None),
+            'api_version': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
@@ -3785,6 +3824,25 @@ COMMANDS = {
             'after_revision': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-find': CommandMetadata(
+        'terminal-find',
+        'control',
+        7,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'case_sensitive': CommandFieldMetadata(None, None),
+            'epoch': CommandFieldMetadata(None, None),
+            'max_matches': CommandFieldMetadata(None, None),
+            'page_rows': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+            'regex': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'whole_word': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-history': CommandMetadata(
         'terminal-history',
         'control',
@@ -4214,6 +4272,7 @@ EVENTS = {
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-live': EventMetadata('conversation-live', 12, 'chief-live-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
+    'conversation-scheduled-changed': EventMetadata('conversation-scheduled-changed', 12, 'conversation-scheduled-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

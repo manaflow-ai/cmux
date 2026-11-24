@@ -17,7 +17,12 @@ typealias SidebarListViewComponents = SidebarListView
 
 final class SidebarListView: NSView {
     let model: SidebarModel
-    var displayed = SidebarLayout.empty
+    /// Every new layout (a reload, an apply, a drag's look) reads the row height for the pool's limit again
+    /// (`poolRowHeight`): a density change lays the rows out again, so the cached height never outlives it.
+    var displayed = SidebarLayout.empty { didSet { poolRowHeight = nil } }
+    /// The row height `fitToClip` sized the pool's limit with, read once per `displayed`: a window resize changes only
+    /// the clip's height, and reading `metrics` there (every density token) was most of `fitToClip` per resize step.
+    var poolRowHeight: CGFloat?
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
@@ -167,6 +172,8 @@ final class SidebarListView: NSView {
     var onStuckHeaderChange: ((Bool) -> Void)?
     /// What the stuck header stands on (`SidebarStuckVeilView`), above the rows, under the header.
     let stuckVeil = SidebarStuckVeilView()
+    /// The rows the stuck header covers, out of VoiceOver and the key view loop (`updateVeiledRows`).
+    var veiledRows: Set<SidebarRowKey> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -197,6 +204,10 @@ final class SidebarListView: NSView {
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
+    /// The selected row's frame in the window as last reported to the window's chrome (`flush-goo`,
+    /// `reportGooeySelection`), and whether a chrome took the report.
+    var reportedGooeyRow: CGRect?
+    var reportedGooeyLanded = false
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.

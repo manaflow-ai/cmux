@@ -84,6 +84,24 @@ pub static ACTIONS: &[Action] = &[
         is_person_only: true,
         ..Action::DEFAULT
     },
+    // The focused chat's agent session, by the name `cmux agent ls` and `HOST/NAME` read (acpmux
+    // `_acpmux/rename`); Rename Tab only retitles the tab. Leo, 2026-11-20: "we need to honestly
+    // like rename the VMs that we have, and then like rename the sessions that we have". The CLI
+    // verb is acpmux's own: `cmux agent session rename SESSION NEW_NAME`.
+    Action {
+        id: "agentChat.renameSession",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentChat.renameSession", "Rename Agent Session…"),
+        keywords: &["rename", "session", "agent", "chat", "name", "handle", "title"],
+        category: "agents",
+        symbol: "pencil",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::NAME_2],
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-chat-rename-session",
+        ..Action::DEFAULT
+    },
     Action {
         id: "palette.newAgentChat",
         group: GROUP,
@@ -1047,6 +1065,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "brain",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action chief-toggle-memory-inspector",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chief.toggleComputer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chief.toggleComputer", "Chief: Toggle Computer"),
+        keywords: &["chief", "computer", "screen", "cloud", "profile", "panel", "show", "hide"],
+        category: "agents",
+        symbol: "desktopcomputer",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action chief-toggle-computer",
         ..Action::DEFAULT
     },
     Action {

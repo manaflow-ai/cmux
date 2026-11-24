@@ -44,6 +44,8 @@ enum SidebarLaneStatus {
                 row.usageWarnings = usageWarnings(local)
                 // The agent's task list across its turns, whatever the other lane toggles say.
                 row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
+                // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
+                if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,
@@ -57,6 +59,12 @@ enum SidebarLaneStatus {
                         return nil
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
+                }
+                // `experiments.agentBadges`' Done pill: a chat's finished turn nobody has seen, as the Priority view ranks it.
+                row.agentDone = local.contains { lane in
+                    let read = marks.state.read[lane.id] == AgentPriorityMarks.stamp(lane)
+                    if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
+                    return false
                 }
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)

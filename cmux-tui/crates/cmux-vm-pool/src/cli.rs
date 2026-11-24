@@ -48,7 +48,7 @@ Options:
             work waits and every VM is at 90% CPU or RAM; pause under 20% CPU)
             --demand-file PATH (one line `vcpu=N mem_gib=M`, reread each tick;
             resumes by vCPU instead of by queued job count)
-            --keep-idle K (4) --tick SECS (5) [--once]
+            --keep-idle K (0) --tick SECS (5) [--once]
             The idle pause takes only machines that opted in (Freestyle metadata
             cmux_schedule=pause, GCE label cmux-schedule=pause) or match
             --pause-prefix P; the persistent pools stay running by default.
@@ -103,7 +103,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
         org: github::DEFAULT_ORG.to_owned(),
         group: github::DEFAULT_GROUP.to_owned(),
         idle_minutes: 10,
-        keep_idle: 4,
+        keep_idle: Policy::default().keep_idle,
         tick_s: 5,
         interval_ms: 500,
         label: Policy::default().label,

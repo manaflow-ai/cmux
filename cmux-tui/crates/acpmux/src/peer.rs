@@ -86,6 +86,9 @@ mod restart_tests;
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
 #[cfg(test)]
+#[path = "peer_hub_behind_tests.rs"]
+mod hub_behind_tests;
+#[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
 #[cfg(test)]
@@ -178,6 +181,20 @@ pub enum PeerNotice {
 }
 
 impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
     /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
     pub(crate) fn list_bytes(&self) -> Option<u64> {
         let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
@@ -197,6 +214,48 @@ impl PeerNotice {
 #[cfg(test)]
 pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
     rows.iter().map(|row| serde_json::from_str(row).unwrap_or(Value::Null)).collect()
+}
+
+#[cfg(test)]
+impl Peer {
+    /// Test stand-in for the far daemon: answers every request this peer's link would write with
+    /// `result` until one is `m`, and gives that one's line. No `serve` runs: the frames are read
+    /// off the link's queue as `serve` would read them.
+    pub(crate) async fn answer_until_for_tests(&self, m: &str, result: Value) -> Value {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return Value::Null };
+        // A queue that closed gives Null, which no test takes for the request it waits on.
+        while let Some(frame) = out.recv().await {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            if let Some(key) = frame.key
+                && let Some(reply) = self.pending.lock().await.remove(&key)
+            {
+                let _ = reply.send(Ok(result.clone()));
+            }
+            if line.get("method").and_then(Value::as_str) == Some(m) {
+                return line;
+            }
+        }
+        Value::Null
+    }
+
+    /// The link's socket open, as `run` leaves it once a handshake begins: requests on it are
+    /// queued for the far daemon (the test reads them with `answer_until_for_tests`).
+    pub(crate) fn open_link_for_tests(&self) {
+        self.open.store(true, Ordering::SeqCst);
+    }
+
+    /// How many of the frames queued on the link now and not read yet are requests `m`.
+    pub(crate) async fn queued_for_tests(&self, m: &str) -> usize {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return 0 };
+        let mut count = 0;
+        while let Ok(frame) = out.try_recv() {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            count += usize::from(line.get("method").and_then(Value::as_str) == Some(m));
+        }
+        count
+    }
 }
 
 /// A row as a list carries it: its compact JSON.
@@ -444,7 +503,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_outbox::NoticeOutbox,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
