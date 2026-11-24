@@ -40,26 +40,34 @@ cmux_hermes_wrapper_is_self_or_shim() {
 # mise keeps a shim for every tool one of its runtimes installed. Where no
 # version of the tool is selected, the shim runs the next `hermes` on PATH
 # outside its own directory, and in a cmux terminal that is cmux's shim, which
-# starts this wrapper again. Every step of that chain is an exec and mise leaves
-# the launch as it found it, so the process, its parent, PATH and the arguments
-# stay the same. A wrapper that starts with a record matching all of them knows
-# the shims it tried came back, and takes the target after them. Nothing else
-# matches: a child process has its own id, and a tool mise did start runs with
-# the PATH mise gave it, so one that replaces itself by name is prepared again
+# starts this wrapper again. Every step of that chain is an exec, so the
+# process, its parent and the arguments stay the same; PATH may not, because
+# mise tidies it on the way. A wrapper that starts with a record matching those
+# three, and whose first choice of target is still a shim it recorded, knows
+# that shim came back and takes the target after it. Nothing else passes: a
+# child process has its own id, and a tool mise did start has its install ahead
+# of the shim on PATH, so one that replaces itself by name is prepared again
 # like any new launch. The names are lowercase so the passthrough's CMUX_*
 # cleanup leaves them in place.
-cmux_hermes_wrapper_launch_id() {
+cmux_hermes_wrapper_arguments_id() {
     printf '%s:' "$#"
-    printf '%s\0' "${PATH:-}" "$@" | /usr/bin/cksum
+    printf '%s\0' "$@" | /usr/bin/cksum
 }
 
+cmux_hermes_wrapper_clear_handoff() {
+    unset cmux_hermes_wrapper_handoff_process cmux_hermes_wrapper_handoff_arguments cmux_hermes_wrapper_handoff_targets
+}
+
+# Whether the record could be this launch come back, and whether it is. The
+# second is settled once the first choice of target is known.
+cmux_hermes_wrapper_launch_may_have_returned=0
 cmux_hermes_wrapper_launch_returned=0
 if [[ -n "${cmux_hermes_wrapper_handoff_targets:-}" &&
       "${cmux_hermes_wrapper_handoff_process:-}" == "$$:$PPID" &&
-      "${cmux_hermes_wrapper_handoff_launch:-}" == "$(cmux_hermes_wrapper_launch_id "$@")" ]]; then
-    cmux_hermes_wrapper_launch_returned=1
+      "${cmux_hermes_wrapper_handoff_arguments:-}" == "$(cmux_hermes_wrapper_arguments_id "$@")" ]]; then
+    cmux_hermes_wrapper_launch_may_have_returned=1
 else
-    unset cmux_hermes_wrapper_handoff_process cmux_hermes_wrapper_handoff_launch cmux_hermes_wrapper_handoff_targets
+    cmux_hermes_wrapper_clear_handoff
 fi
 
 # mise's shims (rtx before the rename) are symlinks to its own binary.
@@ -80,7 +88,10 @@ cmux_hermes_wrapper_is_fallback_shim() {
 }
 
 cmux_hermes_wrapper_target_returned() {
-    (( cmux_hermes_wrapper_launch_returned == 1 )) || return 1
+    (( cmux_hermes_wrapper_launch_returned == 1 )) && cmux_hermes_wrapper_target_recorded "$1"
+}
+
+cmux_hermes_wrapper_target_recorded() {
     local candidate="$1" tried
     while IFS= read -r tried; do
         [[ -n "$tried" ]] || continue
@@ -102,10 +113,10 @@ cmux_hermes_wrapper_exec_target() {
             cmux_hermes_wrapper_handoff_targets="$target"
         fi
         cmux_hermes_wrapper_handoff_process="$$:$PPID"
-        cmux_hermes_wrapper_handoff_launch="$(cmux_hermes_wrapper_launch_id "$@")"
-        export cmux_hermes_wrapper_handoff_process cmux_hermes_wrapper_handoff_launch cmux_hermes_wrapper_handoff_targets
+        cmux_hermes_wrapper_handoff_arguments="$(cmux_hermes_wrapper_arguments_id "$@")"
+        export cmux_hermes_wrapper_handoff_process cmux_hermes_wrapper_handoff_arguments cmux_hermes_wrapper_handoff_targets
     else
-        unset cmux_hermes_wrapper_handoff_process cmux_hermes_wrapper_handoff_launch cmux_hermes_wrapper_handoff_targets
+        cmux_hermes_wrapper_clear_handoff
     fi
     exec "$target" "$@"
 }
@@ -744,17 +755,24 @@ if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
 fi
 
-REAL_HERMES=""
-if (( cmux_hermes_wrapper_launch_returned == 1 )); then
-    # With nothing after the shims, start over: the shim then reports the
-    # missing version itself, and a tool that only replaced itself runs again.
-    REAL_HERMES="$(find_real_hermes)" || cmux_hermes_wrapper_launch_returned=0
+REAL_HERMES="$(find_real_hermes)" || {
+    echo "Error: hermes not found in PATH" >&2
+    exit 127
+}
+# The record is this launch come back only if the first choice is still a shim
+# this wrapper recorded. Then take the target after it. With nothing after it,
+# start over: the shim then reports the missing version itself.
+if (( cmux_hermes_wrapper_launch_may_have_returned == 1 )) && cmux_hermes_wrapper_target_recorded "$REAL_HERMES"; then
+    cmux_hermes_wrapper_launch_returned=1
+    if cmux_hermes_wrapper_next_target="$(find_real_hermes)"; then
+        REAL_HERMES="$cmux_hermes_wrapper_next_target"
+    else
+        cmux_hermes_wrapper_launch_returned=0
+    fi
+    unset cmux_hermes_wrapper_next_target
 fi
 if (( cmux_hermes_wrapper_launch_returned == 0 )); then
-    REAL_HERMES="$(find_real_hermes)" || {
-        echo "Error: hermes not found in PATH" >&2
-        exit 127
-    }
+    cmux_hermes_wrapper_clear_handoff
 fi
 
 # The pass that launched from this process already installed the hooks and

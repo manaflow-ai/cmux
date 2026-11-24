@@ -12,25 +12,33 @@ self_path="$0"
 # mise keeps a shim for every tool one of its runtimes installed. Where no
 # version of the tool is selected, the shim runs the next `pi` on PATH outside
 # its own directory, and in a cmux terminal that is cmux's shim, which starts
-# this wrapper again. Every step of that chain is an exec and mise leaves the
-# launch as it found it, so the process, its parent, PATH and the arguments stay
-# the same. A wrapper that starts with a record matching all of them knows the
-# shims it tried came back, and takes the target after them. Nothing else
-# matches: a child process has its own id, and a tool mise did start runs with
-# the PATH mise gave it, so one that replaces itself by name is prepared again
-# like any new launch.
-cmux_pi_wrapper_launch_id() {
+# this wrapper again. Every step of that chain is an exec, so the process, its
+# parent and the arguments stay the same; PATH may not, because mise tidies it
+# on the way. A wrapper that starts with a record matching those three, and
+# whose first choice of target is still a shim it recorded, knows that shim came
+# back and takes the target after it. Nothing else passes: a child process has
+# its own id, and a tool mise did start has its install ahead of the shim on
+# PATH, so one that replaces itself by name is prepared again like any new
+# launch.
+cmux_pi_wrapper_arguments_id() {
     printf '%s:' "$#"
-    printf '%s\0' "${PATH:-}" "$@" | /usr/bin/cksum
+    printf '%s\0' "$@" | /usr/bin/cksum
 }
 
+cmux_pi_wrapper_clear_handoff() {
+    unset cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_arguments cmux_pi_wrapper_handoff_targets
+}
+
+# Whether the record could be this launch come back, and whether it is. The
+# second is settled once the first choice of target is known.
+cmux_pi_wrapper_launch_may_have_returned=0
 cmux_pi_wrapper_launch_returned=0
 if [[ -n "${cmux_pi_wrapper_handoff_targets:-}" &&
       "${cmux_pi_wrapper_handoff_process:-}" == "$$:$PPID" &&
-      "${cmux_pi_wrapper_handoff_launch:-}" == "$(cmux_pi_wrapper_launch_id "$@")" ]]; then
-    cmux_pi_wrapper_launch_returned=1
+      "${cmux_pi_wrapper_handoff_arguments:-}" == "$(cmux_pi_wrapper_arguments_id "$@")" ]]; then
+    cmux_pi_wrapper_launch_may_have_returned=1
 else
-    unset cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+    cmux_pi_wrapper_clear_handoff
 fi
 
 # mise's shims (rtx before the rename) are symlinks to its own binary.
@@ -51,7 +59,10 @@ cmux_pi_wrapper_is_fallback_shim() {
 }
 
 cmux_pi_wrapper_target_returned() {
-    (( cmux_pi_wrapper_launch_returned == 1 )) || return 1
+    (( cmux_pi_wrapper_launch_returned == 1 )) && cmux_pi_wrapper_target_recorded "$1"
+}
+
+cmux_pi_wrapper_target_recorded() {
     local candidate="$1" tried
     while IFS= read -r tried; do
         [[ -n "$tried" ]] || continue
@@ -73,10 +84,10 @@ cmux_pi_wrapper_exec_target() {
             cmux_pi_wrapper_handoff_targets="$target"
         fi
         cmux_pi_wrapper_handoff_process="$$:$PPID"
-        cmux_pi_wrapper_handoff_launch="$(cmux_pi_wrapper_launch_id "$@")"
-        export cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+        cmux_pi_wrapper_handoff_arguments="$(cmux_pi_wrapper_arguments_id "$@")"
+        export cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_arguments cmux_pi_wrapper_handoff_targets
     else
-        unset cmux_pi_wrapper_handoff_process cmux_pi_wrapper_handoff_launch cmux_pi_wrapper_handoff_targets
+        cmux_pi_wrapper_clear_handoff
     fi
     exec "$target" "$@"
 }
@@ -108,19 +119,26 @@ resolve_pi() {
     return 1
 }
 
-cmux_pi=""
-if (( cmux_pi_wrapper_launch_returned == 1 )); then
-    # With nothing after the shims, start over: the shim then reports the
-    # missing version itself, and a tool that only replaced itself runs again.
-    cmux_pi="$(resolve_pi 2>/dev/null || true)"
-    [ -n "$cmux_pi" ] || cmux_pi_wrapper_launch_returned=0
-fi
-if (( cmux_pi_wrapper_launch_returned == 0 )); then
-    cmux_pi="$(resolve_pi 2>/dev/null || true)"
-fi
+cmux_pi="$(resolve_pi 2>/dev/null || true)"
 if [ -z "$cmux_pi" ]; then
     echo "Configured agent is unavailable. Install it or check the command configuration." >&2
     exit 127
+fi
+# The record is this launch come back only if the first choice is still a shim
+# this wrapper recorded. Then take the target after it. With nothing after it,
+# start over: the shim then reports the missing version itself.
+if (( cmux_pi_wrapper_launch_may_have_returned == 1 )) && cmux_pi_wrapper_target_recorded "$cmux_pi"; then
+    cmux_pi_wrapper_launch_returned=1
+    cmux_pi_next="$(resolve_pi 2>/dev/null || true)"
+    if [ -n "$cmux_pi_next" ]; then
+        cmux_pi="$cmux_pi_next"
+    else
+        cmux_pi_wrapper_launch_returned=0
+    fi
+    unset cmux_pi_next
+fi
+if (( cmux_pi_wrapper_launch_returned == 0 )); then
+    cmux_pi_wrapper_clear_handoff
 fi
 
 # The pass that launched from this process already decided whether to add the
