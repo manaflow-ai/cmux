@@ -90,6 +90,8 @@ parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default
                     help="reveal: seconds the window stays off the screen")
 parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
                     help="file_after_popup: the popup closes itself (window.close() from its opener) or its window closes")
+parser.add_argument("--app-env", dest="app_env", action="append", default=[],
+                    help="KEY=VALUE for the launched app's environment (repeatable), e.g. CMUX_CEF_RESIZE_FENCE_MS=500")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
@@ -1773,6 +1775,11 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,860",
        "CMUX_IN_TREE_PAGES": "1" if opts.in_tree == "on" else "0"}
+for pair in opts.app_env:
+    key, _, val = pair.partition("=")
+    if key:
+        env[key] = val
+RAW["app_env"] = opts.app_env
 # Through bench_launch (fresh saved state, a refusal when another app of the tag runs, and a refusal when the app comes
 # up in the other in-tree mode): a bare Popen answered by a leftover app of the tag reported in_tree off with
 # CMUX_IN_TREE_PAGES=1 (step verify-live-e67776ff-cmux19).

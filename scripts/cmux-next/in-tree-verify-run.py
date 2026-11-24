@@ -17,7 +17,8 @@ Runs each part with the step's --app and --tag, in its own folder under --out, a
   coverage-off    in-tree-coverage-checks.py --in-tree off (the same rows with the switch off, for parity)
                   (--coverage-checks passes its --checks; not in the default parts)
 
---parts picks a subset (comma-separated). --live-checks passes in-tree-live-checks.py its --checks (default: all).
+--parts picks a subset (comma-separated). --live-checks passes in-tree-live-checks.py its --checks (default: all);
+--live-env K=V[,K=V] passes it --app-env for each (the app's environment).
 """
 import json, os, platform, subprocess, sys, time
 
@@ -66,6 +67,9 @@ def part(name):
                "--in-tree", name.split("-")[1]]
         if value("--live-checks"):
             cmd += ["--checks", value("--live-checks")]
+        # --live-env K=V,K2=V2: the launched app's environment (in-tree-live-checks.py --app-env).
+        for pair in filter(None, (value("--live-env") or "").split(",")):
+            cmd += ["--app-env", pair]
     elif name in ("coverage-on", "coverage-off"):
         report = os.path.join(folder, "in-tree-coverage.json")
         cmd = ["in-tree-coverage-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
