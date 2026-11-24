@@ -86,6 +86,10 @@ extension ShortcutAction {
         case .focusHistoryForward: return "Focus Forward"
         case .focusHistoryLast:
             return String(localized: "shortcut.focusHistoryLast.label", defaultValue: "Focus Last")
+        case .focusHistoryLastSurface:
+            return String(localized: "shortcut.focusHistoryLastSurface.label", defaultValue: "Focus Last Surface")
+        case .focusHistoryLastWorkspace:
+            return String(localized: "shortcut.focusHistoryLastWorkspace.label", defaultValue: "Focus Last Workspace")
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"
