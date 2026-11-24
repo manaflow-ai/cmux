@@ -35,7 +35,8 @@ import Testing
     @Test func topIsTheSectionsFirstSlotAndSendsNoMove() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule) == .top(anchor: nil))
-        #expect(Self.move(rule) == nil)
+        // Sent: the daemon's own top follows its active workspace, which may sit in an agent's group.
+        #expect(Self.move(rule) == .top(anchor: nil))
         // A loose current workspace changes nothing: still the section's top.
         #expect(Self.slot(NewWorkspaceDefaultSlot(placement: .top, current: "a")) == .top(anchor: nil))
     }
@@ -43,7 +44,7 @@ import Testing
     @Test func topStaysBelowHome() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule, home: true) == .below("home"))
-        #expect(Self.move(rule, home: true) == nil)
+        #expect(Self.move(rule, home: true) == .below("home"))
     }
 
     @Test func topInAGroupIsTheGroupsTopAndIsMoved() {
