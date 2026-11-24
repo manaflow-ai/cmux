@@ -158,6 +158,20 @@ pub struct BindFile {
     pub env: Env,
     /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
     pub carrier: Option<crate::carrier_entry::CarrierRoute>,
+    /// The compiler cache's settings (`sccache_env.rs`). Never fails the bind: a refused section
+    /// only leaves the cache off.
+    pub sccache: SccacheSection,
+}
+
+/// `bind.json`'s `sccache` section (`sccache_env.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SccacheSection {
+    /// No section: the cache is off.
+    Absent,
+    /// The variables, in name order.
+    Env(Vec<(String, String)>),
+    /// Refused, and why (names only, never a value): the cache is off.
+    Refused(String),
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -204,7 +218,14 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
             Some(route)
         }
     };
-    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
+    let sccache = match raw.get("sccache") {
+        None => SccacheSection::Absent,
+        Some(section) => match crate::sccache_env::parse_section(section) {
+            Ok(vars) => SccacheSection::Env(vars),
+            Err(why) => SccacheSection::Refused(why),
+        },
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier, sccache })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.

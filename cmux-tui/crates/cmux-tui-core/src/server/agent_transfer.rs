@@ -108,6 +108,12 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
+/// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
+/// one its `identify` does not list, so an older machine image takes the chat without it
+/// instead of refusing the whole move (`cmux link agent move`).
+pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
+    &["transfer-composers-v1", "transfer-images-v1"];
 /// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
 /// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
 pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";
