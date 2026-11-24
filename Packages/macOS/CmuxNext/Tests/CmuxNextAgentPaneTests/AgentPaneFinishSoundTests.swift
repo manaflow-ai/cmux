@@ -48,10 +48,16 @@ import Testing
         #expect(AgentPaneFinishSound.pick(.turn, look: .muted, lookOnly: false) == nil)
         #expect(AgentPaneFinishSound.pick(.ci, look: .muted, lookOnly: true) == nil)
         // sounds.when "whenInactive": a pack's sound is muted while cmux is active, kept while it is not.
-        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, appActive: true) == .muted)
-        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, appActive: false) == .play(look))
-        #expect(AgentPaneFinishSound.muted(.unset, when: .whenInactive, appActive: true) == .unset)
-        #expect(AgentPaneFinishSound.muted(.play(look), when: .unlessViewed, appActive: true) == .play(look))
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, workspaceMuted: false, viewed: false, appActive: true) == .muted)
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .whenInactive, workspaceMuted: false, viewed: false, appActive: false) == .play(look))
+        #expect(AgentPaneFinishSound.muted(.unset, when: .whenInactive, workspaceMuted: false, viewed: false, appActive: true) == .unset)
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .unlessViewed, workspaceMuted: false, viewed: false, appActive: true) == .play(look))
+        // "unlessViewed" (the default): not while the person looks at this chat.
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .unlessViewed, workspaceMuted: false, viewed: true, appActive: true) == .muted)
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .always, workspaceMuted: false, viewed: true, appActive: true) == .play(look))
+        // A muted workspace mutes the pack under every timing; an unset moment stays the page's own sound.
+        #expect(AgentPaneFinishSound.muted(.play(look), when: .always, workspaceMuted: true, viewed: false, appActive: false) == .muted)
+        #expect(AgentPaneFinishSound.muted(.unset, when: .always, workspaceMuted: true, viewed: false, appActive: false) == .unset)
         #expect(AgentPaneFinishSound.lookEvent(.turn) == .finished)
         #expect(AgentPaneFinishSound.lookEvent(.ci) == .ciGreen)
         #expect(AgentPaneFinishSound.lookEvent(.merged) == nil)

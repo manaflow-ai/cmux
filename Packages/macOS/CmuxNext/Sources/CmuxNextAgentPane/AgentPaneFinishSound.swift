@@ -72,23 +72,43 @@ public final class AgentPaneFinishSound {
         return now - last >= minimumGap
     }
 
-    /// Where a page's finish moments find the active look's sound (``AgentPaneShared/lookSound``).
-    public typealias LookSource = @MainActor (Kind) -> NotificationSoundPreferences.LookMoment
+    /// Where a page's finish moments find the active look's sound (``AgentPaneShared/lookSound``), given where the
+    /// chat sits (``Placement``).
+    public typealias LookSource = @MainActor (Kind, Placement) -> NotificationSoundPreferences.LookMoment
+
+    /// Where the chat that finished sits, for the mutes a look's sound obeys like any notification sound.
+    public nonisolated struct Placement: Hashable, Sendable {
+        /// Its workspace's key on this Mac's daemon (``AgentPaneTransport/workspaceID``, the id
+        /// `notifications.mutedWorkspaces` lists); nil for none or another machine's workspace.
+        public var workspace: String?
+        /// The person is looking at it: its window is key in the active app and the pane is shown.
+        public var viewed: Bool
+
+        public init(workspace: String? = nil, viewed: Bool = false) {
+            self.workspace = workspace
+            self.viewed = viewed
+        }
+    }
 
     /// The active look's sound for `kind`: its theme file's sound pack while
     /// `notifications.sounds.lookPack` is on (``NotificationPreferences/lookSound(for:minuteOfDay:)``), muted under
-    /// quiet hours, `sounds.when: "whenInactive"` while cmux is active, and the other notification mutes.
-    /// The pane's view sets it from the app's ``AgentPaneShared``; nil, or an unset answer, keeps the built-in sound.
+    /// quiet hours, a muted workspace, `sounds.when` (``muted(_:when:workspaceMuted:viewed:appActive:)``) and the other
+    /// notification mutes. The pane's view sets it from the app's ``AgentPaneShared``; nil, or an unset answer,
+    /// keeps the built-in sound.
     var lookSound: LookSource?
+    /// Where the chat sits now (``Placement``); the pane's view sets it.
+    var placement: (@MainActor () -> Placement)?
 
     /// The app's look source: `settings`' notification preferences at the local time of each sound.
     public static func lookSource(_ settings: @escaping @MainActor () -> SettingsController?) -> LookSource {
-        { kind in
+        { kind, placement in
             guard let settings = settings(), let event = lookEvent(kind) else { return .unset }
             let notifications = settings.snapshot.notifications
             let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
             let moment = notifications.lookSound(for: event, minuteOfDay: (now.hour ?? 0) * 60 + (now.minute ?? 0))
-            return muted(moment, when: notifications.sounds.when, appActive: NSApp?.isActive ?? false)
+            let workspaceMuted = placement.workspace.map(notifications.mutedWorkspaces.contains) ?? false
+            return muted(moment, when: notifications.sounds.when, workspaceMuted: workspaceMuted, viewed: placement.viewed,
+                         appActive: NSApp?.isActive ?? false)
         }
     }
 
@@ -101,12 +121,15 @@ public final class AgentPaneFinishSound {
         }
     }
 
-    /// `moment` under `notifications.sounds.when`: a pack's sound is muted while cmux is active when it
-    /// sounds only `whenInactive`. A chat has no single viewed pane, so `unlessViewed` keeps it.
+    /// `moment` under the chat's mutes, as a notification's sound obeys them (NotificationPolicy): nothing in a
+    /// muted workspace, and `notifications.sounds.when` (`unlessViewed`: not while the person looks at this chat,
+    /// `whenInactive`: not while cmux is active). An unset moment stays unset: the built-in finish sound is the
+    /// page's own setting.
     nonisolated static func muted(_ moment: NotificationSoundPreferences.LookMoment, when: NotificationSoundTiming,
-                                  appActive: Bool) -> NotificationSoundPreferences.LookMoment {
-        guard moment != .unset, when == .whenInactive, appActive else { return moment }
-        return .muted
+                                  workspaceMuted: Bool, viewed: Bool, appActive: Bool) -> NotificationSoundPreferences.LookMoment {
+        guard moment != .unset else { return moment }
+        guard !workspaceMuted, when.plays(viewed: viewed, appActive: appActive) else { return .muted }
+        return moment
     }
 
     /// The sound `kind` plays: the look's at its notification volume when it has one, nothing when the pack
@@ -129,7 +152,7 @@ public final class AgentPaneFinishSound {
         // A merge right after a turn's end still sounds: a bigger moment outranks the gap.
         let outranks = lastKind.map { kind.rank > $0.rank } ?? true
         guard outranks || Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
-        guard let picked = Self.pick(kind, look: lookSound?(kind) ?? .unset, lookOnly: lookOnly),
+        guard let picked = Self.pick(kind, look: lookSound?(kind, placement?() ?? Placement()) ?? .unset, lookOnly: lookOnly),
               let sound = sounds[picked.name] ?? Self.load(picked.name) else { return }
         sounds[picked.name] = sound
         sound.volume = picked.volume

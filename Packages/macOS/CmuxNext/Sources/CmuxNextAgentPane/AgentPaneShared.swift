@@ -1,6 +1,7 @@
 public import CmuxNextApps
 public import CmuxNextDesign
 public import CmuxNextPalette
+import AppKit
 
 /// The app-wide objects every agent pane view shares, built once in the composition root and handed to each
 /// ``AgentPaneView`` the agent tabs make, so the app holds one value for them, not one field per object.
@@ -69,6 +70,12 @@ extension AgentPaneView {
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
         model.finishSound.lookSound = shared.lookSound
+        // Where a look sound's chat sits: its workspace, for a muted one, and whether it is viewed (shown in the key
+        // window of the active app), for `unlessViewed`.
+        model.finishSound.placement = { [weak self, weak model] in
+            let viewed = self.map { $0.window?.isKeyWindow == true && NSApp?.isActive == true && !$0.isHiddenOrHasHiddenAncestor } ?? false
+            return AgentPaneFinishSound.Placement(workspace: model?.transport.workspaceID(), viewed: viewed)
+        }
         model.hostTouch.marks = shared.hostMarks
         if let projectPalette = shared.projectPalette {
             // The pane's own closures hold the bridge; it holds the pane weakly.
