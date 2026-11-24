@@ -5,7 +5,8 @@ public import CmuxNextActions
 /// opens the bundle installed now, the newer build a nightly put under the running app included. Its
 /// catalog row shipped before any handler, so every build answered "relaunchKeepSessions has no handler
 /// in this build" and no agent could restart the app (cmux#53047).
-public enum QuitActions {
+public struct QuitActions {
+    public init() {}
     public enum RelaunchDecision: Equatable, Sendable {
         /// Quit with this choice; a helper opens the bundle once the process has exited.
         case relaunch(QuitSessionsChoice)
