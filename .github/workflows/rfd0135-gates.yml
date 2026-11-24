@@ -44,11 +44,12 @@ permissions:
 
 concurrency:
   group: rfd0135-gates-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  # Only a pull request's newer push cuts its older run; a nightly always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,7 +65,7 @@ jobs:
 
   gates:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.RUNNER_POOLS && fromJSON(vars.RUNNER_POOLS).linux_8 || 'cmux-linux' }}
     # A pull request runs one short lid (60 s) and no matrix; the nightly, 10 lids of 30 min at once and the matrix.
     timeout-minutes: 300
     strategy:
@@ -132,11 +133,12 @@ jobs:
           name: rfd0135-gate-${{ matrix.gate }}-${{ github.run_id }}
           path: ${{ runner.temp }}/rfd0135/${{ matrix.gate }}/*.json
           if-no-files-found: ignore
+          retention-days: 3
 
   summary:
     needs: gates
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -158,3 +160,4 @@ jobs:
         with:
           name: rfd0135-gates-${{ github.run_id }}
           path: ${{ runner.temp }}/summary
+          retention-days: 3
