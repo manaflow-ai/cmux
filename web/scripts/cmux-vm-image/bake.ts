@@ -115,6 +115,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
 import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
@@ -1130,6 +1131,21 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
   ].join(" && ");
 }
 
+/**
+ * The fresh image's df, inodes and depth-2 du (disk-record.ts), after clean and before the snapshot: in the image
+ * record as `disk` and alone as disk-<name>.json. Information only: a failure is recorded, never fails the bake.
+ */
+async function recordDisk(ctx: Ctx): Promise<void> {
+  const { vm, L, options, result, name } = ctx;
+  try {
+    const disk = parseDiskOutput(await L.step(vm, "disk-record", DISK_RECORD_COMMAND), { image: name, measured_at: new Date().toISOString(), source: "bake" });
+    result.disk = disk;
+    writeFileSync(path.join(options.outDir, `disk-${name}.json`), `${JSON.stringify(disk, null, 2)}\n`);
+  } catch (error) {
+    result.diskError = error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   const { vm, L, options, result, name, lock } = ctx;
   await L.step(vm, "identity-final", devboxIdentityCheckCommand());
@@ -1146,6 +1162,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
   await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-out-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
+  await recordDisk(ctx);
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
   await L.step(vm, "tmp-no-writer", tmpWritersCommand());
