@@ -5,9 +5,9 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The Now Playing card's level bars and its Play or Pause disc: the bars sway only while a track
-/// plays and motion is allowed, as endless render-server loops (no app timer), and rest still
-/// otherwise; Play or Pause is the one filled control and follows the track.
+/// The Now Playing card's level bars: they sway only while a track plays and motion is allowed, as
+/// endless render-server loops (no app timer), and rest still otherwise. The controls' look and
+/// centering: `NowPlayingControlsCenteringTests`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingLevelsTests {
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
@@ -87,20 +87,5 @@ import Testing
         #expect(h.loops.isEmpty, "turning Reduce Motion on mid-track left the bars moving")
         Motion.reduceMotionOverride = false
         #expect(h.loops.count == 3, "turning Reduce Motion off mid-track left the bars still")
-    }
-
-    @Test func playOrPauseIsTheFilledControl() throws {
-        let h = Harness()
-        defer { h.close() }
-        h.show(playing: true)
-        let play = h.card.playPauseButton
-        #expect(play.accessibilityLabel() == "Pause" && play.icon == .mediaPause)
-        #expect(play.frame.height > h.card.nextButton.frame.height, "Play or Pause is no larger than Next")
-        #expect(abs(play.frame.midY - h.card.nextButton.frame.midY) < 1, "the controls are not on one line")
-        play.displayIfNeeded()
-        let fill = try #require(play.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
-        #expect(fill.alphaComponent > 0.9, "Play or Pause is not filled")
-        h.show(playing: false)
-        #expect(play.accessibilityLabel() == "Play" && play.icon == .mediaPlay)
     }
 }
