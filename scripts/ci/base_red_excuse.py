@@ -8046,6 +8046,21 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
+# A namesake read as a mismatch (2026-11-24, hq#20438): two workflows each ran a job 'tests' on the head, and the
+# refusal named only the base run, so the green base run of one ('lane-gh-broker tests', whose own 'tests' red was a
+# test budget overrun) was taken for the base verdict of the other ('fleet-reconcilers tests', excused as a shared base
+# red). The verdict was right; the text hid which workflow each run was. So the refusal names both runs' workflows.
+def workflow_label(run: dict, workflow=None) -> str:
+    """RUN's workflow as a refusal names it: its name and file, else WORKFLOW (an id or a file) when RUN has neither."""
+    name = run.get("name") if isinstance(run, dict) else None
+    file = workflow_file(run)
+    if name and file:
+        return f"workflow '{name}' ({file})"
+    if name or file:
+        return f"workflow '{name or file}'"
+    return f"workflow {workflow}"
+
+
 def workflow_file(run: dict) -> str | None:
     """RUN's workflow file name (`ci.yml`), the one repo-independent way to name a workflow: a workflow's id is per
     repo, so another repo's runs of the same workflow are listed by this name (Evidence.listed, list_base_runs take
@@ -9422,6 +9437,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                   "the merge-base has a verdict for it" + (f": {dispatch}" if dispatch else "")
                                   ) from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
+                              f"{workflow_label(base_run, base_workflow)}, the base's run of the head's red in run "
+                              f"{job.get('run_id')} ({workflow_label(workflow_info, workflow)}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
         bare = view is not UNPLACED and got.unplaced is not None
