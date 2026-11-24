@@ -129,6 +129,8 @@ const ARM_METRICS = [
   "to_frame_p50",
   "to_frame_p95",
   "to_frame_max",
+  "to_paint_p50",
+  "to_paint_p95",
   ...(WRAP ? (["wrap_to_frame_p50", "wrap_to_frame_p95", "flat_to_frame_p95"] as const) : []),
   "to_listener_p95",
   "to_paint_p95",
@@ -569,6 +571,8 @@ async function measure(
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
+      to_paint_p50: typing.to_paint?.p50_ms,
+      to_paint_p95: typing.to_paint?.p95_ms,
       ...(WRAP
         ? {
             wrap_keys: wrapKeys.length,
