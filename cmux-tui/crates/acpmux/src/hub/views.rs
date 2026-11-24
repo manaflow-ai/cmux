@@ -457,8 +457,7 @@ impl Hub {
         if parent == id {
             return None;
         }
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
+        let session = self.session_get(&parent)?;
         let listed = session.read_meta(|m| {
             let at = crate::store::now_ms();
             m.lineage.is_none()
@@ -515,7 +514,7 @@ impl Hub {
         };
         let id = session.id.clone();
         runtime.spawn_blocking(move || {
-            let session = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            let session = hub.session_get(&id);
             // Gone meanwhile (purged): nothing to seed.
             if let Some(session) = session {
                 hub.seed_time_breakdown(&session, backfill);
@@ -1162,11 +1161,16 @@ impl Hub {
         let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
+        let (now, evictions, rehydrations) = self.eviction_counts();
+        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations});
         json!({
             "version": VERSION,
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Chats out of memory as compact rows now, and evictions and rehydrations since the
+            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
+            "evicted": evicted,
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
             // only the live view (agent service v2, row 7b). Not one snapshot with that read.
@@ -1206,6 +1210,9 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
+            // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
+            "lockBridge": super::lock_bridge::state(),
             // Each host's last shadow admission verdict (`shadow_admission.rs`): what a
             // pressure-aware admission would say. Nothing is deferred on it.
             "shadowAdmission": crate::shadow_admission::last_verdicts(),
