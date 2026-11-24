@@ -468,11 +468,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window", Request),
         untyped("_acpmux/chats_window_close", Request),
         untyped("_acpmux/chats_window_changed", Notification),
-        // A new chat's place mode (`server/chat_place.rs`) and the harness scorecard
-        // (`server/chats/scorecard.rs`).
-        untyped("_acpmux/chat_place", Request),
-        untyped("_acpmux/chat_place_set", Request),
-        untyped("_acpmux/scorecard", Request),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
         untyped("_acpmux/transfer_base", Request),
