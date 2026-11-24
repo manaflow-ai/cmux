@@ -528,8 +528,10 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
     assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
+    // The session row reads `capacity` while acpmux holds that turn to retry it (#54477,
+    // `hub/auto_resume.rs` `row_last_turn`); the turn's own result above stays `failed`.
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    assert_eq!(summary["lastTurn"]["status"], "failed");
+    assert_eq!(summary["lastTurn"]["status"], "capacity");
     assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
 
     // A clean turn has no error fields.
