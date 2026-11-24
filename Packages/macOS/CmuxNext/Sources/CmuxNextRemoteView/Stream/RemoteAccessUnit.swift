@@ -27,10 +27,16 @@ public nonisolated struct RemoteFrameFlags: OptionSet, Sendable, Hashable {
 /// decode: Annex-B bytes (start codes, with VPS/SPS/PPS before keyframes)
 /// exactly as the host's encoder produced them.
 public nonisolated struct RemoteAccessUnit: Sendable, Hashable {
-    /// Host frame number; consecutive within one stream. A gap means frames
-    /// were lost and later non-key frames must not be shown.
+    /// Host frame number. Without `refFrame`, consecutive within one stream: a
+    /// gap means frames were lost and later non-key frames must not be shown.
+    /// A cmux.rd/1 host can skip a number (its encoder dropped that frame), so
+    /// there `refFrame` decides instead.
     public var frame: UInt32
     public var flags: RemoteFrameFlags
+    /// The frame this one predicts from, as the host's frame body names it
+    /// (cmux-rd-proto `ref_frame`); nil when the source does not say, or for a
+    /// frame that references none (a keyframe).
+    public var refFrame: UInt32?
     /// Host monotonic capture time in microseconds (frame body prefix).
     public var tCaptureMicros: UInt64
     /// Annex-B H.264 or HEVC.
@@ -41,9 +47,10 @@ public nonisolated struct RemoteAccessUnit: Sendable, Hashable {
     public var releasedAtNanos: UInt64
 
     public init(frame: UInt32, flags: RemoteFrameFlags, tCaptureMicros: UInt64, data: Data, codec: RemoteVideoCodec,
-                releasedAtNanos: UInt64 = 0) {
+                releasedAtNanos: UInt64 = 0, refFrame: UInt32? = nil) {
         self.frame = frame
         self.flags = flags
+        self.refFrame = refFrame
         self.tCaptureMicros = tCaptureMicros
         self.data = data
         self.codec = codec
