@@ -776,7 +776,7 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
     static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if advertised().is_empty() || STARTED.swap(true, Ordering::SeqCst) {
+    if advertised().is_empty() || STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     let spawned =

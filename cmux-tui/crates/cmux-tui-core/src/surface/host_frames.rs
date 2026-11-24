@@ -602,7 +602,7 @@ impl LinkTask {
         }
         let name = self.name.clone();
         spawn_or(&name, self, LinkTask::run, |task| {
-            finish_stream(&task.control_responses, task.early, &task.queue);
+            finish_stream(&task.control_responses, task.early, &task.queue)
         });
     }
 }
