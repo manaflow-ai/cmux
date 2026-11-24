@@ -677,11 +677,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
-        if window?.inLiveResize == true {
-            Self.resizeSteps.measure("root_fit_screens") { fitScreensToBounds() }
-        } else {
-            fitScreensToBounds()
-        }
+        let fitStart = window?.inLiveResize == true ? ResizeStepTimes.start() : nil
+        fitScreensToBounds()
+        if let fitStart { Self.resizeSteps.record("root_fit_screens", since: fitStart) }
         updateVisibility()
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()

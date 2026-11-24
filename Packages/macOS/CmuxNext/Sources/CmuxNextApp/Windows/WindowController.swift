@@ -503,7 +503,9 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         // A live resize's step: its main-thread time (`debug.layout_counters` `resize_steps`, DEBUG and bench builds).
         guard inLiveResize else { return super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
-        LayoutRootView.resizeSteps.measure("set_frame") { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+        let start = ResizeStepTimes.start()
+        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+        LayoutRootView.resizeSteps.record("set_frame", since: start)
     }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 

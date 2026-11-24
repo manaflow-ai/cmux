@@ -14,20 +14,20 @@ public struct ResizeStepTimes {
 
     public init() {}
 
-    /// Runs `body`, recording its time under `phase` (DEBUG and bench builds; else it only runs `body`).
-    @inline(__always)
-    public mutating func measure<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
+    /// The time now, to pass to ``record(_:since:)`` after the phase's work. Two calls instead of one closure-taking
+    /// `mutating` method: a phase measured inside another on the same value (the root's `layout()` inside
+    /// `ShellWindow.setFrame`) then never holds the value across the inner one, which was a Swift exclusivity trap.
+    public static func start() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
+
+    /// Records the time since `start` under `phase` (DEBUG and bench builds; else nothing).
+    public mutating func record(_ phase: String, since start: UInt64) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        let start = DispatchTime.now().uptimeNanoseconds
-        defer {
-            let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
-            var list = phases[phase, default: []]
-            if list.count >= Self.capacity { list.removeFirst(list.count - Self.capacity + 1) }
-            list.append(ms)
-            phases[phase] = list
-        }
+        let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
+        var list = phases[phase, default: []]
+        if list.count >= Self.capacity { list.removeFirst(list.count - Self.capacity + 1) }
+        list.append(ms)
+        phases[phase] = list
         #endif
-        return try body()
     }
 
     /// Per phase: steps, p50, p95, max and the ten slowest steps' indexes and times.

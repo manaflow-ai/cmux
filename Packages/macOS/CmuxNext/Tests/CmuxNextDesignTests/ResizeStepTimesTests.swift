@@ -10,11 +10,17 @@ import Testing
 @Suite(.serialized) struct ResizeStepTimesTests {
     static var shared = ResizeStepTimes()
 
+    /// The fix: a phase takes its start with no access held, and records in one short write after its work, so the
+    /// root's record inside `setFrame`'s never overlaps it. The red is this suite at the commit before (the nested
+    /// closure-taking `measure`, which trapped).
     @Test func aMeasureInsideAnotherOnTheSameValueRecordsBoth() {
         Self.shared.reset()
-        Self.shared.measure("outer") {
-            Self.shared.measure("inner") { _ = (0..<100).reduce(0, +) }
-        }
+        // The shape of setFrame (outer) and the root's layout inside it (inner), on one shared value.
+        let outer = ResizeStepTimes.start()
+        let inner = ResizeStepTimes.start()
+        _ = (0..<100).reduce(0, +)
+        Self.shared.record("inner", since: inner)
+        Self.shared.record("outer", since: outer)
         let report = Self.shared.report()
         #expect(report["outer"]?["steps"] as? Int == 1)
         #expect(report["inner"]?["steps"] as? Int == 1)
