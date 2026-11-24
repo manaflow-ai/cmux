@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110.
+// cmux-tui mux protocol 12, IR 2125d4818d7baff2ad07081a0d24f9f08c6e3ac1b85d431671279a113df8e21a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2194,6 +2194,9 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    /// true: the reply also carries agent_notice_stats.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub stats: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3168,6 +3171,11 @@ pub type ReleaseSurfaceSizeResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReleaseWorkspaceNamesRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ReloadConfigRequest {
 }
 
@@ -3583,6 +3591,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_id: Optional<String>,
@@ -3605,9 +3615,6 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub version: Optional<String>,
 }
-
-#[rustfmt::skip]
-pub type SetClientInfoResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5752,6 +5759,10 @@ impl CmuxClient {
         self.execute(&RELEASE_SURFACE_SIZE_METADATA, &request)
     }
 
+    pub fn release_workspace_names(&mut self, request: ReleaseWorkspaceNamesRequest) -> Result<T::ReleaseWorkspaceNamesResult> {
+        self.execute(&RELEASE_WORKSPACE_NAMES_METADATA, &request)
+    }
+
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
     }
@@ -5941,8 +5952,11 @@ impl CmuxClient {
         self.execute(&SET_CELL_PIXELS_METADATA, &request)
     }
 
-    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<T::SetClientInfoResult> {
         if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
+        if !request.api_version.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
         }
         if !request.device_id.is_missing() {

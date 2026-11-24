@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110. */
+/* cmux-tui mux protocol 12, IR 2125d4818d7baff2ad07081a0d24f9f08c6e3ac1b85d431671279a113df8e21a. */
 
 
 import type * as T from "./types.js";
@@ -1523,6 +1523,8 @@ export type ListClientsResult = Array<T.ClientInfo>;
 export interface ListNotificationsRequest extends CmuxRequestBase {
   cmd: "list-notifications";
   "limit"?: (bigint) | null;
+  /** true: the reply also carries agent_notice_stats. */
+  "stats"?: boolean;
 }
 export type ListNotificationsResult = T.JsonValue;
 
@@ -2196,6 +2198,11 @@ export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
 }
 export type ReleaseSurfaceSizeResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface ReleaseWorkspaceNamesRequest extends CmuxRequestBase {
+  cmd: "release-workspace-names";
+}
+
 /** Protocol v6; authority: control. */
 export interface ReloadConfigRequest extends CmuxRequestBase {
   cmd: "reload-config";
@@ -2500,6 +2507,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2512,7 +2520,6 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
-export type SetClientInfoResult = T.EmptyResult;
 
 /** Protocol v10; authority: control. */
 export interface SetClientSizingRequest extends CmuxRequestBase {
@@ -3388,6 +3395,7 @@ export type CmuxRequest =
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
+  | ReleaseWorkspaceNamesRequest
   | ReloadConfigRequest
   | RemoteHostAppRequest
   | RemoteHostCallRequest
@@ -5152,6 +5160,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "release-workspace-names": {
+    request: ReleaseWorkspaceNamesRequest;
+    result: T.ReleaseWorkspaceNamesResult;
+    authority: "control";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
   "reload-config": {
     request: ReloadConfigRequest;
     result: ReloadConfigResult;
@@ -5418,7 +5434,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "set-client-info": {
     request: SetClientInfoRequest;
-    result: SetClientInfoResult;
+    result: T.SetClientInfoResult;
     authority: "control";
     since: 6;
     capability: null;

@@ -1087,6 +1087,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1103,9 +1105,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -5253,6 +5258,29 @@ Example:
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
 {"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
+```
+
+### release-workspace-names
+
+| Field | Value |
+| --- | --- |
+| name | `release-workspace-names` |
+| status | implemented |
+| since | protocol 12 |
+
+Hands every user-owned workspace name back to the automatic namer: each name keeps its text, becomes automatic and advances its name revision. A name already automatic is skipped, so a second call releases nothing. A row renamed between the read and its release stays pinned.
+
+Params: none.
+
+Result: `object{released:uint64,still_pinned:uint64}`.
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":22,"cmd":"release-workspace-names"}
+{"id":22,"ok":true,"data":{"released":3,"still_pinned":0}}
 ```
 
 ### rename-provider-managed-workspace

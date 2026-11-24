@@ -85,6 +85,10 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<ResourceSelectors>",
         )
 
+    def test_a_struct_variant_with_no_fields_has_no_request_fields(self) -> None:
+        # `ReleaseWorkspaceNames {},` in the Command enum (base went red on it, 2026-11-24).
+        self.assertEqual(CHECKER.runtime_command_fields()["release-workspace-names"], {})
+
     def test_struct_fields_accept_restricted_visibility(self) -> None:
         fields = CHECKER._parse_rust_fields(
             "    pub(super) conversation: String,\n"
