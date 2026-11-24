@@ -2437,6 +2437,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/place_chat",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/move_targets",
       "params": {
         "$ref": "#/types/MoveTargetsParams"

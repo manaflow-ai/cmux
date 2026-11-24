@@ -420,6 +420,10 @@ pub mod method {
     /// Make a new project folder with an empty git repository for a chat to start in
     /// (`server/project_new.rs`): `{name}` -> `{cwd, name, git}`.
     pub const MUX_PROJECT_NEW: &str = "_acpmux/project_new";
+    /// Where a new chat whose Where menu says Auto runs (`server/place.rs`,
+    /// `cmux_host_budget::place::decide`): `{where?, targets: [{place, headroom}]}` ->
+    /// `{placement, reason, why, targets}`.
+    pub const MUX_PLACE_CHAT: &str = "_acpmux/place_chat";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";

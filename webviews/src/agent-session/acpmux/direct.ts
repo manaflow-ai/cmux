@@ -248,6 +248,7 @@ import {
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
+import { PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -13779,6 +13780,12 @@ export class AcpmuxDirectClient {
         throw new Error(translate("project.new.unavailable"));
       return reply.cwd;
     });
+  }
+  /// Auto (autoWhereModel.ts): asks this Mac's own daemon where a new chat runs, and why. None when the
+  /// daemon does not serve `_acpmux/place_chat`: the chat then runs here.
+  get placeChat(): ((method: string, params: Record<string, unknown>) => Promise<unknown>) | undefined {
+    if (this.host.peer || !this.localOrigin || !this.extensions.includes(PLACE_CHAT_METHOD)) return undefined;
+    return (method, params) => this.request(method, params, 5000);
   }
   get prewarmSupported(): boolean {
     return !this.host.peer && this.localOrigin && this.extensions.includes(PREWARM_METHOD);

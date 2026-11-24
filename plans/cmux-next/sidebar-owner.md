@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (Remote ergonomics flow 5, ports): Sidebar-Look: Leo asked “and how are the ergonomics of cmux remote tho esp in the gui?”. The workspace hover card draws each port of the workspace's `ports` entry as a row under the tab list ("localhost:5173", network icon, the tab rows' hover and pressed fill), with details shut or open; a click opens it in a browser tab of the workspace, on another machine through its daemon. The entry no longer repeats as a details fact when it has a port to open; one with only words still does. Gallery: "Ports · this Mac · one port", "· two ports · details open", "· another machine · its localhost", "· port row hovered".
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
   the settings watcher. The existing title, detail and metadata slots move together using
