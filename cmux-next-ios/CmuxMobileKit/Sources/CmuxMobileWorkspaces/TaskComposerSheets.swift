@@ -319,7 +319,6 @@ struct TaskComposerDraftRow: View {
         return parts.joined(separator: " · ")
     }
 }
-#endif
 
 /// Where a task runs, as a menu: the Macs, then the Cloud machines under their own heading. Task
 /// Options' Mac row and the composer's place pill open it.
@@ -361,3 +360,4 @@ struct TaskPlaceMenu<MenuLabel: View>: View {
         }
     }
 }
+#endif
