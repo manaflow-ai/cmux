@@ -394,6 +394,9 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        // When the page's open of its acpmux socket reached the app: after the handshake the page asks
+        // at once, so the time to here is the bridge's (bench_relaunch_reconnect.py PHASES).
+        if method == "transport.open" { AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_asked") }
         // Short words and numbers for the flicker ring file: written off the main thread, answered
         // at once, and never parsed as a pane request nor logged (it comes once a second while the page draws).
         if method == AgentPageFlickerLog.method {
