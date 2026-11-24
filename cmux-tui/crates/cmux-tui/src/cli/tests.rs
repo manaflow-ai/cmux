@@ -672,6 +672,29 @@ fn server_lifecycle_routing_flags_follow_action() {
 }
 
 #[test]
+fn server_hold_terminals_parses_with_its_state_dir() {
+    let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
+        &strings(&[
+            "server",
+            "hold-terminals",
+            "--session",
+            "review-session",
+            "--state-dir",
+            "/tmp/review-state",
+        ]),
+        Surface::CmuxTui,
+    )
+    .unwrap() else {
+        panic!("server hold-terminals must produce a server plan");
+    };
+    assert_eq!(global.session.as_deref(), Some("review-session"));
+    let lifecycle::ServerAction::HoldTerminals { state_dir } = plan.action else {
+        panic!("server hold-terminals must hold terminals");
+    };
+    assert_eq!(state_dir, Some(PathBuf::from("/tmp/review-state")));
+}
+
+#[test]
 fn server_stats_parses_with_routing_options() {
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
         parse(&strings(&["server", "stats", "--session", "review-session"]), Surface::CmuxTui)
