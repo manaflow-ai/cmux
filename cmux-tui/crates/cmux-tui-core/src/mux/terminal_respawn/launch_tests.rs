@@ -156,10 +156,11 @@ fn a_respawned_terminal_keeps_ten_thousand_lines_for_scroll_and_find() {
     live.vt_write(after.as_bytes());
     let live_rows = retained_rows(&mut live);
 
-    let previous = store.previous_screen(&id);
+    let previous = store.previous_screen(&id, scrollback);
     let _ = std::fs::remove_dir_all(&root);
     let previous = previous.expect("the store kept a screen");
     let replay_bytes = previous.bytes.len();
+    let previous = fit_seed(previous, scrollback).expect("the screen fits a seed");
     let seed = respawn_seed(Some(previous.bytes), Some("restarted 05:34"));
     let mut respawned =
         ghostty_vt::Terminal::new(cols, rows, scrollback, ghostty_vt::Callbacks::default())

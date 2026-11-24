@@ -520,7 +520,8 @@ fn a_snapshot_replaced_while_a_respawn_reads_it_keeps_the_tail_bytes() {
             let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
         }));
     });
-    let screen = store.previous_screen(&id).expect("a stored screen");
+    let screen =
+        store.previous_screen(&id, crate::DEFAULT_SCROLLBACK_LIMIT_BYTES).expect("a stored screen");
     let _ = std::fs::remove_dir_all(&root);
     let text = String::from_utf8_lossy(&screen.bytes);
     assert!(text.contains("second"), "the tail's bytes were lost: {text:?}");
