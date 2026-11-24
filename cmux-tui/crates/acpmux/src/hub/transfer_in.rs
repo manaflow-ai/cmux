@@ -405,7 +405,7 @@ impl Hub {
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
-        let mut manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         let incoming_epoch = manifest_epoch(&manifest)?;
         let incoming_floor = incoming_epoch.unwrap_or(0);
         let guard = match params.get("guard") {
@@ -459,10 +459,7 @@ impl Hub {
         // `--as`: the chat lands on this machine's own harness for the same agent.
         let as_harness = params.get("asHarness").and_then(Value::as_str).filter(|s| !s.is_empty());
         let family = manifest["harnessFamily"].as_str();
-        received_harness(&self.config.read().await, harness, as_harness, family)?;
-        if let Some(name) = as_harness {
-            manifest.set("asHarness", json!(name));
-        }
+        received_harness(&*self.config.read().await, harness, as_harness, family)?;
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
@@ -500,7 +497,12 @@ impl Hub {
             if let Some(g) = &guard {
                 g.store(&dir)?;
             }
-            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
+            // `transfer_finish` lands it on the `--as` harness.
+            let mut stored = manifest.clone();
+            if let Some(name) = as_harness {
+                stored.set("asHarness", json!(name));
+            }
+            crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&stored)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         if let Some(Err(e)) = stage_id
