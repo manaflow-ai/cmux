@@ -438,7 +438,24 @@ mod tests {
         for echoed in [recap, ask, "Yes, post it", "A wrap-up answer echoed its own input."] {
             assert!(!answer.contains(echoed), "echoed {echoed}: {answer}");
         }
-        assert!(answer.len() < args.to_string().len(), "{answer}");
+        // The cut is in the structured answer — the part a session's context keeps — and its
+        // cost is now constant: a 4-field receipt that does not grow with the input. (The
+        // `content` sentence is the same fixed text either way, so for a very short call the
+        // whole answer can still outweigh the call; what used to scale with the input no longer
+        // does.)
+        let structured = result["structuredContent"].to_string();
+        assert!(structured.len() < 64, "{structured}");
+        let bigger = call(&json!({
+            "recap": format!("{recap} {}", recap.repeat(6)),
+            "ask": ask,
+            "actions": ["Yes, post it", "Not now"],
+            "learned": ["A wrap-up answer echoed its own input."],
+        }));
+        assert_eq!(
+            bigger["structuredContent"].to_string(),
+            structured,
+            "the receipt grew with the input"
+        );
         assert!(result["content"][0]["text"].as_str().unwrap().contains("End your turn now"));
         // Without an ask the answer says so, and a refusal still refuses.
         let plain = call(&json!({"recap": "Done."}));
