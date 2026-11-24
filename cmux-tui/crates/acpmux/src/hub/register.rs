@@ -40,34 +40,61 @@ pub const AUTO_FEATURE: &str = "registerAuto";
 /// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
 /// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
 /// alone never makes a chat deliverable. Read once, at the first use.
-static REGISTERED: std::sync::LazyLock<std::sync::Mutex<Option<HashSet<String>>>> =
+///
+/// This lock guards memory only, never a disk read or write (RFD 0124 R6): [`is_registered`] is
+/// asked under the hub's sessions lock (`renewed_name`), so a write held here on a stalled or
+/// full disk held every `ls` behind it.
+static REGISTERED: std::sync::LazyLock<crate::worker_lock::Mutex<Option<HashSet<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Held across the file's write, so writes go one at a time, each with the set as of its start:
+/// a later write never loses to an older set.
+static WRITING: std::sync::LazyLock<crate::worker_lock::Mutex<()>> =
     std::sync::LazyLock::new(Default::default);
 
 fn registered_file() -> PathBuf {
     crate::config::home().join("bridge-registered.json")
 }
 
+fn read_registered_file() -> HashSet<String> {
+    crate::qos::off_worker(|| std::fs::read(registered_file()))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .map(|ids| ids.into_iter().collect())
+        .unwrap_or_default()
+}
+
 fn with_registered<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    let loaded = {
+        let kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        kept.is_some()
+    };
+    // The first use reads the file with no lock held; a racing first use reads it too, and the
+    // first to land keeps its copy.
+    let read = (!loaded).then(read_registered_file);
     let mut kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let set = kept.get_or_insert_with(|| {
-        std::fs::read(registered_file())
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
-            .map(|ids| ids.into_iter().collect())
-            .unwrap_or_default()
-    });
+    let set = kept.get_or_insert_with(|| read.unwrap_or_default());
     f(set)
 }
 
-/// Keeps chat `id` registered, across a daemon restart. The file is written while the record's
-/// lock is held, so two registrations at once never write an older set over a newer one.
+/// Reads the registered set now, at the daemon's start, so no request is the first use that
+/// reads the file.
+pub(crate) fn load_registered() {
+    with_registered(|_| ());
+}
+
+/// Keeps chat `id` registered, across a daemon restart. The set is changed in memory, then
+/// written with only [`WRITING`] held, off the runtime's workers: a stalled disk holds this
+/// registration alone, never a reader of the set.
 fn mark_registered(id: &str) -> anyhow::Result<()> {
-    with_registered(|set| -> anyhow::Result<()> {
-        set.insert(id.to_owned());
+    with_registered(|set| set.insert(id.to_owned()));
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let bytes = with_registered(|set| {
         let mut ids: Vec<&String> = set.iter().collect();
         ids.sort();
-        crate::agent_tools::write_private(&registered_file(), &serde_json::to_vec(&ids)?)
-    })
+        serde_json::to_vec(&ids)
+    })?;
+    crate::qos::off_worker(|| crate::agent_tools::write_private(&registered_file(), &bytes))
 }
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).
@@ -301,13 +328,18 @@ impl Hub {
         // session's restart has it), and never while the process it is registered to still runs:
         // the registry's session id is anyone's to write.
         if let Some(s) = shown.as_ref().filter(|s| is_registered(s)) {
-            let kept = crate::claude_peers::kept_token(&crate::config::home(), &s.id);
+            // Files: off the runtime's workers (RFD 0124 R6).
+            let kept = crate::qos::off_worker(|| {
+                crate::claude_peers::kept_token(&crate::config::home(), &s.id)
+            });
             let same =
                 kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
             if !same {
                 let recorded_live = kept.as_ref().is_some_and(|k| {
                     k.started.is_some()
-                        && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
+                        && crate::qos::off_worker(|| {
+                            crate::claude_peers::started_at(&claude_home, k.pid)
+                        }) == k.started
                 });
                 if recorded_live {
                     return Err(unproven(format!(
@@ -379,12 +411,15 @@ impl Hub {
                         token,
                         started: Some(started),
                     };
-                    crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
-                        RpcError::internal(format!("could not keep the token: {e}"))
-                    })?;
+                    crate::qos::off_worker(|| {
+                        crate::claude_peers::save_token(&home, &session.id, &kept)
+                    })
+                    .map_err(|e| RpcError::internal(format!("could not keep the token: {e}")))?;
                     token_kept = true;
                 }
-                _ => crate::claude_peers::forget_token(&home, &session.id),
+                _ => crate::qos::off_worker(|| {
+                    crate::claude_peers::forget_token(&home, &session.id);
+                }),
             }
         }
         self.append(
