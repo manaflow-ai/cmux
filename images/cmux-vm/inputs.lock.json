@@ -645,27 +645,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "12da26a5ddc8eab0a6046cb5d030e285f67f42a4",
-      "url": "https://files.cmux.com/cmux-tui/12da26a5ddc8eab0a6046cb5d030e285f67f42a4/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "dcd716295d30026e23b1d5a0f61aecda0ae39f16d690ccc4767a88be0ae1643c",
-      "size": 156560336,
+      "version": "67d01201b152cf703af3a9adab5bba27544acf99",
+      "url": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "644dfc6b00e388745cd490f067cd6d6540e74bbb4f73a7a955c7f559eacdfc2d",
+      "size": 156603856,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/12da26a5ddc8eab0a6046cb5d030e285f67f42a4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45350596500; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45351419018; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "12da26a5ddc8eab0a6046cb5d030e285f67f42a4",
-      "url": "https://files.cmux.com/cmux-tui/12da26a5ddc8eab0a6046cb5d030e285f67f42a4/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "version": "67d01201b152cf703af3a9adab5bba27544acf99",
+      "url": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/cmux-tui-hook-x86_64-unknown-linux-musl",
       "sha256": "291bd6fef2b55d7a3476680cfcf27e58f146182e066b75ca996450ce11d045d5",
       "size": 4936256,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/12da26a5ddc8eab0a6046cb5d030e285f67f42a4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45350596500; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45351419018; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -805,6 +805,19 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
+    },
+    {
+      "name": "sccache",
+      "version": "0.20.0",
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.20.0/sccache-v0.20.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "c3c5db9cd7e3be12b7bab350d8fe8ae7dcfb7269d5432b269e0dffa1a87c6ed2",
+      "size": 10547998,
+      "format": "tar.gz",
+      "bin": { "sccache": "sccache-v0.20.0-x86_64-unknown-linux-musl/sccache" },
+      "versionArgs": ["--version"],
+      "expect": "sccache 0.20.0",
+      "notices": ["sccache-v0.20.0-x86_64-unknown-linux-musl/LICENSE"],
+      "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
     },
     {
       "name": "cmux-cua",
