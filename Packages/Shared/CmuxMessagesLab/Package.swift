@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
@@ -83,3 +84,8 @@ let package = Package(
         ),
     ]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["MessagesLabHome"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Network
 
@@ -210,7 +211,7 @@ extension AcpmuxEnvironment {
         let socketPath = socketPath
         return Task.detached {
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
-            let connection = NWConnection(to: endpoint, using: .tcp)
+            let connection = CmuxEgress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)

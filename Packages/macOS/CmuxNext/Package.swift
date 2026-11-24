@@ -2958,6 +2958,7 @@ let package = Package(
     ],
     products: packageProducts,
     dependencies: [
+        .package(path: "../../Shared/CmuxEgress"),
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
@@ -2993,3 +2994,8 @@ let package = Package(
     ],
     targets: packageTargets,
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxNextAgentPane", "CmuxNextApp", "CmuxNextBrowser", "CmuxNextBrowserCore", "CmuxNextChiefViews", "CmuxNextChromiumRuntime", "CmuxNextCloud", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextDevices", "CmuxNextDictation", "CmuxNextHangReports", "CmuxNextHostedChief", "CmuxNextMacScreen", "CmuxNextMobile", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextRemoteLocalhost", "CmuxNextRemoteView", "CmuxNextServer", "CmuxNextUpdater"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

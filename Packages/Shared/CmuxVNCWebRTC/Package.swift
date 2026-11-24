@@ -24,6 +24,7 @@ let package = Package(
         .executable(name: "cmux-vnc-host", targets: ["cmux-vnc-host"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxVNC"),
     ],
     targets: [
@@ -42,3 +43,8 @@ let package = Package(
                     swiftSettings: swiftSettings),
     ]
 )
+
+// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
+for target in package.targets where ["CmuxVNCWebRTC"].contains(target.name) {
+    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
+}

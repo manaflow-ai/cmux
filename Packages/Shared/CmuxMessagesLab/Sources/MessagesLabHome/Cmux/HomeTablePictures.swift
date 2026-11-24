@@ -1,3 +1,4 @@
+import CmuxEgress
 import CryptoKit
 import Foundation
 import ImageIO
@@ -167,10 +168,11 @@ final class HomeTablePictures: Sendable {
     /// The default ``Fetch``: an ephemeral `URLSession` (no cookies, no cache), https only, 200, at most ``maxBytes``.
     @Sendable static func download(_ url: URL) async throws -> URL {
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
+        CmuxEgress.allowNamed(url)   // a picture in the person's own conversation
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
-        let session = URLSession(configuration: config)
+        let session = CmuxEgress.session(site: "MessagesLabHome.HomeTablePictures", configuration: config)
         defer { session.finishTasksAndInvalidate() }
         let (file, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
