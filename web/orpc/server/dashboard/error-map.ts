@@ -29,6 +29,7 @@ export const DASHBOARD_ERRORS = {
   BAD_GATEWAY: { status: 502, data: refusal },
   NOT_IMPLEMENTED: { status: 501, data: refusal },
   UNAVAILABLE: { status: 503, data: refusal },
+  GATEWAY_TIMEOUT: { status: 504, data: refusal },
 } as const;
 
 export type DashboardErrorCode = keyof typeof DASHBOARD_ERRORS;

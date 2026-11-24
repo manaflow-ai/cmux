@@ -80,6 +80,11 @@
       "message": "이 머신이 시작 중이거나 일시 정지 중이거나 실행 중이 아니어서 지금은 이 작업을 할 수 없습니다.",
       "action": "잠시 후 다시 시도하세요. cmux vm ls로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
     },
+    "hostRecovery": {
+      "title": "머신의 호스트를 복구하는 중입니다",
+      "message": "이 머신의 디스크가 복구 중인 Cloud 호스트에 있어 아직 시작할 수 없습니다. 파일은 보존됩니다.",
+      "action": "몇 분 후에 다시 시도하세요. 머신을 삭제하거나 다시 만들지 마세요. 디스크는 보존되며 머신과 함께 돌아옵니다. 1시간이 지나도 시작되지 않으면 추적 ID와 함께 지원팀에 문의하세요."
+    },
     "networkRuleCapacity": {
       "title": "네트워크 규칙 한도 도달",
       "message": "네트워크 정책은 저장되었지만 적용되지 않았습니다. cmux Cloud의 네트워크 규칙 한도에 도달했습니다.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "코딩 에이전트",
     "typingMultitasking": "멀티태스킹",
     "subtitle": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
+    "nextCallout": "새 소식: 다음 cmux의 미리보기 버전인 <link>cmux NEXT</link>를 사용해 보세요.",
     "features": "기능",
     "faq": "FAQ",
     "communitySection": "커뮤니티",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "이 작업은 되돌릴 수 없으며 계정과 관련된 모든 데이터가 삭제됩니다.",
         "deleteAcknowledge": "내 계정과 데이터가 영구적으로 삭제된다는 것을 이해했습니다.",
         "deleteConfirm": "계정 삭제",
-        "deleteError": "계정을 삭제할 수 없습니다. 다시 시도하세요."
+        "deleteError": "계정을 삭제할 수 없습니다. 다시 시도하세요.",
+        "deleteErrorPending": "계정이 이미 삭제되는 중입니다. 잠시 후 다시 시도하세요.",
+        "deleteErrorRetryable": "계정 삭제를 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
+        "deleteAppStoreTitle": "App Store 구독은 계속 갱신됩니다",
+        "deleteAppStoreBody": "cmux 계정을 삭제해도 App Store 구독은 취소되지 않습니다. App Store에서 취소할 때까지 Apple이 계속 요금을 청구합니다.",
+        "deleteAppStoreManage": "App Store에서 구독 관리"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "실패",
           "paused": "일시 중지됨",
           "destroyed": "삭제됨"
-        }
+        },
+        "wake": "깨우기",
+        "waking": "깨우는 중…",
+        "wakeError": "이 머신을 깨우지 못했습니다. 다시 시도하세요."
       },
       "network": {
         "open": "네트워크",

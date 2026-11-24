@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { personalPlanIdForSubscription } from "../billing/subscriptionPlan";
+import { nextPlanIdForSubscription, type NextPlanId } from "../billing/nextPlans";
 
 import {
   isAnalyticsTestRun,
@@ -82,7 +83,7 @@ export async function captureBillingCheckoutStarted(
   input: {
     readonly sessionId: string;
     readonly subject: StripeBillingAnalyticsSubject;
-    readonly plan: "go" | "pro" | "max" | "team";
+    readonly plan: "go" | "pro" | "max" | "team" | NextPlanId;
     readonly billingInterval: "month" | "year";
     /** Where the checkout link was opened from (page, app button, channel). */
     readonly attribution: CheckoutAttribution;
@@ -236,13 +237,16 @@ function subscriptionEvent(
   common: Record<string, unknown>,
 ): MappedBillingEvent {
   const attribution = checkoutAttributionFromMetadata(subscription.metadata);
+  const plan = subscription.metadata?.plan === "team"
+    ? "team"
+    : nextPlanIdForSubscription(subscription) ?? personalPlanIdForSubscription(subscription);
   return {
     name: `cmux_billing_subscription_${action}`,
     properties: {
       ...common,
-      plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription),
+      plan,
       billing_interval: planItem(subscription)?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
-      ...(action === "deleted" ? {} : { $set: { billing_plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription) } }),
+      ...(action === "deleted" ? {} : { $set: { billing_plan: plan } }),
       subscription_status: subscription.status,
       cancel_at_period_end: subscription.cancel_at_period_end,
       cancellation_reason: subscription.cancellation_details?.reason ?? null,

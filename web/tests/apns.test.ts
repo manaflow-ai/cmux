@@ -32,6 +32,7 @@ import {
   MAX_PUSH_BODY_CHARS,
   MAX_PUSH_DISMISS_IDS,
   MAX_PUSH_ID_CHARS,
+  isRetiredApnsBundle,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -476,6 +477,16 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.app.beta",
       environment: "production",
     });
+    // cmux CLASSIC is a TestFlight build, so it uses the production APNs host.
+    expect(normalizeApnsBundle("dev.cmux.app.classic")).toEqual({
+      bundleId: "dev.cmux.app.classic",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle(" dev.cmux.app.classic ")).toEqual({
+      bundleId: "dev.cmux.app.classic",
+      environment: "production",
+    });
+    expect(normalizeApnsBundle("dev.cmux.app.classic.NotificationService")).toBeNull();
     expect(normalizeApnsBundle("com.cmux.app")).toEqual({
       bundleId: "com.cmux.app",
       environment: "production",
@@ -512,9 +523,8 @@ describe("apns route policy", () => {
   });
 
   test("allows the internal TestFlight bundle id as a production APNs topic", () => {
-    // The scheduled internal TestFlight lane ships dev.cmux.app.internal
-    // (.github/workflows/ios-testflight.yml); TestFlight uses the production
-    // APNs environment. Rejecting it here makes every internal-beta phone fail
+    // cmux INTERNAL (dev.cmux.app.internal) is cmux-next's TestFlight build;
+    // TestFlight uses the production APNs environment. Rejecting it here makes every internal-beta phone fail
     // device-token registration with invalid_bundle_id, so pushes never arrive.
     expect(normalizeApnsBundle("dev.cmux.app.internal")).toEqual({
       bundleId: "dev.cmux.app.internal",
@@ -522,14 +532,13 @@ describe("apns route policy", () => {
     });
   });
 
-  test("allows the demo TestFlight bundle id as a production APNs topic", () => {
-    // The manual demo lane variant ships dev.cmux.app.demo
-    // (.github/workflows/ios-testflight.yml, variant=demo); TestFlight uses the
-    // production APNs environment, same as the internal lane above.
-    expect(normalizeApnsBundle("dev.cmux.app.demo")).toEqual({
-      bundleId: "dev.cmux.app.demo",
-      environment: "production",
-    });
+  test("rejects the retired cmux DEMO bundle id", () => {
+    // cmux DEMO (dev.cmux.app.demo) no longer ships, so its devices cannot
+    // register a push topic.
+    expect(normalizeApnsBundle("dev.cmux.app.demo")).toBeNull();
+    // A leftover install can still unregister its token.
+    expect(isRetiredApnsBundle("dev.cmux.app.demo")).toBe(true);
+    expect(isRetiredApnsBundle("dev.cmux.app.classic")).toBe(false);
   });
 
   test("bounds and trims push payloads before sending to APNs", () => {

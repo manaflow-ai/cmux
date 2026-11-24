@@ -1249,7 +1249,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if not args.repo:
         parser.error("--repo or GITHUB_REPOSITORY is required")
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except subprocess.CalledProcessError as error:
+        print(f"::error::{suite_run.failed_command_message(error)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

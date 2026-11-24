@@ -221,7 +221,7 @@ if ! awk '
 fi
 
 if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}" '
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
@@ -573,7 +573,7 @@ assert "workflow_dispatch:" in auto
 assert "source_run_id:" in auto and "source_run_attempt:" in auto
 assert "poll:" in auto
 assert "poll-notary-submission.py" in auto
-assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
+assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
