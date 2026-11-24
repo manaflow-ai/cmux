@@ -88,6 +88,7 @@ enum FirstPartyPageSchemes {
         .stats,
         .taskManager,
         .tasks,
+        .terminalHistory,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.

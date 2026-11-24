@@ -4,6 +4,12 @@ package import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWindowRules
 
+package extension PageDescriptor {
+    nonisolated static let terminalHistory = PageDescriptor(
+        id: "cmux.terminal-history", resource: "terminal-history",
+        namespaces: [TerminalHistoryBridge.namespace], ownsSearchField: true, followsChatZoom: true)
+}
+
 /// The hook identifies the transcript. The page receives a capability for this one chat:
 /// neither a file path nor a writable agent session crosses the page bridge.
 package nonisolated struct TerminalHistorySource: Equatable, Sendable {
@@ -27,10 +33,7 @@ package nonisolated struct TerminalHistorySource: Equatable, Sendable {
     @MainActor
     package func page(environment: AcpmuxEnvironment?, host: any AgentPaneHostProviding) -> PageWebView? {
         let provider = TerminalHistoryBridge(source: self, environment: environment, host: host)
-        let descriptor = PageDescriptor(id: "cmux.terminal-history", resource: "terminal-history",
-                                        namespaces: [TerminalHistoryBridge.namespace], ownsSearchField: true,
-                                        followsChatZoom: true)
-        return PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: TerminalHistoryBridge.namespace, provider: provider)])
+        return PageWebView(descriptor: .terminalHistory, routes: [PageRoute(prefix: TerminalHistoryBridge.namespace, provider: provider)])
     }
 
     @concurrent func read(_ method: AcpmuxHarnessMethod, environment: AcpmuxEnvironment,
@@ -45,7 +48,7 @@ package nonisolated struct TerminalHistorySource: Equatable, Sendable {
 
 @MainActor
 private final class TerminalHistoryBridge: PageProvider {
-    static let namespace = "cmux.terminal_history."
+    nonisolated static let namespace = "cmux.terminal_history."
     let source: TerminalHistorySource
     private let environment: AcpmuxEnvironment?
     private let host: any AgentPaneHostProviding
