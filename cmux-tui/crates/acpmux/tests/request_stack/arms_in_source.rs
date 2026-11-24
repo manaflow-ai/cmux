@@ -4,8 +4,8 @@
 //! An arm head is a line of the function's top `match m {` (8 spaces in) that starts with a method
 //! constant (`method::X`, `| method::X`), a string literal, a module's `METHOD` or a catalog RPC
 //! name, or a guard over a group of methods (`composer::handles(m)`, `queued::handles(m)`,
-//! `agent_login::METHODS`, `harness_admin::METHODS`), whose members are read from their files. A
-//! head of any other form panics: teach this file the new form.
+//! `agent_login::METHODS`, `harness_admin::METHODS`, `connections::METHODS`), whose members are
+//! read from their files. A head of any other form panics: teach this file the new form.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,6 +17,8 @@ const AGENT_LOGIN: &str = include_str!("../../src/server/agent_login.rs");
 const HARNESS_ADMIN: &str = include_str!("../../src/server/harness_admin.rs");
 const VM_HOST: &str = include_str!("../../src/server/vm_host.rs");
 const HOST_NOTICE: &str = include_str!("../../src/server/host_notice.rs");
+const CONNECTIONS: &str = include_str!("../../src/server/connections.rs");
+const CONTROLS: &str = include_str!("../../src/server/controls.rs");
 
 /// Every method name `dispatch_request` has an arm for.
 pub fn methods() -> BTreeSet<String> {
@@ -31,14 +33,17 @@ pub fn methods() -> BTreeSet<String> {
             ("queued::handles(m)", QUEUED, "fn handles("),
             ("agent_login::METHODS", AGENT_LOGIN, "const METHODS"),
             ("harness_admin::METHODS", HARNESS_ADMIN, "const METHODS"),
+            ("connections::METHODS", CONNECTIONS, "const METHODS"),
         ] {
             if head.contains(token) {
                 found.extend(constant_values(&block(source, start), &constants));
             }
         }
-        for (token, source) in
-            [("super::vm_host::METHOD", VM_HOST), ("super::host_notice::METHOD", HOST_NOTICE)]
-        {
+        for (token, source) in [
+            ("super::vm_host::METHOD", VM_HOST),
+            ("super::host_notice::METHOD", HOST_NOTICE),
+            ("super::controls::METHOD", CONTROLS),
+        ] {
             if pattern.contains(token) {
                 found.extend(literals(&block(source, "const METHOD: &str")));
             }
@@ -75,9 +80,10 @@ fn arm_heads() -> Vec<String> {
         if line == "    }" {
             break;
         }
-        // An arm head is at 8 spaces; deeper lines are arm bodies.
+        // An arm head is at 8 spaces; deeper lines are arm bodies. A lone `{` opens the body of
+        // an arm whose guard spans lines; its names are on the head line above.
         let Some(code) = line.strip_prefix("        ") else { continue };
-        if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
+        if code.starts_with(' ') || ["{", "}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
             continue;
         }
         let known = ["method::", "| ", "\"", "super::", "crate::", "m if ", "name if ", "other"];

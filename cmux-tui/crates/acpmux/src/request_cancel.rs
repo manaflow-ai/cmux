@@ -71,6 +71,19 @@ pub async fn until_cancelled<F: Future>(
     until_either(cancel, None, fut).await
 }
 
+/// `fut` in the cancel scope of the task that calls this, if it runs in one: for work a request
+/// moves to a task of its own (`server::requests::request_on_own_task`), so that work still reads
+/// [`requested`] as it is dropped after a cancel.
+pub fn carried<F: Future>(fut: F) -> impl Future<Output = F::Output> {
+    let flag = CANCELLED.try_with(Arc::clone).ok();
+    async move {
+        match flag {
+            Some(flag) => CANCELLED.scope(flag, fut).await,
+            None => fut.await,
+        }
+    }
+}
+
 /// [`until_cancelled`], cancelled by whichever of `cancel` and `also` fires first: a request's
 /// own cancel, or one of its copy on another connection (`server/dual_requests.rs`).
 pub async fn until_either<F: Future>(

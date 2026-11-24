@@ -731,14 +731,14 @@ async fn dispatch_brief(
         }
         return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
-    let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
-            Ok(created) => created,
-            Err(error) => {
-                hub.briefs.release(&id);
-                return Err(error);
-            }
-        };
+    let created = match request_on_own_task(hub, conn, method::SESSION_NEW, new_params, None).await
+    {
+        Ok(created) => created,
+        Err(error) => {
+            hub.briefs.release(&id);
+            return Err(error);
+        }
+    };
     let sid = created
         .get("sessionId")
         .and_then(Value::as_str)
@@ -1202,6 +1202,54 @@ pub(super) async fn dispatch_request(
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
     heap(|| dispatch_request_with_identity(hub, conn, m, params, resolved, None)).await
+}
+
+/// A request that an arm of `dispatch_request` makes itself (`_acpmux/dispatch`'s `session/new`,
+/// a durable dispatch's, `chat.fix_from_link`'s), served on a task of its own. Awaited in place,
+/// it is polled inside the arm that asked, so the worker's stack holds two poll frames of
+/// `dispatch_request_with_identity` (616 KiB each in a debug build, Linux x86_64, 2026-11-18):
+/// `_acpmux/dispatch` overflowed tokio's 2 MiB worker in `tests/request_stack.rs`. Boxing the
+/// future ([`heap`]) moves its state, not its poll frame; a task is polled from the worker's own
+/// loop. The request is aborted when the arm's future is dropped, and keeps its cancel scope
+/// (`request_cancel::carried`), as when it was awaited in place.
+pub(super) async fn request_on_own_task(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &'static str,
+    params: Value,
+    fixed_id: Option<String>,
+) -> Result<Value, RpcError> {
+    struct AbortOnDrop(tokio::task::AbortHandle);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    // Spawned in a plain fn: the spawn needs `dispatch_request_with_identity`'s future to be
+    // Send, and that future holds this one, so proving it here would need its own answer.
+    fn spawn(
+        hub: Arc<Hub>,
+        conn: Arc<Conn>,
+        m: &'static str,
+        params: Value,
+        fixed_id: Option<String>,
+    ) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+        // The connection's scope owns it, as it owns the request that asked (`conn-request`).
+        let owner = conn.clone();
+        owner.scope.spawn_named(
+            "conn-inner-request",
+            crate::request_cancel::carried(async move {
+                dispatch_request_with_identity(&hub, &conn, m, params, None, fixed_id).await
+            }),
+        )
+    }
+    let task = spawn(hub.clone(), conn.clone(), m, params, fixed_id);
+    let _abort = AbortOnDrop(task.abort_handle());
+    match task.await {
+        Ok(reply) => reply,
+        Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+        Err(e) => Err(RpcError::internal(format!("{m} was stopped: {e}"))),
+    }
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
