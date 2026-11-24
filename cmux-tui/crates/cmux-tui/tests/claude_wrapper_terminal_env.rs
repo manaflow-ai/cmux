@@ -55,10 +55,7 @@ fn a_terminal_claude_waits_out_a_529_and_gets_the_chats_knobs() {
     {
         assert_eq!(env.get(*key).map(String::as_str), Some(*value), "{key}: {env:?}");
     }
-    assert_eq!(
-        env.get("CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS").map(String::as_str),
-        Some("21600000")
-    );
+    assert_eq!(env.get("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE").map(String::as_str), Some("capacity"));
 }
 
 #[test]
@@ -67,12 +64,16 @@ fn a_terminal_claude_keeps_the_persons_own_values() {
     let env = launched_env(
         root.path(),
         &[
-            ("CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS", "60000"),
+            ("CLAUDE_CODE_MAX_RETRIES", "5"),
             ("CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", "4"),
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "80"),
         ],
     );
-    assert_eq!(env["CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS"], "60000");
+    // Their own retry choice decides: none of the capacity wait is added on top of it.
+    assert_eq!(env["CLAUDE_CODE_MAX_RETRIES"], "5");
+    for (key, _) in acpmux::harness_limits::CLAUDE_TERMINAL_ENV {
+        assert!(!env.contains_key(*key), "{key}: {env:?}");
+    }
     assert_eq!(env["CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"], "4");
     assert!(!env.contains_key("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "{env:?}");
 }
@@ -85,5 +86,5 @@ fn a_terminal_claude_keeps_an_autocompact_its_settings_chose() {
     fs::write(settings.join("settings.json"), r#"{"autoCompactWindow":200000}"#).unwrap();
     let env = launched_env(root.path(), &[]);
     assert!(!env.contains_key("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "{env:?}");
-    assert_eq!(env["CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS"], "21600000");
+    assert_eq!(env["CLAUDE_CODE_RETRY_WATCHDOG"], "1");
 }

@@ -54,8 +54,8 @@ pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_W
 /// it `claude -p` failed after 3 requests in 4 s ("Repeated 529 Overloaded errors"); with it
 /// the 7th request answered. `CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS` alone did not change
 /// that run. The watchdog would also sit out a plan's usage limit until it resets; a 0 budget
-/// for that keeps the usage limit in front of the person, as before. Esc still stops the wait. A person who set any of [`CLAUDE_RETRY_CHOICES`] keeps
-/// theirs and gets none of these.
+/// for that keeps the usage limit in front of the person, as before. Esc still stops the wait.
+/// A person who set any of [`CLAUDE_RETRY_CHOICES`] keeps theirs and gets none of these.
 pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] = &[
     ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
     ("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "capacity"),
