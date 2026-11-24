@@ -1435,11 +1435,21 @@ mod redial_tests {
         true
     }
 
+    async fn holding_mac(server: &FakeSignaling, mac_device_id: &str) -> SignalingClient {
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", mac_device_id)
+            .await
+            .expect("Mac signaling");
+        let serving = mac.clone();
+        tokio::spawn(async move { while serving.next_session().await.is_some() {} });
+        mac
+    }
+
     fn redial(
         pool: WarmPool,
         request: ConnectRequest,
         options: DialOptions,
-    ) -> impl std::future::Future<Output = Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError>> {
+    ) -> impl std::future::Future<Output = Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError>>
+    {
         let pool = Arc::clone(&pool.0);
         let key = key(&request);
         async move { redial_after(&pool, &key, &request, &options, &options.timeline).await }
@@ -1457,7 +1467,9 @@ mod redial_tests {
         })
         .await;
         let pool = WarmPool::new();
-        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), "missing-mac");
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
         let options = options(&turn);
         let mut dial = tokio::spawn(redial(pool.clone(), request, options));
         tokio::select! {
@@ -1485,7 +1497,9 @@ mod redial_tests {
         })
         .await;
         let pool = WarmPool::new();
-        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), "missing-mac");
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
         let options = options(&turn);
         let dial = tokio::spawn(redial(pool.clone(), request, options));
         assert!(held(&turn, 1).await, "the replacement redial never allocated TURN");
@@ -1506,9 +1520,11 @@ mod redial_tests {
         })
         .await;
         let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
         let mut attempts = Vec::new();
         for _ in 0..10 {
-            let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), "missing-mac");
+            let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
             attempts.push(tokio::spawn(redial(pool.clone(), request, options(&turn))));
         }
         let mut maximum = 0;
@@ -1520,6 +1536,7 @@ mod redial_tests {
             attempt.abort();
         }
         assert!(held(&turn, 0).await, "{} TURN allocations held after storm", turn.allocations());
+        assert!(maximum >= 1, "redial storm never held a TURN allocation");
         assert!(maximum <= 1, "redial storm held {maximum} TURN allocations");
     }
 
