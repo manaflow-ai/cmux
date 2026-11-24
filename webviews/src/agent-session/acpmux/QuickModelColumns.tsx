@@ -31,6 +31,7 @@ import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { startPopupResize, type PopupResizeAxes } from "../../ui/popupResizeDrag";
 import {
   effortColumnWidth,
   type EffortLabel,
@@ -61,6 +62,7 @@ import {
   type QuickMenu,
   type QuickModel,
 } from "./quickModelMenuModel";
+import { RESIZE_HANDLE_PROPS } from "../../scrollers";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -845,99 +847,44 @@ function Columns({
     observer.observe(list);
     return () => observer.disconnect();
   }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
-  // Edge and corner drags share one frame update and pin the sides nearest the chip.
-  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: "width" | "height" | "both") => {
+  // Edge and corner drags share one frame update and pin the sides nearest the chip (ui/popupResizeDrag.ts,
+  // the same drag every composer dropdown has).
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: PopupResizeAxes) => {
     const popup = popupRef.current;
-    const positioner = popup?.parentElement;
     const content = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
-    if (event.button !== 0 || !popup || !positioner || !content) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const horizontal = axes !== "height";
-    const vertical = axes !== "width";
-    const grip = event.currentTarget;
+    if (!popup || !content) return;
     const doc = popup.ownerDocument;
     const view = doc.defaultView;
-    const start = popup.getBoundingClientRect();
-    const startHeight = content.getBoundingClientRect().height;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const fromEnd = align === "end";
-    const fromTop = side === "top";
-    const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
-    const left = (bound?.left ?? 0) + 5;
-    const right = (bound?.right ?? view?.innerWidth ?? start.right) - 5;
-    const mostWidth = Math.max(0, Math.floor(fromEnd ? start.right - left : right - start.left));
-    const leastWidth = Math.min(mostWidth, MODEL_MENU_MIN_WIDTH);
-    const bottom = (view?.innerHeight ?? start.bottom) - 5;
-    const mostHeight = Math.max(0, Math.floor(fromTop ? start.bottom - 5 : bottom - start.top));
-    const leastHeight = Math.min(mostHeight, MODEL_MENU_MIN_HEIGHT);
-    let width = start.width;
-    let height = startHeight;
-    const pin = () => {
-      const wantedX = fromEnd ? start.right - width : start.left;
-      const wantedY = vertical && fromTop ? start.bottom - popup.getBoundingClientRect().height : start.top;
-      const placed = positioner.getBoundingClientRect();
-      const x = horizontal ? Math.round((wantedX - placed.left) * 100) / 100 : 0;
-      const y = vertical ? Math.round((wantedY - placed.top) * 100) / 100 : 0;
-      popup.style.translate = x || y ? `${x}px ${y}px` : "";
-      return x === 0 && y === 0;
-    };
-    const placed = new MutationObserver(() => {
-      if (pin() && !dragging.current) placed.disconnect();
+    const column = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const box = popup.getBoundingClientRect();
+    startPopupResize(event, {
+      popup,
+      content,
+      axes,
+      fromEnd: align === "end",
+      fromTop: side === "top",
+      least: { width: MODEL_MENU_MIN_WIDTH, height: MODEL_MENU_MIN_HEIGHT },
+      bound: {
+        left: (column?.left ?? 0) + 5,
+        right: (column?.right ?? view?.innerWidth ?? box.right) - 5,
+        top: 5,
+        bottom: (view?.innerHeight ?? box.bottom) - 5,
+      },
+      onStart: () => {
+        dragging.current = true;
+      },
+      onEnd: (size) => {
+        dragging.current = false;
+        if (axes !== "height") {
+          if (size.width !== undefined) setModelMenuWidth(size.width);
+          widthOf(popup);
+        }
+        if (axes !== "width") {
+          if (size.height !== undefined) setModelMenuHeight(size.height);
+          else heightOf(popup);
+        }
+      },
     });
-    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
-    grip.setPointerCapture?.(event.pointerId);
-    grip.dataset.dragging = "";
-    dragging.current = true;
-    let frame = 0;
-    let pointerX = startX;
-    let pointerY = startY;
-    const apply = () => {
-      frame = 0;
-      if (horizontal) {
-        const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
-        width = Math.round(Math.min(mostWidth, Math.max(leastWidth, start.width + delta)));
-        popup.style.width = `${width}px`;
-        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${mostWidth}px)`;
-        popup.style.maxWidth = `${mostWidth}px`;
-      }
-      if (vertical) {
-        const delta = (pointerY - startY) * (fromTop ? -1 : 1);
-        height = Math.round(Math.min(mostHeight, Math.max(leastHeight, startHeight + delta)));
-        content.style.minHeight = "";
-        content.style.height = `${height}px`;
-        content.style.maxHeight = `${height}px`;
-      }
-      pin();
-    };
-    const move = (next: PointerEvent) => {
-      pointerX = next.clientX;
-      pointerY = next.clientY;
-      if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
-      if (!frame) apply();
-    };
-    const end = () => {
-      if (frame) view?.cancelAnimationFrame(frame);
-      apply();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", end);
-      grip.removeEventListener("pointercancel", end);
-      delete grip.dataset.dragging;
-      dragging.current = false;
-      if (pin()) placed.disconnect();
-      if (horizontal) {
-        if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
-        widthOf(popup);
-      }
-      if (vertical) {
-        if (Math.abs(height - startHeight) >= 1) setModelMenuHeight(height);
-        else heightOf(popup);
-      }
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", end);
-    grip.addEventListener("pointercancel", end);
   };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row). The
   /// menu stays open; a pick that sets its harness up shows that progress in it.
@@ -1244,7 +1191,10 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
+    <InlineCard
+      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
+      label={`${ownerName} · ${t("picker.account")}`}
+    >
       <div className="acpmux-cols-card-head">
         <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
@@ -1511,6 +1461,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
         <div
           className="acpmux-cols-resize"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "width")}
@@ -1521,6 +1472,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the height also has its default */}
         <div
           className="acpmux-cols-resize-y"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
           onPointerDown={(event) => startResize(event, "height")}
@@ -1529,6 +1481,7 @@ function Columns({
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; both dimensions also have defaults */}
         <div
           className="acpmux-cols-resize-corner"
+          {...RESIZE_HANDLE_PROPS}
           data-edge={align === "end" ? "start" : "end"}
           data-side={side === "top" ? "top" : "bottom"}
           aria-hidden="true"
