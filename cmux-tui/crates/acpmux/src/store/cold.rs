@@ -366,7 +366,7 @@ impl LocalStore {
         }
         let Some(cloud) = self.cloud()? else { return Ok(None) };
         let record = cmux_session_cloud::offload::upload(&archive, &cloud)?;
-        let _cold = self.cold.lock_or_recover();
+        let _cold = self.cold.lock(id);
         let _sealed = self.unsealed(id)?;
         if self.held_has_segment(id)? {
             return Ok(None);
