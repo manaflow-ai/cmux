@@ -39,16 +39,20 @@ class Release(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.helper = self.tmp / "cmux NIGHTLY Screen Sharing.app"
-        (self.helper / "Contents/MacOS").mkdir(parents=True)
-        (self.helper / "Contents/MacOS/cmux-screen-sharing").write_bytes(b"host")
-        self.write_id(release.BUNDLE_ID)
+        self.helper = self.make_helper("cmux NIGHTLY Helper.app")
         self.codesign = self.tmp / "codesign"
         self.say(NIGHTLY_REQUIREMENT)
         os.environ["CMUX_CODESIGN_TOOL"] = str(self.codesign)
         self.addCleanup(os.environ.pop, "CMUX_CODESIGN_TOOL", None)
         self.zip = self.tmp / "helper.zip"
         self.zip.write_bytes(b"zip bytes")
+
+    def make_helper(self, name):
+        self.helper = self.tmp / name
+        (self.helper / "Contents/MacOS").mkdir(parents=True)
+        (self.helper / "Contents/MacOS/cmux-screen-sharing").write_bytes(b"host")
+        self.write_id(release.BUNDLE_ID)
+        return self.helper
 
     def write_id(self, bundle_id):
         with open(self.helper / "Contents/Info.plist", "wb") as f:
@@ -96,6 +100,46 @@ class Release(unittest.TestCase):
         self.assertEqual(self.run_main("check", str(self.helper), "--team", "ABCDEFGHIJ")[0], 1)
         self.write_id("com.cmuxterm.cua")
         self.assertEqual(self.run_main("check", str(self.helper), "--team", "7WLXT3NR37")[0], 1)
+
+    def test_check_takes_the_name_from_before_the_rename_and_no_other(self):
+        # A commit from before 5167d1f0 builds "cmux NIGHTLY Screen Sharing.app"; its helper still signs.
+        legacy = self.make_helper("cmux NIGHTLY Screen Sharing.app")
+        code, out, err = self.run_main("check", str(legacy), "--team", "7WLXT3NR37")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), NIGHTLY_REQUIREMENT)
+        for name in ("cmux DEV Helper.app", "cmux NIGHTLY.app", "cmux NIGHTLY Helper (GPU).app"):
+            with self.subTest(name):
+                self.assertEqual(self.run_main("check", str(self.make_helper(name)), "--team", "7WLXT3NR37")[0], 1)
+
+    def test_a_record_of_a_helper_from_before_the_rename_still_verifies(self):
+        # Published records name no bundle: one of an old "Screen Sharing.app" zip reads back as before.
+        legacy = self.make_helper("cmux NIGHTLY Screen Sharing.app")
+        record = self.tmp / "helper.json"
+        code, _, err = self.run_main("record", "--zip", str(self.zip), "--helper", str(legacy), "--team",
+                                     "7WLXT3NR37", "--key", KEY, "--commit", COMMIT, "--out", str(record))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.run_main("verify-record", str(record), "--key", KEY, "--zip", str(self.zip))[0], 0)
+
+    def test_the_workflow_zips_the_bundle_the_build_makes(self):
+        # bundle-screen-sharing-helper.sh names the helper "$name$SUFFIX.app" (LEGACY_SUFFIX before the
+        # rename); cmux-tui-team-signed.yml zipped the old name after 5167d1f0 renamed it, and every
+        # signing run failed in ditto (run 45108313285). Every name the workflow looks for is one of
+        # HELPER_NAMES, the new one first, and each zip or record step takes the bundle it found.
+        bundle = (ROOT / "scripts/cmux-next/bundle-screen-sharing-helper.sh").read_text()
+        suffix = re.search(r'^SUFFIX="([^"]*)"$', bundle, re.M).group(1)
+        legacy = re.search(r'^LEGACY_SUFFIX="([^"]*)"$', bundle, re.M).group(1)
+        self.assertEqual(release.HELPER_NAME, f"{release.APP_NAME}{suffix}.app")
+        self.assertEqual(release.LEGACY_HELPER_NAME, f"{release.APP_NAME}{legacy}.app")
+        self.assertEqual(release.HELPER_NAMES, (release.HELPER_NAME, release.LEGACY_HELPER_NAME))
+        workflow = (ROOT / ".github/workflows/cmux-tui-team-signed.yml").read_text()
+        loops = re.findall(r'for name in ((?:"[^"]+" ?)+); do', workflow)
+        self.assertEqual(len(loops), 2, "build-helper and sign-helper each look for the bundle by name")
+        for loop in loops:
+            self.assertEqual(tuple(re.findall(r'"([^"]+)"', loop)), release.HELPER_NAMES)
+        for line in workflow.splitlines():
+            if "ditto -c" in line or "--helper " in line:
+                self.assertNotRegex(line, r"NIGHTLY (Helper|Screen Sharing)\.app", line.strip())
+        self.assertNotIn("Library/cmux NIGHTLY Screen Sharing.app", workflow)
 
     def test_record_verify_and_objects(self):
         record = self.tmp / "helper.json"
