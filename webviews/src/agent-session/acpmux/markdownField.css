@@ -648,6 +648,11 @@
   -webkit-mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
   mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
 }
+.acpmux-md .is-titled-start[data-image]::before {
+  background: var(--cmux-link-icon) center / 100% 100% no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
 .acpmux-md .is-titled[data-title]::after {
   content: attr(data-title);
   padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
