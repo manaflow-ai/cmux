@@ -127,7 +127,9 @@ async fn a_503_no_accounts_turn_is_retried_in_the_same_session_and_the_row_shows
     assert_eq!(listed(&list, &id)["retry"], retry, "{list}");
     let mux = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert_eq!(listed(&mux, &id)["retry"], retry, "{mux}");
-    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    // A turn the capacity error cut, whose continuation waits, reads `capacity` (#54477).
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "capacity");
+    assert_eq!(row(&hub, &id)["lastTurn"]["heldUntil"], next_at);
 
     // It fires: the same chat, the same agent session, the next attempt's prompt id.
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 2).await;
@@ -297,7 +299,8 @@ async fn a_wait_that_ends_with_a_cut_turn_answers_with_its_retry() {
         .unwrap();
     assert_eq!(w["timedOut"], false, "{w}");
     let resolved = &w["resolved"][0];
-    assert_eq!(resolved["lastTurn"]["status"], "failed", "{w}");
+    // Held for its continuation, the cut turn reads `capacity`, not `failed` (#54477).
+    assert_eq!(resolved["lastTurn"]["status"], "capacity", "{w}");
     assert_eq!(resolved["retry"]["reason"], "capacity", "{w}");
     assert_eq!(resolved["retry"]["attempt"], 1, "{w}");
     assert_eq!(resolved["retry"]["promptId"], "p-wait", "{w}");
