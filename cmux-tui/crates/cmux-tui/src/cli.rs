@@ -192,6 +192,8 @@ mod vm_gcp;
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
+#[cfg(unix)]
+mod vm_tailnet;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
