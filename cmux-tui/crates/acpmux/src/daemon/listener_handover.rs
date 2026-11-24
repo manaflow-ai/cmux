@@ -80,8 +80,8 @@ pub(crate) fn handed_to_live() -> bool {
 fn alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else { return false };
     // SAFETY: signal 0 only checks that the pid exists.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let signalled = unsafe { libc::kill(pid, 0) == 0 };
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// The old daemon's side: send copies of its listeners to the side socket at `path`, which must
