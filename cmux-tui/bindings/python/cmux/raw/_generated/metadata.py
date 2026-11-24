@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '43507a3d52a06df38f65954a93b512940c0e6b9249a25c653cef6ce6735a3924'
+IR_SHA256 = 'bdb028958566c963a3f102b8942b37f167b9419102ca45ea866bcc996b2434cc'
 
 
 @dataclass(frozen=True)
@@ -3821,6 +3821,25 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-find': CommandMetadata(
+        'terminal-find',
+        'control',
+        7,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'case_sensitive': CommandFieldMetadata(None, None),
+            'epoch': CommandFieldMetadata(None, None),
+            'max_matches': CommandFieldMetadata(None, None),
+            'page_rows': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+            'regex': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'whole_word': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-history': CommandMetadata(
