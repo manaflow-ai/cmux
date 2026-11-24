@@ -96,6 +96,29 @@ pub fn open_lanes_at_once(facts: LinkFacts) -> bool {
     !facts.invitation && facts.pinned_peer && facts.peer_takes_ik
 }
 
+/// The most replay bytes a link's first message carries as early data ([`may_send_early`]): well
+/// under the handshake's 16 KiB payload cap once base64 and the hello's other fields are added, so
+/// a big replay buffer never makes the first message the one that fails.
+pub const EARLY_DATA_MAX_BYTES: usize = 4 * 1024;
+
+/// Whether a link's first message may carry early data: the client's replay of reliable Control
+/// frames, so a reconnect's first answer is not held behind the link's setup and the replay that
+/// follows it.
+///
+/// Only an IK link of a reconnect (generation 1 or later) to a peer that said it takes it. IK's
+/// first message is not forward secret, so it never carries a bearer secret (a grant or an
+/// invitation's secret), and it is open to replay until the handshake finishes, so it never
+/// carries a first meeting (generation 0, where nothing is yet there to dedupe against). Early
+/// data is Control frames only: never Tunnel (which does not replay across generations) and never
+/// Interactive keystrokes, which wait on a forward secrecy sign-off.
+pub fn may_send_early(facts: LinkFacts, generation: u64, peer_takes_early_data: bool) -> bool {
+    choose(facts) == Pattern::Ik
+        && generation >= 1
+        && peer_takes_early_data
+        && !facts.invitation
+        && !facts.carries_bearer_secret
+}
+
 /// What a peer said it can do, in its welcome. Every field is optional on the wire, so a peer
 /// that predates a capability reads as not having it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +130,10 @@ pub struct Capabilities {
     /// it without a fresh dial (the phone's handshake-first redial).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wg_resume: bool,
+    /// The peer's responder takes early data in an IK link's first message ([`may_send_early`])
+    /// and applies it when the link group commits, through the session's usual dedupe.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub early_data: bool,
 }
 
 /// The ticket format this build writes.
@@ -240,6 +267,55 @@ mod tests {
     }
 
     #[test]
+    fn early_data_rides_only_an_ik_reconnect_with_no_bearer_secret() {
+        let resume = LinkFacts { pinned_peer: true, peer_takes_ik: true, ..LinkFacts::default() };
+        assert!(may_send_early(resume, 1, true));
+        assert!(may_send_early(resume, 9, true));
+        // A first meeting, a peer that never said it takes it, and an XX link: never.
+        assert!(!may_send_early(resume, 0, true));
+        assert!(!may_send_early(resume, 1, false));
+        assert!(!may_send_early(LinkFacts { peer_takes_ik: false, ..resume }, 1, true));
+        assert!(!may_send_early(LinkFacts { pinned_peer: false, ..resume }, 1, true));
+        // A grant or an invitation: never (both also keep the link off IK).
+        assert!(!may_send_early(LinkFacts { carries_bearer_secret: true, ..resume }, 1, true));
+        assert!(!may_send_early(LinkFacts { invitation: true, ..resume }, 1, true));
+    }
+
+    #[test]
+    fn tickets_read_across_the_early_data_capability_in_both_directions() {
+        // A ticket from a build before early data: no `early_data`, so the client sends none.
+        let key = "ef".repeat(32);
+        let old =
+            format!(r#"{{"v":1,"peer_static":"{key}","caps":{{"ik":true}},"issued_unix_ms":1}}"#);
+        let read = ResumeTicket::decode(old.as_bytes()).unwrap();
+        assert!(read.capabilities.ik && !read.capabilities.early_data);
+        // A new ticket read by a build before early data: `Capabilities` as it was then.
+        #[derive(Deserialize)]
+        struct OldCapabilities {
+            #[serde(default)]
+            ik: bool,
+        }
+        #[derive(Deserialize)]
+        struct OldTicket {
+            v: u8,
+            caps: OldCapabilities,
+        }
+        let new = ResumeTicket {
+            peer_static: [0xef; 32],
+            capabilities: Capabilities { ik: true, early_data: true, ..Capabilities::default() },
+            issued_unix_ms: 1,
+            dormant_hold_ms: None,
+            dormant_since_unix_ms: None,
+        };
+        let bytes = new.encode();
+        assert!(std::str::from_utf8(&bytes).unwrap().contains(r#""early_data":true"#));
+        let old: OldTicket = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.v, TICKET_VERSION);
+        assert!(old.caps.ik);
+        assert_eq!(ResumeTicket::decode(&bytes), Some(new));
+    }
+
+    #[test]
     fn ik_saves_a_round_trip_to_the_welcome() {
         assert_eq!(Pattern::Xx.round_trips_to_welcome(), 2);
         assert_eq!(Pattern::Ik.round_trips_to_welcome(), 1);
@@ -284,7 +360,7 @@ mod tests {
     fn a_dormant_hold_round_trips_and_lapses() {
         let ticket = ResumeTicket {
             peer_static: [0x11; 32],
-            capabilities: Capabilities { ik: true, wg_resume: true },
+            capabilities: Capabilities { ik: true, wg_resume: true, ..Capabilities::default() },
             issued_unix_ms: 1_000,
             dormant_hold_ms: Some(150_000),
             dormant_since_unix_ms: Some(2_000),

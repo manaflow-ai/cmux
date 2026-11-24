@@ -117,6 +117,7 @@ fn handshake(
         connection_attempt: ConnectionAttemptId([3; 16]),
         resume: BTreeMap::new(),
         daemon_takes_ik,
+        early: Vec::new(),
         handshake_timeout: Duration::from_secs(5),
     }
 }
@@ -462,10 +463,11 @@ async fn a_reconnect_saves_a_round_trip_per_link_phase() {
     );
     // A reconnect is an open then each phase's handshake and link-ready, plus the session's own
     // resume exchange. Measured at 25 ms one way: base (XX on every link) median 331 ms, IK 229 ms,
-    // one round trip saved per phase. The bound sits between the two: XX on either phase lands
-    // above it. Opening every lane link at once removes the second phase: about 4 round trips
-    // (one open, the IK exchange, link-ready, the session's resume) where two phases took 6.
-    assert!(median < ONE_WAY * 11, "reconnect took {median:?}: IK did not take");
+    // one round trip saved per phase.
+    // Opening every lane link at once leaves one phase: fleet, 25 ms one way, 208 ms with the
+    // two phases and 105 ms with one (an open and the IK exchange; link-ready rides behind the
+    // welcome). The bound sits between them.
+    assert!(median < ONE_WAY * 6, "reconnect took {median:?}: the lane links did not open at once");
 }
 
 /// The before/after rows at 50 and 150 ms round trips, on a direct path (an open is one round
@@ -488,6 +490,10 @@ async fn resume_rows_at_50_and_150_ms() {
                 times[times.len() - 1],
                 times.len()
             );
+            // One phase is an open and one round trip (fleet: 105 ms at 50 ms with a one round
+            // trip open, 455 ms at 150 ms with two); two phases in a row took twice that.
+            let one_phase = path.open_cost() + path.round_trip();
+            assert!(median < one_phase + path.round_trip(), "{path:?}: {median:?}");
         }
     }
 }
