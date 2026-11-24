@@ -716,14 +716,15 @@ async fn a_paged_watch_list_past_the_old_300_s_total_still_links() {
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    // Twelve pages, each 50 s apart: 600 s in all, twice the total cap this link once had.
+    // Twelve pages, each 50 s apart: 600 s in all, twice the total cap this link once had. The
+    // rows come once the list is whole, so the wait for them outlasts the 600 s (paused time).
     let fake = slow_pages_peer(server, 12, Duration::from_secs(50));
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let link = peer.clone();
     let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
     let mut listed = None;
     loop {
-        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(600), notices.recv())
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(3600), notices.recv())
             .await
             .expect("the link connects")
             .expect("the link stays open");
