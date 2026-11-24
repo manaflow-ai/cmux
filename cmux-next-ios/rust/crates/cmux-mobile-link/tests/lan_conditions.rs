@@ -245,6 +245,28 @@ async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option
     timeout(WAIT, attempt).await.ok().flatten()
 }
 
+/// The warm-socket dial: signaling is already connected on this radio (the app's pool keeps it
+/// for a returning user), so the dial starts at the offer, on the pool's `dial::connect`.
+async fn dial_warm_on(mac: &Mac, radio: &Radio, warm: SignalingClient, timeline: Timeline) -> Option<Up> {
+    let options = DialOptions {
+        include_loopback: true,
+        relay_only: true,
+        ice_servers: vec![radio.turn.clone()],
+        timeout: WAIT,
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    };
+    timeline.mark("signaling_connected");
+    let attempt = async {
+        let connected =
+            dial::connect(&warm, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .ok()?;
+        Some(Up { connected, _signaling: Some(warm) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
 async fn dial_lan(mac: &Mac, address: SocketAddr) -> Option<Up> {
     let timeline = Timeline::default();
     let attempt =
@@ -449,6 +471,19 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
     let cellular = Radio::start(&mac, cell, seed, &trace).await;
     let tag = |leg: &str| format!("{path}:{}:{leg}", cell.name);
     let lan_on = |radio: &Radio| (path == "lan").then(|| radio.udp.addr());
+    // `relayed-warm`: the cellular radio's signaling socket is up before the Wi-Fi drops.
+    let warm = if path == "relayed-warm" {
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        match SignalingClient::connect(&cellular.signaling_url, "user:alice", "team", &phone_id).await {
+            Ok(client) => Some(client),
+            Err(_) => {
+                emit(profile, &tag("warm_signaling"), "switch_ms", None, run, seed);
+                return;
+            }
+        }
+    } else {
+        None
+    };
     let Some((up, _)) = dial_named(&mac, &wifi, lan_on(&wifi)).await else {
         emit(profile, &tag("wifi_up"), "switch_ms", None, run, seed);
         return;
@@ -463,10 +498,14 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
     wifi.leave();
     // The relayed dial's stages, timed from the drop.
     let stages = Timeline::starting_at(dropped.into_std());
-    let relayed = dial_relayed_on(&mac, &cellular, stages.clone());
-    let on_cell = match lan_on(&wifi) {
-        Some(addr) => first_up_named(dial_lan(&mac, addr), relayed).await,
-        None => relayed.await.map(|up| (up, "relayed")),
+    let on_cell = match (lan_on(&wifi), warm) {
+        (_, Some(warm)) => {
+            dial_warm_on(&mac, &cellular, warm, stages.clone()).await.map(|up| (up, "relayed"))
+        }
+        (Some(addr), None) => {
+            first_up_named(dial_lan(&mac, addr), dial_relayed_on(&mac, &cellular, stages.clone())).await
+        }
+        (None, None) => dial_relayed_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed")),
     };
     let (value, won) = match &on_cell {
         Some((again, won)) => (first_echo(&again.connected.link, dropped).await, *won),
