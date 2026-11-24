@@ -1,0 +1,12 @@
+AGENT-QUOTA row arm=without agents=1 trial=1 calls=21 wall_s=317 correct=1/1
+AGENT-QUOTA row arm=without agents=1 trial=2 calls=21 wall_s=313 correct=1/1
+AGENT-QUOTA row arm=without agents=1 trial=3 calls=19 wall_s=310 correct=1/1
+AGENT-QUOTA row arm=skill agents=1 trial=1 calls=24 wall_s=313 correct=1/1
+AGENT-QUOTA row arm=skill agents=1 trial=2 calls=19 wall_s=310 correct=1/1
+AGENT-QUOTA row arm=skill agents=1 trial=3 calls=21 wall_s=313 correct=1/1
+AGENT-QUOTA row arm=shipped agents=1 trial=1 calls=15 wall_s=315 correct=1/1
+AGENT-QUOTA row arm=shipped agents=1 trial=2 calls=15 wall_s=313 correct=1/1
+AGENT-QUOTA row arm=shipped agents=1 trial=3 calls=15 wall_s=315 correct=1/1
+AGENT-QUOTA row arm=without agents=6 trial=1 calls=134 wall_s=321 correct=6/6
+AGENT-QUOTA row arm=skill agents=6 trial=1 calls=146 wall_s=315 correct=6/6
+AGENT-QUOTA row arm=shipped agents=6 trial=1 calls=15 wall_s=313 correct=6/6
