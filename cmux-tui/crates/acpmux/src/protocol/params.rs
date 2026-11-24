@@ -93,6 +93,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "cliHost",
     "compression",
     "context",
+    "createKey",
     "createdBy",
     "cwd",
     "decisionNonce",
@@ -130,6 +131,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personDecision",
     "personKey",
     "personStop",
+    "personVerified",
     "placeRedirect",
     "policy",
     "pr",
@@ -140,15 +142,16 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "provenance",
     "reportTo",
     "requestId",
+    "requireAsking",
     "requireFullAccess",
     "resend",
     "restricted",
     "route",
-    "sessionChangedDelta",
-    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
     "senderToken",
+    "sessionChangedDelta",
+    "sessionCreatedAt",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -259,7 +262,7 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
