@@ -408,8 +408,9 @@
     padding-block: var(--wn-side);
     /* At least the room the one-line note gets in the composer's 48 (about 6px at Compact): with the
        lines trimmed to cap and baseline, a change line that wraps and grows the card kept only the 2px
-       gap, so the title's descenders touched its first line. A short note still fills the 48 as before. */
-    gap: calc(var(--wn-gap) * 3);
+       gap, so the title's descenders touched its first line. Half the title size (6px) still fits a short note
+       in the 48 at every density. */
+    gap: calc(var(--wn-title) * 0.5);
   }
   .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
     text-box: trim-both cap alphabetic;
