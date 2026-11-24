@@ -8,6 +8,7 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
   groupEntries,
+  keepUnchanged,
   PAGE_LIMIT,
   reconcileSelection,
   siteHost,
@@ -360,7 +361,10 @@ export class HistoryStore {
       if (generation !== this.generation) return;
       // cmux.protocol/2 sends a decimal as a string ("1791916418192"); `new Date("…")` of that is
       // an invalid date, and the grouping threw while rendering (a blank page, cx-hnmbt.8).
-      const entries = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
+      const entries = keepUnchanged(
+        this.snapshot.entries,
+        result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) })),
+      );
       const pending = (result.pending_kinds?.length ?? 0) > 0;
       this.set({
         entries,
