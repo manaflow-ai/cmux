@@ -260,6 +260,7 @@ TODAY_VARS = {
     "CI_CLOUD_OVERFLOW_SAVED": "",
     "CI_REPAIR_SKIP_FLEET": "1",
     "CI_DEPLOY_SKIP_FLEET": "",
+    "CI_PR_CONTROL_SKIP_FLEET": "1",
 }
 TODAY_POOLS = {
     "linux_2": "cmux-fleet-linux-x64",
@@ -268,7 +269,8 @@ TODAY_POOLS = {
     "provenance": "ubuntu-latest",
 }
 # Lines this pass freezes: the ones reading a size pool, the fleet variable or the overflow switch's saved state.
-FREEZE_SCOPE = re.compile(r"RUNNER_POOLS|vars\.LINUX_RUNNER(?![A-Z_])|CI_CLOUD_OVERFLOW_SAVED")
+FREEZE_SCOPE = re.compile(
+    r"RUNNER_POOLS|vars\.LINUX_RUNNER(?![A-Z_])|CI_CLOUD_OVERFLOW_SAVED|CI_TRUSTED_RUNNER|CI_(?:PR_CONTROL|REPAIR)_SKIP_FLEET")
 _UNKNOWN = object()
 
 

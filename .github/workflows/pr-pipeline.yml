@@ -22,7 +22,7 @@ env:
 jobs:
   linux:
     name: linux
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), twelve waves of the slowest step (6 min; twenty-three
     # steps, two at once on 2 CPUs) and the `alone` coderouter step (6 min), with room for the checkout, so a
     # slow step is reported by the runner, not cut here.
