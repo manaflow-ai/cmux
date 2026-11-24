@@ -22,7 +22,9 @@
 //! minutes, `hub/idle.rs`), so its summary says `credentialOnlyHere` meanwhile and a machine update
 //! wakes it before it restarts this daemon (`hub/credentials.rs` `credential_only_here`, cmux-host
 //! `updater/credential_wake.rs`). Left open: a daemon that ends any other way while the agent
-//! sleeps, and a closed chat. Without one the agent keeps today's coderouter route.
+//! sleeps (a crash, a rollback's restart), a closed chat, and a session that holds a credential
+//! with no agent and no hibernation (its agent crashed, or its first start failed or has not run
+//! yet). Without one the agent keeps today's coderouter route.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider

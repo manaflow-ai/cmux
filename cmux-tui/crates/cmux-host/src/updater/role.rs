@@ -1693,28 +1693,26 @@ fn acpmux_look() -> Result<(Vec<String>, Option<String>), String> {
     Ok((busy, Some(ls)))
 }
 
-/// The failed wakes between looks ([`super::credential_wake`]).
+/// What the wakes keep between looks ([`super::credential_wake`]).
 static CREDENTIAL_WAKES: Mutex<WakeTries> = Mutex::new(WakeTries::new());
 
-/// How long one look's wakes may take together. The guard is armed by then
+/// How long one look may keep starting wakes. The guard is armed by then
 /// ([`GUARD_AFTER_SECS`]), and each wake starts an agent (seconds; `acpmux` gives it 20 s). A
-/// session not reached in time counts as a failed wake: it holds this look and is tried first
-/// at the next, within its [`credential_wake::WAKE_TRIES`].
+/// session not reached in time holds the look and is woken at the next, with its tries intact.
 const WAKES_WITHIN: Duration = Duration::from_secs(90);
 
 /// The last look before a flip: [`acpmux_busy_sessions`], and with none busy, the wake of every
-/// chat whose launch credential only acpmux's memory holds ([`super::credential_wake`]), so the
-/// restart does not lose it. A wake that failed holds the update like a busy session. After a
-/// wake the sessions are read once more: it took seconds, and a turn may have started.
+/// chat whose launch credential only acpmux's memory holds, so the restart does not lose it
+/// ([`WakeTries::before_flip`]). A wake that failed or was not reached holds the update like a
+/// busy session. No wake starts once the updater is told to stop (a park waits only
+/// `ROLE_STOP_GRACE` for this thread).
 fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
-    let (busy, ls) = acpmux_look()?;
-    let Some(ls) = ls.filter(|_| busy.is_empty()) else { return Ok(busy) };
     let began = Instant::now();
-    let looked = CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).look(
-        &ls,
+    CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).before_flip(
+        acpmux_look,
         |id| {
-            if began.elapsed() >= WAKES_WITHIN {
-                return credential_wake::Woke::Failed;
+            if stopped() || began.elapsed() >= WAKES_WITHIN {
+                return credential_wake::Woke::NotReached;
             }
             match acpmux(&["--json", "session", "wake", id]) {
                 Some((ok, reply)) => credential_wake::woke(ok, &reply),
@@ -1722,11 +1720,7 @@ fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
             }
         },
         log,
-    );
-    if !looked.holding.is_empty() || looked.woken == 0 {
-        return Ok(looked.holding);
-    }
-    acpmux_busy_sessions()
+    )
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.
