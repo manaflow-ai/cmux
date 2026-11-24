@@ -849,6 +849,18 @@ pub fn displays(which: &str) -> Res<Displays> {
     Ok((sizes, current, ids))
 }
 
+/// The stream size [`Capture::start_for_session`] will pick for `main`, read from CoreGraphics
+/// without asking ScreenCaptureKit, so work that needs only the size (the encoder session) can
+/// start beside the stream. None for an index or an id (their order is ScreenCaptureKit's
+/// list); the caller checks the guess against [`Capture::size`].
+pub fn expected_size(which: &str, max_width: Option<u32>) -> Option<(u32, u32)> {
+    (which == "main").then(|| {
+        // SAFETY: CGMainDisplayID has no preconditions.
+        let (width, height) = native_size(unsafe { cg::CGMainDisplayID() });
+        fit(width, height, max_width)
+    })
+}
+
 /// `main` (the menu bar display), a display's index counted left to right, or `id:<n>`, the
 /// display whose CGDirectDisplayID is n (a run's virtual display, from a screen link).
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
