@@ -266,7 +266,8 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // is converted to JPEG or PNG in the worker, never on the page. (Chromium has no HEIF decoder, so
   // here it goes as a file; the app's WebKit decodes it in the worker.)
   test("a 5.2 MB HEIF photo never blocks typing", async () => {
-    const page = await newChat();
+    // The host takes its upload: one that fails is asked again on its own and keeps loading.
+    const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
     await page.locator(COMPOSER_EDITOR).click();
     await page.evaluate(() => {
       const bytes = new Uint8Array(5.2 * 1024 * 1024);
