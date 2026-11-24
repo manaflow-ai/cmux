@@ -9,6 +9,7 @@ mod claim_check;
 #[cfg(unix)]
 mod closed_tmp;
 mod control_asks;
+mod verify;
 
 mod account_usage;
 mod activity;
@@ -67,6 +68,7 @@ pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
+pub(crate) mod session_budget_watch;
 pub(crate) mod settled_view;
 mod subagent_expiry;
 pub(crate) mod subagent_resume;
