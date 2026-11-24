@@ -39,6 +39,7 @@ export function FramesDock({
   const t = useT();
   const layer = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<TurnFrame>();
+  const hasFrame = frame !== undefined;
   const seq = useRef(0);
   const bounds = (): Bounds => {
     const box = layer.current?.getBoundingClientRect();
@@ -65,7 +66,7 @@ export function FramesDock({
     const observer = new ResizeObserver(() => dispatch({ type: "fit", pane: bounds() }));
     observer.observe(element);
     return () => observer.disconnect();
-  }, [frame !== undefined]);
+  }, [hasFrame]);
 
   // A new chat starts from its own frames.
   useEffect(() => {
@@ -188,9 +189,8 @@ export function FramesDock({
           </button>
         )}
         {dock.mode === "open" && (
-          <div
+          <hr
             className="acpmux-frames-dock__grip"
-            role="separator"
             aria-label={t("turnFrames.resize")}
             onPointerDown={begin("resize")}
             onPointerMove={track}

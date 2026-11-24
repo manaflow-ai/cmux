@@ -30,7 +30,8 @@
 }
 .acpmux-frames-strip__frame img {
   display: block;
-  height: 64px;
+  /* Two primary control rows tall. */
+  height: calc(2 * var(--ds-control-primary));
   width: auto;
 }
 
@@ -48,7 +49,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border-radius: 10px;
+  border-radius: var(--ds-radius-xl);
   overflow: hidden;
   pointer-events: auto;
   color: var(--agent-text);
@@ -65,7 +66,7 @@
   align-items: center;
   gap: var(--ds-space-1, 4px);
   flex: none;
-  height: 32px;
+  height: var(--ds-control-primary);
   padding: 0 var(--ds-space-2, 8px);
   cursor: grab;
   touch-action: none;
@@ -80,16 +81,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-caption, 12px);
+  font-size: var(--text-caption);
   color: var(--agent-muted);
 }
 .acpmux-frames-dock__button {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -120,10 +121,12 @@
 }
 .acpmux-frames-dock__grip {
   position: absolute;
+  margin: 0;
+  border: 0;
   right: 0;
   bottom: 0;
-  width: 16px;
-  height: 16px;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
   cursor: nwse-resize;
   touch-action: none;
   background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, currentColor 40%, transparent) 55% 65%, transparent 65% 75%, color-mix(in srgb, currentColor 40%, transparent) 75% 85%, transparent 85%);

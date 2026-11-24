@@ -12,8 +12,8 @@ export type CustomizeRun =
 export const MAX_MINUTES = 240;
 
 // The daemon's own check (customize_run.rs `valid_target`): never a flag, never a control character.
-// eslint-disable-next-line no-control-regex
 const TARGET =
+  // eslint-disable-next-line no-control-regex
   /^(?:pr:\d+|sha:[0-9a-fA-F]{7,40}|branch:[A-Za-z0-9._/][A-Za-z0-9._/-]*|dir:[^-\u0000-\u001f\u007f][^\u0000-\u001f\u007f]*|[a-z0-9_][a-z0-9_-]*)$/;
 
 /// `value` as a run, or undefined when it is not one the daemon would take (the same allowlist).
