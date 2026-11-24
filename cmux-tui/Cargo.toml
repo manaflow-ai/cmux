@@ -92,6 +92,7 @@ members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-files-host",
     "crates/cmux-projection",
@@ -103,6 +104,7 @@ members = [
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-fault",
+    "crates/cmux-composer-send",
     "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -239,6 +241,7 @@ default-members = [
     "crates/cmux-web-pieces",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-tag-cache",
     "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-remote-protocol",
@@ -367,6 +370,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-tag-cache = { path = "crates/cmux-tag-cache" }
 cmux-install-check = { path = "crates/cmux-install-check" }
 cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
@@ -452,6 +456,7 @@ cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
+cmux-composer-send = { path = "crates/cmux-composer-send" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }

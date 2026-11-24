@@ -1648,12 +1648,11 @@
   align-items: center;
   height: var(--acpmux-composer-control);
 }
-/* Claude Code's +: a rounded-square chip with a hairline edge at rest, its glyph a step over the other icons
-   (ask-bfa9b41590, Leo 2026-11-23: "our + symbol is too small"). The chip's corner is the box's minus the
-   inset (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
+/* Claude Code's +: a bare glyph at rest, a step over the other icons (ask-bfa9b41590, Leo 2026-11-23: "our +
+   symbol is too small"), with no edge (Lucas 2026-11-23). Its hover chip's corner is the box's minus the inset
+   (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button {
   border-radius: var(--acpmux-plus-chip-radius); /* radius-allow: concentric with the composer's corner */
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button .acpmux-icon {
   width: var(--acpmux-shield-box);
