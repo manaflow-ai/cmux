@@ -952,11 +952,12 @@ mod tests {
         use crate::protocol::peer_state::MachineLink;
         use std::time::Duration;
 
-        let states = PeerStates::default();
+        // A spawned wait needs a 'static borrow; the test leaks its two small tables.
+        let states: &'static PeerStates = Box::leak(Box::default());
         let (sender, receiver) = tokio::sync::watch::channel(None);
         let task = tokio::spawn(wait_for_scale_up(
             receiver,
-            &states,
+            states,
             states.subscribe(),
             Duration::from_secs(10),
         ));
@@ -967,11 +968,11 @@ mod tests {
         states.register("new-machine", 1, Observed::new(MachineLink::Connected, None, None));
         assert!(task.await.unwrap(), "a connected machine is used for placement");
 
-        let states = PeerStates::default();
+        let states: &'static PeerStates = Box::leak(Box::default());
         let (_sender, receiver) = tokio::sync::watch::channel(None);
         let joined = tokio::spawn(wait_for_scale_up(
             receiver,
-            &states,
+            states,
             states.subscribe(),
             Duration::from_secs(10),
         ));
