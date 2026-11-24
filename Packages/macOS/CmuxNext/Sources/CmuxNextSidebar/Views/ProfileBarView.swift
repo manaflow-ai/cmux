@@ -407,13 +407,19 @@ final class ProfileBarView: NSView {
         var children: [NSAccessibilityElement] = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
             let element = ProfileDotElement(label: windowMarkLabel(active ? Strings.profileCurrent(profile.name) : profile.name, for: profile),
-                                            frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
+                                            frame: rects[offset], parent: self) { [weak self, id = profile.id] in
+                guard let self, let index = model.profiles.firstIndex(where: { $0.id == id }) else { return false }
+                activate(index)
+                return true
+            }
             element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)
             return element
         }
         let plus = ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
-            self?.activate(Self.plusIndex)
+            guard let self else { return false }
+            activate(Self.plusIndex)
+            return true
         }
         plus.setAccessibilityIdentifier("cmux.sidebar.space.new")
         children.append(plus)
