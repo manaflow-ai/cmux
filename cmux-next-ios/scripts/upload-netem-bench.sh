@@ -58,7 +58,7 @@ lane_loop() {  # lane load file
     NETEM_NS=$(ns $l) NETEM_HOST_IF=vba$l NETEM_NS_IF=vbb$l NETEM_HOST_IP=10.77.$((20+l)).1 \
     NETEM_SIZE_MB=$2 NETEM_PROFILE=$3 NETEM_LOAD=$1 NETEM_RUN=$4 NETEM_TRANSPORT=$transport \
     NETEM_ENGINE=$engine NETEM_CAP_SECS=$cap NETEM_CSV=$csv USER=${USER:-$(id -un)} \
-      "$exe" --exact upload_netem_cell --ignored --nocapture --test-threads=1 2>&1 | grep -E 'HANG|link-drop|NETEM-ROW|panicked' | sed "s/^/[lane $l] /" >&2
+      "$exe" --exact upload_netem_cell --ignored --nocapture --test-threads=1 2>&1 | grep -E 'HANG|link-drop|relink|stage|NETEM-ROW|panicked' | sed "s/^/[lane $l] /" >&2
   done 3< "$file"
 }
 for load in $loads; do

@@ -223,11 +223,26 @@ async fn upload_current(job: UploadJob) -> Result<(), String> {
 struct BenchObserver {
     started: Instant,
     progress: Arc<Progress>,
+    last: std::sync::Mutex<(Option<UploadStage>, u32)>,
 }
 
 impl UploadObserver for BenchObserver {
     fn on_progress(&self, update: UploadProgress) {
         let p = &self.progress;
+        {
+            let mut last = self.last.lock().unwrap();
+            if *last != (Some(update.stage), update.attempt) {
+                *last = (Some(update.stage), update.attempt);
+                eprintln!(
+                    "stage {:?} attempt {} acked {} at {} ms {}",
+                    update.stage,
+                    update.attempt,
+                    update.acked_bytes,
+                    ms(self.started),
+                    update.error_code.clone().unwrap_or_default()
+                );
+            }
+        }
         if update.stage == UploadStage::Uploading && p.open_ms.load(Ordering::Relaxed) == 0 {
             p.open_ms.store(ms(self.started), Ordering::Relaxed);
         }
@@ -245,7 +260,11 @@ impl UploadObserver for BenchObserver {
 
 async fn upload_new(job: UploadJob) -> Result<(), String> {
     let UploadJob { handle, source, size, root, started, progress, relink } = job;
-    let uploads = AttachmentUploads::new(Arc::new(BenchObserver { started, progress: progress.clone() }));
+    let uploads = AttachmentUploads::new(Arc::new(BenchObserver {
+        started,
+        progress: progress.clone(),
+        last: Default::default(),
+    }));
     uploads.set_link("bench".into(), Some(Arc::clone(&handle)));
     // MacSession's part: when the served link dies, dial again and hand the engine the new one.
     let relinker = {
@@ -258,7 +277,9 @@ async fn upload_new(job: UploadJob) -> Result<(), String> {
                     continue;
                 }
                 eprintln!("relink: link closed, dialing again");
-                if let Some(next) = relink().await {
+                let next = relink().await;
+                eprintln!("relink: {}", if next.is_some() { "linked" } else { "dial failed" });
+                if let Some(next) = next {
                     uploads.set_link("bench".into(), Some(Arc::clone(&next)));
                     current = next;
                 }
