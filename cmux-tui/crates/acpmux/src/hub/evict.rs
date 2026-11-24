@@ -230,9 +230,11 @@ impl Hub {
             ("queued", &|| session.queued() != 0),
             // Its inbound loop holds it only weakly between items: an item queued, or a sender
             // beside its own (an agent, a reader), still has work for it.
+            // A chat that never made its channel has nothing inbound (read, not made, here).
             ("inbound", &|| {
-                let tx = &session.inbound_tx;
-                tx.strong_count() > 1 || tx.capacity() < tx.max_capacity()
+                session.inbound.get().is_some_and(|ch| {
+                    ch.tx.strong_count() > 1 || ch.tx.capacity() < ch.tx.max_capacity()
+                })
             }),
             ("asks in flight", &|| session.asks_in_flight.load(Ordering::SeqCst) != 0),
             ("agent requests", &|| session.agent_requests.load(Ordering::SeqCst) != 0),

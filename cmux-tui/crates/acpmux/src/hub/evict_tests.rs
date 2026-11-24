@@ -231,7 +231,7 @@ async fn an_idle_chat_with_its_inbound_loop_running_leaves_memory() {
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
-    assert!(session.inbound_rx.lock().await.is_none(), "the loop holds the receiver");
+    assert!(session.inbound_rx().lock().await.is_none(), "the loop holds the receiver");
     let weak = Arc::downgrade(&session);
     drop(session);
     hub.warm_list_order_for_test();
@@ -242,7 +242,7 @@ async fn an_idle_chat_with_its_inbound_loop_running_leaves_memory() {
     }
     assert!(weak.upgrade().is_none(), "nothing holds the evicted session, its loop ended");
     let back = hub.session_get("s0").expect("rehydrated");
-    assert!(back.inbound_rx.lock().await.is_some(), "a new start spawns its loop again");
+    assert!(back.inbound_rx().lock().await.is_some(), "a new start spawns its loop again");
 }
 
 /// An item queued for the inbound loop keeps its chat: it is still to be handled.
@@ -250,7 +250,7 @@ async fn an_idle_chat_with_its_inbound_loop_running_leaves_memory() {
 async fn a_chat_with_an_inbound_item_queued_stays() {
     let hub = hub_with(1);
     let session = hub.session_get("s0").unwrap();
-    let extra = session.inbound_tx.clone();
+    let extra = session.inbound_tx().clone();
     drop(session);
     assert_eq!(hub.kept_for_test("s0"), Some("inbound"), "a second sender is a producer");
     drop(extra);
