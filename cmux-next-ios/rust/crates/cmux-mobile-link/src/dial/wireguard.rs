@@ -1344,6 +1344,7 @@ impl HybridUnderlay {
     /// TCP inside the tunnel see duplicate ACKs and resend its window). Replays for a route change (not `forced`) happen at
     /// most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
+        tracing::debug!(forced, direct = ?self.direct, confirmed = self.confirmed, "DIAG replay_recent");
         if self.direct.is_none() {
             self.replay_pending = true;
             return;
@@ -1500,7 +1501,10 @@ impl HybridUnderlay {
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
             Ok(_) => true,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => true,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                tracing::debug!(%target, len = datagram.len(), "DIAG UDP send buffer full; datagram dropped");
+                true
+            }
             Err(error) => {
                 tracing::trace!(%error, %target, "UDP send failed");
                 false
@@ -1796,6 +1800,7 @@ impl HybridUnderlay {
         match self.direct {
             Some(route) => {
                 if !self.send_route(route, datagram, class) {
+                    tracing::debug!(?route, "DIAG unconfirmed route refused a send; route cleared");
                     self.direct = None;
                     self.publish_path();
                 }
