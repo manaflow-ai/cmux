@@ -408,6 +408,7 @@ struct SSHTmuxCommand: SharedLegacyFacadeCommand {
     @Argument var destination: String?
     @Option(name: .customLong("port")) var port: String?
     @Option(name: .customLong("identity"), completion: .file()) var identity: String?
+    @Option(name: .customLong("socket-name")) var socketName: String?
     @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: .customLong("new-window")) var newWindow = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []

@@ -395,6 +395,8 @@ extension CMUXCLI {
         """
     }
 
+    /// The usage lines listed under the remote topic of the task-oriented help: account and
+    /// cloud machine commands, then the ssh, mosh and remote tmux commands.
     private var remoteCommandsHelp: String {
         return """
         auth <status|login|logout|team>
@@ -407,7 +409,7 @@ extension CMUXCLI {
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
         session move <session-id> --to <ssh-destination|local> [--from <ssh-destination>] [--name <title>] [--no-code] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus]
-        ssh-tmux <destination> [list|ls [--json] | attach <session>] [options]
+        ssh-tmux <destination> [list|ls [--json] | attach <session>] [--socket-name <name>] [options]
         ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
         ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
         ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
