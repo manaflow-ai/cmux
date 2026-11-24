@@ -64,6 +64,8 @@ final class ShellModel {
             updateShownMacs()
         }
     }
+    /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
+    var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
@@ -78,6 +80,7 @@ final class ShellModel {
     /// The same load is retried from Workspaces; mock recovery reloads its fixture.
     func retryWorkspaces() async {
         if let live { live.retry(); return }
+        if reviewDemo { store.loadReviewDemo(); return }
         #if DEBUG
         if mockMode {
             let loaded = AppStore.mock()
@@ -97,6 +100,9 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// The App Review demo account (server-flagged, any build): demo terminals
+    /// and pages on its demo Mac, no live link (`AppStore.loadReviewDemo`).
+    let reviewDemo: Bool
     /// Send Message… on a workspace or a tab: the message to the Chief being written.
     var messagingChief: ChiefMessageAbout?
     /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
@@ -172,8 +178,10 @@ final class ShellModel {
         TabCardSnapshots.shared.accountID = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
-        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        // The review demo (a DEBUG test forces it on the mock account too) has its own content.
+        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock && !auth.isReviewDemo
         self.mockMode = mockMode
+        reviewDemo = auth.isReviewDemo
         #if DEBUG
         // `-cmux-mobile-mock-create-delay <seconds>` holds mock creations open, so
         // the list's pending row can be seen (verify/record-wsdesign.sh).
@@ -259,7 +267,8 @@ final class ShellModel {
         // New Task's drafts: on disk for a signed-in account, in memory on sample data.
         creator = WorkspaceCreator(store: store, backend: offlineCreation,
                                    taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
-        terminalTabs.mockDataEnabled = mockMode
+        terminalTabs.mockDataEnabled = mockMode || reviewDemo
+        terminalTabs.reviewDemo = reviewDemo
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
@@ -771,10 +780,8 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        // Layout captures only: `-cmux-mobile-banner-demo offline|pairing|pairing-reset|signed-out`.
         switch Self.bannerDemo {
-        case "connected"?: return .connected
-        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
@@ -1082,7 +1089,13 @@ extension ShellModel {
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
         }
         #if DEBUG
-        if let demo = ScreenSharingService.demoMode() { service.useDemo(demo) }
+        if let demo = ScreenSharingService.demoMode() {
+            service.useDemo(demo)
+        } else if live == nil, mockMode {
+            // Mock mode has no account token for the hub: list the mock account's Macs, the ones
+            // Settings › Devices shows (`MockDeviceDirectory`), so both pages say the same.
+            service.useMock { [weak store] in MockDeviceDirectory.hubDevices(store?.teams.flatMap(\.macs) ?? []) }
+        }
         #endif
         screenSharing = service
         ScreenSharingService.current = service

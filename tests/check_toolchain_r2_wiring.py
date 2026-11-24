@@ -1,6 +1,6 @@
 """Wiring checks for scripts/ci/toolchain-r2.sh (run by tests/test_ci_toolchain_r2.sh).
 
-- Every "Restore pinned ..." step is followed directly by the setup-node or setup-bun step it serves, for the
+- Every "Restore pinned ..." step is followed directly by the setup-node (or scripts/ci/ensure-setup-node.sh) or setup-bun step it serves, for the
   same version, so the restore can never put one version down and the installer ask for another.
 - Every Node or Bun version a restore step names (a literal) has a line in scripts/ci/toolchain-archives.sha256.
 - Every exact-version setup step of the Freestyle-heavy workflows has its restore step.
@@ -30,10 +30,12 @@ for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             action = {"node": "actions/setup-node@", "bun": "oven-sh/setup-bun@"}[kind]
             key = {"node": "node-version", "bun": "bun-version"}[kind]
             where = f"{path.name}:{job}:{index}"
-            if action not in str(nxt.get("uses", "")):
-                errors.append(f"{where}: the restore step is not followed by {action}")
+            # scripts/ci/ensure-setup-node.sh VERSION reads the same RUNNER_TOOL_CACHE/node/VERSION/ARCH.
+            ensure = re.search(r"ensure-setup-node\.sh\s+(\S+)", str(nxt.get("run", ""))) if kind == "node" else None
+            if action not in str(nxt.get("uses", "")) and not ensure:
+                errors.append(f"{where}: the restore step is not followed by {action} or ensure-setup-node.sh")
                 continue
-            have = str((nxt.get("with") or {}).get(key, "")).strip()
+            have = ensure.group(1) if ensure else str((nxt.get("with") or {}).get(key, "")).strip()
             if have != version.strip("'\""):
                 errors.append(f"{where}: restores {kind} {version} but the next step sets up {have}")
             if re.fullmatch(r"\d+\.\d+\.\d+", version):

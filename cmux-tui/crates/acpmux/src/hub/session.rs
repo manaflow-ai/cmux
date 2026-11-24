@@ -241,6 +241,9 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// What its Waiting waits for, written with the status (`Hub::write_status`); None while it
+    /// is not Waiting.
+    pub(super) wait_reason: StdMutex<Option<crate::store::WaitReason>>,
     /// Since when work the session started still runs past its own turn (a
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
@@ -257,6 +260,14 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The turn being started is a continuation a move at a tool boundary left
+    /// (`restart_resume.rs` `Cut::MoveAtBoundary`): a Claude process started for it may resume
+    /// the cut turn by itself (`claude_stdio/resume_cut.rs`). Set and cleared by `turns.rs`
+    /// around the start, under the turn lock.
+    pub(super) resume_cut_ask: AtomicBool,
+    /// The process just started does resume the cut turn: `turns.rs` takes it and sends the
+    /// continuation as a carried prompt, which writes nothing. Written by every Claude start.
+    pub(super) resumed_cut: AtomicBool,
     /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
     /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
     /// `rehydrate`.
@@ -297,6 +308,13 @@ pub struct Session {
     /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
     /// changed` until a start runs the new profile.
     pub(super) profile_respawn: AtomicBool,
+    /// Its agent restarts once nothing runs in it (`idle.rs` `quiet_respawn`): its host runs a
+    /// binary an update replaced (`stale_host_respawn.rs`), or its profile changed while a
+    /// background process or subagent was at work in it (`profile_respawn.rs`). The idle
+    /// pass ends it as it ends an idle agent (every gate and the census), after a short quiet
+    /// period instead of the idle one; its next prompt starts it on what is installed then.
+    /// Cleared with `profile_respawn`, when its agent ends or starts.
+    pub(super) respawn_when_quiet: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
@@ -379,6 +397,11 @@ pub struct Session {
     /// The agent message that holds its turn's start in an idle chat for the gather window, by
     /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
     pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The cold batch open in this idle chat (`cold_wake.rs`): when what it holds goes in.
+    pub(super) cold_batch: StdMutex<Option<super::cold_wake::Batch>>,
+    /// Whether the turn starting now takes a cold batch: its notice leads the agent messages
+    /// queued behind it (`digest.rs` `take_joined`).
+    pub(super) cold_batch_turn: AtomicBool,
     /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
     /// (`person_hold.rs`).
     pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
@@ -448,6 +471,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The current agent process's last stderr line that could say why it quit, for its
+    /// `exited` record (`exit_reason::ExitLine`).
+    pub(super) exit_line: StdMutex<super::exit_reason::ExitLine>,
     /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
     /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
     /// process is. Not persisted: after a daemon restart, a line that continues a control opened
@@ -550,6 +576,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Its agent's `session/fork` requests, whose new sessions' updates are never its own
+    /// (`fork_replay.rs`).
+    pub(super) fork_replay: super::fork_replay::ForkReplay,
     /// The other sessions' messages its Claude Code holds now, oldest first
     /// (`native_messaging.rs`): in memory only.
     pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,

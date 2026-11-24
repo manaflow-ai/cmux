@@ -1056,6 +1056,23 @@ pub fn allowed_var(key: &str) -> Option<String> {
     .then_some(v)
 }
 
+/// Where [`vault_env`] reads the vault env: `vault::env_for_children`, set by the vault's
+/// worker when it starts (only a daemon starts it). The vault is a higher module, so it hands
+/// its reader down here instead of this module calling up into it.
+// test-hook-allow: not a test hook; the vault worker sets it once, and no test does
+static VAULT_ENV: std::sync::OnceLock<fn() -> Vec<(String, String)>> = std::sync::OnceLock::new();
+
+/// Called by the vault's worker (`vault::start_worker`) before it marks the vault active.
+pub(crate) fn set_vault_env(read: fn() -> Vec<(String, String)>) {
+    let _ = VAULT_ENV.set(read);
+}
+
+/// The vault env every local agent of this daemon gets (`vault::env_for_children`). Empty
+/// outside a daemon, as that is.
+pub(crate) fn vault_env() -> Vec<(String, String)> {
+    VAULT_ENV.get().map_or_else(Vec::new, |read| read())
+}
+
 /// Profile and route references must not recover a machine value from the
 /// daemon's inherited environment after the local-only overlay refuses it.
 pub(crate) fn reference_var(key: &str) -> Option<String> {
@@ -1070,7 +1087,7 @@ pub(crate) fn reference_var(key: &str) -> Option<String> {
 /// current local machine declarations it removed; never restore an inherited
 /// value or expose this overlay to remote-origin launches.
 pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(nested_local(crate::vault::env_for_children(), machine::read()));
+    cmd.envs(nested_local(vault_env(), machine::read()));
 }
 
 /// The nested-Claude keys of the local overlay a scrub removed, in the order
@@ -1099,7 +1116,7 @@ fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
-    pairs_with(family, profile, crate::vault::env_for_children(), machine::read())
+    pairs_with(family, profile, vault_env(), machine::read())
 }
 
 fn pairs_with(
@@ -1139,6 +1156,11 @@ pub(crate) fn overlay(
     values.into_iter().collect()
 }
 
+/// This machine's delivered `machine.env` under `home`.
+pub(crate) fn machine_env_path(home: &std::path::Path) -> std::path::PathBuf {
+    machine::path(home)
+}
+
 /// Whether an env name may come from a person's or machine's declarations:
 /// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
 pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
@@ -1175,7 +1197,7 @@ pub fn effective_for(
     family: Option<&str>,
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    let (vault, machine) = (crate::vault::env_for_children(), machine_values());
+    let (vault, machine) = (vault_env(), machine_values());
     effective_with(family, profile, daemon_values(), vault, machine)
 }
 

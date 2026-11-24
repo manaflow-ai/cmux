@@ -32,6 +32,7 @@ mod app_assets;
 pub(crate) mod browser_workspaces;
 pub(crate) mod dual_requests;
 mod ws_peek;
+mod ws_read_ahead;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
 pub use ws_shutdown::WsShutdown;
@@ -156,6 +157,15 @@ impl MessageNoticeBook {
     }
 }
 
+/// Only the local byte stream can switch from JSON-RPC to a pipe on its first line.
+enum Transport {
+    Messages,
+    LocalStream {
+        /// The verified root peer of a Cloud VM's non-root daemon (daemon/provision.rs).
+        provisioner: bool,
+    },
+}
+
 pub struct Conn {
     /// The owner of this connection's own tasks (each request it sent, a reply waiting for room),
     /// a child of the hub's scope. A request a client sent before it hung up still runs to its
@@ -211,6 +221,9 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
+    /// to it only once it listed the gate.
+    client_features: client_features::ClientFeatures,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
@@ -225,10 +238,7 @@ pub struct Conn {
     /// own outbox: where a send's process chain is walked from and whose check is carried
     /// (`sender_harness::check_trust`), provenance only, never a proof.
     pub(super) socket_peer: crate::sender_harness::SocketPeer,
-    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
-    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
-    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
-    provisioner: bool,
+    transport: Transport,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -243,6 +253,9 @@ pub struct Conn {
     trigger: StdMutex<Option<TriggerScope>>,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// `_acpmux/person_prove` calls on this connection (`hub/person.rs`, at most
+    /// `PROVES_PER_CONNECTION`).
+    pub(super) prove_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
@@ -503,6 +516,26 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// Who closes `target` when this connection asks (`close_why.rs`): a peer daemon or remote
+    /// client by its paired machine, the app's pane, an agent closing itself, or the local CLI
+    /// (with the session it runs in, when it proved one, and its pid).
+    pub(super) fn close_actor(&self, target: &str) -> crate::close_why::CloseActor {
+        use crate::close_why::CloseActor;
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let caller = self.caller();
+        let kind = match self.origin {
+            Origin::Peer => "peer",
+            Origin::Web => "web",
+            Origin::LocalApp => "app",
+            Origin::Local if caller == Some(target) => "agent_self",
+            Origin::Local => "cli",
+        };
+        CloseActor::new(kind).session(caller).host(self.device.as_deref()).pid(pid)
+    }
+
     /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
     /// unix peer pid and the session its first `initialize` named.
     fn stats_caller(&self) -> crate::caller_stats::Caller {
@@ -579,8 +612,11 @@ impl Conn {
     /// The person binding (`hub/person.rs`), in order before the request
     /// runs. A `personKey` in any request is stripped and never read. A
     /// local connection whose FIRST request is `initialize` is challenged;
-    /// its SECOND request, `_acpmux/person_prove`, makes it the person when
-    /// the proof matches its own nonce and id. Nothing else ever does.
+    /// a later `_acpmux/person_prove` (the second request, or any after it, at most
+    /// `PROVES_PER_CONNECTION`) makes it the person when the proof matches its own nonce and
+    /// id. Nothing else ever does. A proof checked here, in order, makes the person before the
+    /// next request is bound; one that came before this run's key is checked again by its
+    /// handler once the key comes (`requests.rs`, `PersonGate::proves_when_keyed`).
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
         // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
@@ -599,16 +635,56 @@ impl Conn {
             let proven = hub.proven_caller((id.clone(), token)).is_some();
             let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
         }
-        if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
+        if n >= 2 && m == method::MUX_PERSON_PROVE && self.may_prove() {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
-            let transport = match self.origin {
-                Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
-                _ => crate::hub::person::TRANSPORT_UNIX,
-            };
-            if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
+            if proof.is_some_and(|p| {
+                hub.person.proves(self.person_transport(), &self.nonce, &self.id, p)
+            }) {
                 self.person.store(true, Ordering::SeqCst);
             }
         }
+    }
+
+    /// Whether this connection may still try `_acpmux/person_prove`: it was challenged and has
+    /// used fewer than `PROVES_PER_CONNECTION` tries. Counts this try.
+    fn may_prove(&self) -> bool {
+        self.challenged.load(Ordering::SeqCst)
+            && self.prove_calls.fetch_add(1, Ordering::SeqCst)
+                < crate::hub::person::PROVES_PER_CONNECTION
+    }
+
+    /// The transport a person proof on this connection names (`hub/person.rs`).
+    pub(super) fn person_transport(&self) -> &'static str {
+        match self.origin {
+            Origin::LocalApp => crate::hub::person::TRANSPORT_APP,
+            _ => crate::hub::person::TRANSPORT_UNIX,
+        }
+    }
+
+    /// `_acpmux/person_prove`'s answer: whether this connection is the person now. A proof that
+    /// `bind_person` could not check (this run holds no key yet, or one the app is replacing)
+    /// stays pending until a key it answers is enrolled, then makes the connection the person;
+    /// it ends unproven only when the connection closes. Requests run concurrently, so a pending
+    /// prove holds nothing else on the connection.
+    pub(super) async fn settle_prove(&self, hub: &Hub, params: &Value) -> bool {
+        if self.is_person() {
+            return true;
+        }
+        let tried = self.prove_calls.load(Ordering::SeqCst);
+        if !self.challenged.load(Ordering::SeqCst)
+            || tried == 0
+            || tried > crate::hub::person::PROVES_PER_CONNECTION
+        {
+            return false;
+        }
+        let Some(proof) = params.get("proof").and_then(Value::as_str) else { return false };
+        let keyed =
+            hub.person.proves_when_keyed(self.person_transport(), &self.nonce, &self.id, proof);
+        tokio::select! {
+            () = keyed => self.person.store(true, Ordering::SeqCst),
+            () = self.closed() => {}
+        }
+        self.is_person()
     }
 
     /// Hold `lease` until this connection closes; ended now if it already did.
@@ -902,8 +978,10 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     // the limit, never as a bare bind error.
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
-        // Owner-only when created here, like the /tmp fallback directory.
+        // Owner-only when created here, like the /tmp fallback directory; acpmux's own directory
+        // that already exists wider is narrowed to it too ([`tighten_socket_dir`]).
         crate::home_fs::create_dir_all(parent, 0o700)?;
+        tighten_socket_dir(parent)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
@@ -922,14 +1000,81 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
-    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let listener = bind_owner_only(path)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
+}
+
+/// Binds `path` so nobody but this user can ever connect, without touching the process umask:
+/// the umask is process-wide, so setting it for one bind made a folder another thread created
+/// meanwhile 0600, which nothing can enter (two hub_carrier pipe tests failed with "bind
+/// .../acpmux.sock: Permission denied" that way). The socket is bound inside a fresh 0700
+/// folder next to `path`, made 0600 there and renamed into place; a bound socket keeps working
+/// under its new name. A staging path too long for `sun_path` binds in place, where the 0600
+/// chmod follows at once and the peer check at accept ([`peer_uid_allowed`]) holds meanwhile.
+#[cfg(unix)]
+fn bind_owner_only(path: &std::path::Path) -> Result<UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let owner_only = || std::fs::Permissions::from_mode(0o600);
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let stage = parent.map(|p| p.join(format!(".b{:x}{n:x}", std::process::id())));
+    let staged = stage.as_ref().map(|s| s.join("s"));
+    let fits = staged.as_ref().is_some_and(|s| cmux_unix_socket::check_path(s).is_ok());
+    let (Some(stage), Some(staged), true) = (stage, staged, fits) else {
+        let listener =
+            UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(path, owner_only())?;
+        return Ok(listener);
+    };
+    crate::home_fs::create_dir(&stage, 0o700)
+        .with_context(|| format!("create {}", stage.display()))?;
+    let bound = (|| -> Result<UnixListener> {
+        // A umask set elsewhere can leave the folder without its search bit; 0700 whatever it was.
+        crate::home_fs::set_permissions(&stage, std::fs::Permissions::from_mode(0o700))?;
+        let listener =
+            UnixListener::bind(&staged).with_context(|| format!("bind {}", path.display()))?;
+        crate::home_fs::set_permissions(&staged, owner_only())?;
+        crate::home_fs::rename(&staged, path)
+            .with_context(|| format!("move the socket to {}", path.display()))?;
+        Ok(listener)
+    })();
+    let _ = crate::home_fs::remove_file(&staged);
+    let _ = crate::home_fs::remove_dir(&stage);
+    bound
+}
+
+/// Narrows `dir`, the daemon socket's directory, to 0700 when it is acpmux's own (its home, or a
+/// directory named `acpmux...` such as the `/tmp/acpmux-UID` fallback) and this user owns it:
+/// `create_dir_all` leaves a directory that already exists as it was. A directory the person named
+/// with `ACPMUX_SOCKET` (their home, a project) is never changed; the socket's own mode and the
+/// peer check at accept ([`peer_uid_allowed`]) hold there.
+#[cfg(unix)]
+fn tighten_socket_dir(dir: &std::path::Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let ours = dir == crate::config::home().as_path()
+        || dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("acpmux"));
+    if !ours {
+        return Ok(());
+    }
+    let Ok(meta) = std::fs::symlink_metadata(dir) else { return Ok(()) };
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let own = unsafe { libc::geteuid() };
+    if meta.is_dir() && meta.uid() == own && meta.mode() & 0o077 != 0 {
+        let mode = meta.mode() & 0o700;
+        crate::home_fs::set_permissions(dir, std::fs::Permissions::from_mode(mode))
+            .with_context(|| format!("narrow {} to owner-only", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Whether a unix socket peer with `uid` may talk to the daemon running as `own`: this user, or
+/// root (the Cloud machine's provisioner, `daemon/provision.rs`; root opens a 0600 socket anyway).
+/// A peer whose uid cannot be read is refused.
+#[cfg(unix)]
+pub(crate) fn peer_uid_allowed(uid: Option<u32>, own: u32) -> bool {
+    uid.is_some_and(|uid| uid == own || uid == 0)
 }
 
 #[cfg_attr(not(any(feature = "tailnet", feature = "hub-carrier")), allow(unused_imports))]
@@ -956,6 +1101,18 @@ pub async fn serve_unix_with_v2(
                 continue;
             }
         };
+        // The socket's mode admits this user only; the peer's uid says so again (one
+        // getsockopt, its pid read from the same answer below).
+        let cred = stream.peer_cred().ok();
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let own = unsafe { libc::geteuid() };
+        if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
+            tracing::warn!(
+                uid = ?cred.map(|c| c.uid()),
+                "refused a socket peer that is not this user"
+            );
+            continue;
+        }
         let hub = hub.clone();
         let v2 = v2.clone();
         tokio::spawn(async move {
@@ -966,9 +1123,7 @@ pub async fn serve_unix_with_v2(
             };
             // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
             let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = stream
-                .peer_cred()
-                .ok()
+            let socket_peer = cred
                 .and_then(|c| c.pid())
                 .and_then(|p| u32::try_from(p).ok())
                 .map_or(SocketPeer::Unknown, SocketPeer::Pid);
@@ -1460,7 +1615,7 @@ pub async fn serve_ws_until(
             // Answered through the connection's outbound queue once it is made, in order with
             // every other line and counted against its byte bound (`outbound.rs`).
             let (uploads, replies) = tokio::sync::watch::channel(None);
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
+            let frames = Arc::new(upload_frames::spawn(hub.clone(), origin, proof, replies));
             let read_shutdown = shutdown.clone();
             let reader_end = crate::link_v2::ReaderEnd::new(slot.clone());
             let reader = tokio::spawn(async move {
@@ -1469,27 +1624,25 @@ pub async fn serve_ws_until(
                     biased;
                     () = read_shutdown.closing() => {},
                     () = async {
-                        while let Some(frame) = source.next().await {
-                            let frame = match frame {
-                                Ok(frame) => frame,
-                                // A read error ends the connection; say why, or the client sees only a reset.
-                                Err(e) => {
-                                    tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
-                                    break;
+                        // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
+                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                            let (frames, in_tx) = (frames.clone(), in_tx.clone());
+                            async move {
+                                match frame {
+                                    // After the frames before it are written (`upload_frames::InFlight`).
+                                    tokio_tungstenite::tungstenite::Message::Text(t) => {
+                                        frames.in_flight.drained().await;
+                                        in_tx.send(t.to_string()).await.is_ok()
+                                    }
+                                    tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                                    _ => true,
                                 }
-                            };
-                            let sent = match frame {
-                                // After the frames before it are written (`upload_frames::InFlight`).
-                                tokio_tungstenite::tungstenite::Message::Text(t) => {
-                                    frames.in_flight.drained().await;
-                                    in_tx.send(t.to_string()).await.is_ok()
-                                }
-                                tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
-                                _ => true,
-                            };
-                            if !sent {
-                                break;
                             }
+                        })
+                        .await;
+                        // A read error ends the connection; say why, or the client sees only a reset.
+                        if let Some(e) = ended {
+                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
                         }
                     } => {},
                 }
@@ -1543,7 +1696,7 @@ pub async fn serve_ws_until(
                 origin,
                 proof,
                 None,
-                false,
+                Transport::Messages,
                 SocketPeer::Unknown,
                 device,
                 Some(wire),
@@ -1708,7 +1861,7 @@ pub(super) async fn serve_outbox_connection(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Outbox,
         None,
         None,
@@ -1737,7 +1890,7 @@ pub async fn serve_connection_authed(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1764,7 +1917,7 @@ pub(crate) async fn serve_peer_link(
         Origin::Peer,
         ConnAuth::PeerToken,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         None,
         None,
@@ -1794,7 +1947,7 @@ pub(crate) async fn serve_device_link(
         origin,
         auth,
         None,
-        false,
+        Transport::Messages,
         SocketPeer::Unknown,
         Some(device.id),
         None,
@@ -1824,7 +1977,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
-    provisioner: bool,
+    transport: Transport,
     socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
@@ -1857,7 +2010,7 @@ async fn serve_connection_from(
     // for, with `list` and `peers` on (`link_v2.rs`). Every other connection drops its frames.
     let mut link_v2 = link
         .filter(|_| origin == Origin::Peer)
-        .and_then(|slot| crate::link_v2::Link::serving(&hub, slot));
+        .and_then(|slot| link_v2_serve::Link::serving(&hub, slot));
     // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
     // stand-in for the device id, never the id).
     if cmux_usage_patterns::enabled() {
@@ -1890,19 +2043,21 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        client_features: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
-        provisioner,
+        transport,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         trigger: StdMutex::new(None),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        prove_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
         declared: std::sync::OnceLock::new(),
@@ -2014,6 +2169,17 @@ async fn serve_connection_from(
             }
         };
         match msg {
+            // Which of this connection's requests still run (`in_flight.rs` `states`): answered
+            // here, in order with the requests read before it, and never queued for a slot, so a
+            // client whose slots are all taken by slow requests still gets its proof. Only this
+            // connection's own requests, like a `$/cancel_request`: any client may ask.
+            Message::Request { id, method: m, .. } if m == method::MUX_REQUEST_STATE => {
+                let (running, answered) = conn.in_flight.states();
+                conn.send_replying(
+                    &Message::ok(id, json!({"running": running, "answered": answered})),
+                    Some(&m),
+                );
+            }
             Message::Request { id, method: m, mut params } => {
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
@@ -2536,13 +2702,22 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
         // stopped it until the next page, so a move during a long turn found a copy without
         // the running turn or the prompts queued behind it.
-        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+        if !sent
+            && rec.seq > 0
+            && conn.origin == Origin::Peer
+            && ev.remote.is_none()
+            && conn.client_features.hears_any(&[client_features::UNSENT_FEATURE])
+        {
             conn.send(&Message::notification(
                 method::MUX_UNSENT,
                 json!({"sessionId": ev.session_id, "seq": rec.seq}),
             ));
         }
-        if message && heard && !repeat {
+        if message
+            && heard
+            && !repeat
+            && conn.client_features.hears_any(&[crate::capabilities::SESSION_MESSAGES])
+        {
             // Routed as the event beside it: a peer's chat id alone may match one here.
             conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
@@ -2696,6 +2871,7 @@ mod cancel_prompt_tests;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
+pub(crate) mod client_features;
 mod client_request;
 pub(crate) mod computer_use_relay;
 #[cfg(test)]
@@ -2707,10 +2883,17 @@ mod keys_relay;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
+#[cfg(test)]
+#[path = "person_prove_tests.rs"]
+mod person_prove_tests;
 pub(crate) mod shutdown_drain;
 #[cfg(test)]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "socket_access_tests.rs"]
+mod socket_access_tests;
 #[cfg(test)]
 #[cfg(unix)]
 #[path = "wake_held_tests.rs"]
@@ -2720,6 +2903,7 @@ pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
 mod chunk_deltas;
+mod felt;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
@@ -2732,6 +2916,8 @@ mod fanout;
 mod fix_from_link;
 mod follow;
 mod forum;
+mod github_lane;
+mod link_v2_serve;
 mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
@@ -2752,6 +2938,7 @@ mod inventory_watch;
 mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
+mod agent_home;
 mod bg_tasks;
 mod github_prs;
 mod goal;
@@ -2780,6 +2967,7 @@ mod sign_in_follow;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
+mod chat_place;
 pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
@@ -2894,6 +3082,13 @@ mod outbound_queue_tests;
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
+/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
+/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
+#[cfg(all(unix, feature = "tailnet"))]
+#[path = "../tailnet/embedded_service.rs"]
+pub(crate) mod tailnet_service;
 
 #[cfg(test)]
 mod message_notice_tests;

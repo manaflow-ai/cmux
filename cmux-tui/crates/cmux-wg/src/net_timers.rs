@@ -60,7 +60,33 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
+            self.handshake_retry.on_initiation(Instant::now(), false);
             self.schedule.on_activity(Instant::now());
+        }
+    }
+
+    /// Send the initiation again while data waits for a session and its
+    /// answer is overdue (see `crate::handshake_retry`).
+    /// Not while a crossed handshake is held (`wait_for_handshake_until`):
+    /// a new initiation would drop the state the peer's reply needs.
+    pub(super) fn run_handshake_retry(&mut self) {
+        let now = Instant::now();
+        if self.wait_for_handshake_until.is_some_and(|end| now < end) {
+            return;
+        }
+        if !self.handshake_retry.fire(now, self.pacer.srtt()) {
+            return;
+        }
+        if self.tunn.time_since_last_handshake().is_some() || !self.underlay.has_peer() {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) =
+            self.tunn.format_handshake_initiation(&mut self.scratch, true)
+        {
+            self.underlay.send(packet);
+            self.handshake_retry.on_initiation(now, false);
+            self.schedule.on_activity(now);
         }
     }
 
@@ -84,6 +110,9 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
+            // `false` sends only when no handshake is in progress.
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.schedule.on_activity(Instant::now());
         }
     }
@@ -99,10 +128,14 @@ impl Driver {
         let result = if fresh {
             self.tunn.encapsulate(&[], &mut self.scratch)
         } else {
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         };
         if let TunnResult::WriteToNetwork(packet) = result {
             self.underlay.send(packet);
+            if !fresh {
+                self.initiated_at = Some(Instant::now());
+            }
         }
         self.schedule.on_activity(Instant::now());
     }
@@ -229,6 +262,7 @@ impl Driver {
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
             if retry {
+                self.handshake_retry.on_initiation(Instant::now(), false);
                 self.schedule.on_activity(Instant::now());
             }
         }
