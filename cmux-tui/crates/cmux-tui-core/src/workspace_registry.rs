@@ -27,7 +27,8 @@ use session_guard::{
     SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
 };
 pub(crate) use session_guard::{
-    SessionLease, SessionOwnerProbe, probe_session_owner, session_owner_mark,
+    SessionLease, SessionOwnerPeek, SessionOwnerProbe, peek_session_owner, probe_session_owner,
+    session_owner_last_active, session_owner_mark, stored_terminal_references,
 };
 
 pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
