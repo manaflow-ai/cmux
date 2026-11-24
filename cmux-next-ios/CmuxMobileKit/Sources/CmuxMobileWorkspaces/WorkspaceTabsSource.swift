@@ -1232,6 +1232,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// Every card's last-known picture, kept across launches (`TabCardSnapshots`).
     @ObservationIgnored var snapshots = TabCardSnapshots.shared
+    /// What each Mac pushes of its tabs: title, favicon, picture, terminal screen.
+    @ObservationIgnored var macCards = MacTabCards.shared
+    /// The Mac's own account of `tabID` (its favicon and terminal screen), for its card.
+    func macCardEntry(_ tabID: String) -> MacCardEntry? {
+        guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID else { return nil }
+        return snapshots.key(macID: macID, tabID: tabID).map { macCards.entry($0) }
+    }
     /// The tabs whose pictures were last asked of the disk, in grid order.
     @ObservationIgnored private var warmedTabs: [String] = []
 
@@ -1256,6 +1263,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard !keys.isEmpty || ids.isEmpty else { return }
         warmedTabs = ids
         snapshots.warm(keys)
+        // What the Mac pushed of these tabs in an earlier launch, and its blobs asked for
+        // nearest the active tab first.
+        macCards.warm(macID: workspace.macID)
+        macCards.near?(keys.map(\.tabID), workspace.macID)
     }
 
     /// A page's snapshot just taken becomes the tab's last-known picture, at a card's resolution.
@@ -1388,6 +1399,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // Chats that changed during the scroll catch up when it ends.
         if !scrolling, cardsFollowChats { followCards(true) }
         terminal.overviewScrollingChanged(scrolling)
+    }
+
+    /// A browser tab's favicon as the Mac sent it, kept across launches (`MacTabCards`).
+    public func icon(for id: TabsKitTab.ID) -> UIImage? {
+        guard workspaceTab(id)?.kind == .browser else { return nil }
+        let favicon = macCardEntry(id)?.favicon
+        #if DEBUG
+        TabCardFaceProbe.recordFavicon(shown: favicon != nil, tab: id)
+        #endif
+        return favicon
     }
 
     public func showStaticCard(for id: TabsKitTab.ID) -> Bool {
@@ -2463,7 +2484,8 @@ struct WorkspaceTabPage: View {
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
             } else if let model = source.browser(tab) as? StreamedBrowserModel {
-                StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
+                StreamedBrowserPage(model: model, insets: insets, lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage,
+                                    reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
