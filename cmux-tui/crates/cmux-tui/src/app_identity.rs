@@ -333,8 +333,16 @@ pub(crate) fn darwin_user_temp_dir() -> Option<PathBuf> {
 }
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
-/// or `…/Foo.app/Contents/MacOS/cmux`.
+/// or `…/Foo.app/Contents/MacOS/cmux`, or a link to one from outside the
+/// bundle (Homebrew's `/opt/homebrew/bin/cmux`, a PATH shim): macOS's
+/// `current_exe` is the path the process was started by, not the link's
+/// target, so a linked `cmux` lost its app and reached `main.sock`, a session
+/// nothing starts, while the app's daemon ran (cmux#53045).
 pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
+    lexical_app_bundle(exe).or_else(|| lexical_app_bundle(&std::fs::canonicalize(exe).ok()?))
+}
+
+fn lexical_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))
