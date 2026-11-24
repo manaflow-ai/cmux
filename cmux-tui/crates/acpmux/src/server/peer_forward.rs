@@ -108,6 +108,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
+    method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
@@ -569,6 +570,14 @@ async fn forward_inner(
             && !peer.lists(super::fork_through::RETARGET_FEATURE)
         {
             return Err(super::fork_through::retarget_unsupported(&peer.name));
+        }
+        // A subagent's fork, or one in a picked mode or on a model of the chat's own harness, goes
+        // only to a peer that takes them: an older build would fork the whole chat as it is.
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_start(params)
+            && !peer.lists(crate::hub::fork_subagent::FEATURE)
+        {
+            return Err(super::fork_through::start_unsupported(&peer.name));
         }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
