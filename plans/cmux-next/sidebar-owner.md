@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
+  changed how groups look. A group opens with its visible header band and member rail. Folders and the six
+  other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
+  `ChiefGroupRailTests`, and `SidebarGroupsAsFoldersTests`.
+
+- 2026-11-14 (Remote ergonomics flow 5, ports): Sidebar-Look: Leo asked “and how are the ergonomics of cmux remote tho esp in the gui?”. The workspace hover card draws each port of the workspace's `ports` entry as a row under the tab list ("localhost:5173", network icon, the tab rows' hover and pressed fill), with details shut or open; a click opens it in a browser tab of the workspace, on another machine through its daemon. The entry no longer repeats as a details fact when it has a port to open; one with only words still does. Gallery: "Ports · this Mac · one port", "· two ports · details open", "· another machine · its localhost", "· port row hovered".
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
   the settings watcher. The existing title, detail and metadata slots move together using
@@ -28,6 +34,7 @@
   named after the machine's human name or its chat's title, else "Desktop", never a raw `chat-<hex>` id
   (`CloudStrings.desktopWorkspaceName(_:chats:)`). Regression: `SidebarCloudMachineHeaderTests`,
   `CloudChatTabBadgeTests`, `CloudDesktopPageIconTests`.
+- 2026-11-22 (sidebar-thumb-on-scroll): Sidebar-Look: Leo, 2026-11-22: "to be honest, when hovering your mouse to the sidebar, do you want to see the thumb? claude code, you dont see it... unless you scroll first. hovering only doesnt show. this completely eliminates the problem where for us right now, when you're near the thumb and the sliding repositioner, it gets confused and sometimes goes to the thumb instead of the dragger." The list's scroll thumb shows only while the list scrolls and for 800 ms after, never for the pointer alone; the pointer only widens and holds a thumb a scroll showed. A press anywhere in the resize band always resizes (`ResizeBands`, registered by `SidebarResizeHandle` and `DividerHandleView`); the old yield-to-thumb path is gone. The thumb is an overlay: nothing moves when it shows. Regression: `SidebarEdgeHitMapTests`, `ThinScrollerFadeTests`, `ThinScrollerGrabZoneTests`.
 - 2026-11-21 (nx-48363-glow-marks-overlap): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48363): "it happens for blue notification dot and the red error o, we need to fix this issue". On a hovered workspace row the ✕ and ⋮ never draw over the unread dot, the row badge or the status mark (the red error): the row's display pass (`updateNeedsYouGlow`) no longer sets those marks back to full opacity when the row does not glow, which undid the layout that clears them under the controls. The needs-you glow only clears them, the layout keeps them clear while the row glows, and when the glow stops the layout's hover rules bring them back. The row tracks the marks the glow cleared (`marksHiddenForGlow`), so a glow that ends by a display-only change (secondary selection, drop target) still asks for the layout that restores them. Regression: `SidebarRowCloseClearsMarksTests` (now runs the display pass after the hover layout and checks the unread or error mark returns after the hover).
 - 2026-11-21 (49579-standard-dialog-density): Sidebar-Look: user, 2026-11-21 (https://github.com/manaflow-ai/cmux/issues/49579): "The sidebar's 'cmux Is Up to Date' card uses its own oversized title/body text, padding and radius. Make it, and every similar sidebar/app dialog or toast card, use one standardized type scale and spacing that follows the text density settings." Every card reads one scale, `CmuxNextDesign/CardScale.swift`: `Typography.cardTitle` (TypeScale body step, emphasized), `cardBody`/`cardBodyDigits`/`cardButton` (detail step), `cardCaption` (caption step) and `dialogTitle` (title step), each times the density's text factor and the person's Text Size and Interface Size on the half-point grid (Default 13/12/11, Compact 11.5/11/10, Spacious 15.5/14.5/13), so a card's title sits under the rows' title at every density (it matched them). Spacing: `Metrics.cardPadding` `space4 + space1` (10 pt at Default; supersedes the tip card's 12 of 2026-11-19 and the Update Ready card's 5), `cardTextGap` `space1`, `cardRowGap` `space3`, `cardCornerRadius` concentric from the padding. Moved onto it: the notice cards (update status, tips, asks, announcements, star prompt), Update Ready, Now Playing (was `space3` and the surface corner), the card text buttons, switches and Automatic Updates label, toasts, and dialogs (`Metrics.dialogPadding` `space6`, was a fixed 16 times the text scale). Regression: `CardScaleDensityTests` (every density).
 - 2026-11-22 (a590 pin cuts): Sidebar-Look: Lawrence 2026-11-20: "drastically simplify all parts of the UI"
@@ -143,6 +150,15 @@
   (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
   `SidebarRollingSummaryTests`. Stills: the States Playground's pinned hover card and the idle row's Expanded line carry a
   summary (`SidebarStatesPlaygroundFixture`), shot by `AASidebarStatesGalleryTests` (`sidebar-states-gallery.tar`).
+- 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
+  for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
+  `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
+  open as a `GlassMenu` (same rows, shortcuts, submenus, keys, accessibility) that the menu look keys can style, at the
+  pointer or under the more button. Drawn, the workspace and group menus skip the name-and-swatches header (a row view
+  GlassMenu does not draw) and keep Rename... and the Color submenu. Off, every sidebar menu is the system menu, as
+  before (Lawrence 2026-10-23's standard right-click menus stay the default). Values per look:
+  docs/cmux-next/menu-look.md. Tests: `SidebarDrawnMenusSettingTests`, `AASidebarDrawnMenuGalleryTests`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
