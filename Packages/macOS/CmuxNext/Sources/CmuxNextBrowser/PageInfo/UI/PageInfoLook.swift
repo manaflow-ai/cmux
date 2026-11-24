@@ -41,7 +41,7 @@ nonisolated enum PageInfoLook: String, CaseIterable, Sendable {
     }
 
     /// The redraw's numbers; nil for ``current``, which keeps `Metrics`' palette numbers.
-    var geometry: PageInfoLookGeometry? {
+    @MainActor var geometry: PageInfoLookGeometry? {
         switch self {
         case .current:
             nil
