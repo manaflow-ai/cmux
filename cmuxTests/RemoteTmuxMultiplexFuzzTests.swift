@@ -1212,24 +1212,22 @@ struct RemoteTmuxViewStaleClientTests {
             host: RemoteTmuxHost(destination: "alias-two"), ownerId: ownerId, transportProfile: profile)
         defer { first.stop(); second.stop() }
 
+        // Each view publishes its first workspaces after its bringup, and the sweep is part of the
+        // bringup, so by then that view's sweep has run.
         try first.start()
-        #expect(await Self.waitForControlClients(tmuxPath, socket, first.view.sessionName, count: 1))
+        #expect(await first.awaitFirstWorkspaces())
         try second.start()
-        #expect(await Self.waitForControlClients(tmuxPath, socket, second.view.sessionName, count: 1))
+        #expect(await second.awaitFirstWorkspaces())
+        // tmux runs one client's commands in order, so once this answer arrives anything the second
+        // view sent before it, a detach included, has taken effect on the server.
+        _ = await second.connection?.queryWithTimeout("display-message -p '#{client_name}'", timeout: 15)
 
-        // Give the second stream's bringup, and its sweep, time to finish, then check that the
-        // first stream still has its client and is still connected.
-        var firstLostItsClient = false
-        for _ in 0..<30 {
-            if Self.serverControlClients(tmuxPath, socket).count < 2
-                || first.connection?.connectionState != .connected {
-                firstLostItsClient = true
-                break
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        #expect(!firstLostItsClient,
-                "clients: \(Self.serverControlClients(tmuxPath, socket)) first=\(String(describing: first.connection?.connectionState))")
+        let clients = Self.serverControlClients(tmuxPath, socket)
+        #expect(first.connection?.connectionState == .connected, "clients: \(clients)")
+        #expect(second.connection?.connectionState == .connected, "clients: \(clients)")
+        #expect(Self.controlClients(tmuxPath, socket, first.view.sessionName).count == 1, "clients: \(clients)")
+        #expect(Self.controlClients(tmuxPath, socket, second.view.sessionName).count == 1, "clients: \(clients)")
+        #expect(clients.count == 2, "clients: \(clients)")
     }
 
     private static func serverControlClients(_ tmuxPath: String, _ socket: String) -> [String] {

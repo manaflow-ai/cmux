@@ -88,13 +88,13 @@ struct SSHControlSocketDirectoryTests {
         defer { home.remove() }
         let release = try #require(SSHControlSocketDirectory.prepare(
             home: home.path, userID: userID,
-            namespace: SSHControlSocketDirectory.appNamespace(bundleIdentifier: "com.cmuxterm.app", executableURL: nil)))
+            build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app")))
         let nightly = try #require(SSHControlSocketDirectory.prepare(
             home: home.path, userID: userID,
-            namespace: SSHControlSocketDirectory.appNamespace(bundleIdentifier: "com.cmuxterm.app.nightly", executableURL: nil)))
+            build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly")))
         let tagged = try #require(SSHControlSocketDirectory.prepare(
             home: home.path, userID: userID,
-            namespace: SSHControlSocketDirectory.appNamespace(bundleIdentifier: "com.cmuxterm.app.debug.feature", executableURL: nil)))
+            build: SSHControlSocketBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.feature")))
 
         #expect(release == home.resolvedPath + "/.cmux/ssh")
         #expect(Set([release, nightly, tagged]).count == 3)
@@ -124,10 +124,12 @@ struct SSHControlSocketDirectoryTests {
         let link = home.path + "/cmux-on-path"
         try #require(symlink(bin + "/cmux", link) == 0)
 
-        #expect(SSHControlSocketDirectory.appNamespace(
-            bundleIdentifier: nil, executableURL: URL(fileURLWithPath: link)) == "com.cmuxterm.app.debug.feature")
-        #expect(SSHControlSocketDirectory.appNamespace(
-            bundleIdentifier: nil, executableURL: URL(fileURLWithPath: home.path + "/loose-cli")) == nil)
+        #expect(SSHControlSocketBuildIdentity(
+            bundleIdentifier: nil, executableURL: URL(fileURLWithPath: link)
+        ).namespace == "com.cmuxterm.app.debug.feature")
+        #expect(SSHControlSocketBuildIdentity(
+            bundleIdentifier: nil, executableURL: URL(fileURLWithPath: home.path + "/loose-cli")
+        ).namespace == nil)
     }
 }
 

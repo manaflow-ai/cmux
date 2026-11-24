@@ -349,6 +349,8 @@ final class RemoteTmuxControlConnection {
     /// would silently become false — a login that was seen and then forgotten. Reset per spawn along
     /// with the buffer it summarises.
     private var sawUnansweredCredentialPrompt = false
+    /// The pending decision on a prompt seen before control mode, if one is waiting.
+    private(set) var credentialPromptCheck: Task<Void, Never>?
     /// Where this connection's attach stands, or nil when there is nothing left to wait for: it
     /// was never started, it ended, or it is parked until someone logs in.
     func attachProgress(now: ContinuousClock.Instant = .now) -> RemoteTmuxAttachProgress? {
@@ -834,17 +836,9 @@ final class RemoteTmuxControlConnection {
         self.stdinWriter = stdinWriter
         stdoutReader = reader
         self.stdoutPipeReader = stdoutPipeReader
-        self.stderrPipeReader = stderrPipeReader
         processGeneration &+= 1
         let generation = processGeneration
-        stderrTask = Task { [weak self] in
-            for await chunk in stderrPipeReader.stream {
-                if let text = String(data: chunk, encoding: .utf8), !text.isEmpty {
-                    self?.appendStderr(text)
-                }
-                stderrPipeReader.release(chunk)
-            }
-        }
+        consumeStderr(from: stderrPipeReader)
         ingestTask = Task { [weak self] in
             for await chunk in stdoutPipeReader.stream {
                 // Cancelling this task does not empty the reader's buffer, so a torn-down stream
@@ -859,6 +853,19 @@ final class RemoteTmuxControlConnection {
             }
             guard !Task.isCancelled else { return }
             await self?.handleStreamEnd(processGeneration: generation)
+        }
+    }
+
+    /// Reads the current spawn's stderr into ``appendStderr(_:)``.
+    func consumeStderr(from stderrPipeReader: RemoteTmuxProcessOutputReader) {
+        self.stderrPipeReader = stderrPipeReader
+        stderrTask = Task { [weak self] in
+            for await chunk in stderrPipeReader.stream {
+                if let text = String(data: chunk, encoding: .utf8), !text.isEmpty {
+                    self?.appendStderr(text)
+                }
+                stderrPipeReader.release(chunk)
+            }
         }
     }
 

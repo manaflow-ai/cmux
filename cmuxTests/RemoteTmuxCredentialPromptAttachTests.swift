@@ -84,11 +84,66 @@ struct RemoteTmuxCredentialPromptAttachTests {
             sessionName: "work"
         )
         defer { connection.stop() }
-        connection.appendStderrForTesting(
+        connection.appendStderr(
             "mux_client_request_session: session request failed: Session open refused by peer\n")
         connection.ingest(Data("Password: ".utf8))
         #expect(!connection.isAwaitingCredentials)
         #expect(connection.initialTopologyState == .pending, "the attempt retries, so the attach keeps waiting")
+    }
+
+    /// The two pipes are read by separate tasks, so the prompt on stdout can be read before the
+    /// refusal ssh wrote to stderr first. Here the refusal is already in the stderr pipe and the
+    /// prompt is delivered before the stderr reader has run.
+    @Test func aPromptReadBeforeTheRefusalOnStderrDoesNotParkForASignIn() async {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let stderr = Pipe()
+        defer {
+            connection.stop()
+            try? stderr.fileHandleForWriting.close()
+        }
+        stderr.fileHandleForWriting.write(Data(
+            "mux_client_request_session: session request failed: Session open refused by peer\n".utf8))
+        connection.consumeStderr(from: Self.stderrReader(stderr))
+
+        connection.ingest(Data("Password: ".utf8))
+        await connection.credentialPromptCheck?.value
+
+        #expect(!connection.isAwaitingCredentials)
+        #expect(connection.initialTopologyState == .pending, "the attempt retries, so the attach keeps waiting")
+    }
+
+    /// With nothing on stderr, a prompt still parks for the sign-in and ends the attach's wait.
+    @Test func aPlainPromptWithStderrOpenStillParksForASignIn() async {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let stderr = Pipe()
+        defer {
+            connection.stop()
+            try? stderr.fileHandleForWriting.close()
+        }
+        connection.consumeStderr(from: Self.stderrReader(stderr))
+
+        connection.ingest(Data("Password: ".utf8))
+        await connection.credentialPromptCheck?.value
+
+        #expect(connection.isAwaitingCredentials)
+        #expect(connection.initialTopologyState == .failed)
+    }
+
+    private static func stderrReader(_ pipe: Pipe) -> RemoteTmuxProcessOutputReader {
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-credential-prompt-test-stderr",
+            maxPendingChunks: 16,
+            maxPendingBytes: 1 << 16,
+            onOverflow: {}
+        )
+        reader.attach(to: pipe.fileHandleForReading)
+        return reader
     }
 
     /// Ordinary remote noise must not be read as a login. A host that prints a banner and then works
