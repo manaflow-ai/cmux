@@ -26,6 +26,8 @@ pub mod revision;
 pub mod s3;
 #[cfg(unix)]
 pub mod state;
+pub mod store_fetch;
+pub mod upload;
 #[cfg(target_os = "linux")]
 pub mod upper;
 pub mod way_back;

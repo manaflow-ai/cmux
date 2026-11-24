@@ -1,11 +1,11 @@
 import React, {
   useCallback,
   useImperativeHandle,
-  useLayoutEffect,
   useRef,
   useState,
   type RefObject,
   useInsertionEffect,
+  useLayoutEffect,
 } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
@@ -26,6 +26,8 @@ import { remember } from "./composer/pasteMarks";
 import { type PromptText, usePromptTextValue } from "./composer/promptText";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
+import { Slot } from "../../slots/Slot";
+import { composerCaretSlot } from "../../slots/composerCaret";
 import { watchFocusVisible } from "./focusVisibleMark";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
@@ -459,6 +461,9 @@ export function ComposerBox({
           />
           {inline.chips}
           {fieldOverlay}
+          {/* The theme slot `composer.caret` (slots/composerCaret): its default draws nothing, the
+              field's own caret as before. */}
+          <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
