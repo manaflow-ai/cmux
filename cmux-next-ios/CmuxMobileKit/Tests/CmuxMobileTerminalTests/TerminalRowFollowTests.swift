@@ -39,4 +39,32 @@ import Testing
         #expect(TerminalRowFollow.delta(selected: ["b", "", "c"], firstRow: 0, screen: after) == 1)
         #expect(TerminalRowFollow.delta(selected: ["", "  "], firstRow: 1, screen: ["q", "r"]) == 0)
     }
+
+    @Test func aRowRewrittenInPlaceKeepsItsHighlight() {
+        // htop's CPU row, a spinner, a streamed Claude line: the selected row changed, the rows
+        // around it did not move.
+        let before = ["header", "cpu 12%", "footer"]
+        let after = ["header", "cpu 47%", "footer"]
+        #expect(TerminalRowFollow.follow(selected: [before[1]], above: before[0], below: before[2],
+                                         firstRow: 1, screen: after) == .rewritten)
+        // Copy Mode's cursor cell at the screen's top: no row above it.
+        #expect(TerminalRowFollow.follow(selected: ["a"], above: nil, below: "b", firstRow: 0,
+                                         screen: ["z", "b"]) == .rewritten)
+    }
+
+    @Test func aRowThatScrolledOffIsGoneNotRewritten() {
+        let after = ["header", "five", "six", "footer"]
+        #expect(TerminalRowFollow.follow(selected: ["two"], above: "one", below: "three", firstRow: 2,
+                                         screen: after) == .gone)
+        #expect(TerminalRowFollow.follow(selected: ["two"], above: "one", below: "three", firstRow: 2,
+                                         screen: ["x", "one", "two", "three"]) == .moved(0))
+        #expect(TerminalRowFollow.follow(selected: ["two"], above: "one", below: "three", firstRow: 2,
+                                         screen: ["one", "two", "three", "x"]) == .moved(-1))
+        // A screen cleared before it is drawn again: the rows went blank.
+        #expect(TerminalRowFollow.follow(selected: ["two"], above: "one", below: "three", firstRow: 1,
+                                         screen: ["", "", "", ""]) == .gone)
+        // Nothing around it to vouch for a rewrite.
+        #expect(TerminalRowFollow.follow(selected: ["two"], above: "", below: nil, firstRow: 1,
+                                         screen: ["", "seven"]) == .gone)
+    }
 }

@@ -43,7 +43,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         didSet {
             guard selection != oldValue else { return }
             if followsRows {
-                selectedRows = selection.map { (($0.start.row)...($0.end.row)).map { rowText($0) ?? "" } } ?? []
+                captureRows()
                 lostSince = nil
             }
             redraw()
@@ -56,6 +56,23 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     var followsRows = false
     /// The selected rows' text as it read when the selection was made (``followsRows``).
     private var selectedRows: [String] = []
+    /// The rows just above and below the selection as they read then (nil past the screen's
+    /// edge): they tell a row rewritten in place from text that scrolled away.
+    private var rowAbove: String?
+    private var rowBelow: String?
+
+    private func captureRows() {
+        guard let selection else {
+            selectedRows = []
+            rowAbove = nil
+            rowBelow = nil
+            return
+        }
+        let rows = documentRows()
+        selectedRows = (selection.start.row...selection.end.row).map { rowText($0) ?? "" }
+        rowAbove = rows.contains(selection.start.row - 1) ? rowText(selection.start.row - 1) ?? "" : nil
+        rowBelow = rows.contains(selection.end.row + 1) ? rowText(selection.end.row + 1) ?? "" : nil
+    }
 
     /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
     var selectionChanged: (TerminalTextSelection?) -> Void = { _ in }
@@ -140,22 +157,41 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     /// The app redrew its screen (``followsRows``): the selection moves with its text to the
     /// rows it is on now, or ends when that text left the screen, never staying behind over
     /// other text (Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont
-    /// move when i scroll?"). Select All covers the whole screen, whatever it shows.
+    /// move when i scroll?"). Rows rewritten where they are (the rows around them did not move)
+    /// keep it. Select All covers the whole screen, whatever it shows.
     ///
     /// A screen drawn in more than one batch (cleared, then drawn again) can lack the text for
     /// a moment: the highlight hides, and ends only when the text is still gone
     /// ``lostGrace`` later.
-    func followRows() {
+    func followRows() { follow(graceOver: false) }
+
+    private func follow(graceOver: Bool) {
         guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
         let rows = documentRows()
         guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
         let screen = rows.map { rowText($0) ?? "" }
-        guard let delta = TerminalRowFollow.delta(selected: selectedRows, firstRow: current.start.row - rows.lowerBound,
-                                                  screen: screen) else { return textLost() }
         let wasLost = lostSince != nil
-        lostSince = nil
-        shiftRows(by: delta)
-        if wasLost, delta == 0 { redraw() }
+        switch TerminalRowFollow.follow(selected: selectedRows, above: rowAbove, below: rowBelow,
+                                        firstRow: current.start.row - rows.lowerBound, screen: screen) {
+        case .gone:
+            textLost(graceOver: graceOver)
+        case .rewritten:
+            // The same rows, new text (htop, a spinner, a streamed line, Copy Mode's cursor
+            // cell): the selection stays and follows the rows' new text from here on.
+            lostSince = nil
+            captureRows()
+            if wasLost { redraw() }
+        case .moved(let delta):
+            lostSince = nil
+            if delta == 0 {
+                // Rows around it may have changed: read them again so a later rewrite in place
+                // is told from a scroll by the rows as they are now.
+                captureRows()
+                if wasLost { redraw() }
+            } else {
+                shiftRows(by: delta)
+            }
+        }
     }
 
     /// How long a followed selection's text may be off the screen before the selection ends.
@@ -163,20 +199,22 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     /// When the followed text was last found missing (nil: it is on the screen).
     private var lostSince: CFTimeInterval?
 
-    private func textLost() {
-        let now = CACurrentMediaTime()
+    /// `graceOver`: the look again ``lostGrace`` after the text went missing, which ends the
+    /// selection when it is still gone, whatever the clocks read.
+    private func textLost(graceOver: Bool) {
         guard let since = lostSince else {
+            let now = CACurrentMediaTime()
             lostSince = now
             menu?.dismissMenu()
             redraw()
             // No more output may come: look again once the grace is over.
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.lostGrace) { [weak self] in
                 guard let self, lostSince == now else { return }
-                followRows()
+                follow(graceOver: true)
             }
             return
         }
-        if now - since >= Self.lostGrace { clear() }
+        if graceOver || CACurrentMediaTime() - since >= Self.lostGrace { clear() }
     }
 
     /// Re-lays the highlight (the document or the cell size changed).

@@ -30,6 +30,41 @@ public enum TerminalRowFollow {
         return nil
     }
 
+    /// What became of a highlight's rows on a redrawn screen.
+    public enum Outcome: Equatable {
+        /// Its text is on the screen, this many rows away (0: in place).
+        case moved(Int)
+        /// Its rows were rewritten where they are (htop's numbers, a spinner, a streamed line,
+        /// Copy Mode's cursor cell): the rows around it did not move, so the highlight stays.
+        case rewritten
+        /// Its text moved or scrolled off the screen.
+        case gone
+    }
+
+    /// ``delta(selected:firstRow:screen:)``, and when the text is not on the screen, whether it
+    /// was rewritten in place: `above` and `below` (the rows just outside the highlight when it
+    /// was read; nil past the screen's edge) still read the same where they were, and the
+    /// rows themselves are not blank now. Blank neighbours tell nothing; with no neighbour
+    /// with text to go by, or rows that went blank (a screen cleared before it is drawn
+    /// again), the text counts as gone, so a highlight never stays over text it cannot vouch for.
+    public static func follow(selected: [String], above: String?, below: String?,
+                              firstRow: Int, screen: [String]) -> Outcome {
+        if let moved = delta(selected: selected, firstRow: firstRow, screen: screen) { return .moved(moved) }
+        let rows = screen.map(trimmed)
+        let span = firstRow..<(firstRow + selected.count)
+        guard span.lowerBound >= 0, span.upperBound <= rows.count,
+              rows[span].contains(where: { !$0.isEmpty }) else { return .gone }
+        var vouched = false
+        for (row, text) in [(firstRow - 1, above), (firstRow + selected.count, below)] {
+            guard let text else { continue }
+            let wanted = trimmed(text)
+            guard !wanted.isEmpty else { continue }
+            guard rows.indices.contains(row), rows[row] == wanted else { return .gone }
+            vouched = true
+        }
+        return vouched ? .rewritten : .gone
+    }
+
     private static func matches(_ wanted: [String], at top: Int, in rows: [String]) -> Bool {
         for (offset, text) in wanted.enumerated() where !text.isEmpty && rows[top + offset] != text {
             return false
