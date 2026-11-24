@@ -615,7 +615,13 @@ export function NewTabPage({
     <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
-        <form className="acpmux-newtab-box" onSubmit={submit}>
+        <form
+          className="ui-glass ui-glass-floats acpmux-newtab-box"
+          // The composer family's one material: the App's popover glass, as the suggestions under it. In
+          // the page's flow, so no cover: nothing scrolls under it.
+          data-host-glass="popover"
+          onSubmit={submit}
+        >
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -760,6 +766,9 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The App's popover glass, as every Popover: the list floats over the page, which blurs in place under it.
+            data-host-glass="popover"
+            data-host-glass-cover=""
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
