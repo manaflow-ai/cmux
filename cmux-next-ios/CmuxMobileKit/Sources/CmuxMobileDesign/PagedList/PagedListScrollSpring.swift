@@ -99,20 +99,30 @@ final class PagedListScrollSpring {
             finish(at: goal)
             return
         }
+        let next = Self.step(position: position, velocity: velocity, goal: goal, dt: dt, response: response)
+        if next.settled {
+            finish(at: goal)
+            return
+        }
+        position = next.position
+        velocity = next.velocity
+        apply(position)
+        applied = current?()
+    }
+
+    /// One step of the critically damped spring toward `goal`, `dt` seconds on: the next position and
+    /// velocity, and whether it has settled (within a quarter point, nearly still). Plain data, so the
+    /// step can be tested without a display link.
+    static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double)
+        -> (position: CGFloat, velocity: CGFloat, settled: Bool) {
         let omega = 2 * Double.pi / response
         let x = Double(position - goal)
         let v = Double(velocity)
         let decay = exp(-omega * dt)
         let nextX = (x + (v + omega * x) * dt) * decay
         let nextV = (v - omega * (v + omega * x) * dt) * decay
-        if abs(nextX) < 0.25, abs(nextV) < 4 {
-            finish(at: goal)
-            return
-        }
-        position = goal + CGFloat(nextX)
-        velocity = CGFloat(nextV)
-        apply(position)
-        applied = current?()
+        if abs(nextX) < 0.25, abs(nextV) < 4 { return (goal, 0, true) }
+        return (goal + CGFloat(nextX), CGFloat(nextV), false)
     }
 
     private func finish(at goal: CGFloat) {
