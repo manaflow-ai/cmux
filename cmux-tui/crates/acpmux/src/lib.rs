@@ -279,6 +279,7 @@ pub mod routes;
 pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
+pub mod sccache_env;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;

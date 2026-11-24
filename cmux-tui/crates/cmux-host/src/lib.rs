@@ -79,6 +79,7 @@ pub mod remote_entry;
 pub mod retry;
 pub mod roles;
 pub mod run_roles;
+pub mod sccache_env;
 pub mod status;
 pub mod team_ssh;
 #[cfg(unix)]
