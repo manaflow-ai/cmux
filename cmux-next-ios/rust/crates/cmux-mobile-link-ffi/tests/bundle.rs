@@ -71,6 +71,10 @@ async fn rig_with(old_host: bool) -> Rig {
             },
         ));
     }
+    // One dial at a time: six WireGuard handshakes at once in a debug build on a loaded machine
+    // overran the dial's deadline (`connect: Timeout`, 2 of 20 runs before this lock).
+    static DIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _dialing = DIAL.lock().await;
     let handle = connect_inner(
         ConnectRequest {
             base_url: server.base_url.clone(),
