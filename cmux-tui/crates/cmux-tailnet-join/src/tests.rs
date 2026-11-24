@@ -12,6 +12,7 @@ fn request(credential: Credential) -> JoinRequest {
         ephemeral: true,
         serve: vec![ServePort { local_port: 3000, https_port: 443, funnel: false }],
         switch_from_other_tailnet: false,
+        allow_http: false,
     }
 }
 
@@ -79,21 +80,38 @@ fn headscale_takes_any_key_and_its_own_server() {
 }
 
 #[test]
-fn plain_http_servers_only_on_a_private_network() {
-    for (url, ok) in [
-        ("http://headscale:8080", true),
-        ("http://10.0.0.5:8080", true),
-        ("http://100.64.0.1", true),
-        ("http://hs.example.com", false),
-        ("http://8.8.8.8", false),
-        ("ftp://hs", false),
-        ("https://hs.example.com/$(id)", false),
-        ("https://hs example.com", false),
+fn plain_http_servers_only_with_the_persons_opt_in() {
+    // (url, ok without --allow-http, ok with it): a private-looking address is no consent.
+    for (url, plain, allowed) in [
+        ("https://hs.example.com", true, true),
+        ("http://headscale:8080", false, true),
+        ("http://10.0.0.5:8080", false, true),
+        ("http://100.64.0.1", false, true),
+        ("http://localhost:8080", false, true),
+        ("http://hs.example.com", false, true),
+        ("ftp://hs", false, false),
+        ("https://hs.example.com/$(id)", false, false),
+        ("http://hs example.com", false, false),
     ] {
-        let mut r = request(Credential::AuthKey { key: Secret::new("k") });
-        r.control_url = Some(url.to_owned());
-        assert_eq!(r.check().is_ok(), ok, "{url}");
+        for (allow_http, ok) in [(false, plain), (true, allowed)] {
+            let mut r = request(Credential::AuthKey { key: Secret::new("k") });
+            r.control_url = Some(url.to_owned());
+            r.allow_http = allow_http;
+            assert_eq!(r.check().is_ok(), ok, "{url} allow_http={allow_http}");
+        }
     }
+    let mut r = request(Credential::AuthKey { key: Secret::new("k") });
+    r.control_url = Some("http://10.0.0.5:8080".to_owned());
+    assert!(r.check().unwrap_err().0.contains("--allow-http"));
+}
+
+#[test]
+fn allow_http_defaults_off_for_an_older_request() {
+    let old =
+        r#"{"credential":{"kind":"auth_key","key":"k"},"controlUrl":"http://headscale:8080"}"#;
+    let r: JoinRequest = serde_json::from_str(old).unwrap();
+    assert!(!r.allow_http);
+    assert!(r.check().is_err());
 }
 
 #[test]

@@ -30,6 +30,7 @@ Nothing changes your routes, exit nodes or ACLs. `cmux vm rm` leaves first for a
   --key-stdin          read it from stdin instead
   --oauth              the key is an OAuth client secret (tskey-client-…); needs --tag
   --login-server URL   your Headscale (or other) server; default Tailscale's
+  --allow-http         allow a plain http:// login server (the key crosses unencrypted)
   --hostname NAME      device name and MagicDNS label
   --tag TAG            an ACL tag your policy gives this key (repeatable)
   --ssh                turn on Tailscale SSH (who may use it is your ACL)
@@ -74,6 +75,7 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
         ephemeral: false,
         serve: Vec::new(),
         switch_from_other_tailnet: false,
+        allow_http: false,
     };
     let mut timeout = Duration::from_secs(180);
     while let Some(word) = words.next() {
@@ -94,6 +96,7 @@ pub(super) fn parse_join(words: &[String]) -> Result<JoinArgs, String> {
             "--ssh" => request.ssh = true,
             "--ephemeral" => request.ephemeral = true,
             "--switch" => request.switch_from_other_tailnet = true,
+            "--allow-http" => request.allow_http = true,
             "--serve" | "--funnel" => {
                 request.serve.push(serve_port(&value()?, flag == "--funnel")?);
             }

@@ -108,6 +108,10 @@ pub struct JoinRequest {
     /// profile and switches to it. Only after the user said so for this machine.
     #[serde(default)]
     pub switch_from_other_tailnet: bool,
+    /// The person allowed a plain `http://` login server for this join (`--allow-http`): the key
+    /// crosses the network unencrypted. Never inferred from the address.
+    #[serde(default)]
+    pub allow_http: bool,
 }
 
 /// Why a request is refused, in words for the user.
@@ -150,7 +154,7 @@ impl JoinRequest {
             return invalid("The key is empty or has spaces or other characters a key never has.");
         }
         if let Some(url) = &self.control_url {
-            self.control_url = Some(check_control_url(url)?);
+            self.control_url = Some(check_control_url(url, self.allow_http)?);
         }
         let on_tailscale = self.control_url.is_none();
         match &self.credential {
@@ -205,17 +209,16 @@ impl JoinRequest {
     }
 }
 
-fn check_control_url(url: &str) -> Result<String, Invalid> {
+fn check_control_url(url: &str, allow_http: bool) -> Result<String, Invalid> {
     let url = url.trim().trim_end_matches('/');
     let rest = if let Some(rest) = url.strip_prefix("https://") {
         rest
     } else if let Some(rest) = url.strip_prefix("http://") {
-        // A key over plain HTTP is readable on the way: only a server on this machine's own
-        // private network (a lab Headscale) may use it.
-        let host = rest.split(['/', ':']).next().unwrap_or_default();
-        if !private_host(host) {
+        // A key over plain HTTP is readable on the way: only when the person said so for this
+        // server (`--allow-http`). An address that looks private is no consent.
+        if !allow_http {
             return invalid(
-                "The server URL must be https:// (http:// only for a server on a private network).",
+                "The server URL must be https://. For a plain http:// server (a lab Headscale), allow it for this join with --allow-http: the key crosses the network unencrypted.",
             );
         }
         rest
@@ -230,20 +233,6 @@ fn check_control_url(url: &str) -> Result<String, Invalid> {
         return invalid("The server URL is not a plain https://host[:port][/path] address.");
     }
     Ok(url.to_owned())
-}
-
-fn private_host(host: &str) -> bool {
-    if host == "localhost" || !host.contains('.') {
-        return true; // localhost, or a single-label name on a lab network
-    }
-    match host.parse::<std::net::Ipv4Addr>() {
-        Ok(ip) => {
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64
-        }
-        Err(_) => false,
-    }
 }
 
 /// A device name: one DNS label, lowercased.
