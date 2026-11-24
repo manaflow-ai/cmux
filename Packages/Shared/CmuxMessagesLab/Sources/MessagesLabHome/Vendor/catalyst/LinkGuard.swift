@@ -229,7 +229,6 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
     func get(_ url: URL, limit: Int, html: Bool, done: @escaping (Swift.Result<Result, LinkGuard.Refusal>) -> Void) {
         queue.addOperation { [self] in
             if let r = LinkGuard.check(url) { done(.failure(r)); return }
-            CmuxEgress.allowNamed(url)   // a link in the person's own conversation, opened or previewed by them
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
             req.httpShouldHandleCookies = false
             req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
