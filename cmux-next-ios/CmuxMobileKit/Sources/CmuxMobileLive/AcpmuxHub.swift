@@ -42,7 +42,9 @@ enum ChatPromptClock {
 public final class AcpmuxHub {
     /// Every chat the watch reported, newest page first (`AcpmuxHub+SessionPages.swift`): ready
     /// with the first page, the rest read after it.
-    public internal(set) var sessions: [String: AcpmuxSession] = [:]
+    public internal(set) var sessions: [String: AcpmuxSession] = [:] { didSet { listRevision &+= 1 } }
+    /// Moves on every change of `sessions`: a list acpmux orders (`CloudChatList`) reads its page again.
+    public private(set) var listRevision = 0
     public private(set) var isReady = false
     /// A failure binding the channel (shown in diagnostics).
     public private(set) var lastError: String?
