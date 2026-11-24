@@ -145,6 +145,27 @@ class FlagLinterScopeTests(unittest.TestCase):
             "retired flag key 'gone-release' still referenced in Sources/Old.swift",
         ])
 
+    def test_a_key_in_a_non_ascii_path_is_found(self):
+        """git grep quotes a non-ASCII path unless -z, and the lint opens each hit."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / "web").mkdir()
+            (root / "web" / "caf\u00e9.ts").write_text("isEnabled('gone-release')\n")
+            retired = root / "retired.txt"
+            retired.write_text("gone-release\n")
+            flags = [{"key": "unused-release", "source": "Example.swift", "owner": "o",
+                      "reviewBy": "2030-01-01", "hasDefault": True, "lines": None}]
+            with mock.patch.object(self.linter, "REPO", root), \
+                 mock.patch.object(self.linter, "RETIRED", retired), \
+                 mock.patch.object(self.linter, "parse_web_registry", return_value=flags), \
+                 mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.linter.main([]), 1)
+        self.assertEqual(self.linter.errors, [
+            "retired flag key 'gone-release' still referenced in web/caf\u00e9.ts",
+        ])
+
     def test_prose_flag_references_are_not_declarations(self):
         """Discovery and parsing must agree on what a declaration is.
 
