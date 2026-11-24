@@ -116,7 +116,7 @@ test("Dismiss names the card, and the chat keeps it across a reload", async () =
   const container = await render(
     <PendingAsks asks={[asked]} onAnswer={() => Promise.resolve()} onDismiss={(key) => dismissed.push(key)} />,
   );
-  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask__dismiss")!;
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
   await act(async () => dismiss.click());
   expect(dismissed).toEqual([askKey(asked)]);
   dismissAsk("s1", askKey(asked));

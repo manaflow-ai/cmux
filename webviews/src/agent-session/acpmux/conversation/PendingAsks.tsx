@@ -16,8 +16,8 @@ const expectMove = (reason: string, rows: string[]) =>
   });
 
 /// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
-/// composer, oldest first, each the transcript's own card (NextStepCard.tsx) under the "Needs your input" line the
-/// live question card uses, with its Dismiss. The card in the transcript stays where it was asked; this copy is the
+/// composer, oldest first, each the transcript's own card (NextStepCard.tsx), whose "Needs your input" line
+/// carries the close that dismisses it. The card in the transcript stays where it was asked; this copy is the
 /// one in reach. An answer goes as the person's next message, which settles both. The newest takes
 /// the composer's ⌘↩.
 export const PendingAsks = memo(function PendingAsks({
@@ -55,13 +55,8 @@ export const PendingAsks = memo(function PendingAsks({
         if (!step) return null;
         return (
           <section key={row.id} className="acpmux-pending-ask" aria-label={t("question.needsInput")}>
-            <div className="acpmux-pending-ask__head" data-dock-clear="">
-              <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
-              <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
-                {t("message.dismiss")}
-              </button>
-            </div>
             <NextStepCard
+              onDismiss={() => onDismiss(askKey(row))}
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}

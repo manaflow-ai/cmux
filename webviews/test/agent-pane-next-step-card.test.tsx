@@ -80,14 +80,16 @@ describe("a tagged ask in the transcript", () => {
 
 describe("NextStepCard", () => {
   const ask = nextStepAsk(ANSWER)!;
-  test("waiting: the question and one button per answer, the first with ⌘↩", () => {
+  test("waiting: the question and one numbered row per answer, the first with ⌘↩", () => {
     const html = renderToStaticMarkup(
       createElement(NextStepCard, { ask, onAnswer: async () => undefined, registerKey: () => () => undefined }),
     );
     expect(html).toContain("Add a hook that pushes them to the background?");
     expect(html.match(/acpmux-next-step__answer\b(?!s)/g)).toHaveLength(3);
-    expect(html).toContain('aria-keyshortcuts="Meta+Enter"');
-    expect(html).toContain("⌘ return");
+    // The first row takes its number key and ⌘↩; the arrow, not a keycap, marks it (questionCard.css).
+    expect(html).toContain('aria-keyshortcuts="1 Meta+Enter"');
+    expect(html).toContain('aria-keyshortcuts="2"');
+    expect(html).toContain("acpmux-question-number");
   });
 
   test("a pane that cannot send draws no buttons", () => {

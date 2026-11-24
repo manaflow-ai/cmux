@@ -218,60 +218,36 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
   }
   const item = question.items[0];
   if (!item) return 24;
-  const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
-  if (promptCard) {
-    // The size the chat draws at the density (chatDisplay.ts drawnFontSize), as the card's text is.
-    const contentSize = drawnFontSize(chatDisplay());
-    const line = contentSize * chatDisplay().lineHeight;
-    const inner = Math.max(1, width - 32);
-    let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
-    height +=
-      8 +
-      item.options.reduce(
-        (sum, option) =>
-          sum +
-          Math.max(
-            40,
-            16 +
-              text(option.label, inner - 52, line, contentSize) +
-              (option.detail ? 2 + text(option.detail, inner - 52, detail.lineHeight, detail.size) : 0),
-          ),
-        0,
-      );
-    // Custom input and the grouped actions share one footer; narrow cards wrap them.
-    height += 8 + (item.allowsOther ? Math.max(36, 16 + line) : 32) + (item.allowsOther && inner < 320 ? 40 : 0);
-    return height;
-  }
-  const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size, 600) + 16) + 8 : 0;
-  const promptRoom = Math.max(1, room - chip);
-  // Needs-input pill + gap, fieldset edges, then the 12px-padded header and its divider.
-  let height = 24 + 8 + 1 + 2 * padding + text(item.prompt, promptRoom, body.lineHeight, body.size, 600) + 0.5;
+  // Every pending ask is one card on an 8 px inset (question/questionCard.css): the card's padding,
+  // the "Needs your input" line, the question as a 14/20 title, 36 px rows, then a 36 px last row.
+  const contentSize = drawnFontSize(chatDisplay());
+  const titleLine = contentSize * (20 / 14);
+  const inner = Math.max(1, width - 32);
   const consent = consentChoice(question);
   if (consent) {
+    // No header line: the title, its scope line, and Deny and Allow in a 36 px row.
+    let height = 16 + 8 + text(item.prompt, inner, titleLine, contentSize) + 8;
     const scope = item.options[consent.accept]?.detail;
-    if (scope) height += 4 + text(scope, promptRoom, detail.lineHeight, detail.size);
-    return height + 12 + 28 + 8;
+    if (scope) height += 2 + text(scope, inner, body.lineHeight, body.size);
+    return height + 36;
   }
-  if (question.items.length > 1) {
-    const tabs = question.items.map((each, index) => textWidth(String(each.header ?? index + 1), caption.size) + 16);
-    const rows = wrappedRows(tabs, room, 4);
-    height += 8 + rows * (caption.lineHeight + 4) + (rows - 1) * 4;
-  }
-  // List padding (4px), row padding (8px), and the 16px choice mark with its 8px gap.
-  const optionRoom = Math.max(1, width - 1 - 8 - 16 - 24);
-  height +=
-    8 +
-    item.options.reduce(
-      (sum, option) =>
-        sum +
-        Math.max(
-          36,
-          16 +
-            text(option.label, optionRoom, 19, body.size, 600) +
-            (option.detail ? 2 + text(option.detail, optionRoom, detail.lineHeight, detail.size) : 0),
-        ),
-      0,
-    );
-  if (item.allowsOther) height += item.options.length ? 36 : 40;
-  return height + 8 + 28 + 8;
+  let height = 16 + 28 + 2 + text(item.prompt, inner, titleLine, contentSize) + 8;
+  // A row: 8 px padding, the 20 px mark and its 10 px gap; previews take part of the width beside it.
+  const rowRoom = Math.max(1, (hasPreviews(item) ? inner * 0.45 : inner) - 38);
+  height += item.options.reduce(
+    (sum, option, index) =>
+      sum +
+      (index ? 2 : 0) +
+      Math.max(
+        36,
+        16 +
+          text(option.label, rowRoom, body.lineHeight, body.size) +
+          (option.detail ? text(option.detail, rowRoom, detail.lineHeight, detail.size) : 0),
+      ),
+    0,
+  );
+  // The last row (8 px gap with its hairline, unless it is the only row); a narrow card wraps Skip
+  // and Send under the typed answer.
+  height += (item.options.length ? 8 : 0) + 36 + (item.allowsOther && inner < 320 ? 28 : 0);
+  return height;
 }

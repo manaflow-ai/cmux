@@ -76,7 +76,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
                 text: card.textContent ?? "",
                 buttons: answers.length,
                 lines: new Set(answers.map((box) => Math.round(box.top))).size,
-                keycap: card.querySelector(".acpmux-next-step__answer.is-primary .acpmux-keycap") !== null,
+                numbered: card.querySelector(".acpmux-next-step__answer.is-primary .acpmux-question-number") !== null,
                 right: card.getBoundingClientRect().right,
                 width: document.documentElement.clientWidth,
               };
@@ -84,8 +84,9 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             expect(layout.buttons).toBe(buttons);
             expect(layout.text).toMatch(/\?/);
             expect(layout.right).toBeLessThanOrEqual(layout.width);
-            if (buttons > 0) expect(layout.keycap).toBe(true);
-            if (variant.startsWith("box-") && buttons > 0) expect(layout.lines).toBe(1);
+            // The answers are the question card's numbered rows (2026-11-24): one row each.
+            if (buttons > 0) expect(layout.numbered).toBe(true);
+            if (variant.startsWith("box-") && buttons > 0) expect(layout.lines).toBe(buttons);
             if (out)
               await page
                 .locator(".acpmux-next-step-gallery")
@@ -150,7 +151,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
         throw new Error(`no next-step box; attach ${seen.attach.join(" | ")}; page: ${seen.text}`, { cause: error });
       });
       expect(await card.textContent()).toContain("Checked the folder: it is empty.");
-      expect(await card.locator(".acpmux-next-step__answer").allTextContents()).toEqual([
+      expect(await card.locator(".acpmux-next-step__answer .acpmux-next-step__label").allTextContents()).toEqual([
         expect.stringContaining("Yes, add README"),
         "No thanks",
       ]);
