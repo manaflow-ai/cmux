@@ -113,3 +113,58 @@ public nonisolated struct CloudHandoffTurn: Equatable, Sendable {
         case none
     }
 }
+
+/// What a prompt of a Cloud chat names (the App's `CloudHandoffTurnOpener`).
+extension CloudHandoffTurn {
+    /// What ``open(session:machine:client:)`` found: the turn a prompt names, or why none.
+    public enum Opened: Equatable, Sendable {
+        case turn(id: String, number: Int)
+        /// `handoff.conflict` (the session's hand-off is on another machine), `handoff.closed`,
+        /// `handoff.turn_running` (a turn runs or waits for the person) or `handoff.turn_conflict`
+        /// (other devices kept beginning turns).
+        case refused(String)
+    }
+
+    /// The turn a prompt of `session` on `machine` names: the session's hand-off is made or read, then
+    /// its current turn is named when it has not run yet, or the next one begins once it ended.
+    public static func open(session: String, machine: String, client: CloudOwnerAPIClient) async throws -> Opened {
+        try await open(session: session, machine: machine,
+                       make: { try await client.handoffOpen(session: $0, machine: $1) },
+                       begin: { try await client.handoffBeginTurn($0, after: $1) })
+    }
+
+    /// ``open(session:machine:client:)`` over its two calls (tests stand in for the store).
+    public static func open(session: String, machine: String,
+                     make: (String, String) async throws -> CloudHandoffTurn,
+                     begin: (String, Int) async throws -> CloudHandoffTurn) async throws -> Opened {
+        var handoff = try await make(session, machine)
+        // One hand-off per session, made with this machine: one on another machine (a chat moved
+        // since) is not this chat's turn to name.
+        guard handoff.sessionId == session, handoff.machine == machine, handoff.refusal != "handoff.conflict" else {
+            return .refused("handoff.conflict")
+        }
+        // Another device may begin (and even finish) the next turn first (`turn_conflict` answers
+        // the hand-off as it is): its turn is named while it has not run yet, and one that already
+        // ended begins the one after. A few tries, then the prompt goes unnamed.
+        for _ in 0..<3 {
+            switch handoff.next {
+            case .name(let turn): return .turn(id: handoff.id, number: turn)
+            case .none: return .refused(handoff.state == "closed" ? "handoff.closed" : "handoff.turn_running")
+            case .begin(let after):
+                let begun = try await begin(handoff.id, after)
+                // The store may close the hand-off after the create but before this POST. Its
+                // refusal carries the current hand-off (whose turn still equals `after`), so
+                // preserve that authoritative code before validating the normal success shape.
+                if begun.state == "closed" { return .refused("handoff.closed") }
+                if let refusal = begun.refusal, refusal != "handoff.turn_conflict" { return .refused(refusal) }
+                guard begun.id == handoff.id, begun.sessionId == session, begun.machine == machine, begun.turn > after else {
+                    return .refused("handoff.turn_conflict")
+                }
+                handoff = begun
+            }
+        }
+        // The last begin's answer is read too: a turn it made is named, never left unreported.
+        if case .name(let turn) = handoff.next { return .turn(id: handoff.id, number: turn) }
+        return .refused("handoff.turn_conflict")
+    }
+}
