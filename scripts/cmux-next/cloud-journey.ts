@@ -5584,7 +5584,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         let resumePlatform: string | null = null;
         const resumeRoute = async () => {
           resumePlatform ??= clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
-          return resumeRouteCall(resumePlatform, created.id, { authorization: `Bearer ${api.bearer}`, ...(api.team ? { "x-cmux-team": api.team } : {}) }, http);
+          return resumeRouteCall(resumePlatform, created.id, { authorization: `Bearer ${await routeToken()}`, ...(api.team ? { "x-cmux-team": api.team } : {}) }, http);
+        };
+        // cmux-platform's /v1/machines takes a cmux access token with a team claim (machines/Auth.ts), not the Stack
+        // session (run 45432577860: 401 "a cmux access token with a team claim is required"). The journey's install
+        // signs a fresh one every 5 min, since the matrix outlives an install token.
+        let routeMinted: { token: string; at: number } | null = null;
+        const routeToken = async () => {
+          if (routeMinted && Date.now() - routeMinted.at < 5 * 60_000) return routeMinted.token;
+          const userId = user.id ?? user.user?.id;
+          const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id, ...(api.team ? { team: api.team } : {}) }, {});
+          if (ch.status !== 200) throw new Error(`resume route token: challenge HTTP ${ch.status} ${short(ch.body)}`);
+          const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {}, 25_000);
+          if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`resume route token: HTTP ${tok.status} ${short(tok.body.error ?? tok.body)}`);
+          J.secrets.push(tok.body.access_token);
+          routeMinted = { token: tok.body.access_token, at: Date.now() };
+          return routeMinted.token;
         };
         // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
         // reaches every one started after it.
@@ -5627,7 +5642,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (!idleArmed) {
               idleArmed = true;
               // Staging's default already is `aggressive` (CLOUD_PAUSE_POLICY_DEFAULT); a refusal here leaves that default.
-              await api.op("cloud.machine.idle_policy.set", { machine: created.id, pause_policy: "aggressive" }, `${tag}-rm-idle-policy`)
+              // idle_seconds is required (CloudMachineIdlePolicySet; run 45432577860 was refused without it): 60 s, the
+              // aggressive policy's window.
+              await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: 60, pause_policy: "aggressive" }, `${tag}-rm-idle-policy`)
                 .catch((e: Error) => console.log(scrub(`resume matrix: pause_policy aggressive not set (${e.message}); the deployment's default stands`, J.secrets)));
             }
             const m = await waitMachine(api, created.id, (x) => x.status === "paused", AUTO_PAUSE_WAIT_MS).catch((e: Error) => {
