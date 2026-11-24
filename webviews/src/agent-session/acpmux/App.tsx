@@ -2455,7 +2455,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(
     () =>
-      ((t0) => { const r = turnRowsShownFrom({
+      turnRowsShownFrom({
         chatPresentation,
         childRows,
         sourceRows,
@@ -2487,7 +2487,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         folds,
         heldFolds,
         chatShellRuns,
-      }); ((globalThis as any).__trc ??= []).push([Math.round(t0), +(performance.now() - t0).toFixed(1), sourceRows.length]); return r; })(performance.now()),
+      }),
     [
       chatPresentation,
       childRows,
