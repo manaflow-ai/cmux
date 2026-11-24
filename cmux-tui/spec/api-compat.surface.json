@@ -10228,6 +10228,16 @@
         "nullable": true
       }
     },
+    "request:live-auto": {
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/worktree": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:machine-listening-tcp": {},
     "request:machine-usage": {},
     "request:mark-workspaces-provider-managed": {
@@ -19036,6 +19046,12 @@
       },
       "/data/workspaces/*/short_id": {
         "ty": "string"
+      }
+    },
+    "response:live-auto": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:machine-listening-tcp": {

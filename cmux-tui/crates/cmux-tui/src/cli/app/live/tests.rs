@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
-    routed, setting_word, tool_path,
+    Command, RustVerb, Swift, auto_lines, parse, recorded_swift_tree, recorded_tree,
+    recorded_watch_tree, routed, setting_word, tool_path,
 };
 use serde_json::json;
 
@@ -393,4 +393,45 @@ fn web_abi_targets_the_named_app_else_the_installed_next_builds() {
         super::web_abi::target_apps(None)[0],
         PathBuf::from("/Applications/cmux NIGHTLY.app")
     );
+}
+
+#[test]
+fn auto_takes_a_verb_and_a_worktree() {
+    assert_eq!(
+        parse(&words(&["auto"])).unwrap(),
+        Command::Auto { verb: RustVerb::Start, worktree: None }
+    );
+    assert_eq!(
+        parse(&words(&["auto", "status", "--worktree=/src/wt"])).unwrap(),
+        Command::Auto { verb: RustVerb::Status, worktree: Some(PathBuf::from("/src/wt")) }
+    );
+    assert_eq!(
+        parse(&words(&["auto", "--worktree", "/src/wt", "stop"])).unwrap(),
+        Command::Auto { verb: RustVerb::Stop, worktree: Some(PathBuf::from("/src/wt")) }
+    );
+    assert_eq!(parse(&words(&["auto", "--help"])).unwrap(), Command::Help);
+    assert!(parse(&words(&["auto", "start", "stop"])).is_err());
+    assert!(parse(&words(&["auto", "--rust"])).is_err());
+    assert!(parse(&words(&["auto", "--worktree"])).is_err());
+}
+
+#[test]
+fn auto_status_prints_each_tree_and_the_latest_swaps() {
+    let answer = json!({
+        "trees": [{"worktree": "/src/wt", "live": {"web": true, "rust": true, "swift": false},
+                   "saves": 12, "trigger_ms": {"p50": 9.04, "p95": 14.5, "samples": 12}, "error": null}],
+        "recent": [
+            {"event": "swap.done", "layer": "web", "ms": 9.0, "paths": ["webviews/src/a.tsx"]},
+            {"event": "swap.done", "layer": "needs-build", "ms": 8.0, "paths": ["App/Info.plist"],
+             "reason": "resource or manifest"}
+        ]
+    });
+    let lines = auto_lines(&answer, RustVerb::Status);
+    assert!(lines[0].contains("/src/wt") && lines[0].contains("web, rust"), "{lines:?}");
+    assert!(lines[0].contains("p50 9.0 ms") && lines[0].contains("p95 14.5 ms"), "{lines:?}");
+    assert_eq!(lines[1], "  needs-build 8 ms App/Info.plist: resource or manifest");
+    assert_eq!(lines[2], "  web 9 ms webviews/src/a.tsx");
+    let stopped = auto_lines(&json!({"trees": [], "stopped": ["/src/wt"]}), RustVerb::Stop);
+    assert_eq!(stopped.len(), 2);
+    assert!(stopped[0].contains("/src/wt"));
 }

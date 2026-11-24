@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110. */
+/* cmux-tui mux protocol 12, IR 63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11. */
 
 
 import type * as T from "./types.js";
@@ -1583,6 +1583,14 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   "limit"?: (bigint) | null;
 }
 export type ListWorkspacesResult = T.Tree;
+
+/** Protocol v12; authority: local-admin. */
+export interface LiveAutoRequest extends CmuxRequestBase {
+  cmd: "live-auto";
+  "op": string;
+  "worktree"?: (string) | null;
+}
+export type LiveAutoResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MachineListeningTcpRequest extends CmuxRequestBase {
@@ -3332,6 +3340,7 @@ export type CmuxRequest =
   | ListTerminalsRequest
   | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
+  | LiveAutoRequest
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
@@ -4702,6 +4711,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "live-auto": {
+    request: LiveAutoRequest;
+    result: LiveAutoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "live-auto-v1";
     stream: null;
   };
   "machine-listening-tcp": {

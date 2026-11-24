@@ -115,6 +115,12 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
+        Command::LiveAuto { op, worktree } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("live-auto requires a trusted local connection");
+            }
+            crate::live_auto::command(&op, worktree.as_deref())
+        }
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {

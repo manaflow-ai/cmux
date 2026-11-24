@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110. */
+/* cmux-tui mux protocol 12, IR 63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110" as const;
+export const SDK_IR_SHA256 = "63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1812,6 +1812,17 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "live-auto": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "live-auto-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; never journaled.",
+      "op is start, stop or status; start needs worktree. Each routed save is a swap.done event on subscribe. See spec/commands.md."
+    ]
   },
   "machine-listening-tcp": {
     "authority": "control",
@@ -23780,6 +23791,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "Tree"
+    }
+  },
+  "live-auto": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "worktree": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "machine-listening-tcp": {

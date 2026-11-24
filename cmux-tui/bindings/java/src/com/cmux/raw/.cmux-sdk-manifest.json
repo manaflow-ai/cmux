@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5d3eaed4a901e0af8998d8e97d544413479a10c3e5506d7ab944980e5079f0f1",
-      "size": 86840
+      "sha256": "9cb17e180c2d450fe085a81190a84f7b3ef8d357e38c3ade2e6fe1625dfaa8e3",
+      "size": 87050
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1502,8 +1502,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "9a5cb914df1ed91895c001adf8a5e56d88d146877483ae91efe40278c3067129",
-      "size": 74268
+      "sha256": "d69f4ffb63621a6c44d07fcc297163e8549fc8f96e239b79ed35f258cd504384",
+      "size": 74470
     },
     {
       "path": "GetBlobRequest.java",
@@ -1874,6 +1874,11 @@
       "path": "ListWorkspacesRequest.java",
       "sha256": "9ac5c7e1db81d743a1c1721f7792dff13a9cdfa123f32db991ae7942714754c8",
       "size": 3243
+    },
+    {
+      "path": "LiveAutoRequest.java",
+      "sha256": "be967827d486777b03293ec65f1e2ad32c15be063d1c4aafff3420e7c8573aaa",
+      "size": 2563
     },
     {
       "path": "LivePane.java",
@@ -2282,7 +2287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "65344b91600b1177ef0f761b7607efc58bfc160d2c89ddaaf1f6cce7e99eef39",
+      "sha256": "97f11776338b6faf7aa61105e69868e5f810ef74eb412bfe73bbc1ea5ce4767b",
       "size": 8511
     },
     {
@@ -3827,7 +3832,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110",
+  "ir_sha256": "63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

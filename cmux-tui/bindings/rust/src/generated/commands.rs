@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110.
+// cmux-tui mux protocol 12, IR 63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2279,6 +2279,17 @@ pub struct ListWorkspacesRequest {
 
 #[rustfmt::skip]
 pub type ListWorkspacesResult = T::Tree;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveAutoRequest {
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub worktree: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type LiveAutoResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -5321,6 +5332,10 @@ impl CmuxClient {
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
         }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
+    }
+
+    pub fn live_auto(&mut self, request: LiveAutoRequest) -> Result<LiveAutoResult> {
+        self.execute(&LIVE_AUTO_METADATA, &request)
     }
 
     pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {
