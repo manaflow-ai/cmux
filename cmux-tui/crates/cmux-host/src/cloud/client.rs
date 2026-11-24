@@ -421,7 +421,7 @@ fn keep_sccache(store: &mut dyn Store, section: &super::wire::SccacheSection) {
     match section {
         SccacheSection::Env(vars) => match store.write(KEPT_FILE, &file_text(vars), 0o600) {
             Ok(()) => {
-                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars));
+                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars))
             }
             Err(e) => {
                 eprintln!("cmux-host: cloud: bind: sccache.json write: {e}; compiler cache off");

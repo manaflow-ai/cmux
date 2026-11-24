@@ -127,7 +127,7 @@ pub fn publish(paths: &crate::config::Paths) {
         .and_then(|()| std::os::unix::fs::lchown(&out, Some(user.uid), Some(user.gid)));
     match written {
         Ok(()) => {
-            eprintln!("cmux-host: compiler cache settings for the work user: {}", names(&vars));
+            eprintln!("cmux-host: compiler cache settings for the work user: {}", names(&vars))
         }
         Err(e) => {
             eprintln!("cmux-host: {}: {e}; compiler cache off", out.display());

@@ -157,7 +157,7 @@ impl Mux {
     /// and counted in `still_pinned`.
     pub(crate) fn release_workspace_names(&self, actor: &Actor) -> anyhow::Result<(usize, usize)> {
         let pinned: Vec<(String, String)> = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state
                 .workspaces
                 .iter()
