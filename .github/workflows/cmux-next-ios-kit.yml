@@ -64,6 +64,9 @@ on:
       - "scripts/ci/ios_link_ffi_key.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
+      # #51565 regenerated them with no kit run, and feat-cmux-next went red on AgentCLIHybridProofTests.
+      - "cmux-next-ios/verify/agent-cli-hybrid/**"
       # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
       # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
       # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
@@ -114,6 +117,9 @@ on:
       - "scripts/ci/ios_link_ffi_key.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
+      # #51565 regenerated them with no kit run, and feat-cmux-next went red on AgentCLIHybridProofTests.
+      - "cmux-next-ios/verify/agent-cli-hybrid/**"
       # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
       # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
       # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
