@@ -530,6 +530,9 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "window.ordered_front", "frame.commit_start", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed",
             "window.display_done", "window.flush_done", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "home.first_page", "reveal.home",
             "deferred_windows_restored",
+            // The live tree applied and the restore began: from launch_snapshot_shown to here the window shows what the
+            // snapshot drew, so a stale snapshot was visible this long before the late check (hq#12660).
+            "daemon_snapshot_loaded", "launch.no_snapshot",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
             "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
