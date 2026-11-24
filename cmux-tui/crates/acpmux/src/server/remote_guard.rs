@@ -505,7 +505,10 @@ async fn check_inner(
     log_own_phone_control(hub, sender, m, params);
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+    if m == method::MUX_GITHUB_ACTION
+        || m == method::MUX_GITHUB_APP_LEASE
+        || m == method::MUX_GITHUB_REST
+    {
         return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took

@@ -2,7 +2,7 @@
 // A chat followed at its bottom holds still while it ticks (Leo, 2026-11-18, with a recording of his
 // NIGHTLY: "did we fix this scroll bounce at the bottom yet?"). His chat sat at the bottom with a
 // running command ("cmux-ci submit … 8m 3s"), a background command in the composer's tray and
-// "Waiting for the agent service (1:48)… Restart agent service" over the composer, every clock
+// a line over the composer saying how long acpmux had kept it waiting, every clock
 // counting up each second while acpmux was slow, and the transcript jumped 30–70 px up and down every
 // second or so while he did not scroll. Each play step waits 10 s at the bottom; the second re-sends
 // the same chat every 1.2 s, as a slow acpmux's snapshots arrive. The shift matrix measures each
@@ -60,7 +60,7 @@ function tickingChat(): AcpmuxSnapshot {
   return chat(rows, {
     title: "Ticking bottom",
     isWorking: true,
-    // "Waiting for the agent service (1:48)", counting up from there (HostWaitingLine).
+    // acpmux slow for 1:48: the quiet Reconnecting… chip over the composer (HostError.tsx).
     daemonWaitingSince: GALLERY_NOW - 108_000,
   });
 }
@@ -69,7 +69,7 @@ function tickingChat(): AcpmuxSnapshot {
 /// transcript row drifts or Jump to latest shows.
 async function holdStill(ctx: PlayContext, resendMs?: number) {
   const doc = ctx.document;
-  await ctx.waitFor(() => doc.querySelector(".acpmux-host-line-group[data-host-waiting]"), { capMs: 10_000 });
+  await ctx.waitFor(() => doc.querySelector("[data-host-recovering=reconnecting]"), { capMs: 10_000 });
   await ctx.waitFor(() => doc.querySelectorAll(TRANSCRIPT_ROW).length > 4, { capMs: 10_000 });
   const win = doc.defaultView!;
   const bridge = (win as unknown as { cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void } })
