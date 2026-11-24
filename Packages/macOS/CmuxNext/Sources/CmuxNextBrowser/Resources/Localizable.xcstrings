@@ -3020,6 +3020,17 @@
         }
       }
     },
+    "browser.engine.creationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium could not open this page (%@). Try Again."
+          }
+        }
+      }
+    },
     "browser.error.loadFailed": {
       "extractionState": "manual",
       "localizations": {

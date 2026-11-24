@@ -50,6 +50,12 @@ final class CEFPaneHost {
     var popupWindow: Int32?
     /// Closes `popupWindow`'s tab when no panel attached the window in time (`closeUnattachedPopupWindow`).
     var popupAttachDeadline: DemandTimer?
+    /// Gives up on a Chromium window request that never answered (``windowCreationLimit``).
+    private var windowDeadline: DemandTimer?
+    /// How long a window request may stay unanswered before its tabs retry. Chromium answers in tens of milliseconds;
+    /// a relaunch that restores many tabs under memory pressure was seen to leave one pending for good, the pane blank
+    /// and its tabs spinning (NIGHTLY 4529584712101, Leo 2026-11-23 00:50Z).
+    static let windowCreationLimit: Duration = .seconds(5)
 
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
@@ -259,19 +265,20 @@ final class CEFPaneHost {
             if let store = tab.machineStore,
                shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
                 || shim.contextProxyState(contextKey) < 0 {
-                tab.creationFailed()
+                tab.creationFailed(.contextProxy)
                 return false
             }
             // A browser profile's own proxy (#24432), also before the first
             // request: a page the shim cannot proxy never opens (fail closed).
             if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
-                tab.creationFailed()
+                tab.creationFailed(.profileProxy)
                 return false
             }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
             runtime.pendingWindows[request] = self
+            watchWindowCreation(request: request)
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
@@ -293,7 +300,8 @@ final class CEFPaneHost {
             if started != 1 {
                 runtime.pendingWindows[request] = nil
                 window = .none
-                tab.creationFailed()
+                windowDeadline?.cancel()
+                tab.creationFailed(.createWindow)
             }
             return false
         case .creating:
@@ -320,7 +328,7 @@ final class CEFPaneHost {
         let spare = adoptPlaceholder(tab) ?? (takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil)
         let browser = spare ?? tabAdd(tab, anchor: anchor, activates: activates)
         if browser == 0 {
-            tab.creationFailed()
+            tab.creationFailed(.tabAdd)
         } else if tab.browserID == nil {
             runtime.register(tab, browser: browser)
         }
@@ -330,8 +338,29 @@ final class CEFPaneHost {
         return browser != 0 && activates
     }
 
+    /// Arms the deadline of window request `request`: past ``windowCreationLimit`` it is given up and its tabs retry once.
+    private func watchWindowCreation(request: Int32) {
+        let deadline = windowDeadline ?? DemandTimer(owner: "CEFPaneHost.windowCreate", clock: runtime.clock)
+        windowDeadline = deadline
+        deadline.schedule(after: Self.windowCreationLimit) { @MainActor [weak self] in
+            self?.windowCreationTimedOut(request: request)
+        }
+    }
+
+    /// Chromium never answered `request`. Its pending entry stays, so a browser that comes up late is closed
+    /// (`lateWindowCreated`), never adopted as an orphan; the tabs waiting for it fail once and retry on a new window.
+    private func windowCreationTimedOut(request: Int32) {
+        guard case .creating(let expected) = window, expected == request else { return }
+        let waiting = tabs.filter { $0.browserID == nil && $0.isCreationPending && !$0.isClosed }
+        runtime.logger.error("CEF window request \(request) unanswered after \(Self.windowCreationLimit.description, privacy: .public); \(waiting.count) tab(s) retry")
+        window = .none
+        windowTab = nil
+        for tab in waiting { tab.creationFailed(.windowTimeout) }
+    }
+
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
+        windowDeadline?.cancel()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
             return lateWindowCreated(browser: browser, request: request)
         }
@@ -380,6 +409,7 @@ final class CEFPaneHost {
     private func lateWindowCreated(browser: Int32, request: Int32) {
         runtime.shim?.close(browser)
         guard case .creating(let expected) = window, expected == request else { return }
+        windowDeadline?.cancel()
         window = .none
         let waiting = tabs.filter { $0.browserID == nil && $0.isCreationPending }
         for tab in waiting { tab.isCreationPending = false }
@@ -466,4 +496,15 @@ final class CEFPaneHost {
 struct WeakCEFTab {
     weak var tab: CEFTab?
     init(_ tab: CEFTab) { self.tab = tab }
+}
+
+extension CEFPaneHost {
+    /// A tab whose browser could not be made asks again once, at the end of the turn (never inside Chromium's creation
+    /// stack): a failure under memory pressure or a window lost mid-restore passes on a second try.
+    func retryCreation(of tab: CEFTab) {
+        endOfTurn { [weak self, weak tab] in
+            guard let self, let tab, !tab.isClosed, tab.browserID == nil, self.tabs.contains(where: { $0 === tab }) else { return }
+            if self.ensureCreated(tab), self.visibleTab === tab, !tab.awaitsWindowMove { self.showBrowser(of: tab, activate: false) }
+        }
+    }
 }

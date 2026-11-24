@@ -202,6 +202,10 @@ nonisolated enum Strings {
     static var cefUnavailable: String {
         String(localized: "browser.engine.cefUnavailable", defaultValue: "The Chromium engine is not available in this build.", bundle: .localizedModule)
     }
+    /// The engine is running but could not make this tab's browser (`site` names where, for the report).
+    static func cefCreationFailed(_ site: String) -> String {
+        String(localized: "browser.engine.creationFailed", defaultValue: "Chromium could not open this page (\(site)). Try Again.", bundle: .localizedModule)
+    }
     static var loadFailedTitle: String {
         String(localized: "browser.error.loadFailed", defaultValue: "Can’t open this page", bundle: .localizedModule)
     }
