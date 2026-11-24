@@ -58,11 +58,10 @@ import Testing
         func closeWindow() { window.closeAfterTest() }
     }
 
-    /// A pane with its tab bar's controls (every workspace pane): the indicator sits in the tab bar
-    /// immediately left of the pane's "…", on its row and at its size (user 2026-11-09: "the maximize
-    /// pane indicator is showing up in wrong place i think we should show it on the left of the 3 dots
-    /// indicator"), and nothing of it is left over the content's corner.
-    @Test func theIndicatorSitsLeftOfThePanesMoreButton() throws {
+    /// A pane with its tab bar's controls (every workspace pane): the indicator sits in the tab bar's trailing slot
+    /// at a tab bar button's size (user 2026-11-09: "the maximize pane indicator is showing up in wrong place"; the
+    /// "3 dots" it sat left of went with #53356), and nothing of it is left over the content's corner.
+    @Test func theIndicatorSitsInTheTabBarsTrailingSlot() throws {
         let harness = Harness()
         defer { harness.closeWindow() }
         let toolbar = PaneToolbar(registry: { nil })
@@ -74,14 +73,11 @@ import Testing
         harness.settle()
         let pane = harness.pane
         let indicator = try #require(harness.indicator, "a zoomed pane shows the Exit Zoom indicator")
-        let more = toolbar.view.moreButton
-        #expect(!more.isHidden)
         let frame = indicator.convert(indicator.bounds, to: pane)
-        let moreFrame = more.convert(more.bounds, to: pane)
-        let gap = moreFrame.minX - frame.maxX
-        #expect(gap >= 0 && gap <= Metrics.space1, "immediately left of \"…\": gap \(gap), \(frame) vs \(moreFrame)")
-        #expect(abs(frame.midY - moreFrame.midY) < 0.5, "on \"…\"'s row: \(frame) vs \(moreFrame)")
-        #expect(abs(frame.height - moreFrame.height) < 0.5 && abs(frame.width - moreFrame.width) < 0.5, "at \"…\"'s size: \(frame) vs \(moreFrame)")
+        let bar = toolbar.view.convert(toolbar.view.bounds, to: pane)
+        let side = TitlebarBandButton.side
+        #expect(abs(bar.maxX - PaneToolbarView.trailingGap - frame.maxX) < 0.5, "in the trailing slot: \(frame) in \(bar)")
+        #expect(abs(frame.height - side) < 0.5 && abs(frame.width - side) < 0.5, "at a tab bar button's size: \(frame)")
         #expect(frame.maxY <= pane.contentHost.frame.minY + 0.5, "in the tab bar, not over the content: \(frame)")
         for cell in pane.stripView.cells.values {
             #expect(!frame.intersects(pane.stripView.convert(cell.frame, to: pane)), "clear of every tab")

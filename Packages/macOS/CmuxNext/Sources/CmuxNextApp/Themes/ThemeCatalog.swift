@@ -19,6 +19,9 @@ final class ThemeCatalog {
     private(set) var strips: [String: [ThemeRGB]] = [:]
     /// Each theme's colors (the Settings page's preview and swatches), read with the strips.
     private(set) var colors: [String: ThemeFileColors] = [:]
+    /// Counts the changes of `names` and `strips`: what reads them keeps what it built until this moves
+    /// (`SettingsPaletteSource.rows`).
+    @ObservationIgnored private(set) var revision = 0
     @ObservationIgnored private var known: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
     /// Called after each read of the colors (a theme file's `# cmux-accent` is in them).
@@ -53,6 +56,7 @@ final class ThemeCatalog {
         }.value
         names = listed
         known = Set(listed)
+        revision += 1
         // The strips after the names, so pickers list themes first; a
         // strip-less row draws its symbol until then.
         let read = await Task.detached(priority: .utility) {
@@ -61,6 +65,7 @@ final class ThemeCatalog {
         }.value
         strips = read.strips
         colors = read.colors
+        revision += 1
         onRead?()
     }
 
