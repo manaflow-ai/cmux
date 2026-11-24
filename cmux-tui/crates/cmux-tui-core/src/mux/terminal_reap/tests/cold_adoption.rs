@@ -16,14 +16,21 @@ fn inherited_unplaced_terminals(mux: &Arc<Mux>, count: usize) -> (Arc<Surface>, 
     let surfaces: Vec<_> = (0..count)
         .map(|index| mux.new_workspace(Some(format!("agent-{index}")), Some((80, 24))).unwrap())
         .collect();
-    // The owner before: it saw each closed, and its reaper wrote the unplaced times.
+    // The owner before: its app held an attach stream on each, so its reaper wrote the unplaced
+    // times and ended none. Then it stopped, and its app's streams with it.
     let mut before = ReapSchedule::default();
     let mut terminals = Vec::new();
+    let mut clients = Vec::new();
     for surface in &surfaces {
-        terminals.push(host_id(mux, surface));
+        let terminal_id = host_id(mux, surface);
         close_workspace_of(mux, surface);
+        clients.push(mux.control_clients.attach_test_stream(runtime_view(mux, &terminal_id)));
+        terminals.push(terminal_id);
     }
     assert!(mux.reap_unplaced_terminals(&mut before, Instant::now()).is_empty());
+    for client in clients {
+        mux.control_clients.detach_test_client(client);
+    }
     for (index, terminal_id) in terminals.iter().enumerate() {
         mux.workspace_registry
             .lock()
