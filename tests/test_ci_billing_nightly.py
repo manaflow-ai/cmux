@@ -206,8 +206,10 @@ class Script(unittest.TestCase):
 
     def run_alert(self, needs: dict, open_issue: str, slack: bool = True, notify=None):
         calls: list[tuple[str, ...]] = []
-        def gh(*args: str) -> str:
+        def gh(*args: str, tries: int = 3) -> str:
             calls.append(args)
+            if args[0] == "issue" and args[1] != "list":
+                self.assertEqual(tries, 1, f"a write is never retried: {args[:2]}")
             return open_issue if args[:2] == ("issue", "list") else ""
         posted: list[str] = []
         with mock.patch.dict(os.environ, {"NEEDS": json.dumps(needs), "RUN_URL": "https://run"}), \
