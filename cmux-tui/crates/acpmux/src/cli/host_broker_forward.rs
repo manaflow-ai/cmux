@@ -21,10 +21,12 @@ pub async fn run(owner: String, socket: PathBuf) -> Result<()> {
         "broker-forward: {} reaches {owner}'s lane-gh broker over the carrier",
         socket.display()
     );
+    // One task per connection, owned by this command: they end when it does.
+    let connections = cmux_scope::Scope::new("machine broker-forward");
     loop {
         let (conn, _) = listener.accept().await.context("accept")?;
         let owner = owner.clone();
-        tokio::spawn(async move {
+        connections.spawn_until_cancelled("broker-forward connection", async move {
             if let Err(e) = carry(conn, &owner, &crate::config::socket_path()).await {
                 eprintln!("broker-forward: {e:#}");
             }
