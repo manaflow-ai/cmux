@@ -83,6 +83,12 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     case switchTab
     /// Reserved. A pane focus move: the intent to the settled focus.
     case switchPaneFocus
+    /// A wake to the end of the Core Animation commit of the first main-thread turn that follows it
+    /// (``WakeFrameSignpost``, from the app's workspace wake observers). Message: `source=<system|display>`,
+    /// the notification that began it. The interval is the main thread's wake-to-first-commit time, so a
+    /// reader (`scripts/cmux-next/perf-signposts.py`) reads it after `pmset sleepnow` on a lab Mac; `commit=missed`
+    /// as for ``actionCommit``. Not the time to a repainted web page: that comes in a later frame.
+    case switchWake
 
     // MARK: create (reserved: PL-cef-tab)
 
@@ -124,6 +130,7 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"
+        case .switchWake: "switch.wake"
         case .createTab: "create.tab"
         case .createWorkspace: "create.workspace"
         case .cefPump: "cef.pump"
