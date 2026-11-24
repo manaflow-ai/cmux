@@ -85,6 +85,7 @@ impl Hub {
                     continue;
                 }
                 let (done, ended) = oneshot::channel::<()>();
+                let asked = ids.clone();
                 // A thread of its own, not the blocking pool: its priority is lowered for good.
                 let spawned =
                     std::thread::Builder::new().name("acpmux-pack-grow".into()).spawn(move || {
@@ -96,7 +97,12 @@ impl Hub {
                     Ok(_) => {
                         let _ = ended.await;
                     }
-                    Err(error) => tracing::debug!("chat packs not sealed: {error}"),
+                    Err(error) => {
+                        // Kept for the next wake, so these chats do not wait for their logs to
+                        // pass another mark.
+                        set.lock().unwrap_or_else(|e| e.into_inner()).extend(asked);
+                        tracing::warn!("chat packs not sealed (kept for the next round): {error}");
+                    }
                 }
             }
         }))
@@ -118,7 +124,7 @@ impl Hub {
                     sealed.extended,
                 ),
                 Ok(None) => {}
-                Err(error) => tracing::debug!(session = %id, "chat pack not sealed: {error:#}"),
+                Err(error) => tracing::warn!(session = %id, "chat pack not sealed: {error:#}"),
             }
         }
     }
@@ -176,7 +182,13 @@ impl Hub {
         };
         crate::home_fs::create_dirs(work)?;
         let lines = work.join("tail.ndjson");
-        self.write_lines(session, seq, through, &lines)?;
+        let (last, _) = self.write_lines(session, seq, through, &lines)?;
+        // As a whole pack checks: a log that ends before `through` is not recorded as sealed
+        // through it.
+        if last != through {
+            let _ = crate::home_fs::remove_file(&lines);
+            anyhow::bail!("the log here holds no record at seq {through} (it ends at {last})");
+        }
         let params = pack::Params::default();
         let packed = pack::pack_after(store, &session.id, line, &[lines], &params);
         Ok(packed.map_err(pack_error)?.map(|(manifest, stats)| Sealed {
