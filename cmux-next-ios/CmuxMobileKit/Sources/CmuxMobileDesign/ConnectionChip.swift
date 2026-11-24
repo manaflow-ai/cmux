@@ -93,6 +93,13 @@ public struct ConnectionChip: View {
             .accessibilityHidden(!shown)
             .animation(.easeOut(duration: 0.2), value: shown)
             .modifier(QuietSince(quiet: quiet, downSince: downSince))
+            .background {
+                // A shown "Connecting", "Reconnecting" or "Updating" is a loading state over rows
+                // the phone has: `LoadFrameProbe` counts its frames (DEBUG, the probe on).
+                if shown, [.connecting, .reconnecting, .updating].contains(content.kind) {
+                    Color.clear.loadProbePlaceholder()
+                }
+            }
     }
 
     /// How long the link has been down at `now`; a nil `downSince` (the caller held it)
