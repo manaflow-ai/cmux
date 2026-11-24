@@ -166,9 +166,9 @@ fn start_walk() {
     };
     let started = cmux_process::Command::new(exe)
         .args(["host", "disk-walk"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .process_group(0)
         .spawn();
     match started {
