@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
-use cmux_projection::link::{Source, answer_asks};
+use cmux_projection::link::{Source, answer_asks, answer_asks_packed};
 use cmux_projection::manifest::{Item, Kind, Manifest};
 use cmux_projection::wire::{self, Part};
 use serde_json::{Value, json};
@@ -79,6 +79,15 @@ struct Listed {
 
 fn ok(answer: &Value) -> bool {
     answer.get("ok").and_then(Value::as_bool) == Some(true)
+}
+
+/// Whether the machine's answer says it reads binary lines and packed answers (`"wire": 2`,
+/// `cmux_tui_core::projection`'s module docs): this Mac then writes both on the dial.
+fn packs(answer: &Value) -> bool {
+    answer
+        .pointer("/data/wire")
+        .and_then(Value::as_u64)
+        .is_some_and(|wire| wire >= u64::from(cmux_tui_core::projection::WIRE))
 }
 
 fn code(answer: &Value) -> Option<&str> {
@@ -544,6 +553,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if !ok(&answer) {
         return Ok(answer);
     }
+    let packed = packs(&answer);
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
     let kept = match made {
@@ -603,7 +613,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 }
             });
         }
-        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
     });
     Ok(Value::Null)
 }
@@ -677,7 +687,7 @@ fn serve_until_gone(
     at: &str,
     encoded: &[u8],
     listed: &Listed,
-    first: BufReader<UnixStream>,
+    first: (BufReader<UnixStream>, bool),
     revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
@@ -688,17 +698,20 @@ fn serve_until_gone(
     // each refusal is the same line.
     let mut last_error: Option<String> = None;
     loop {
-        if let Some(reader) = stream.take() {
+        if let Some((reader, packed)) = stream.take() {
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             last_error = None;
             if let Ok(writer) = reader.get_ref().try_clone() {
-                // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
-                let _ = answer_asks(
-                    cmux_tui_core::projection::LineReader::new(reader),
-                    cmux_tui_core::projection::LineWriter::new(writer),
-                    listed,
-                );
+                // Lines both ways: the Cloud carrier moves whole lines only (`dial`). A machine
+                // that said `"wire": 2` gets binary lines and packed answers.
+                let reader = cmux_tui_core::projection::LineReader::new(reader);
+                let _ = if packed {
+                    let writer = cmux_tui_core::projection::LineWriter::binary(writer);
+                    answer_asks_packed(reader, writer, listed)
+                } else {
+                    answer_asks(reader, cmux_tui_core::projection::LineWriter::new(writer), listed)
+                };
             }
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
@@ -713,7 +726,7 @@ fn serve_until_gone(
         let (dialed, quiet) = redial(socket, name, at, &[], None);
         via_quiet = quiet;
         match dialed {
-            Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+            Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
                 // The machine forgot the folder: it fetches the listing from the store when it
                 // can, and only then is the whole manifest sent over this Mac's uplink.
@@ -743,7 +756,7 @@ fn serve_until_gone(
                     }
                 };
                 match again {
-                    Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+                    Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
                     Ok((_, answer)) => {
                         eprintln!(
                             "cmux link project: the machine refused the folder again: {answer}"
@@ -857,6 +870,9 @@ fn ask(
         // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
+        // This Mac reads binary lines and packed answers; it writes them once the answer says
+        // the machine does too (an older machine ignores this and keeps base64 lines).
+        "wire": cmux_tui_core::projection::WIRE,
     });
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.

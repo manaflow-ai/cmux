@@ -122,6 +122,7 @@ impl Tickets for MachineTickets {
             peer_key: None,
             peers: self.peers.keys().cloned().collect(),
             peer_services: Default::default(),
+            relays: Vec::new(),
         })
     }
 
@@ -135,6 +136,7 @@ impl Tickets for MachineTickets {
             peer_key: Some(peer.to_owned()),
             peers: Vec::new(),
             peer_services: Default::default(),
+            relays: Vec::new(),
         })
     }
 }
@@ -185,6 +187,7 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
         let hook = MeshControlHook::new(
             vec![MeshControlFrom {
                 daemon_id: String::new(),
+                max_policy: None,
                 same_user: true,
                 ops: vec!["move".into()],
             }],
