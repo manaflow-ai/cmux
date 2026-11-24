@@ -53,6 +53,10 @@ pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
+pub(crate) fn log_line(line: &str) {
+    log(line);
+}
+
 fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
 }
@@ -659,6 +663,8 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
+    /// Working-set prefetch on resume (`resume_prefetch.rs`), a hidden setting, default off.
+    prefetch: Option<super::resume_prefetch::Runner>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -731,6 +737,7 @@ impl Worker {
             })
             .map_err(|e| log(&format!("carrier socket: {e}")))
             .ok();
+        let paths_for_prefetch = paths.clone();
         Ok(Worker {
             bootstrap: None,
             store: FileStore::new(paths.clone()),
@@ -766,6 +773,11 @@ impl Worker {
             rng: SystemRandom::new(),
             epoch: Instant::now(),
             restarted: false,
+            prefetch: super::resume_prefetch::Runner::new(
+                super::resume_prefetch::Runner::state_dir(&paths_for_prefetch),
+            )
+            .map_err(|e| log(&format!("resume prefetch: {e}")))
+            .ok(),
         })
     }
 
@@ -812,6 +824,10 @@ impl Worker {
                 fds.push(libc::pollfd { fd: s.as_raw_fd(), events: libc::POLLIN, revents: 0 });
                 fds.len() - 1
             });
+            let prefetch_at = self.prefetch.as_ref().map(|p| {
+                fds.push(libc::pollfd { fd: p.fd(), events: libc::POLLIN, revents: 0 });
+                fds.len() - 1
+            });
             let clients_from = fds.len();
             // Only these clients have a pollfd in this pass; `accept` below
             // adds new ones, which are read from the next pass on.
@@ -854,6 +870,9 @@ impl Worker {
             if activity_at.is_some_and(ready) {
                 self.read_activity();
             }
+            if prefetch_at.is_some_and(ready) {
+                self.prefetch_done();
+            }
             let readable: Vec<usize> =
                 (0..polled_clients).filter(|i| ready(clients_from + i)).collect();
             if self.read_clients(&readable) {
@@ -862,6 +881,19 @@ impl Worker {
             let now = self.now();
             self.clients.retain(|c| c.write_deadline.is_none_or(|at| at > now));
             self.fire_deadlines();
+        }
+    }
+
+    /// The resume's prefetch finished: its outcome goes into the wake block.
+    fn prefetch_done(&mut self) {
+        let Some((resumed_at, block)) = self.prefetch.as_ref().and_then(|p| p.take()) else {
+            return;
+        };
+        log(&format!("resume prefetch: {block}"));
+        let now = self.now();
+        if let Some(live) = self.live.as_mut() {
+            let reqs = live.session.prefetch_done(resumed_at, block, now);
+            self.drive(reqs);
         }
     }
 
@@ -896,8 +928,13 @@ impl Worker {
                         }
                     }
                     let now = self.now();
+                    let wall = wall_ms();
+                    let arm = self.prefetch.as_ref().and_then(|p| p.resumed(wall));
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now, wall_ms());
+                        let reqs = live.session.resume(now, wall);
+                        if let Some(arm) = arm {
+                            live.session.prefetch_started(arm);
+                        }
                         self.drive(reqs);
                     }
                 }

@@ -231,6 +231,23 @@ impl Session {
         out
     }
 
+    /// The resume's prefetch started with `arm` (`resume_prefetch.rs`): the wake block says so
+    /// before the outcome is in.
+    pub fn prefetch_started(&mut self, arm: super::resume_prefetch::Arm) {
+        self.wake.set_prefetch(None, super::resume_prefetch::block(arm, None, None));
+    }
+
+    /// The prefetch of the resume at `resumed_at` finished: its outcome replaces the field, also in a
+    /// finished wake's block not yet delivered.
+    pub fn prefetch_done(&mut self, resumed_at: u64, block: Value, _now: u64) -> Vec<OpRequest> {
+        if let Some((old, new)) = self.wake.set_prefetch(Some(resumed_at), block)
+            && self.reporter.wake() == Some(&old)
+        {
+            self.reporter.replace_wake(Some(new));
+        }
+        Vec::new()
+    }
+
     /// The wake being timed, or else the last one timed (the role's state file).
     pub fn wake_latest(&self) -> Option<Value> {
         self.wake.latest()

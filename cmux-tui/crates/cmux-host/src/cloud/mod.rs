@@ -75,6 +75,7 @@ pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
 pub mod page_cache;
+pub mod resume_prefetch;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

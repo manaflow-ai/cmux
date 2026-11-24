@@ -147,3 +147,73 @@ fn a_second_resume_before_an_echo_reports_the_first_as_a_timeout() {
     assert_eq!(s.reporter.wake().unwrap()["resumed_at"], WALL);
     assert_eq!(s.wake_latest().unwrap()["resumed_at"], WALL + 3_600_000);
 }
+
+/// The keys a v1 reader before the `prefetch` field reads (cmux-platform WakeEcho.ts readWakeEcho).
+fn v1_reader(b: &Value) -> Option<(u64, u64, &str)> {
+    if b["v"].as_u64() != Some(1) {
+        return None;
+    }
+    Some((b["resumed_at"].as_u64()?, b["echo_at"].as_u64().unwrap_or(0), b["outcome"].as_str()?))
+}
+
+#[test]
+fn the_prefetch_field_is_optional_and_an_old_reader_reads_the_new_block_unchanged() {
+    use super::resume_prefetch::{Arm, block};
+    // Setting off: no field at all, the block is byte-for-byte the old one.
+    let mut w = WakeEcho::default();
+    w.resumed(1_000, WALL);
+    let off = w
+        .daemon_activity(&new_daemon(Some(WALL + 900), Some(WALL + 1_000), Some(WALL + 1_030)))
+        .unwrap();
+    assert!(off.get("prefetch").is_none());
+    // Setting on: the field rides along, the old reader's view is identical.
+    let mut w = WakeEcho::default();
+    w.resumed(1_000, WALL);
+    assert!(w.set_prefetch(None, block(Arm::On, None, None)).is_none());
+    let on = w
+        .daemon_activity(&new_daemon(Some(WALL + 900), Some(WALL + 1_000), Some(WALL + 1_030)))
+        .unwrap();
+    assert_eq!(on["prefetch"]["arm"], "on");
+    assert_eq!(v1_reader(&on), v1_reader(&off));
+    assert_eq!(v1_reader(&on), Some((WALL, WALL + 1_030, "echoed")));
+}
+
+#[test]
+fn a_prefetch_that_ends_after_the_echo_rewrites_the_undelivered_block() {
+    use super::resume_prefetch::{Arm, block};
+    let mut s = session();
+    s.resume(10_000, WALL);
+    s.prefetch_started(Arm::On);
+    s.daemon_activity(
+        &new_daemon(Some(WALL + 900), Some(WALL + 1_000), Some(WALL + 1_030)),
+        11_100,
+    );
+    assert_eq!(s.reporter.wake().unwrap()["prefetch"]["ms"], Value::Null);
+    let outcome = cmux_resume_prefetch::Outcome {
+        planned: 10,
+        touched: 9,
+        stale_procs: 1,
+        threads: 4,
+        ms: 420,
+        cut: false,
+    };
+    s.prefetch_done(WALL, block(Arm::On, Some(10), Some(&outcome)), 11_500);
+    let p = &s.reporter.wake().unwrap()["prefetch"];
+    assert_eq!(
+        (p["arm"].as_str(), p["pages"].as_u64(), p["ms"].as_u64()),
+        (Some("on"), Some(9), Some(420))
+    );
+    assert_eq!(s.wake_latest().unwrap()["prefetch"]["pages"], 9);
+    // An outcome for another resume changes nothing.
+    s.prefetch_done(WALL + 5, block(Arm::Record, Some(3), None), 11_600);
+    assert_eq!(s.reporter.wake().unwrap()["prefetch"]["pages"], 9);
+}
+
+#[test]
+fn the_setting_reads_on_record_or_off() {
+    use super::resume_prefetch::Arm;
+    assert_eq!(Arm::parse(Some("on\n")), Some(Arm::On));
+    assert_eq!(Arm::parse(Some("record")), Some(Arm::Record));
+    assert_eq!(Arm::parse(Some("yes")), None);
+    assert_eq!(Arm::parse(None), None);
+}

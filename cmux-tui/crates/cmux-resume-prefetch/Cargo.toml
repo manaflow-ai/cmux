@@ -1,0 +1,19 @@
+[package]
+name = "cmux-resume-prefetch"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Working-set prefetch on a Cloud machine's resume: record the guest-resident pages of its processes, and touch them at once on the next wake so the host's lazy page-in happens before the first echo needs them (hq#21300)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-resume-prefetch"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+serde_json.workspace = true

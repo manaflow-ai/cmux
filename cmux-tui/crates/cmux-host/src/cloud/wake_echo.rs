@@ -38,6 +38,8 @@ struct Wake {
     pty_attach_at: Option<u64>,
     input_at: Option<u64>,
     echo_at: Option<u64>,
+    /// The resume's working-set prefetch (`resume_prefetch.rs`), only with the setting on.
+    prefetch: Option<Value>,
 }
 
 impl Wake {
@@ -46,7 +48,7 @@ impl Wake {
     }
 
     fn block(&self, outcome: &str) -> Value {
-        json!({
+        let mut b = json!({
             "v": WAKE_ECHO_VERSION,
             "resumed_at": self.resumed_at,
             "net_up_at": self.net_up_at,
@@ -54,7 +56,12 @@ impl Wake {
             "input_at": self.input_at,
             "echo_at": self.echo_at,
             "outcome": outcome,
-        })
+        });
+        // Optional in v1: a reader that does not know it ignores it (cmux-platform reads named keys).
+        if let Some(p) = &self.prefetch {
+            b["prefetch"] = p.clone();
+        }
+        b
     }
 }
 
@@ -77,6 +84,7 @@ impl WakeEcho {
             pty_attach_at: None,
             input_at: None,
             echo_at: None,
+            prefetch: None,
         });
         ended
     }
@@ -109,6 +117,30 @@ impl WakeEcho {
         w.input_at = Some(input);
         w.echo_at = Some(echo);
         Some(self.finish(w, "echoed"))
+    }
+
+    /// Sets the wake's `prefetch` field. `resumed_at` names the wake it is for (`None`: the one being
+    /// measured). When that wake already finished, its kept block is rewritten and `(old, new)`
+    /// returned so the caller can swap a block not yet delivered.
+    pub fn set_prefetch(
+        &mut self,
+        resumed_at: Option<u64>,
+        prefetch: Value,
+    ) -> Option<(Value, Value)> {
+        if let Some(w) = self.cur.as_mut()
+            && resumed_at.is_none_or(|at| at == w.resumed_at)
+        {
+            w.prefetch = Some(prefetch);
+            return None;
+        }
+        let at = resumed_at?;
+        let done = self.done.as_mut()?;
+        if done["resumed_at"].as_u64() != Some(at) {
+            return None;
+        }
+        let old = done.clone();
+        done["prefetch"] = prefetch;
+        Some((old, done.clone()))
     }
 
     /// Runs the deadline: a wake with no echo by then ends as a `timeout`.
