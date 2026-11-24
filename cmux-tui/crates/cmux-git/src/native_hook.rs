@@ -35,6 +35,18 @@ pub fn wait(source: &str, event: &str, native: &Value, timeout: Duration) -> io:
                 paths.push(if path.is_absolute() { path } else { cwd.join(path) });
             }
         }
+        // A Glob reads only below its pattern's literal folders (`docs/cloud/**` reads
+        // `docs/cloud`), in its `path` or the working folder. One with none (`**/*.rs`) reads
+        // that folder whole.
+        if native.get("tool_name").and_then(Value::as_str) == Some("Glob")
+            && let Some(pattern) = input.get("pattern").and_then(Value::as_str)
+        {
+            let literal = literal_folders(pattern);
+            if !literal.as_os_str().is_empty() {
+                let base = if paths.len() > 1 { paths.pop().unwrap() } else { cwd.clone() };
+                paths.push(base.join(literal));
+            }
+        }
     }
     let deadline = std::time::Instant::now() + timeout;
     if read_only && paths.len() > 1 {
@@ -54,6 +66,22 @@ pub fn wait(source: &str, event: &str, native: &Value, timeout: Duration) -> io:
         )?;
     }
     Ok(())
+}
+
+/// The leading components of a glob pattern that hold no glob character: `docs/cloud/*.md`
+/// gives `docs/cloud`, `**/x` nothing. A pattern with none is a path itself.
+fn literal_folders(pattern: &str) -> PathBuf {
+    let mut literal = PathBuf::new();
+    if pattern.starts_with('/') {
+        literal.push("/");
+    }
+    for part in pattern.split('/').take_while(|part| !part.contains(['*', '?', '[', ']', '{', '}']))
+    {
+        if !part.is_empty() && part != "." {
+            literal.push(part);
+        }
+    }
+    literal
 }
 
 pub fn denial(reason: &str) -> Value {
