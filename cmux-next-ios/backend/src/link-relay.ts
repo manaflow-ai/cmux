@@ -3,22 +3,7 @@ import type { Env } from "./env.ts"
 import { checkFrame, RELAY_FRAME_MAX, withPeer } from "./relay-frame.ts"
 import { APP_PING, APP_PONG, uuidToBytes } from "./team-hub.ts"
 
-/**
- * The link's WebSocket relay (PROTOCOL.md "WebSocket relay", API 0.17.0): the last way a WireGuard link reaches
- * its peer when neither plain UDP nor a TURN server gets through, as on a network that lets only cmux's own
- * domains, or only HTTP inside TLS, out. One object per link session, named by the owner key, build space and
- * session id (`relayRoomName`), never a client value. The Worker admits a socket only for a device the owner's
- * hub bound to that session at its first signal (TeamHub `relayPeer`), and tells this object the device and its
- * peer in headers no client can set (the object is reached only through the Worker).
- *
- * It carries relay frames (`relay-frame.ts`) of kind `datagrams` from one party's socket to the other's, with the
- * frame's peer id set to the sender's device id, and reads nothing else: the datagrams are WireGuard ciphertext,
- * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
- * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
- * no storage.
- */
-export const relayRoomName = (ownerKey: string, space: string, sessionId: string) =>
-  `${space ? `${space}|` : ""}relay:${ownerKey}:${sessionId}`
+export { relayRoomName } from "./placement.ts"
 
 /** Selected when a client offers it (never the bearer entry). */
 export const RELAY_SUBPROTOCOL = "cmux-relay.v1"
@@ -44,6 +29,24 @@ interface RelayAttachment {
 
 type Bucket = { t: number; at: number }
 
+/**
+ * The link's WebSocket relay (PROTOCOL.md "WebSocket relay", API 0.17.0): the last way a WireGuard link reaches
+ * its peer when neither plain UDP nor a TURN server gets through, as on a network that lets only cmux's own
+ * domains, or only HTTP inside TLS, out. One object per link session, named by the owner key, build space and
+ * session id (`relayRoomName`), never a client value. The Worker admits a socket only for a device the owner's
+ * hub bound to that session at its first signal (TeamHub `relayPeer`), and tells this object the device and its
+ * peer in headers no client can set (the object is reached only through the Worker).
+ *
+ * It carries relay frames (`relay-frame.ts`) of kind `datagrams` from one party's socket to the other's, with the
+ * frame's peer id set to the sender's device id, and reads nothing else: the datagrams are WireGuard ciphertext,
+ * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
+ * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
+ * no storage.
+ *
+ * Prewarmed (RFD 0142 C4, PROTOCOL.md "Relay placement"): the hub creates and places this object when it forwards
+ * the session's first `wg-init` (`/prewarm`, no socket), so a later join finds it made and placed instead of
+ * paying for creation and a cold start while a link waits on its last path.
+ */
 export class LinkRelay extends DurableObject<Env> {
   private readonly buckets = new WeakMap<WebSocket, { frames: Bucket; bytes: Bucket }>()
   private readonly notices = new WeakMap<WebSocket, Map<string, number>>()
@@ -54,9 +57,18 @@ export class LinkRelay extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
+  /** When this instance last took a prewarm (diagnostics and tests: in memory, a wake forgets it). */
+  prewarmedAt: number | undefined
+
   override async fetch(req: Request): Promise<Response> {
+    const path = new URL(req.url).pathname
+    // The hub's prewarm: reaching the object created and placed it; nothing else to do. No socket, no storage.
+    if (path === "/prewarm") {
+      this.prewarmedAt = Date.now()
+      return new Response(null, { status: 204 })
+    }
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 })
-    if (new URL(req.url).pathname === "/netcheck") return this.netcheck(req)
+    if (path === "/netcheck") return this.netcheck(req)
     const device = req.headers.get("x-cmux-relay-device") ?? ""
     const peer = req.headers.get("x-cmux-relay-peer") ?? ""
     if (!device || !peer || device === peer) return new Response("bad relay join", { status: 400 })
