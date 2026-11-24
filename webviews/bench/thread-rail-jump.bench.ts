@@ -13,6 +13,7 @@ import type { Page, CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS } from "./perfRow";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
 const distribution = (values: number[]) => ({ p50: pct(values, 0.5), p95: pct(values, 0.95) });
@@ -659,8 +660,11 @@ async function main() {
   const out = process.env.RAIL_BENCH_OUT;
   if (out) fs.mkdirSync(out, { recursive: true });
   const traceOut = out ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-traces-"));
-  const temporary = !process.env.PROD_DIR;
-  const prod = process.env.PROD_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
+  // PROD_DIR=dir takes a pane build already there; under bench/web-ui-suite.ts, the suite's one pane build of the run
+  // (bench/support/sharedBuilds.ts).
+  const given = process.env.PROD_DIR ?? sharedPaneDir();
+  const temporary = !given;
+  const prod = given ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
   const { events, session } = papercutEvents({ turns, running: false });
   const paged = process.env.RAIL_BENCH_PAGED === "1";
   const pagedRun = paged;
