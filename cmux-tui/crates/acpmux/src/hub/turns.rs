@@ -989,7 +989,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn) {
+        if let Err(e) =
+            self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
