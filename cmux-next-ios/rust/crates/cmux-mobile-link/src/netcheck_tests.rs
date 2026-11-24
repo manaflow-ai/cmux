@@ -257,9 +257,11 @@ async fn measure_pings_every_region_and_picks_home_without_the_upgrade() {
     })
     .await;
     let started = Instant::now();
-    let netcheck = measure(&base, "t0k", None, ms(1500)).await.unwrap();
+    // The silent region holds it for its whole timeout (1 s); in turn, the eight others alone
+    // would take 8 x (150 + 3 x 60) ms = 2.6 s.
+    let netcheck = measure(&base, "t0k", None, ms(1000)).await.unwrap();
     assert!(
-        started.elapsed() < ms(1400),
+        started.elapsed() < ms(1800),
         "regions run in parallel, the silent one bounded: {:?}",
         started.elapsed()
     );
