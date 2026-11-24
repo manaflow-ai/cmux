@@ -113,7 +113,10 @@ def owed_restart(ops, cycles: int) -> dict:
     gone. The positions are the daemon run's: the new run starts from the bottom, so the old run's are pushed up
     first (`cycles` more batches: the peer removed and linked again) past any the new run reaches at idle. A build
     without the #254 fix then follows the old batch forever; one with it drops it at the new run's first list.
-    `ops` does each step (LiveOwedOps on a fleet Mac); returns what was done."""
+    A hidden page drops list notices and reads the list anew when shown (sessionPages.ts `invalidate`), so it never
+    owes a batch: an agent page is shown first. `ops` does each step (LiveOwedOps on a fleet Mac); returns what was
+    done."""
+    ops.show_chat()
     ops.add_peer()
     rows = ops.listed_rows()
     if rows <= PEER_ROW_BATCH_MIN:
@@ -143,8 +146,18 @@ class LiveOwedOps:
     (idle_cost_load.PeerDaemon) and the app's renderers. Every process it signals is the bench's: the launched
     app's renderers and acpmux daemon (the app starts a new one after a crash, AgentPaneHost.swift)."""
 
-    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int):
+    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int, client=None,
+                 workspace: str | None = None):
         self.app_pid, self.bundle, self.socket, self.peer, self.want = app_pid, bundle, socket, peer, want_rows
+        self.client, self.workspace = client, workspace
+
+    def show_chat(self):
+        if not self.workspace:
+            raise RuntimeError("no chat workspace to show: --peer-rows needs --chats 1 or more")
+        shown = self.client.action("goToWorkspace", workspace=self.workspace)
+        if isinstance(shown, dict) and (shown.get("error") or shown.get("code")):
+            raise RuntimeError(f"goToWorkspace {self.workspace}: {shown}")
+        time.sleep(5)  # test script: the shown chat page loads its list before the batches
 
     def _rpc(self, method, params, timeout=120):
         import idle_cost_load
@@ -672,10 +685,10 @@ def check_args(args: argparse.Namespace) -> None:
         parser.error("--windows must be >= 1, --window > 0, --minutes, --chats, --history, --history-prompt-kb and "
                      "--writers >= 0, and --writers needs --history")
     if (args.peer_rows or args.restart_at is not None) and not (
-            args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
+            args.chats >= 1 and args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
             and math.isfinite(args.restart_at) and 0 <= args.restart_at <= args.minutes and args.restart_cycles >= 0):
         parser.error(f"--peer-rows must be > {PEER_ROW_BATCH_MIN} with --restart-at between 0 and --minutes, "
-                     "and --restart-cycles >= 0")
+                     "--chats >= 1 (a shown agent page) and --restart-cycles >= 0")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -702,7 +715,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.chats > 0:
             chats = bench_memory.FakeChats(client, bundle, args.fake_agent)
             for index in range(args.chats):
-                made += chats.open(index) is not None
+                workspace = chats.open(index)
+                made += workspace is not None
+                state["chat_workspace"] = workspace or state.get("chat_workspace")
             log(f"idle-cpu: {made} of {args.chats} chats made, their first turn answered")
             if made < args.chats:
                 verdict.update(status=3, why=f"only {made} of {args.chats} chats were made")
@@ -723,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
             made = sum(peer.new_chat(f"idle bench peer chat {i}") is not None for i in range(args.peer_rows))
             log(f"idle-cpu: the peer daemon has {made} of {args.peer_rows} chats")
             socket_path = bench_memory.FakeChats.acpmux_socket(bundle)
-            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made)
+            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made, client, state.get("chat_workspace"))
             log(f"idle-cpu: idle {args.minutes:g} min from now; the app's acpmux restarts at {args.restart_at:g} min "
                 "with a batch of the peer's rows owed")
             time.sleep(args.restart_at * 60)  # sleep-ok: the idle period before the restart

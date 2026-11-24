@@ -1334,14 +1334,15 @@ pub enum SessionCmd {
     /// message, tool notice or background task's end waits in its inbox; its idle agent is
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
     /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
-    /// `*` matches a prefix), and refuse new sessions outside them.
+    /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
+    /// sessions outside them.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
-        /// With `--fleet`: names that keep running, comma-separated.
+        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
         /// With `--fleet`: why, shown in each refusal.

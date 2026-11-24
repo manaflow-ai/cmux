@@ -109,6 +109,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/sleep_handoff",
+    method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,

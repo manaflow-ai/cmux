@@ -39,6 +39,10 @@ export type FailureRoute = {
   /// The AWS profile the chat's agent signs in with (its `AWS_PROFILE`), when the host knows it: an
   /// expired SSO sign-in names it in `aws sso login --profile`.
   awsProfile?: string;
+  /// A Cloud chat whose machine's acpmux runs no in-card sign-in (an older machine, no
+  /// `agent-login-v1`): the card's Sign in again runs the agent's own login in a terminal on that
+  /// machine instead (``terminalSignIn`` in cloudAgentLogin.ts), and its sentence says why.
+  terminalSignIn?: boolean;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -359,9 +363,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
-    if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
-    return t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    const cause = MISSING_CREDENTIAL.test(message ?? "")
+      ? t("turn.failure.cloudAuthMissing", { harness })
+      : EXPIRED_CREDENTIAL.test(message ?? "")
+        ? t("turn.failure.cloudAuthExpired", { harness })
+        : t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    // An older machine signs in through Sign in again's terminal there, not in the card: say why.
+    return route.terminalSignIn ? `${cause} ${t("turn.failure.cloudSignInInTerminal", { harness })}` : cause;
   }
   switch (kind) {
     case "trust-pending":

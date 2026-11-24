@@ -177,8 +177,8 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", folder: folderName, machine: name, size: size,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            _ = await gateway.value
-            timeline?.mark("gateway") // 0 ms when it came up beside the steps
+            if PersonalGateway.turnNeedsIt(credential: origin.connection) { _ = await gateway.value }
+            timeline?.mark("gateway") // 0 ms when it came up beside the steps, or when the first prompt goes straight to the provider
             let entry = AgentTabStore.registryHost(of: machine.daemon).map {
                 CloudMovedChats.Entry(machineID: machine.machineID, host: $0, session: "", harness: start.harness,
                                       localRoot: folder.root, localChat: chat, remoteFolder: copy.1.folder, remoteChat: copy.1.chat)
