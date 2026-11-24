@@ -26,7 +26,8 @@ extension PaneContentView {
         if zoomIndicator == nil, stripView.model.zoomsSelected { zoomIndicator = PaneZoomIndicatorView(model: stripView.model) } // its first zoom lays the pane out
         if let zoomIndicator, zoomIndicator.superview !== self { addSubview(zoomIndicator, positioned: .above, relativeTo: agentTag) }
         let trailing = zoomIndicator?.place(in: host, top: max(top, paneHeaderHeight), elsewhere: toolbar.map { !$0.view.isHidden && $0.view.zoomed } ?? false) ?? 0 // shown in the tab bar's trailing slot when the bar shows
+        let occupied = terminalHistoryButton?.place(in: host, top: top, trailing: trailing) ?? trailing
         guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
-        agentTag.place(in: host, top: top, trailing: trailing)
+        agentTag.place(in: host, top: top, trailing: occupied)
     }
 }

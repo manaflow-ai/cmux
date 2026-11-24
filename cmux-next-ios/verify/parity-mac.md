@@ -169,6 +169,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
+| Earlier history — open as chat (Claude Code and Codex terminal panes) | — | missing | The Mac opens an app-local, read-only transcript tab. The phone’s terminal find searches the terminal buffer. Its agent chat history currently requires a linked agent session. |
 | Type, paste, keys, Ctrl-C | composer, direct typing, key bar, paste | works | |
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
