@@ -181,11 +181,7 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
         hub.hub_carrier.set(carrier.clone());
         hub.set_transfer_dial(Arc::new(CarrierDial::new(&hub)));
         let hook = MeshControlHook::new(
-            vec![MeshControlFrom {
-                daemon_id: String::new(),
-                same_user: true,
-                ops: vec!["move".into()],
-            }],
+            vec![MeshControlFrom { ops: vec!["move".into()], ..MeshControlFrom::same_user() }],
             Some(state.join(name).join("ledger")),
         )
         .with_own_user(Arc::new(|| Some("user-1".into())));
