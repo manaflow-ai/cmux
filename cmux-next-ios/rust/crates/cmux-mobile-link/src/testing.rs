@@ -561,9 +561,32 @@ fn is_allocate_success(datagram: &[u8]) -> bool {
     datagram.len() >= 20 && datagram[..2] == [0x01, 0x03]
 }
 
+/// How long the loopback TURN server's UDP answers to requests (Allocate,
+/// Refresh, CreatePermission, ChannelBind) take to leave it, in
+/// milliseconds: a TURN server a real round trip away, for the client's
+/// control transactions only (data is shaped by `impair_inbound`). 0, the
+/// default, answers at once.
+static TURN_ANSWER_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Sets [`TURN_ANSWER_DELAY_MS`] for every [`TestTurn`] in this process.
+pub fn set_turn_answer_delay(delay: std::time::Duration) {
+    TURN_ANSWER_DELAY_MS
+        .store(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A STUN success or error response (not an indication, not ChannelData).
+fn is_stun_response(datagram: &[u8]) -> bool {
+    if datagram.len() < 20 || datagram[0] & 0xc0 != 0 || datagram[4..8] != [0x21, 0x12, 0xa4, 0x42] {
+        return false;
+    }
+    let kind = u16::from_be_bytes([datagram[0], datagram[1]]);
+    let class = ((kind >> 7) & 0x2) | ((kind >> 4) & 0x1);
+    class >= 2
+}
+
 /// The TURN server's UDP socket, which drops everything while `block` is on.
 struct BlockableUdp {
-    socket: tokio::net::UdpSocket,
+    socket: Arc<tokio::net::UdpSocket>,
     block: Arc<UdpBlock>,
 }
 
@@ -609,6 +632,15 @@ impl webrtc::util::Conn for BlockableUdp {
         {
             return Ok(buf.len());
         }
+        let delay = TURN_ANSWER_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if delay > 0 && is_stun_response(buf) {
+            let (socket, answer) = (Arc::clone(&self.socket), buf.to_vec());
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                let _ = socket.send_to(&answer, target).await;
+            });
+            return Ok(buf.len());
+        }
         Ok(self.socket.send_to(buf, target).await?)
     }
 
@@ -638,7 +670,7 @@ impl TestTurn {
         let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
         let udp = BlockableUdp {
-            socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
+            socket: Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP")),
             block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
@@ -771,6 +803,12 @@ impl TestTurn {
     /// Stream connections (TLS or TCP) the server accepted so far.
     pub fn stream_connections(&self) -> usize {
         self.streams.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Allocations this server holds now (each until it is released or
+    /// expires).
+    pub fn allocations(&self) -> usize {
+        self.allocated.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 
     /// Whether `addr` is one of this server's relayed addresses.
