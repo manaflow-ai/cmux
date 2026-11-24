@@ -132,9 +132,16 @@ final class DragLiftView: NSView {
     }
 
     private func updateColors() {
-        background.standsOnWindow = WindowBackdrop.dragPreview(themeScope).dragsOnGlass
+        let backdrop = WindowBackdrop.dragPreview(themeScope)
+        background.standsOnWindow = backdrop.dragsOnGlass
         performWithTheme {
             layer?.shadowColor = Palette.shadow.cgColor
+            // Over glass the card drew no material, so the rows it slides over showed through it and their
+            // text overlapped the lifted row's (Lawrence 2026-11-23). It now takes the same thicker piece of
+            // the window's glass a lifted tab does (`dragLiftFill`): still tinted glass, rows under it quiet.
+            // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
+            card.layer?.backgroundColor = backdrop.dragsOnGlass
+                ? backdrop.dragLiftFill(Palette.elevatedBackground).cgColor : nil
             for back in stack {
                 back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
                 back.layer?.borderColor = Palette.separator.cgColor
