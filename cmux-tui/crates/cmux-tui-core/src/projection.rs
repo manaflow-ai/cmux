@@ -40,6 +40,21 @@
 //! runs one bounded `cmux_projection::reap::pass` over the projections (archived chats, Bring
 //! Back's leftovers, orphans past their grace), and logs each with the bytes it freed.
 //!
+//! `projection-extend-v1` (the Mac sends a small head manifest first and the whole folder's after
+//! it, so the chat starts before the whole folder is listed):
+//! - a `projection.serve` line with `"head": true` that mounts a new manifest also takes the
+//!   folder's sync barrier (`cmux_git::sync_barrier`) and marks its head in place, so an agent
+//!   that may start at the head does, and its tools wait for the rest;
+//! - a `projection.serve` line for the mounted `name` with `"extend": true` and the full
+//!   manifest's bytes swaps the mount's manifest in place (no remount: the kernel's numbers, the
+//!   open files, the upper layer and the cache stay) and marks the barrier ready. The full
+//!   manifest must hold every mounted path as the same kind of entry, else the dial is refused
+//!   with `projection.extend_not_superset` and the mount stays as it was; a second extend with
+//!   another manifest is `projection.extend_done`. The answer is `{"at", "extended": true,
+//!   "entries", "files", "bytes", "added", "extend_ms"}`; the dial then carries the asks as any
+//!   other, now by the full manifest's entry indices, while a stream still open from before the
+//!   extend goes on speaking the head's. A dial with neither flag acts as before.
+//!
 //! Served where `fs-v1` is (a Cloud host), on Linux; anywhere else a dial is answered
 //! `projection.unavailable`.
 //!
@@ -51,13 +66,19 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+#[cfg(target_os = "linux")]
+use cmux_git::sync_barrier::Sync as BarrierSync;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 /// The capability that carries `projection.serve`.
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
+/// The capability that carries `"head"` and `"extend"` on `projection.serve`.
+pub const PROJECTION_EXTEND_CAPABILITY: &str = "projection-extend-v1";
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
 /// Bring Back's dials (module docs).
@@ -94,6 +115,13 @@ struct ServeLine {
     /// store and not over its uplink.
     #[serde(default)]
     revision: Option<RevisionRef>,
+    /// `projection-extend-v1`: the manifest is a head, and the folder's sync barrier is held at
+    /// its head until the extend.
+    #[serde(default)]
+    head: bool,
+    /// `projection-extend-v1`: the manifest is the whole folder's, for the mount of `name`.
+    #[serde(default)]
+    extend: bool,
 }
 
 /// A revision in the person's store, and the read grant to fetch it with.
@@ -241,7 +269,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
 #[must_use]
 pub fn advertised() -> Vec<&'static str> {
     if cfg!(target_os = "linux") && crate::fs_ops::installed().is_some() {
-        vec![PROJECTION_CAPABILITY]
+        vec![PROJECTION_CAPABILITY, PROJECTION_EXTEND_CAPABILITY]
     } else {
         Vec::new()
     }
@@ -251,14 +279,37 @@ pub fn advertised() -> Vec<&'static str> {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct Projected {
     link: Arc<cmux_projection::link::Link>,
-    /// What the manifest it mounted hashed to (a dial with another manifest remounts).
-    digest: u64,
+    /// What the manifest it mounted hashed to (a dial with another manifest remounts); after an
+    /// extend, the full manifest's.
+    digest: AtomicU64,
     at: PathBuf,
+    #[cfg(target_os = "linux")]
+    overlay: Arc<cmux_projection::overlay::Overlay>,
+    /// The full manifest's mapping once the mount was extended (the streams then speak its indices).
+    #[cfg(target_os = "linux")]
+    ext: Mutex<Option<Arc<cmux_projection::lower::Ext>>>,
+    /// The folder's sync barrier, held at its head from a `"head": true` dial until the extend.
+    #[cfg(target_os = "linux")]
+    barrier: Mutex<Option<BarrierSync>>,
     #[cfg(target_os = "linux")]
     mounted: Mutex<Option<cmux_projection::mount::Mounted>>,
     /// Its away episodes: the agent is told once of each ([`away_notice`]).
     #[cfg(target_os = "linux")]
     away: Arc<cmux_projection::away::Away>,
+}
+
+impl Projected {
+    /// The mapping a stream of this mount speaks through: the full manifest's once extended.
+    fn ext(&self) -> Option<Arc<cmux_projection::lower::Ext>> {
+        #[cfg(target_os = "linux")]
+        {
+            self.ext.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
+        }
+    }
 }
 
 fn projections() -> &'static Mutex<HashMap<String, Arc<Projected>>> {
@@ -333,7 +384,7 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     // The Mac is back: the next read that fails for its absence starts a new episode.
     #[cfg(target_os = "linux")]
     projected.away.back();
-    projected.link.serve(reader, framed(writer));
+    projected.link.serve_with(reader, framed(writer), projected.ext());
 }
 
 /// Where an away episode's notice goes: `(mount point, prompt id, notice title, notice text)`.
@@ -770,6 +821,9 @@ fn attach(
     let existing =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
     let started = std::time::Instant::now();
+    if line.extend {
+        return extend(&line.name, &at, &encoded, existing, started);
+    }
     let mut from_store = None;
     let (manifest, digest) = if encoded.is_empty() {
         let existing = existing.filter(|projected| projected.at == at);
@@ -786,9 +840,9 @@ fn attach(
         (manifest, fnv(revision.root.as_bytes()))
     } else {
         let digest = fnv(&encoded);
-        if let Some(projected) =
-            existing.filter(|projected| projected.digest == digest && projected.at == at)
-        {
+        if let Some(projected) = existing.filter(|projected| {
+            projected.digest.load(Ordering::Relaxed) == digest && projected.at == at
+        }) {
             attached(&line.name, &at);
             return Ok((projected, json!({"at": at, "attached": true})));
         }
@@ -800,7 +854,7 @@ fn attach(
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
     let state = state_of(&line.name)?;
-    let projected = mount(&line.name, manifest, &state, &at, digest)?;
+    let projected = mount(&line.name, manifest, &state, &at, digest, line.head)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -815,6 +869,82 @@ fn attach(
         "revision_ms": from_store,
     });
     Ok((projected, data))
+}
+
+/// `projection-extend-v1`: the mount of `name` at `at` takes the full manifest `encoded` in place
+/// of the one it mounted, and its sync barrier (held at the head by a `"head": true` dial) opens.
+#[cfg(target_os = "linux")]
+fn extend(
+    name: &str,
+    at: &Path,
+    encoded: &[u8],
+    existing: Option<Arc<Projected>>,
+    started: std::time::Instant,
+) -> Result<(Arc<Projected>, Value), Refusal> {
+    let projected = existing
+        .filter(|projected| projected.at == at)
+        .ok_or_else(|| ("projection.unknown", format!("no projection {name} here to extend")))?;
+    if encoded.is_empty() {
+        return Err(("projection.params_invalid", "an extend carries the full manifest".into()));
+    }
+    let digest = fnv(encoded);
+    if projected.digest.load(Ordering::Relaxed) == digest {
+        // The same manifest again (a dial that retried): nothing to swap, the barrier may still wait.
+        open_barrier(&projected)?;
+        attached(name, at);
+        return Ok((projected, json!({"at": at, "extended": true, "added": 0})));
+    }
+    let full = cmux_projection::manifest::Manifest::decode(encoded)
+        .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+    let (files, bytes) = full.totals();
+    let entries = full.len();
+    let extended = projected.overlay.extend(Arc::new(full)).map_err(|error| match error {
+        cmux_projection::lower::ExtendError::NotSuperset { .. } => {
+            ("projection.extend_not_superset", error.to_string())
+        }
+        cmux_projection::lower::ExtendError::Done => ("projection.extend_done", error.to_string()),
+    })?;
+    projected.digest.store(digest, Ordering::Relaxed);
+    *projected.ext.lock().unwrap_or_else(PoisonError::into_inner) = Some(extended.ext.clone());
+    if let Some(mounted) = projected.mounted.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+    {
+        mounted.forget_inodes(&extended.changed);
+    }
+    open_barrier(&projected)?;
+    attached(name, at);
+    let data = json!({
+        "at": at,
+        "extended": true,
+        "entries": entries,
+        "files": files,
+        "bytes": bytes,
+        "added": extended.added,
+        "extend_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    });
+    Ok((projected, data))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn extend(
+    _name: &str,
+    _at: &Path,
+    _encoded: &[u8],
+    _existing: Option<Arc<Projected>>,
+    _started: std::time::Instant,
+) -> Result<(Arc<Projected>, Value), Refusal> {
+    Err(("projection.unavailable", "projected folders mount on Linux only".into()))
+}
+
+/// Marks the folder's sync barrier ready, when a `"head": true` dial left it held at the head.
+#[cfg(target_os = "linux")]
+fn open_barrier(projected: &Projected) -> Result<(), Refusal> {
+    let held = projected.barrier.lock().unwrap_or_else(PoisonError::into_inner).take();
+    match held {
+        Some(barrier) => barrier
+            .complete()
+            .map_err(|error| ("projection.io", format!("marking the folder ready: {error}"))),
+        None => Ok(()),
+    }
 }
 
 /// `at` as a mount point: absolute, below one of `roots`, and a folder that is empty (made when
@@ -858,11 +988,16 @@ fn mount(
     state: &Path,
     at: &Path,
     digest: u64,
+    head: bool,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    // A barrier the old mount held at its head: a remount that is no head dial has the whole
+    // folder to offer, so it opens (below, once that mount is up); another head dial takes its own.
+    let mut old_barrier = None;
     // Another manifest for the same name (the Mac's folder changed shape): the old mount goes.
     if let Some(old) = table.remove(name) {
+        old_barrier = old.barrier.lock().unwrap_or_else(PoisonError::into_inner).take();
         old.link.detach();
         if let Some(mounted) = old.mounted.lock().unwrap_or_else(PoisonError::into_inner).take() {
             mounted.unmount();
@@ -908,12 +1043,44 @@ fn mount(
     }
     let projected = Arc::new(Projected {
         link,
-        digest,
+        digest: AtomicU64::new(digest),
         at: at.to_path_buf(),
+        overlay: overlay.clone(),
+        ext: Mutex::new(None),
+        barrier: Mutex::new(None),
         mounted: Mutex::new(Some(mounted)),
         away,
     });
     table.insert(name.to_owned(), projected.clone());
+    if head {
+        // Its marker beside the folder is the old one's too: that sync lets go first.
+        drop(old_barrier.take());
+        // The mount is the head (a few entries): the harness may start, its tools wait for the extend.
+        let held = BarrierSync::begin(at).map(|mut barrier| {
+            barrier.head_ready();
+            barrier
+        });
+        match held {
+            Ok(barrier) => {
+                *projected.barrier.lock().unwrap_or_else(PoisonError::into_inner) = Some(barrier);
+            }
+            Err(error) => {
+                table.remove(name);
+                projected.link.detach();
+                if let Some(mounted) =
+                    projected.mounted.lock().unwrap_or_else(PoisonError::into_inner).take()
+                {
+                    mounted.unmount();
+                }
+                return Err((
+                    "projection.barrier_busy",
+                    format!("{}: the sync barrier is not free: {error}", at.display()),
+                ));
+            }
+        }
+    } else if let Some(barrier) = old_barrier.take() {
+        let _ = barrier.complete();
+    }
     // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
     // takes its objects from the remote (a blobless fetch the machine makes) and only what the
     // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
@@ -958,6 +1125,7 @@ fn mount(
     _state: &Path,
     _at: &Path,
     _digest: u64,
+    _head: bool,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }
