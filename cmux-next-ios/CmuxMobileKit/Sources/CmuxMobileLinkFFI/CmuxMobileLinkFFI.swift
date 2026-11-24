@@ -4639,6 +4639,11 @@ public struct ConnectOptions: Equatable, Hashable {
      * over TLS (path `TurnTls`). WebRTC ignores it.
      */
     public var dropWireguard: Bool
+     * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+     * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+     * rides it (path `HttpsRelay`). WebRTC ignores it.
+     */
+    public var forceRelay: Bool
     /**
      * Debug: do not offer the media lane, so browser video rides its
      * reliable channel on either transport (the comparison baseline).
@@ -4684,6 +4689,10 @@ public struct ConnectOptions: Equatable, Hashable {
          * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
          * over TLS (path `TurnTls`). WebRTC ignores it.
          */dropWireguard: Bool = false, 
+         * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+         * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+         * rides it (path `HttpsRelay`). WebRTC ignores it.
+         */forceRelay: Bool = false, 
         /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
@@ -4703,6 +4712,7 @@ public struct ConnectOptions: Equatable, Hashable {
         self.blockUdp = blockUdp
         self.proxyOnly = proxyOnly
         self.dropWireguard = dropWireguard
+        self.forceRelay = forceRelay
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
         self.ultra = ultra
@@ -4728,6 +4738,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 proxyOnly: FfiConverterBool.read(from: &buf), 
                 dropWireguard: FfiConverterBool.read(from: &buf), 
+                forceRelay: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
                 ultra: FfiConverterString.read(from: &buf)
@@ -4739,6 +4750,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.proxyOnly, into: &buf)
         FfiConverterBool.write(value.dropWireguard, into: &buf)
+        FfiConverterBool.write(value.forceRelay, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
         FfiConverterString.write(value.ultra, into: &buf)
@@ -6754,6 +6766,11 @@ public enum LinkPath: Equatable, Hashable {
      */
     case turnTls
     /**
+     * Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+     * gets through: a network that allows only cmux's hosts, or only HTTPS).
+     */
+    case httpsRelay
+    /**
      * No working route at the moment.
      */
     case noPath
@@ -6784,7 +6801,9 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
         
         case 3: return .turnTls
         
-        case 4: return .noPath
+        case 4: return .httpsRelay
+        
+        case 5: return .noPath
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -6806,8 +6825,12 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .noPath:
+        case .httpsRelay:
             writeInt(&buf, Int32(4))
+        
+        
+        case .noPath:
+            writeInt(&buf, Int32(5))
         
         }
     }

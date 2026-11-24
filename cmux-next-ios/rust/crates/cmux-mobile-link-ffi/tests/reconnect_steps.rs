@@ -182,6 +182,7 @@ impl Rig {
             block_udp: false,
             proxy_only: false,
             drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,

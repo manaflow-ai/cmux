@@ -551,6 +551,7 @@ struct TransportPage: View {
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
     @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
     @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
+    @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -641,6 +642,11 @@ struct TransportPage: View {
                     Text("Drop WireGuard")
                 }
                 .accessibilityIdentifier("settings.transport.dropWireGuard")
+                // The last resort on its own: cmux's WebSocket relay over HTTPS, at the next connection.
+                Toggle(isOn: $forceRelay) {
+                    Text("Relay via cmux (HTTPS) only")
+                }
+                .accessibilityIdentifier("settings.transport.forceRelay")
                 Toggle(isOn: $browserVideoOnChannel) {
                     Text("Browser video on channel")
                 }

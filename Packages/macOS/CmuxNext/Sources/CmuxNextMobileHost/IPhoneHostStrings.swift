@@ -146,6 +146,7 @@ enum IPhoneHostStrings {
         case "relay": String(localized: "iphone.path.relay", defaultValue: "Relayed", table: "IPhone", bundle: .localizedModule)
         case "turn": String(localized: "iphone.path.turn", defaultValue: "Relayed (TURN)", table: "IPhone", bundle: .localizedModule)
         case "turn-tls": String(localized: "iphone.path.turnTls", defaultValue: "Relayed (TURN over TLS)", table: "IPhone", bundle: .localizedModule)
+        case "https-relay": String(localized: "iphone.path.httpsRelay", defaultValue: "Relayed (cmux over HTTPS)", table: "IPhone", bundle: .localizedModule)
         case "none": String(localized: "iphone.path.none", defaultValue: "No path", table: "IPhone", bundle: .localizedModule)
         default: wire
         }

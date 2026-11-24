@@ -320,7 +320,8 @@ public final class LinkController {
             endpoint.proxyOnly = DeveloperOptions.proxyOnly
             endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
+            endpoint.forceRelay = DeveloperOptions.forceRelay
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
