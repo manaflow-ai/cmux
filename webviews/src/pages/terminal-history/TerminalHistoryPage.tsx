@@ -1,14 +1,4 @@
-import {
-  lazy,
-  memo,
-  Suspense,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { lazy, memo, Suspense, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isPromptMarkdown } from "../../agent-session/acpmux/conversation/promptMarkdown";
 import type { Strings } from "../shared/i18n";
 import { RawRecord } from "./RawRecord";
@@ -32,9 +22,6 @@ export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistory
   const title = fixture?.title || snapshot.title || strings.t("terminalHistory.tab");
   const query = fixture?.query ?? snapshot.query;
   const hitKeys = useMemo(() => new Set(snapshot.hits.map((hit) => `${hit.pageEnd}:${hitTurn(hit)}`)), [snapshot.hits]);
-  useEffect(() => {
-    if (!fixture) void store.load();
-  }, [fixture, store]);
 
   useLayoutEffect(() => {
     if (fixture || !placeLatest.current || snapshot.loading || !turns.length || !viewport.current) return;

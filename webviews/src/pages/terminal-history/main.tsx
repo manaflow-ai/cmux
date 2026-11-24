@@ -17,6 +17,8 @@ export function mountTerminalHistoryPage(
 ): TerminalHistoryStore {
   const key = new URLSearchParams(location.search).get("key") ?? "";
   const store = new TerminalHistoryStore(client, key);
+  // Start the bounded transcript read alongside the first React render.
+  void store.load();
   if (client)
     void subscribePageStreams(client, {
       onCommand: ({ command, text }) => {
