@@ -33,6 +33,13 @@ import Foundation
 ///   seconds (mock mode has no live refresh), for the pull-to-refresh rig (verify/pull-to-refresh.md).
 /// - `CMUX_MOBILE_LIST_PULL_TRACE=1` (with `LIST_PASSES=0`): log one `PULL` line per frame that changes:
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
+/// - `CMUX_MOBILE_LIST_FLOOD=N` (workspaces, feed): a busy Mac through the real live path (`LiveFloodRig`):
+///   N working agents whose titles change `CMUX_MOBILE_LIST_FLOOD_TITLE_HZ` times a second each (default 3),
+///   a new workspace every `CMUX_MOBILE_LIST_FLOOD_ADD_SECONDS` (default 2) and a notification (a Feed item)
+///   every 0.5 s, from an in-process fake daemon through `WorkspaceSync`, `AppStore`, `TerminalFeed` and
+///   `FeedStore`, while the rig scrolls. `CMUX_MOBILE_LIST_FLOOD_ROWS=M`: M workspaces at the start (the
+///   rest idle); `CMUX_MOBILE_LIST_FLOOD_BURST=B`: B title changes at once every 5 s. Logs one
+///   `flood-second` line a second (list applies, store writes, write-to-apply p95) and a `flood-summary`.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 /// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
@@ -81,6 +88,16 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_FLOOD=N`: N working agents on a fake Mac through the live path.
+    public var flood: Int?
+    /// `CMUX_MOBILE_LIST_FLOOD_TITLE_HZ=HZ`: title changes per second per flooded agent.
+    public var floodTitleHz: Double
+    /// `CMUX_MOBILE_LIST_FLOOD_ROWS=M`: workspaces listed at the start (working and idle).
+    public var floodRows: Int?
+    /// `CMUX_MOBILE_LIST_FLOOD_ADD_SECONDS=S`: a new workspace every S seconds.
+    public var floodAddSeconds: Double
+    /// `CMUX_MOBILE_LIST_FLOOD_BURST=B`: B title changes at once every 5 s.
+    public var floodBurst: Int
     /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
     public var events: String?
     /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
@@ -112,6 +129,11 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        flood = environment["CMUX_MOBILE_LIST_FLOOD"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+        floodTitleHz = environment["CMUX_MOBILE_LIST_FLOOD_TITLE_HZ"].flatMap(Double.init) ?? 3
+        floodRows = environment["CMUX_MOBILE_LIST_FLOOD_ROWS"].flatMap(Int.init)
+        floodAddSeconds = environment["CMUX_MOBILE_LIST_FLOOD_ADD_SECONDS"].flatMap(Double.init) ?? 2
+        floodBurst = environment["CMUX_MOBILE_LIST_FLOOD_BURST"].flatMap(Int.init) ?? 0
         events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
         eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
     }

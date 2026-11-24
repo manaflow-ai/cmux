@@ -3,6 +3,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
@@ -34,6 +35,10 @@ final class ListStressRig: NSObject {
     /// `CMUX_MOBILE_LIST_PAN=1`: the passes pan sideways (the diff's unwrapped code).
     private var horizontal: Bool { settings.pans }
     private var live: Task<Void, Never>?
+    /// The live rig's last tick and the row it changed (a slow apply names them).
+    private var liveTick: (tick: Int, row: String) = (0, "")
+    /// `CMUX_MOBILE_LIST_FLOOD=N`: the fake busy Mac on the real live path.
+    private var flood: LiveFloodRig?
     let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
 
     init(settings: ListStressSettings, shell: ShellModel) {
@@ -56,6 +61,7 @@ final class ListStressRig: NSObject {
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await rig.open(screen)
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_SIGNALS"] == "1" { rig.listenForSignals(screen) }
         try? await Task.sleep(for: .seconds(settings.settle))
         guard settings.passes > 0 else {
             // A still: hold the screen (optionally panned) for a screenshot.
@@ -84,10 +90,14 @@ final class ListStressRig: NSObject {
     // MARK: Seeding and navigation
 
     private func open(_ screen: String) async {
+        // Only while the rig scrolls the list itself: a UI test that drives the list with a finger
+        // (no passes) keeps the real scrolling check.
+        ListApplyProbe.shared.codeDrivenScroll = settings.passes > 0
         let store = shell.store
+        if let agents = settings.flood { await startFlood(agents) }
         switch screen {
         case "workspaces":
-            store.workspaces = Self.workspaces(count: settings.count, from: store.workspaces)
+            if settings.flood == nil { store.workspaces = Self.workspaces(count: settings.count, from: store.workspaces) }
             shell.tab = .workspaces
         case "tabs":
             guard var ws = store.workspace(id: "ws-cmux") else { return }
@@ -276,13 +286,93 @@ final class ListStressRig: NSObject {
 
     // MARK: Live changes
 
+    /// A busy Mac's events through the production live path (`LiveFloodRig`): bound before the
+    /// screen opens, so the list starts with the Mac's `agents` workspaces and keeps changing.
+    private func startFlood(_ agents: Int) async {
+        let load = LiveFloodRig.Load(workspaces: agents, rows: settings.floodRows, titleHz: settings.floodTitleHz,
+                                     addEvery: settings.floodAddSeconds, burst: settings.floodBurst)
+        let rig = LiveFloodRig(store: shell.store, feedStore: .shared, macID: "mac-studio", load: load,
+                               list: settings.screen == "feed" ? "feed" : "workspaces")
+        flood = rig
+        await rig.start()
+    }
+
+    // MARK: Changes a UI test asks for
+
+    /// `CMUX_MOBILE_LIST_SIGNALS=1`: the Mac changes at the moment a UI test picks, while the test
+    /// holds the list where it wants it (an XCUITest runs in its own process, so it posts a Darwin
+    /// notification `dev.cmux.mobile.rig.<name>`, `RigSignal` in the UI tests):
+    /// - `remove`: the Mac deletes `CMUX_MOBILE_LIST_REMOVE_ID`: on `workspaces`, the Mac's tree
+    ///   without it (`AppStore.replaceWorkspaces`, as a tree publish lands); on `feed`, the event
+    ///   withdrawn (`FeedStore.remove`, as `TerminalFeed` drops one marked done on the Mac).
+    /// - `mac-offline`, `mac-online`: `mac-studio` (the seeded rows' Mac) goes offline and comes
+    ///   back, as presence says it (`MacDevice.isOnline`, what `presenceUpdate` writes).
+    func listenForSignals(_ screen: String) {
+        let removeID = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_REMOVE_ID"] ?? ""
+        let store = shell.store
+        RigSignals.observe("remove") { [log] in
+            log.notice("FRAMELOG list-stress signal remove \(removeID, privacy: .public)")
+            if screen == "feed" {
+                FeedStore.shared.remove(removeID)
+            } else if let macID = store.workspace(id: removeID)?.macID {
+                store.replaceWorkspaces(macID: macID, with: store.workspaces.filter { $0.macID == macID && $0.id != removeID })
+            }
+        }
+        // `bump`: the Mac reports new activity on `CMUX_MOBILE_LIST_BUMP_ID` (a busy workspace: it
+        // goes to the top of a newest-first list).
+        let bumpID = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_BUMP_ID"] ?? ""
+        RigSignals.observe("bump") { [log] in
+            log.notice("FRAMELOG list-stress signal bump \(bumpID, privacy: .public)")
+            guard let row = store.workspace(id: bumpID) else { return }
+            var next = row
+            next.lastActivityAt = Date()
+            next.isWorking = true
+            store.updateWorkspaces(macID: row.macID, rows: [next])
+        }
+        // `reveal`: the list scrolls (by its own offset, no finger) until the row to remove sits in
+        // the middle of the screen, however far down it is (the Feed pins its open asks first, so
+        // an answer can be dozens of screens down: a test's drags never reached it).
+        RigSignals.observe("reveal") { [weak self, log] in
+            let id = (screen == "feed" ? "feed.row." : "ws.") + removeID
+            let found = self?.reveal(identifier: id) ?? false
+            log.notice("FRAMELOG list-stress signal reveal \(id, privacy: .public) found=\(found, privacy: .public)")
+        }
+        for (name, online) in [("mac-offline", false), ("mac-online", true)] {
+            RigSignals.observe(name) { [log] in
+                log.notice("FRAMELOG list-stress signal \(name, privacy: .public)")
+                store.teams = store.teams.map { team in
+                    var team = team
+                    team.macs = team.macs.map { mac in
+                        var mac = mac
+                        if mac.id == "mac-studio" {
+                            mac.isOnline = online
+                            if !online { mac.lastSeenAt = Date() }
+                        }
+                        return mac
+                    }
+                    return team
+                }
+            }
+        }
+    }
+
     /// What a busy Mac publishes: one workspace's activity and working state change,
     /// and the whole list is replaced (as `AppStore.replaceWorkspaces` does), `liveHz` times a second.
     private func startLive() {
         guard let hz = settings.liveHz, hz > 0 else { return }
         let store = shell.store
-        live = Task { @MainActor in
+        // What each tick costs, by name, once a second; and any slow list apply with its tick.
+        // Opt-in (`CMUX_MOBILE_LIST_PROBE=1`): the counts force each apply's layout inside its
+        // timing, so a run that measures frames (listperf) keeps them off.
+        let probe = ListApplyProbe.shared
+        probe.counting = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_PROBE"] == "1"
+        probe.onSlowApply = { [weak self, log] line in
+            let (tick, row) = self?.liveTick ?? (0, "")
+            log.notice("FRAMELOG list-stress slow \(line, privacy: .public) tick=\(tick, privacy: .public) row=\(row, privacy: .public)")
+        }
+        live = Task { @MainActor [weak self] in
             var tick = 0
+            var second = CACurrentMediaTime()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1 / hz))
                 tick += 1
@@ -291,6 +381,12 @@ final class ListStressRig: NSObject {
                 let index = (tick * 7) % next.count
                 next[index].lastActivityAt = Date()
                 next[index].isWorking.toggle()
+                self?.liveTick = (tick, next[index].id)
+                if probe.counting, CACurrentMediaTime() - second >= 1 {
+                    second = CACurrentMediaTime()
+                    let counts = probe.takeCounts().sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+                    self?.log.notice("FRAMELOG list-stress live-second tick=\(tick, privacy: .public) \(counts, privacy: .public)")
+                }
                 store.workspaces = next
             }
         }
@@ -333,6 +429,36 @@ final class ListStressRig: NSObject {
         guard line != lastTrace else { return }
         lastTrace = line
         log.notice("PULL \(CACurrentMediaTime(), privacy: .public) \(line, privacy: .public)")
+    }
+
+    /// Scrolls the list a screen at a time from the top until a view with `identifier` is laid
+    /// out, then puts it in the middle.
+    private func reveal(identifier: String) -> Bool {
+        guard let scroll = findScrollView(horizontal: false) else { return false }
+        func find(_ view: UIView) -> UIView? {
+            if view.accessibilityIdentifier == identifier { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        let top = -scroll.adjustedContentInset.top
+        let bottom = max(top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+        var y = top
+        while true {
+            scroll.contentOffset.y = y
+            scroll.layoutIfNeeded()
+            if let row = find(scroll) {
+                let frame = row.convert(row.bounds, to: scroll)
+                let visible = scroll.bounds.height - scroll.adjustedContentInset.top - scroll.adjustedContentInset.bottom
+                let target = frame.midY - scroll.adjustedContentInset.top - visible * 0.45
+                scroll.contentOffset.y = min(max(target, top), max(top, scroll.contentSize.height - scroll.bounds.height
+                    + scroll.adjustedContentInset.bottom))
+                scroll.layoutIfNeeded()
+                return true
+            }
+            if y >= bottom { return false }
+            y = min(y + scroll.bounds.height * 0.8, max(top, scroll.contentSize.height - scroll.bounds.height
+                + scroll.adjustedContentInset.bottom))
+        }
     }
 
     func findScrollView(horizontal: Bool? = nil) -> UIScrollView? {
@@ -453,13 +579,37 @@ final class ListStressRig: NSObject {
 
     private func finish() {
         logMemory("\(settings.screen ?? "-")-done")
+        ListApplyProbe.shared.codeDrivenScroll = false
         live?.cancel()
+        flood?.logSummary()
         Self.running = nil
         log.notice("FRAMELOG list-stress-done \(self.settings.screen ?? "-", privacy: .public) passes=\(self.pass, privacy: .public)")
         if settings.exitsWhenDone {
             FrameLogFile.flush()
             exit(0)
         }
+    }
+}
+
+/// Darwin notifications from a UI test (`dev.cmux.mobile.rig.<name>`), each run on the main actor.
+/// DEBUG rig only: a test process cannot reach the app's objects, and a launch argument cannot say
+/// when (the test picks the moment after it scrolled the list to the row it reads).
+@MainActor
+enum RigSignals {
+    private static var handlers: [String: @MainActor () -> Void] = [:]
+    private static let token = NSObject()
+
+    static func observe(_ name: String, _ handler: @escaping @MainActor () -> Void) {
+        let full = "dev.cmux.mobile.rig.\(name)"
+        handlers[full] = handler
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(token).toOpaque(),
+            { _, _, name, _, _ in
+                guard let raw = name?.rawValue else { return }
+                let key = raw as String
+                Task { @MainActor in RigSignals.handlers[key]?() }
+            },
+            full as CFString, nil, .deliverImmediately)
     }
 }
 #endif
