@@ -299,6 +299,10 @@ path = "tests/acpmux_all.rs"
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]
+name = "hub_integration"
+path = "tests/hub_integration.rs"
+
+[[test]]
 name = "sim"
 path = "tests/sim.rs"
 required-features = ["sim"]
