@@ -28,6 +28,7 @@ import { setSessionStatus } from "./sessionStatus";
 import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setComputerUseState } from "./computerUse/computerUseState";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -113,6 +114,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
       return;
+    case "projectPalette":
+      window.dispatchEvent(new CustomEvent("cmux-project-palette", { detail: event.value }));
+      return;
     case "github.changed":
       window.dispatchEvent(new Event("cmux-github-changed"));
       return;
@@ -196,6 +200,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);
+    case "computerUseState":
+      // Computer Use on this Mac, for a send that names `@computer-use` (computerUse/computerUseState.ts).
+      return setComputerUseState(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":

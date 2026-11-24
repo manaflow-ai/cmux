@@ -21,6 +21,7 @@ from collections import defaultdict
 METRIC_ORDER = [
     "r1_ms",
     "first_content_ms",
+    "setup_ms",
     "interactive_ms",
     "gap_after_link_back_ms",
     "gap_total_ms",
@@ -33,10 +34,12 @@ READ_FIRST_LEGEND = (
     "R2 time to fresh = first_content_ms (tap to the first frame from the Mac); "
     "R1 time to readable = r1_ms (tap to the first frame from the phone's own store, link cut)"
 )
-PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "reattach"]
+# settled_*: link up to the settled Workspaces list, the setup in 4 serial round trips or 1.
+DURESS_PHASES = ("home", "settled_serial", "settled_batched", "reattach")
+PHASE_ORDER = ["cold", "warm", "reconnect", "fixture", "home", "settled_serial", "settled_batched", "reattach"]
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
 DURESS_SCALES = {"idle": 0, "duress": 1}
-DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "interactive_ms", "workspaces_shown"]
+DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "setup_ms", "interactive_ms", "workspaces_shown"]
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -78,7 +81,7 @@ def change(before: dict | None, after: dict | None) -> str:
 def duress_table(rows: list[dict], before: str | None) -> list[str]:
     """mode=duress: phase x metric, a column per link (the idle fixture first), before -> after
     p50, and FLAG where a duress after-p50 is more than 2x the idle fixture's after-p50."""
-    duress = [row for row in rows if row["scale"] in DURESS_SCALES and row["phase"] in ("home", "reattach")]
+    duress = [row for row in rows if row["scale"] in DURESS_SCALES and row["phase"] in DURESS_PHASES]
     if not duress:
         return []
     by_key = {(row["phase"], row["metric"], row["profile"], row["scale"]): row for row in duress}
@@ -112,7 +115,7 @@ def duress_table(rows: list[dict], before: str | None) -> list[str]:
         out.append("")
     out.append("| phase | metric | " + " | ".join(label for _, _, label in columns) + " |")
     out.append("|---|---|" + "---|" * len(columns))
-    for phase in ("home", "reattach"):
+    for phase in DURESS_PHASES:
         for metric in DURESS_METRICS:
             cells = [by_key.get((phase, metric, link, scale)) for link, scale, _ in columns]
             if not any(cells):

@@ -237,7 +237,12 @@ impl Peer {
                 return;
             }
         }
+        let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
+            crate::gauges::bump(&crate::gauges::links().link_dials);
+            if immediate_redial {
+                crate::gauges::bump(&crate::gauges::links().link_redials);
+            }
             let outcome = self.connect_once(&mut out_rx).await;
             let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
             let was_ready = self.link().is_ready();
@@ -280,6 +285,7 @@ impl Peer {
             }
             // One immediate attempt for this Close 1012. If that attempt fails, it follows
             // the unchanged real-failure backoff; restarting is not a persistent retry mode.
+            immediate_redial = redial_now || (was_ready && restarting);
             let Some(delay) = delay else {
                 continue;
             };
@@ -530,7 +536,19 @@ impl Peer {
             }
             return Err("refused (test)".into());
         }
-        let (via, opened) = match self.open_first().await {
+        // One host-wide gate for every peer's dial (`peer_dial_gate.rs`): a link dropping on its
+        // own dials at once; 40 dropping together go a few at a time, wanted peers first.
+        let first = {
+            let mut stopped = self.stop_changed.subscribe();
+            let gate = crate::peer_dial_gate::global();
+            let dial = gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first());
+            tokio::select! {
+                biased;
+                _ = stopped.wait_for(|stopped| *stopped) => return Err("peer stopped".to_owned()),
+                first = dial => first,
+            }
+        };
+        let (via, opened) = match first {
             Ok(opened) => opened,
             Err(error) => {
                 // No path opened: the network, not a slow peer (`SilenceBudget::dial_struggled`).
@@ -544,6 +562,8 @@ impl Peer {
         }
         *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = opened.presented;
         self.carried_by(via.carrier().wire());
+        // Held while this link's connection is: `gauges.links.linksOpen`.
+        let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
         let heard = Some(opened.heard);
@@ -899,6 +919,8 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
+        let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
         let mut handshake_ended = false;
         let mut health_asked: Option<tokio::time::Instant> = None;
@@ -1062,6 +1084,11 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
             }
+            if let Some(held) = reader.resume()
+                && held >= timings.ping_every
+            {
+                tracing::info!(peer = %self.name, "this daemon kept the link from reading for {}ms; its silence counts from now", held.as_millis());
+            }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
@@ -1070,6 +1097,12 @@ impl Peer {
                     // pong queued behind it) is moving: wait another `NETWORK_PROBE`, not drop it.
                     if request_probe && heard.as_ref().is_some_and(|h| h.silent() < network::NETWORK_PROBE) {
                         wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE);
+                        continue;
+                    }
+                    // This daemon did not read for part of the probe's wait: the answer may be
+                    // in, unread. The probe waits its whole time from when reading resumed.
+                    if reader.reading() < network::NETWORK_PROBE {
+                        wake_probe = Some(tokio::time::Instant::now() + network::NETWORK_PROBE - reader.reading());
                         continue;
                     }
                     if request_probe {
@@ -1152,7 +1185,8 @@ impl Peer {
                         break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();
-                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
+                    // A gap this daemon made by not reading teaches the budget nothing.
+                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap).min(reader.reading());
                     let (was, silence) = self.with_silence(|b| {
                         let was = b.current();
                         b.answered_after(gap, now);
@@ -1162,7 +1196,7 @@ impl Peer {
                     if silence != was {
                         tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
                     }
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent >= silence {
                         self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
@@ -1184,7 +1218,7 @@ impl Peer {
                         self.refresh_health();
                     }
                 }
-                frame = source.next() => {
+                frame = reader.listen(source.next()) => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
@@ -1400,7 +1434,7 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Read before the write: a large frame's write is not the peer's silence.
-                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     // Marked before the write: a frame that is partly written may still run.
                     let prompt_key = key.as_ref();
                     if let Some(key) = prompt_key {

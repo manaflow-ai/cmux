@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A pull request's red `cargo test` run, judged per test: a flake, the base's red, or the change's own.
 
-cmux-tui-spec.yml's `acpmux tests` job runs acpmux's lib tests and hub_integration on every pull request that
-touches acpmux. Before it, those suites ran only in Fast checks and the fleet, so #27921 and #27868 landed red tests
+cmux-tui-spec.yml's `acpmux tests` job runs acpmux's lib tests and hub_integration in the post-merge batch, and on a
+pull request that touches acpmux when it carries full-ci or the repository variable ACPMUX_TESTS_ON_PULL_REQUESTS is
+on (affected-jobs.json pull_request_skip, 2026-11-23). Before it, those suites ran only in Fast checks and the fleet, so #27921 and #27868 landed red tests
 and base stayed red for hours (2026-10-30). When the head's run is red, the job runs each failing test again alone
 on the head (the retry) and on the merge parent (the base), then asks this script:
 

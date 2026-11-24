@@ -153,7 +153,16 @@ jobs:
       linux_guard_history: ${{ steps.linux_guards.outputs.linux_guard_history }}
       linux_guard_cli: ${{ steps.linux_guards.outputs.linux_guard_cli }}
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
-      ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
+      # 'false' only when the PR diff was read and touches no GhosttyKit provenance input;
+      # empty (unknown) keeps the release check's full download.
+      ghosttykit_provenance_changed: ${{ steps.ghosttykit_provenance.outputs.changed }}
+      # A pull request into feat-cmux-next that changes no GhosttyKit provenance input does not run
+      # the release check: it checks the pinned archive, which is base's and unchanged, so its
+      # reds there were never the PR's own (0 of 392 red runs, 2026-11-16..24; the reds were
+      # download and GitHub stalls). It still runs when the PR changes the pin, under full-ci,
+      # on main PRs, and every feat-cmux-next push and nightly still downloads and checks the
+      # pinned archive (cmux-next.yml, nightly.yml, seed-derived-data.yml).
+      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && !contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -641,6 +650,21 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      # GhosttyKit release check checks the pinned archive by its published digest when this PR
+      # changes none of its provenance inputs (the paths the detect step's provenance-only case
+      # lists). No changed-file list (not a PR, or the diff failed): no answer, full download.
+      - name: Read whether the PR changes GhosttyKit provenance
+        id: ghosttykit_provenance
+        run: |
+          set -euo pipefail
+          changed_files="${RUNNER_TEMP}/cmux-ci-changed-files.txt"
+          [ -f "$changed_files" ] || exit 0
+          if grep -Exq 'ghostty|scripts/download-prebuilt-ghosttykit\.sh|scripts/validate-xcframework-archive\.py|scripts/ghosttykit-checksums\.txt|tests/test_ci_ghosttykit_release_check\.sh' "$changed_files"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Route cmux-next pull requests away from legacy product lanes
         id: next-route
@@ -1278,6 +1302,15 @@ jobs:
           # response turned this check red on every feat-cmux-next PR.
           GHOSTTYKIT_DOWNLOAD_RETRIES: "3"
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "5"
+          # The release is checked by its published digest, not a 123 MB download (17 min at
+          # 100 KB/s on 2026-11-23), when Mac jobs download, check and unpack the archive, or
+          # when the PR changes no GhosttyKit provenance input (the pinned archive is base's,
+          # already validated). The release check is routed on the raw macos detection, which
+          # NEXT routing then turns off, so macos alone left most NEXT PRs on the full download
+          # (4 of 4 attempt-1 reds on 2026-11-23 18:10Z). A PR that changes the pin and runs no
+          # Mac job still downloads and validates it in full; an unknown answer does too.
+          GHOSTTYKIT_VERIFY_BY_DIGEST: ${{ (needs.changes.outputs.macos == 'true' || needs.changes.outputs.ghosttykit_provenance_changed == 'false') && '1' || '0' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:
