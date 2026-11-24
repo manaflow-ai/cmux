@@ -183,6 +183,10 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
 
+# The Linux musl builds' allocator (src/bin/cmux-tui.rs), as acpmux-standalone's.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
 # The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
 # and Windows Computer Use worker the daemon supervises. macOS runs it in the
 # signed cmux Remote host instead.
