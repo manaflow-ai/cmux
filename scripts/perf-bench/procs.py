@@ -22,10 +22,14 @@ import ctypes
 import os
 import re
 import subprocess
+import sys
 import time
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next"))
+import macos_libs  # noqa: E402  (scripts/cmux-next: a stand-in off a Mac, so this imports anywhere)
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libsystem = macos_libs.library("/usr/lib/libSystem.B.dylib")
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -38,8 +42,7 @@ class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+_timebase = macos_libs.timebase_of(_libsystem, _Timebase())
 MB = 1048576.0
 
 
