@@ -39,6 +39,7 @@ pub mod pointer;
 mod schema;
 mod stream;
 mod trie;
+pub mod version;
 
 pub use change::{Change, Conversion, Direction};
 pub use compat::{Broadcast, Compat, Program};
@@ -57,6 +58,10 @@ pub enum CompatError {
     UnsupportedRevision { rev: u32, base: u32, current: u32 },
     /// The message is not valid JSON at this byte offset.
     Malformed(usize),
+    /// A pinned API version is not a `YYYY-MM-DD` date.
+    BadVersion(String),
+    /// A pinned API version predates the oldest one this build serves.
+    UnsupportedVersion { version: String, oldest: String, newest: String },
 }
 
 impl std::fmt::Display for CompatError {
@@ -69,6 +74,13 @@ impl std::fmt::Display for CompatError {
                 write!(f, "API revision {rev} is outside the supported range {base}..={current}")
             }
             Self::Malformed(at) => write!(f, "malformed JSON at byte {at}"),
+            Self::BadVersion(version) => {
+                write!(f, "API version `{version}` is not a YYYY-MM-DD date")
+            }
+            Self::UnsupportedVersion { version, oldest, newest } => write!(
+                f,
+                "API version {version} is older than the supported range {oldest}..={newest}"
+            ),
         }
     }
 }
