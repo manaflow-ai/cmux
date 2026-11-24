@@ -133,7 +133,8 @@ struct SignInPageOpensBesideTests {
             let own = try await connection.newFrontendBrowserTab(url: Self.page.absoluteString, engine: .webkit, in: side.pane.handle, activate: false)
             try await PinnedPageTests.until({ side.pane.tabs.contains { $0.surface == own.surface } }, report: { "the person's own tab did not open" })
             let ownTab = try #require(side.pane.tabs.first { $0.surface == own.surface }?.id)
-            try #require(end)()
+            let endFirst = try #require(end)
+            endFirst()
             try await PinnedPageTests.until({ !listed(first) }, report: { "the sign-in's end left its page open: " + Self.describe(content) })
             #expect(listed(ownTab), "the sign-in's end closed a tab the person opened: \(Self.describe(content))")
 
@@ -141,13 +142,16 @@ struct SignInPageOpensBesideTests {
             let second = try await Self.open(services) {
                 end = services.linkOpener.openSignInPage(Self.page, beside: pane.view, stillOn: ["github.com"])
             }
-            try #require(end)()
+            let endSecond = try #require(end)
+            endSecond()
             // A sign-in that ended before its open reported the tab closes it once reported.
             let third = try await Self.open(services) { _ = services.linkOpener.openWeb(Self.page, from: pane, background: true, revealing: true) }
             let late = SignInPageTab<SurfaceID>(hosts: ["auth.example.test"], shown: { _ in nil }, close: { services.cache.pageRequests.closeDaemonTab(on: $0) })
             late.end()
             #expect(listed(third))
-            late.made(try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == third }).surface)
+            let thirdTab: TabModel? = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == third }
+            let thirdSurface: SurfaceID = try #require(thirdTab).surface
+            late.made(thirdSurface)
             try await PinnedPageTests.until({ !listed(third) }, report: { "a sign-in that ended first left its page open: " + Self.describe(content) })
             #expect(listed(second), "the sign-in's end closed a tab that had left its hosts: \(Self.describe(content))")
             #expect(listed(ownTab), "a later sign-in's end closed a tab the person opened: \(Self.describe(content))")
