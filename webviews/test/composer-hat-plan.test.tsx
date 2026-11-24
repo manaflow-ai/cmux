@@ -11,6 +11,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
+  // Pinned: the hat is the folded one-line head only in this arm (subagent-tray-fold-head).
+  cmuxExperiments: { "subagent-tray-fold-head": "one" },
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,

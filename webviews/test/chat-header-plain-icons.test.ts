@@ -72,7 +72,10 @@ function rules(): { file: string; selector: string; body: Map<string, string> }[
 test("no header tool draws a fill at rest, nor a border or shadow in any state", () => {
   const boxed: string[] = [];
   for (const { file, selector, body } of rules()) {
-    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part));
+    const tools = parts(selector).filter(
+      // [data-glass-toolbar] is the opt-in glass-toolbar experiment (#47172), which draws its own fills.
+      (part) => HEADER_TOOL.test(part) && !/\[data-glass-toolbar\]/.test(part),
+    );
     if (tools.length === 0) continue;
     for (const [property, value] of body) {
       // A fill only in a lit state: every header-tool part of the rule names one.
@@ -135,6 +138,7 @@ test("an open panel's toggle reads as on by the filled rounded square and its li
   const hoverFills = fills.filter(
     ({ part }) =>
       HEADER_TOOL.test(part) &&
+      !/\[data-glass-toolbar\]/.test(part) &&
       /:hover/.test(part) &&
       !/\[aria-pressed=true\]/.test(part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
   );
