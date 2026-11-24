@@ -1748,12 +1748,13 @@ function TranscriptView({
       queueMicrotask(() => {
         const rows = thread.current;
         if (!rows || growth?.field !== target) return;
-        const before = rows.getBoundingClientRect().top;
         rowsMove?.cancel();
         rowsMove = undefined;
         take();
-        // Where the rows now lie against where they were drawn: they start there and go home.
-        const delta = before - rows.getBoundingClientRect().top;
+        // The room's layout shift can lag the field's animated height by a frame when the field's
+        // ResizeObserver starts the motion. Drive the rows from the same measured height change so
+        // their bottom edge stays aligned with the composer's top on every frame.
+        const delta = detail.from - detail.to;
         if (Math.abs(delta) < 0.5) return;
         // A move already in flight (a send's, the stack's): the growth joins its plan, one curve.
         const tx = transactionOn(rows) ? threadTransaction(rows) : undefined;

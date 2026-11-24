@@ -12,6 +12,8 @@ export const FIELD_GROWTH_EVENT = "acpmux-field-growth";
 export const TILE_SHAPE_EVENT = "acpmux-tile-shape";
 
 export type FieldGrowthDetail = {
+  /// The field's drawn height when this motion starts (px).
+  from: number;
   /// The height the field lands on (px); its drawn height minus this is what the stack has yet to grow.
   to: number;
   /// The motion's curve as progress points from 0 to 1, run linearly over `duration` (the spring

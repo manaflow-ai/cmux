@@ -136,7 +136,7 @@ function growField(root: ParentNode, lines: number) {
     easing: MOTION_SETTLE,
   });
   field.style.height = `${to}px`;
-  const detail: FieldGrowthDetail = { to, easing: MOTION_SETTLE, duration, animation };
+  const detail: FieldGrowthDetail = { from, to, easing: MOTION_SETTLE, duration, animation };
   field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
 }
 
