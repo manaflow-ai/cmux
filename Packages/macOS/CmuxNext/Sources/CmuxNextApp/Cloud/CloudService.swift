@@ -726,7 +726,7 @@ final class CloudService {
             if again { request.idempotencyKey = UUID().uuidString }
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
         }
-        logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
@@ -746,7 +746,7 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
-        listedMachineIDs.insert(machine.id)
+        listedMachineIDs.insert(machine.id); session.answeredAt = answeredAt // the record the create's (or spare claim's) answer just gave
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session

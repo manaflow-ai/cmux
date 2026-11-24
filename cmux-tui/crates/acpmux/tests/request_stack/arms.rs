@@ -54,6 +54,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_GITHUB_APP_LEASE,
             Any(json!({}), "a connection that is not the person is refused"),
         ),
+        (method::MUX_GITHUB_REST, Any(json!({}), "a connection that is not the person is refused")),
         (
             method::MUX_GITHUB_ACTION,
             Any(
