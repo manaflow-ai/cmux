@@ -478,9 +478,23 @@ impl Pacer {
         if opens_again(&segment, connection.rcv_max) {
             connection.restart();
         }
+        if segment.len > 0 {
+            crate::dlog!(
+                "tcp rx-data sport={} seq={} len={} ack={:?} win={}",
+                segment.source.1,
+                segment.seq,
+                segment.len,
+                segment.ack,
+                segment.window
+            );
+        }
         if let Some(ack) = segment.ack {
             if segment.len == 0 {
-                crate::dlog!("tcp rx-ack dport={} ack={ack}", segment.destination.1);
+                crate::dlog!(
+                    "tcp rx-ack dport={} ack={ack} win={}",
+                    segment.destination.1,
+                    segment.window
+                );
             }
             connection.acked(ack, segment.seq, segment.window, now);
         }

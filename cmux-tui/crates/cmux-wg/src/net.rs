@@ -610,7 +610,10 @@ impl Driver {
                     }
                     break;
                 }
-                TunnResult::Err(_) => break,
+                TunnResult::Err(e) => {
+                    crate::dlog!("wg decap ERR {:?} len={} path={:?}", e, input.len(), origin.path);
+                    break;
+                }
                 TunnResult::WriteToNetwork(packet) => {
                     // Authenticated traffic from a new address moves the peer
                     // (WireGuard roaming); this is also how the answering side
@@ -675,7 +678,9 @@ impl Driver {
                             self.schedule.on_activity(Instant::now());
                         }
                         let mut packet = packet.to_vec();
-                        self.pacer.refresh_stale_ack(&mut packet);
+                        if self.pacer.refresh_stale_ack(&mut packet) {
+                            crate::dlog!("refresh_stale_ack CHANGED");
+                        }
                         self.stack.push_rx(packet, None);
                     }
                     break;
