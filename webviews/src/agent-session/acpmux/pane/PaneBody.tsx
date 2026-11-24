@@ -1246,6 +1246,9 @@ export function drawPaneBody({
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
+                // The stack under it ends in the quiet row (the dock's `data-foot`): in flow the stage
+                // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
+                data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                 inert={parkedVisible || undefined}
               >
