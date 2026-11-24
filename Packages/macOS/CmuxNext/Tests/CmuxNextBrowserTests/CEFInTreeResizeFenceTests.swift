@@ -78,17 +78,23 @@ import Testing
         withInTreeOn {
             let (hosting, _, window) = makeInTree { CEFInTreeHosting(schedule: $0, resizeFences: $1) }
             defer { window.close() }
-            hosting.pageViewResized()  // the first resize only learns the window's size
+            hosting.pageViewResized()  // the first resize only learns the window's size (an in-window wait)
             window.setContentSize(NSSize(width: 520, height: 360))
             hosting.pageViewResized()
-            #expect(fork.fences == 1, "a window resize showed the window before the page's frame at its size")
+            let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
+            #expect(fork.fences == 2, "a window resize showed the window before the page's frame at its size")
+            #expect(fork.timeouts.last.map { Double($0) >= max(8, refreshMs.rounded(.up)) } == true,
+                    "a window resize waited less than a frame for the page: \(fork.timeouts)")
         }
     }
 
     @Test func aFullScreenTransitionNeverHoldsTheWindowsCommit() {
-        #expect(!CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: true))
-        #expect(CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: false))
-        #expect(!CEFInTreeHosting.joinsFence(windowResized: false, fullScreenTransition: false))
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: true, refreshMs: 8.33) == nil)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: true, refreshMs: 8.33) == nil)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: false, refreshMs: 8.33) == 9)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: false, refreshMs: 16.67) == 17)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 8.33) == 4)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 16.67) == 8)
     }
 }
 
