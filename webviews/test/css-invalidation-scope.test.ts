@@ -27,20 +27,6 @@ const ALLOWED = new Map<string, string>([
     "pages/home-channels/chiefWork.css .lg-stage:has(> .hc-chief-work-scope) > :not(.hc-chief-work-scope)",
     "Home page, stage children",
   ],
-  // Base's rules from after this check was written (not this check's PR); follow-up: key each subject
-  // on a class its owner sets, as the composer's dock now does (App.tsx `markDockEdge`, `dockFoot`).
-  [
-    "ui/popupSurface.css .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) > :not(.ui-menu-text)",
-    "a disabled menu item's own children",
-  ],
-  [
-    'agent-session/acpmux/conversation/conversation.css :root[data-transcript-timestamps="always"] .cv-user:not(:hover, :focus-within, :has([data-popup-open])) .cv-user__actions:not(.cv-user__actions--versions) .cv-message-footer-row > :not(.cv-user__time)',
-    "a prompt's footer row children",
-  ],
-  [
-    'agent-session/acpmux/conversation/conversation.css :root[data-transcript-timestamps="always"] .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open])) .cv-reply-actions:not(:focus-within) .cv-message-footer-row > :not(.cv-turn-time)',
-    "a reply's footer row children",
-  ],
 ]);
 
 function cssFiles(dir: string): string[] {
@@ -86,7 +72,8 @@ function splitTop(text: string, separator: (ch: string) => boolean): string[] {
 
 /// The selector's compounds and the combinators between them (" ", ">", "+", "~").
 function compounds(selector: string): { parts: string[]; combinators: string[] } {
-  const spaced = selector.replace(/\s*([>+~])\s*/g, " $1 ");
+  // A selector split over lines (the formatter breaks long ones) is the same selector on one line.
+  const spaced = selector.replace(/\s+/g, " ").replace(/\s*([>+~])\s*/g, " $1 ");
   const tokens = splitTop(spaced, (ch) => ch === " ");
   const parts: string[] = [];
   const combinators: string[] = [];
@@ -141,6 +128,8 @@ test("no selector restyles a whole subtree on a :has(), sibling or inline-style 
 test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b) > :last-child")).toHaveLength(1);
   expect(findings("x.css", ".a:has(.b) button")).toHaveLength(1);
+  // Split over lines, as the formatter writes a long one (the Stop bump's rule hid this way).
+  expect(findings("x.css", ".a\n  .b:has(> .c)\n  > :not(.c)")).toHaveLength(1);
   expect(findings("x.css", ".md > * + *")).toHaveLength(1);
   expect(findings("x.css", ".c > :not(.d) ~ :not(.d)")).toHaveLength(1);
   expect(findings("x.css", '.ol[style*="--x"] > li')).toHaveLength(1);
