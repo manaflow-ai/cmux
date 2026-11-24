@@ -509,7 +509,8 @@ pub struct Inputs {
     /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
     pub hosted: bool,
     /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
-    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
+    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens, or a
+    /// machine a Mac lends GitHub (`github_session_env.rs`).
     pub github: bool,
     /// The `desktop-lease` binary when [`DESKTOP_LEASE_ENV`] names one (default off):
     /// sessions get [`DESKTOP_LEASE_SERVER`], computer use on a leased desktop the host's
@@ -560,7 +561,7 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
-            github: crate::github_mcp::available(),
+            github: crate::github_mcp::available() || crate::github_session_env::lent(),
             desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
     }

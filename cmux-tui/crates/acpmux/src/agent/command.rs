@@ -354,6 +354,13 @@ fn build_harness_command(
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
     }
+    // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
+    // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
+    #[cfg(unix)]
+    if session.is_some() && crate::github_session_env::lent() {
+        let current = command_env_with(&cmd, !remote_environment);
+        crate::github_session_env::apply(&mut cmd, &current);
+    }
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
