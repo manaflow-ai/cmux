@@ -16,4 +16,10 @@ struct ShortcutDisplayFormatterTests {
             control: false
         ) == "⇧Tab")
     }
+
+    @Test func displaysEscapeKeyLegibly() {
+        let formatter = ShortcutDisplayFormatter()
+
+        #expect(formatter.keyDisplayString("escape") == "Esc")
+    }
 }
