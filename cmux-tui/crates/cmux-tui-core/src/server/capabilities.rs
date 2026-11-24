@@ -395,6 +395,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::settings::SETTINGS_EDIT_CAPABILITY,
+        crate::mux::settings::SETTINGS_HISTORY_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         crate::feed_client::FEED_CLIENT_CAPABILITY,
