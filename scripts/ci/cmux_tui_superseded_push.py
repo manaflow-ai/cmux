@@ -197,10 +197,8 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
         return None
     # Build on request (ci-min-per-pr-30): an open pull request's head used to be enough. It was 343 runs and
     # 29.8k runner-min a day (11-22 21Z..11-23 21Z, 25.8 per merged PR), three ~28-min target builds per head,
-    # for trees only the hot verify rust look reads; a head nobody asked for is not built, and that look builds a
-    # head's daemon on its fleet worker when no tree is published (a dispatch of cmux-tui-artifacts.yml on a branch
-    # other than main or feat-cmux-next builds but never publishes, so the look sends none since
-    # ci-runner-min-per-day-500k). CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule.
+    # for trees only the hot verify rust look reads. That look now dispatches the build itself, so a head
+    # no dispatch asked for is not built. CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule.
     on_request = os.environ.get("CMUX_TUI_BRANCH_ON_REQUEST", "1") != "0"
     has_pull = None if on_request else has_pull_request_head(sha)
     if has_pull:
@@ -224,9 +222,9 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     if on_request:
         return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
                       "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "
-                      "rust look builds the head's daemon on its fleet worker. To publish this tree anyway, add "
-                      "the trailer Cmux-Daemon-Tests: run or dispatch cmux-next.yml before pushing (a dispatch "
-                      "of cmux-tui-artifacts.yml on this branch builds but does not publish)")
+                      "rust look dispatches this workflow on the branch itself. To publish this tree anyway, add "
+                      "the trailer Cmux-Daemon-Tests: run, dispatch cmux-tui-artifacts.yml on the branch, "
+                      "or dispatch cmux-next.yml before pushing")
     return True, (f"no open pull request has {sha[:12]} ({branch}) at its head and no cmux-next dispatch "
                   "asked for it; a pull request's same-tree checks use its merge tree or the base tree. "
                   "To publish this tree anyway, add the trailer Cmux-Daemon-Tests: run, dispatch "

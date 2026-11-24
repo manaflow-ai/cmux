@@ -12,6 +12,7 @@ import importlib.util
 import io
 import os
 import re
+import shutil
 import json
 import sys
 import subprocess
@@ -643,30 +644,37 @@ class Workflow(unittest.TestCase):
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
 
-    def test_the_rust_layer_names_only_a_published_tree_and_asks_for_no_build(self) -> None:
-        # The controller waits up to 50 min for the tree a request names. Nothing builds a pull request head's tree:
-        # its push builds none (ci-min-per-pr-30), and a cmux-tui-artifacts.yml dispatch on its branch is build-only
-        # (publish admits a dispatch from main and feat-cmux-next only). The dispatch this job sent from 11-24 05Z
-        # spent 14,308 runner-min in 339 runs by 10Z and published nothing. With no tree= the look is queued at once
-        # and the fleet step builds the head's daemon (cmuxterm-hq hot_verify_run.py builds_head_daemon).
-        block = "\n".join(self.job_block("rust"))
-        self.assertNotIn("gh workflow run", block)
-        self.assertNotIn("actions: write", block)
-        self.assertNotIn("GH_TOKEN", block)
-        for answer, named in ((0, True), (22, False)):
-            with self.subTest(curl_exit=answer):
-                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-curl-")))
+    def test_the_rust_layer_names_only_a_tree_something_will_publish(self) -> None:
+        # tree= makes the controller wait up to 50 min for the tree's completion.json. A pull request head's push
+        # builds no tree (ci-min-per-pr-30) and the dispatch below is off (#53824), so a named unpublished tree was a
+        # 50 min wait for nothing before the fleet step built the head's daemon itself (builds_head_daemon).
+        # Cases: curl exit, CMUX_TUI_BRANCH_ON_REQUEST, CMUX_TUI_LOOK_DISPATCH, the head's Cmux-Daemon-Tests value.
+        real_git = shutil.which("git")
+        cases = ((0, "1", "", "", True), (22, "1", "", "", False), (22, "0", "", "", True),
+                 (22, "1", "", " Run\n", True), (22, "1", "", "skip\n", False), (22, "1", "1", "", True))
+        for answer, on_request, dispatch, trailer, named in cases:
+            with self.subTest(curl_exit=answer, on_request=on_request, dispatch=dispatch, trailer=trailer):
+                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-tree-")))
                 (fake / "curl").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {fake}/asked\nexit {answer}\n")
                 (fake / "curl").chmod(0o755)
+                # git log answers the trailer; the tree key's own git reads go to the real git.
+                (fake / "git").write_text(f'#!/bin/bash\nif [[ "$1" == log ]]; then printf "{trailer}"; exit 0; fi\n'
+                                          f'exec {real_git} "$@"\n')
+                (fake / "git").chmod(0o755)
                 done, out, calls = self.run_block("rust", "", {"HEAD_SHA": HEAD, "GITHUB_RUN_ID": "1",
+                                                               "BRANCH_ON_REQUEST": on_request, "LOOK_DISPATCH": dispatch,
                                                                "PATH": f"{fake}:{os.environ['PATH']}"},
-                                                  step="The head's cmux-tui tree key, when its tree is published")
+                                                  step="The head's cmux-tui tree key")
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(calls, [])
-                asked = (fake / "asked").read_text()
-                self.assertRegex(asked, r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
-                written = out.read_text() if out.exists() else ""
-                self.assertEqual(bool(re.search(r"^key=[0-9a-f]{40,64}$", written, re.M)), named, written)
+                self.assertRegex((fake / "asked").read_text(),
+                                 r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
+                written = out.read_text()
+                self.assertRegex(written, r"(?m)^key=[0-9a-f]{40,64}$")  # the dispatch step still reads it
+                self.assertEqual(bool(re.search(r"(?m)^tree=[0-9a-f]{40,64}$", written)), named, written)
+        block = "\n".join(self.job_block("rust"))
+        self.assertIn("key: ${{ steps.key.outputs.tree }}", block)
+        self.assertIn("BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}", block)
 
     def test_the_request_job_name_is_the_controllers_request(self) -> None:
         # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads
