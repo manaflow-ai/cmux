@@ -198,7 +198,8 @@ const FAILED_SERVER_WAIT: Duration = Duration::from_secs(60);
 
 /// TURN servers (`host:port`) whose last allocation failed, and when.
 fn failed_servers() -> &'static Mutex<HashMap<String, tokio::time::Instant>> {
-    static FAILED: std::sync::OnceLock<Mutex<HashMap<String, tokio::time::Instant>>> = std::sync::OnceLock::new();
+    static FAILED: std::sync::OnceLock<Mutex<HashMap<String, tokio::time::Instant>>> =
+        std::sync::OnceLock::new();
     FAILED.get_or_init(Mutex::default)
 }
 
@@ -223,8 +224,10 @@ fn failed_recently(address: &str) -> bool {
 /// The UDP TURN servers of `servers` in the order [`turn_servers`] would
 /// try them.
 fn udp_fallbacks(servers: &[IceServer]) -> Vec<TurnServer> {
-    let mut udp: Vec<TurnServer> =
-        servers_in_order(servers).into_iter().filter(|server| server.transport == TurnTransport::Udp).collect();
+    let mut udp: Vec<TurnServer> = servers_in_order(servers)
+        .into_iter()
+        .filter(|server| server.transport == TurnTransport::Udp)
+        .collect();
     udp.sort_by_key(|server| failed_recently(&server.address));
     udp
 }
