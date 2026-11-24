@@ -180,6 +180,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     };
     let mut session = MediaSession::with_desktop(
         Box::new(QuietDesktop(UnixStream::pair().expect("socket pair"))),

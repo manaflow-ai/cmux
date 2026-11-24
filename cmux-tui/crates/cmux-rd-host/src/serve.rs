@@ -539,6 +539,7 @@ fn session_cfg(
         // Set from the path's round trip once the viewer starts.
         frames_in_flight: 2,
         capture,
+        sharp_text: false,
     })
 }
 
@@ -662,6 +663,10 @@ fn serve_session(
     // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
     if crate::stream::offers_h264_baseline(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
         host_caps.push(cmux_rd_core::service::caps::H264_BASELINE);
+    }
+    // A viewer whose person turned on sharper Linux text gets OpenH264's screen usage.
+    if crate::stream::offers_sharp_text(&opts.str_or("codec", crate::host::DEFAULT_CODEC)) {
+        host_caps.push(cmux_rd_core::service::caps::SHARP_TEXT);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([cmux_rd_core::service::caps::CLOCK, cmux_rd_core::service::caps::LEDGER]);

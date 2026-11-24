@@ -1396,6 +1396,34 @@
             "megabits",
             "data"
           ]
+        },
+        {
+          "key": "remoteDesktop.sharpLinuxText",
+          "note": "Off by default. On: this Mac's Screen Sharing hello offers cap video.sharp_text, and a Linux host whose encoder is OpenH264 codes the session in its switching screen usage instead of camera usage (cmux-rd-host encoder.rs shipped_openh264_options). Screen usage's motion search encodes a 1080p frame about 4x slower (cmux#51662). The host's CMUX_RD_OPENH264_USAGE still wins. Mac, Windows and GPU (VAAPI) hosts ignore it.",
+          "title": {
+            "key": "settings.remoteDesktop.sharpLinuxText",
+            "text": "Sharper Text from Linux Machines"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.sharpLinuxText.help",
+            "text": "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later."
+          },
+          "summary": {
+            "key": "settings.remoteDesktop.sharpLinuxText.summary",
+            "text": "Linux screens favor sharp text over speed"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "linux",
+            "text",
+            "sharp",
+            "screen usage",
+            "openh264",
+            "encoder"
+          ]
         }
       ]
     },

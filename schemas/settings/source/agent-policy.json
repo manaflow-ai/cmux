@@ -1813,11 +1813,12 @@
     },
     {
       "agent": "settable",
-      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session.",
+      "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start, and whether a Linux host codes for sharp text; the toolbar still changes each session.",
       "keys": [
         "remoteDesktop.quality",
         "remoteDesktop.maxFps",
-        "remoteDesktop.maxBitrateMbps"
+        "remoteDesktop.maxBitrateMbps",
+        "remoteDesktop.sharpLinuxText"
       ]
     },
     {

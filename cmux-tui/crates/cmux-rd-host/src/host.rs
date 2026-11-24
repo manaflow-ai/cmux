@@ -179,6 +179,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .map(crate::capture_backend::CaptureBackend::parse)
             .transpose()?
             .unwrap_or_default(),
+        sharp_text: false,
     })
 }
 
@@ -552,6 +553,10 @@ fn serve_viewer<S: ViewerStream>(
     // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
     if crate::stream::offers_h264_baseline(&cfg.codec) {
         host_caps.push(caps::H264_BASELINE);
+    }
+    // A viewer whose person turned on sharper Linux text gets OpenH264's screen usage.
+    if crate::stream::offers_sharp_text(&cfg.codec) {
+        host_caps.push(caps::SHARP_TEXT);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);

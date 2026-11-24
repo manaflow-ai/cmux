@@ -952,6 +952,7 @@ pub fn open_desktop(
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
+        sharp_text: cfg.sharp_text,
     })?;
     let frames = PortalFrames {
         frames: cap.frames(),

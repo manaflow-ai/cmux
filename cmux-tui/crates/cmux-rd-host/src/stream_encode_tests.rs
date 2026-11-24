@@ -175,6 +175,7 @@ fn cfg() -> SessionCfg {
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     }
 }
 
@@ -249,6 +250,26 @@ fn an_openh264_viewer_gets_constrained_baseline() {
     assert!(super::offers_h264_baseline("videotoolbox"));
     assert!(super::offers_h264_baseline("openh264"));
     assert!(!super::offers_h264_baseline("vp9"));
+}
+
+/// A viewer that negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
+/// Text") gets a session whose OpenH264 codes in screen usage; any other viewer keeps the
+/// host's shipped usage. Both caps together apply both.
+#[test]
+fn a_sharp_text_viewer_gets_screen_usage() {
+    use cmux_rd_core::service::caps::{CLOCK, H264_BASELINE, SHARP_TEXT};
+    let host = SessionCfg { profile: "high".into(), ..cfg() };
+    assert!(!super::session_cfg(&host, &[CLOCK.to_owned()]).sharp_text);
+    let sharp = super::session_cfg(&host, &[SHARP_TEXT.to_owned()]);
+    assert!(sharp.sharp_text);
+    assert_eq!(sharp.profile, "high");
+    let both = super::session_cfg(&host, &[H264_BASELINE.to_owned(), SHARP_TEXT.to_owned()]);
+    assert!(both.sharp_text);
+    assert_eq!(both.profile, "baseline");
+    assert_eq!(super::offers_sharp_text("openh264"), cfg!(target_os = "linux"));
+    assert_eq!(super::offers_sharp_text("auto"), cfg!(target_os = "linux"));
+    assert!(!super::offers_sharp_text("videotoolbox"));
+    assert!(!super::offers_sharp_text("vaapi"));
 }
 
 #[test]

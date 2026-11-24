@@ -150,6 +150,14 @@ public final class MacScreenPages {
             for tab in tabs.values { tab.pane?.session?.maxFpsCap = maxFpsCap }
         }
     }
+    /// Settings > Customize "Sharper Text from Linux Machines" (`remoteDesktop.sharpLinuxText`): whether a
+    /// session's hello offers `video.sharp_text`. An open session takes it at its next connect.
+    public var sharpLinuxText = false {
+        didSet {
+            guard sharpLinuxText != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.offersSharpText = sharpLinuxText }
+        }
+    }
     /// Tab key -> the record a person opened in it.
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
@@ -606,6 +614,7 @@ public final class MacScreenPages {
         pane.session?.encodeProfile = encodeProfile
         pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
         pane.session?.maxFpsCap = maxFpsCap
+        pane.session?.offersSharpText = sharpLinuxText
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }
