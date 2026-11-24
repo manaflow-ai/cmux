@@ -53,6 +53,7 @@ jobs:
       tool: ${{ steps.plan.outputs.tool }}
       web: ${{ steps.plan.outputs.web }}
       base: ${{ steps.plan.outputs.base }}
+      base_bytes: ${{ steps.plan.outputs.base_bytes }}
     steps:
       # Blobless and sparse to the paths web-bundle-key.py reads (the same list web-base uses): the
       # plan reads git objects and the web inputs only, and a full checkout of both commits was most
@@ -98,15 +99,33 @@ jobs:
           mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
           if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
             echo "web=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "web=true" >> "$GITHUB_OUTPUT"
+          # The base's bundles are usually published already (cmux-next-web-bundle-publish.yml; 1,423 of
+          # 1,488 web-base runs on 11-23/24 fetched them). This tree is the base's web inputs, the same
+          # sparse list web-base checks out, so the key is the same: fetch and count here, and web-base
+          # (a runner, a checkout and a download, 3,579 runner-min that day) runs only on a miss. Every
+          # script here is the base's. Any failure leaves base_bytes empty and web-base runs as before.
+          base="$RUNNER_TEMP/base"
+          if [[ -x "$base/scripts/cmux-next/fetch-web-bundles.sh" ]] &&
+            key="$(python3 -I "$base/scripts/cmux-next/web-bundle-key.py" "$base" --source 2>/dev/null)" &&
+            [[ "$key" =~ ^[0-9a-f]{64}$ ]] &&
+            "$base/scripts/cmux-next/fetch-web-bundles.sh" --key "$key" --out "$RUNNER_TEMP/web" >/dev/null 2>&1 &&
+            bytes="$(python3 -I "$base/scripts/cmux-next/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" 2>/dev/null)" &&
+            [[ -n "$bytes" && "$bytes" != *$'\n'* ]]; then
+            echo "base_bytes=$bytes" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: published under $key, counted here; web-base skips"
           else
-            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "base web bundles: not counted here; web-base measures them"
           fi
 
   # The two web builds: each in its own job, from its own commit, handing over only byte counts.
   web-base:
     name: cmux-next size budget (web, base)
     needs: plan
-    if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
+    # Only when the plan could not count the base's published bundles itself.
+    if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' && needs.plan.outputs.base_bytes == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
@@ -260,9 +279,10 @@ jobs:
         env:
           TOOL: ${{ needs.plan.outputs.tool }}
           WEB: ${{ needs.plan.outputs.web }}
-          WEB_BASE_RESULT: ${{ needs.web-base.result }}
+          # The plan's count of the base's published bundles stands in for web-base, which then skips.
+          WEB_BASE_RESULT: ${{ needs.plan.outputs.base_bytes != '' && 'success' || needs.web-base.result }}
           WEB_HEAD_RESULT: ${{ needs.web-head.result }}
-          WEB_BASE: ${{ needs.web-base.outputs.bytes }}
+          WEB_BASE: ${{ needs.plan.outputs.base_bytes || needs.web-base.outputs.bytes }}
           WEB_HEAD: ${{ needs.web-head.outputs.bytes }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
