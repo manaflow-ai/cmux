@@ -1241,10 +1241,7 @@ fn first_work_waits(session: &Session) -> bool {
 /// turn's continuation, the cache compaction), whose turns take notices and steers as before.
 pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
-    let auto_resume = matches!(
-        kind,
-        Some("auto_resume" | super::idle::cache_compact::KIND | super::cold_wake::KIND)
-    );
+    let auto_resume = matches!(kind, Some("auto_resume" | super::idle::cache_compact::KIND));
     agent.is_none()
         && !auto_resume
         && !is_notice(provenance)
@@ -1777,7 +1774,6 @@ impl Hub {
                             }
                             if stopping
                                 || !steers
-                                || turn.prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX)
                                 || turn.persons
                                 || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
@@ -1825,26 +1821,14 @@ impl Hub {
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
                             let flush = clocked.map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
-                            // A blocker or a fire notice wakes after the burst window; anything
-                            // else that wakes a chat whose prompt cache lapsed waits for its cold
-                            // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
-                            let blocker = new.iter().any(|i| {
-                                i.fire
-                                    || matches!(i.class, PromptClass::Block | PromptClass::Question)
-                            });
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
-                            let cold = if blocker || waking.is_none() {
-                                None
-                            } else {
-                                self.cold_batch_due(session, &meta, now)
-                            };
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
-                                    cold.unwrap_or(at.saturating_add(WAKE_DEBOUNCE_MS)).min(flush)
+                                    at.saturating_add(WAKE_DEBOUNCE_MS).min(flush)
                                 })
                             };
                             let retry = match inbox.refused_at {
@@ -2160,7 +2144,6 @@ impl Hub {
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
-        self.cold_batch_turn_started(session);
         let persons = persons_turn(session);
         let mut inbox = session.inbox();
         inbox.refused_at = 0;

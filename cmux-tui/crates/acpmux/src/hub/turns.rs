@@ -1726,9 +1726,7 @@ impl Hub {
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
-        let goes_on = !trigger
-            && !super::idle::cache_compact::is_own(run.provenance.as_ref())
-            && !super::cold_wake::is_own(run.provenance.as_ref());
+        let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         // A cut `/compact` is resent as itself, not continued (`auto_resume::resent_command`).
         let cut_text = super::session::prompt_text(&run.blocks);
         let slash = super::auto_resume::resent_command(&cut_text);

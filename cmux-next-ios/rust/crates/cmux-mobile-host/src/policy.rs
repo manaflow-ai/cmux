@@ -43,8 +43,6 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "vt-state",
         "read-screen",
         "read-scrollback",
-        // Cmd-F over the same scrollback `read-scrollback` returns (read-only).
-        "terminal-find",
         "scroll-surface",
         "send",
         "send-key",

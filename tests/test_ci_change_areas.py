@@ -5649,6 +5649,15 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     assert block.count("actions/setup-python@") == 1
 
 
+def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    start = block.index("      - name: Validate pipe-safe CI capture")
+    end = block.index("      - name: Validate focused test launcher", start)
+    step = block[start:end]
+    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
+    assert block.count("Validate pipe-safe CI capture") == 1
+
+
 def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     """The producer lookups must survive ci.yml reaching admission indirectly.
 

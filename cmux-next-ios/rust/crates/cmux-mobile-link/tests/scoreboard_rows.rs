@@ -16,8 +16,8 @@
 //! `cargo test --release -p cmux-mobile-link --test scoreboard_rows -- --ignored --nocapture --test-threads 1`
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -50,7 +50,16 @@ fn percentile(sorted: &[f64], fraction: f64) -> f64 {
     sorted[index]
 }
 
-fn row(condition: &str, pair: &str, metric: &str, value: Option<f64>, unit: &str, run: u64, rig: &str, extra: Value) {
+fn row(
+    condition: &str,
+    pair: &str,
+    metric: &str,
+    value: Option<f64>,
+    unit: &str,
+    run: u64,
+    rig: &str,
+    extra: Value,
+) {
     let mut line = json!({
         "condition": condition, "pair": pair, "metric": metric, "value": value, "unit": unit, "run": run,
         "host_os": std::env::consts::OS, "rig": format!("{FILE}::{rig}"),
@@ -151,7 +160,9 @@ async fn serve(incoming: IncomingChannel) {
 /// A Mac that answers every dial with `options` and serves [`serve`]'s channels. Returns its id.
 async fn start_mac(server: &FakeSignaling, options: DialOptions) -> String {
     let mac_id = uuid::Uuid::new_v4().to_string();
-    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.expect("mac signaling");
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id)
+        .await
+        .expect("mac signaling");
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let events = SessionEvents {
@@ -161,7 +172,8 @@ async fn start_mac(server: &FakeSignaling, options: DialOptions) -> String {
             };
             let (mac, options) = (mac.clone(), options.clone());
             tokio::spawn(async move {
-                let Ok(connected) = dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await
+                let Ok(connected) =
+                    dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await
                 else {
                     return;
                 };
@@ -183,7 +195,12 @@ struct Phone {
 
 /// A fresh server, Mac and phone under `profile` (seeded), the phone dialed over WireGuard. `Err` is the
 /// dial's error. `dial_ms` is `dial::connect`'s return.
-async fn dial_phone(profile: Option<&str>, seed: u64, config: LinkConfig, counted: bool) -> Result<Phone, String> {
+async fn dial_phone(
+    profile: Option<&str>,
+    seed: u64,
+    config: LinkConfig,
+    counted: bool,
+) -> Result<Phone, String> {
     set_link_profile(profile.map(LinkProfile::named), seed);
     let (phone_options, mac_options) = shaped_options(counted);
     let server = FakeSignaling::start(FakeOptions::default()).await;
@@ -245,7 +262,8 @@ async fn link_up_satellite_and_airplane() {
             if condition == "satellite 600 ms" {
                 // The remote echo of ten typed keys on the input lane (what the phone shows when it does
                 // not predict); the predicted echo is prediction_latency.rs's satellite test.
-                let mut keys = phone.connected.link.open_on("echo", json!({}), Lane::Input).await.expect("open keys");
+                let mut keys =
+                    phone.connected.link.open_on("echo", json!({}), Lane::Input).await.expect("open keys");
                 let mut samples = Vec::new();
                 for i in 0..11u8 {
                     if let Some(sample) = echo_once(&mut keys, i).await {
@@ -255,7 +273,16 @@ async fn link_up_satellite_and_airplane() {
                     }
                 }
                 for sample in samples {
-                    row(condition, "iOS→Mac", "keystroke_echo_remote_ms", Some(sample), "ms", run, rig, extra.clone());
+                    row(
+                        condition,
+                        "iOS→Mac",
+                        "keystroke_echo_remote_ms",
+                        Some(sample),
+                        "ms",
+                        run,
+                        rig,
+                        extra.clone(),
+                    );
                 }
             }
             phone.connected.link.close("done");
@@ -272,13 +299,15 @@ async fn link_up_satellite_and_airplane() {
 async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>, String> {
     let phone = dial_phone(Some(profile), seed, LinkConfig::default(), false).await?;
     let link = &phone.connected.link;
-    let mut keys = link.open_on("echo", json!({}), Lane::Input).await.map_err(|e| format!("open keys: {e}"))?;
+    let mut keys =
+        link.open_on("echo", json!({}), Lane::Input).await.map_err(|e| format!("open keys: {e}"))?;
     for i in 0..3u8 {
         echo_once(&mut keys, i).await.ok_or("warm-up key not echoed")?;
     }
     let running = Arc::new(AtomicBool::new(false));
     let drain = if flood {
-        let mut output = link.open_on("flood", json!({}), Lane::Bulk).await.map_err(|e| format!("open flood: {e}"))?;
+        let mut output =
+            link.open_on("flood", json!({}), Lane::Bulk).await.map_err(|e| format!("open flood: {e}"))?;
         output.send(Bytes::from(FLOOD_BYTES.to_string())).await.map_err(|e| format!("ask flood: {e}"))?;
         running.store(true, Ordering::Relaxed);
         let running = Arc::clone(&running);
@@ -311,7 +340,9 @@ async fn keystroke_run(profile: &str, seed: u64, flood: bool) -> Result<Vec<f64>
         tokio::time::sleep(Duration::from_millis(100).saturating_sub(tick.elapsed())).await;
     }
     if let Some(drain) = drain {
-        let got = tokio::time::timeout(Duration::from_secs(120), drain).await.map_err(|_| "flood not delivered in 120 s")?;
+        let got = tokio::time::timeout(Duration::from_secs(120), drain)
+            .await
+            .map_err(|_| "flood not delivered in 120 s")?;
         let got = got.map_err(|e| format!("drain: {e}"))?;
         if got != FLOOD_BYTES {
             return Err(format!("flood delivered {got} of {FLOOD_BYTES} bytes"));
@@ -358,7 +389,12 @@ async fn keystroke_echo_during_8mb_output() {
 /// One idle window on one link: bytes (IP level, both ends, both ways) a `window` of nothing costs, scaled to
 /// an hour. The tunnel's own timers are periodic (the link's 15 s ping, WireGuard's keepalive and its 120 s
 /// rekey), so a window of one rekey period scaled by 3600/window is the hour's cost; it is not run for an hour.
-async fn idle_run(profile: &str, seed: u64, foreground: bool, window: Duration) -> Result<(f64, u64, u64), String> {
+async fn idle_run(
+    profile: &str,
+    seed: u64,
+    foreground: bool,
+    window: Duration,
+) -> Result<(f64, u64, u64), String> {
     let config = LinkConfig { foreground_probe: foreground, ..LinkConfig::default() };
     let phone = dial_phone(Some(profile), seed, config, true).await?;
     tokio::time::sleep(Duration::from_secs(10)).await; // past the handshake and the first exchanges
@@ -390,13 +426,32 @@ async fn idle_link_bytes_per_hour() {
                     let mut extra = extra;
                     extra["window_bytes"] = json!(bytes);
                     extra["window_datagrams"] = json!(datagrams);
-                    let metric = if foreground { "idle_bytes_per_hour" } else { "idle_bytes_per_hour_probe_off" };
-                    row("idle link, foreground", "iOS→Mac", metric, Some(per_hour.round()), "B/h", run, rig, extra);
+                    let metric =
+                        if foreground { "idle_bytes_per_hour" } else { "idle_bytes_per_hour_probe_off" };
+                    row(
+                        "idle link, foreground",
+                        "iOS→Mac",
+                        metric,
+                        Some(per_hour.round()),
+                        "B/h",
+                        run,
+                        rig,
+                        extra,
+                    );
                 }
                 Err(error) => {
                     let mut extra = extra;
                     extra["error"] = json!(error);
-                    row("idle link, foreground", "iOS→Mac", "idle_bytes_per_hour", None, "B/h", run, rig, extra);
+                    row(
+                        "idle link, foreground",
+                        "iOS→Mac",
+                        "idle_bytes_per_hour",
+                        None,
+                        "B/h",
+                        run,
+                        rig,
+                        extra,
+                    );
                 }
             }
         }
@@ -419,7 +474,12 @@ async fn metered_cell_bulk_bytes() {
         wireguard::set_cellular_path(true);
         let outcome = async {
             let phone = dial_phone(None, run, LinkConfig::default(), true).await?;
-            let sink = phone.connected.link.open_on("sink", json!({}), Lane::Bulk).await.map_err(|e| e.to_string())?;
+            let sink = phone
+                .connected
+                .link
+                .open_on("sink", json!({}), Lane::Bulk)
+                .await
+                .map_err(|e| e.to_string())?;
             let (sender, _receiver) = sink.split();
             SINK_BYTES.store(0, Ordering::Relaxed);
             let (before, _) = wire_now();
@@ -453,7 +513,14 @@ async fn metered_cell_bulk_bytes() {
                        "gate": "none on bulk; the flag only caps repair data (wireguard.rs ultra_for_dial, ultra.rs set_metered)"}),
             ),
             Err(error) => row(
-                "metered cell", "iOS→Mac", "bulk_bytes_sent_on_cellular", None, "B", run, rig, json!({"error": error}),
+                "metered cell",
+                "iOS→Mac",
+                "bulk_bytes_sent_on_cellular",
+                None,
+                "B",
+                run,
+                rig,
+                json!({"error": error}),
             ),
         }
     }

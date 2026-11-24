@@ -429,7 +429,6 @@ impl Hub {
                     parse_epoch(params.get("epoch"))?,
                 )
             }
-            "preflight" => self.transfer_preflight(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,

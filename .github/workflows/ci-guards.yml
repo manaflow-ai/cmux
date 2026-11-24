@@ -1124,6 +1124,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate canonical root ownership boundary
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_take_canonical_root.py
+
       - name: Validate warm-state distance recording and routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
@@ -1509,6 +1513,11 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
+
+      - name: Validate pipe-safe CI capture
+        if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}
+        run: |
+          bash tests/test_ci_run_and_capture.sh
 
       - name: Validate focused test launcher
         if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}

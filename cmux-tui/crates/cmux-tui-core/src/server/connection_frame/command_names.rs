@@ -79,7 +79,6 @@ impl Command {
             Self::ReadScreen { .. } => "read-screen",
             Self::ClearHistory { .. } => "clear-history",
             Self::ReadScrollback { .. } => "read-scrollback",
-            Self::TerminalFind { .. } => "terminal-find",
             Self::SidebarPlugin { .. } => "sidebar-plugin",
             Self::WaitFor { .. } => "wait-for",
             Self::ShellRun(..) => "shell-run",

@@ -1392,60 +1392,6 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
     }
 }
 
-/// Leo, 2026-11-24: "not just batching, but intervals to assist in batching". 50 messages to an
-/// idle chat at 200K of context whose prompt cache lapsed 40 minutes ago start no turn inside its
-/// cold batch (`cold_wake.rs`), and go in as one notice at the batch's deadline; a warm chat and
-/// a question still wake after the burst window.
-#[tokio::test]
-async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
-    let now = now_ms();
-    let cold = |session: &Session, expires: u64| {
-        let mut m = session.meta.lock().unwrap();
-        m.usage = Some(json!({"sessionUpdate": "usage_update", "used": 200_000, "size": 1_000_000,
-            "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
-        m.last_turn = Some(json!({"turnId": "t0", "endedAt": expires.saturating_sub(300_000)}));
-    };
-    // Past the burst window: today each review would wake the chat.
-    let at = now.saturating_sub(WAKE_DEBOUNCE_MS + 1);
-    let (hub, session) = hub_with_chat("cold-50");
-    cold(&session, now - 40 * 60_000);
-    for n in 0..50 {
-        let mut it =
-            item(&format!("m{n}"), &format!("t{n}"), "lane", PromptClass::Result, at, "done");
-        it.report = true;
-        session.inbox().items.push(it);
-        hub.inbox_review(&session);
-        assert!(!tried(&session), "message {n} started a turn inside the cold batch");
-    }
-    let due = session.cold_batch.lock().unwrap().expect("a cold batch is open").due;
-    assert!(
-        due >= now + super::cold_wake::MAX_WINDOW_MS,
-        "200K and 40 min cold: the longest window"
-    );
-    assert!(session.inbox().timer.is_some(), "it looks again at the deadline");
-    // The deadline passes (event-ordered: the batch's own deadline moves, no sleep).
-    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
-    hub.inbox_review(&session);
-    assert_eq!(carried(&session).map(|ids| ids.len()), Some(50), "one notice carries all 50");
-
-    // Warm: the burst window, as before.
-    let (hub, session) = hub_with_chat("warm-1");
-    cold(&session, now + 60_000);
-    let mut it = item("w1", "t", "lane", PromptClass::Result, at, "done");
-    it.report = true;
-    session.inbox().items.push(it);
-    hub.inbox_review(&session);
-    assert!(tried(&session), "a warm chat wakes after the burst window");
-    assert!(session.cold_batch.lock().unwrap().is_none());
-
-    // A question to a cold chat: at once.
-    let (hub, session) = hub_with_chat("cold-q");
-    cold(&session, now - 40 * 60_000);
-    session.inbox().items.push(item("q1", "t", "lane", PromptClass::Question, at, "which?"));
-    hub.inbox_review(&session);
-    assert!(tried(&session), "a question wakes a cold chat at once");
-}
-
 // The page rule (`inbox_page_rule.rs`, RFD 0041 slice 1): in a chat on the coordinator list only
 // a page starts a turn.
 
