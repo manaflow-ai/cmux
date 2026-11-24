@@ -21,6 +21,8 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        // Main-thread hangs: sampled stacks, hang files in Library/hangs, MetricKit (HangWatch).
+        HangWatch.start()
         #if DEBUG
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
