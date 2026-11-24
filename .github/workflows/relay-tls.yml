@@ -40,7 +40,11 @@ jobs:
           swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxEndpointDiagnosticTests
 
   system-keychain:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # A throwaway Blacksmith macOS 15 VM only (the macos_15 pool is ephemeral_only): it writes the
+    # System keychain under sudo and selects Xcode 16.2. MACOS_RUNNER_15 is not read: the overflow
+    # switch points it at the owned std pool (cloud_overflow_switch.STD_VARIABLES), which has neither
+    # (jobs 137906049596 and 138100810664 on owned minis, PR #51718).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15) }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
