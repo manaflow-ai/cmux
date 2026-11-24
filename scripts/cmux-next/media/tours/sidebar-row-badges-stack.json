@@ -1,5 +1,5 @@
 {
-  "title": "Sidebar: the stacked subagent line and a row's badges (state marks, no clipping under the row); record: cmux-ci capture SHA --state tour:sidebar-row-badges",
+  "title": "Sidebar: the stacked subagent line and a row's badges (state marks, no clipping under the row) (Variant A: stacked line (state marks, whole above the next row)); record: cmux-ci capture SHA --state tour:sidebar-row-badges-stack",
   "steps": [
     {
       "title": "Launch",
@@ -96,7 +96,7 @@
       "shot": false
     },
     {
-      "title": "Variant A: stacked line only (state marks: spinner, warning, checks; the line sits whole above the next row)",
+      "title": "Variant A: stacked line (state marks, whole above the next row)",
       "rpc": {
         "method": "debug.tunables",
         "params": {
@@ -105,31 +105,8 @@
           "value": "stack"
         }
       },
-      "wait": 2
-    },
-    {
-      "title": "Variant B: rows when open, stacked line when folded",
-      "rpc": {
-        "method": "debug.tunables",
-        "params": {
-          "action": "set",
-          "key": "sidebar.subagents.look",
-          "value": "both"
-        }
-      },
-      "wait": 2
-    },
-    {
-      "title": "Variant C: rows only",
-      "rpc": {
-        "method": "debug.tunables",
-        "params": {
-          "action": "set",
-          "key": "sidebar.subagents.look",
-          "value": "rows"
-        }
-      },
-      "wait": 2
+      "wait": 2,
+      "shot": false
     },
     {
       "title": "Dark",
