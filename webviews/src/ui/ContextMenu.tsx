@@ -613,8 +613,9 @@ export function ContextMenu({
                             className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
                             role="menu"
                             aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                            data-host-glass="menu"
-                            data-host-glass-cover=""
+                            // As its parent: solid when opened from a composer (solidPopups.tsx).
+                            // host-glass-allow: popupSurfaceAttributes sets data-host-glass, except on a solid composer popup (opaque, no host glass)
+                            {...popupSurfaceAttributes(solid, "menu")}
                             data-focus-ring="rows"
                             {...menuArms}
                           >
