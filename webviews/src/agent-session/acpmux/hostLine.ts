@@ -99,7 +99,21 @@ export type HostLineText = {
   /// The failure in acpmux's own words, shown only behind the line's Details; absent when the line
   /// already says all of it.
   detail?: string;
+  /// The same line as the composer status dot's item says it: a `status.hostFailure.*` key and the
+  /// `subject` it names (composerStatusModel.ts `hostFailureItem`).
+  words: string;
+  subject?: string;
 };
+
+/// The dot's words for the line `peerLinkLine` writes.
+function peerLinkWords(failure: PeerLinkFailure, machineName?: string): Pick<HostLineText, "words" | "subject"> {
+  const machine = failure.peer ?? machineName;
+  return machine
+    ? { words: "status.hostFailure.peerUnreachable", subject: machine }
+    : { words: "status.hostFailure.peerUnreachableUnnamed" };
+}
+
+const UNAVAILABLE = { words: "status.hostFailure.unavailable" } as const;
 
 /// The line for a failure the pane says, in plain words. The chat's machine is named when acpmux or
 /// the handshake names it (`machineName`). Only words already written for the person stand on the
@@ -112,16 +126,23 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
   const raw = message.trim();
   if (peer) {
     const line = peerLinkLine(peer, t, machineName);
-    return raw && raw !== line ? { line, detail: raw } : { line };
+    const words = peerLinkWords(peer, machineName);
+    return raw && raw !== line ? { line, detail: raw, ...words } : { line, ...words };
   }
-  if (!raw) return { line: t("host.unavailable") };
+  if (!raw) return { line: t("host.unavailable"), ...UNAVAILABLE };
+  const tooLarge = raw === t("host.tooLarge");
   const written =
-    raw === t("host.tooLarge") ||
+    tooLarge ||
     raw === knownRefusalText(error) ||
     // Only the app's handshake refusal (AgentPaneHandshakeReply.swift, code host_unavailable) carries
     // a localized line; other coded native errors (a protocol failure's `native.invalid_request`) keep
     // their raw text, so they go behind Details.
     (error instanceof NativeError && error.code === "host_unavailable" && error.message === raw);
-  if (written && !isRawDaemonText(raw)) return { line: raw };
-  return { line: t("host.unavailable"), detail: raw };
+  if (written && !isRawDaemonText(raw)) {
+    // Words already written for the person (the app's localized refusal) are the dot's subject.
+    return tooLarge
+      ? { line: raw, words: "status.hostFailure.tooLarge" }
+      : { line: raw, words: "status.hostFailure.said", subject: raw };
+  }
+  return { line: t("host.unavailable"), detail: raw, ...UNAVAILABLE };
 }

@@ -33,7 +33,7 @@ import {
   type StatusAction,
   type StatusItem,
 } from "./composerStatusModel";
-import { useHostRecovery } from "./composerStatusStore";
+import { composerStatusHost, useHostRecovery } from "./composerStatusStore";
 import { relativeTime } from "./conversation/relativeTime";
 import { waitedText } from "./hostErrorModel";
 import { useT, usePaneLanguage, type StringKey, type StringValues, type Translate } from "./i18n";
@@ -98,16 +98,20 @@ export function ComposerStatusFoot({
   const held = sendsHeldItem(heldForHost);
   const items = [...(status?.items ?? []), ...linkShown, ...(held ? [held] : [])];
   const reconnect = link && onReconnectMachine && !link.stuck ? () => onReconnectMachine(link) : undefined;
+  // The host failure's Retry or Restart: App.tsx's own handlers (composerStatusStore.ts).
+  const hostAction = host?.failure?.action;
   return (
     <ComposerStatusDot
       items={items}
       host={host}
       facts={status?.facts}
       connectedTo={link?.link === "connected" ? link.machine : undefined}
-      onAction={(action) =>
-        action === "reconnect" ? reconnect?.() : action === "resumeQueue" ? onResumeQueue?.() : undefined
-      }
-      actions={actionSet(!!reconnect, !!onResumeQueue)}
+      onAction={(action) => {
+        if (action === "reconnect") reconnect?.();
+        else if (action === "resumeQueue") onResumeQueue?.();
+        else if (action === "retry" || action === "restartService") composerStatusHost.act(action);
+      }}
+      actions={actionSet(!!reconnect, !!onResumeQueue, hostAction)}
     />
   );
 }
@@ -116,13 +120,28 @@ const NO_ACTIONS: ReadonlySet<StatusAction> = new Set();
 const RECONNECT: ReadonlySet<StatusAction> = new Set(["reconnect"]);
 const RESUME: ReadonlySet<StatusAction> = new Set(["resumeQueue"]);
 const BOTH: ReadonlySet<StatusAction> = new Set(["reconnect", "resumeQueue"]);
-const actionSet = (reconnect: boolean, resume: boolean) =>
-  reconnect ? (resume ? BOTH : RECONNECT) : resume ? RESUME : NO_ACTIONS;
+const HOST_ACTIONS = {
+  retry: new Set<StatusAction>(["retry"]),
+  restartService: new Set<StatusAction>(["restartService"]),
+} as const;
+const actionSet = (reconnect: boolean, resume: boolean, host?: keyof typeof HOST_ACTIONS) => {
+  const base = reconnect ? (resume ? BOTH : RECONNECT) : resume ? RESUME : NO_ACTIONS;
+  if (!host) return base;
+  return base.size === 0 ? HOST_ACTIONS[host] : new Set<StatusAction>([...base, host]);
+};
 
 /// The action buttons' words. signIn and update have no path from the composer yet: no button.
 const ACTION_WORDS: Partial<Record<StatusAction, StringKey>> = {
   reconnect: "machineLink.reconnect",
   resumeQueue: "composer.queueResume",
+  retry: "host.retry",
+  restartService: "host.restart",
+};
+
+/// An action's words while it runs (an item's `pending`): its button is off and says so.
+const PENDING_WORDS: Partial<Record<StatusAction, StringKey>> = {
+  retry: "host.retryQueued",
+  restartService: "host.restarting",
 };
 
 const FACT_WORDS: Record<FooterFact["kind"], StringKey> = {
@@ -255,6 +274,8 @@ export type ComposerStatusDotProps = {
   now?: number;
   /// The card's first state, for the gallery.
   initial?: PeekPinState;
+  /// The row whose Details starts open, for the gallery.
+  initialDetail?: StatusItem["kind"];
   look?: DotLook;
 };
 
@@ -268,6 +289,7 @@ export function ComposerStatusDot({
   arm: fixedArm,
   now: fixedNow,
   initial = "closed",
+  initialDetail,
   look = "dot",
 }: ComposerStatusDotProps) {
   const t = useT();
@@ -275,6 +297,8 @@ export function ComposerStatusDot({
   const cardId = useId();
   const arm = fixedArm ?? experimentArm(composerFooterFacts);
   const [state, setState] = useState<PeekPinState>(initial);
+  // The row whose Details is open (the host failure's acpmux words), for the gallery its first.
+  const [detailOpen, setDetailOpen] = useState<StatusItem["kind"] | undefined>(initialDetail);
   const [driver] = useState(() => new PeekPinDriver(initial, setState));
   const [dot, setDotNode] = useState<HTMLButtonElement | null>(null);
   const setDot = useCallback(
@@ -498,16 +522,41 @@ export function ComposerStatusDot({
                       ? clockTime(item.until, lang)
                       : undefined;
                 const action = item.action && actions.has(item.action) ? item.action : undefined;
-                const actionWords = action ? ACTION_WORDS[action] : undefined;
+                const actionWords = action
+                  ? ((item.pending ? PENDING_WORDS[action] : undefined) ?? ACTION_WORDS[action])
+                  : undefined;
+                const detailShown = item.detail !== undefined && detailOpen === item.kind;
+                const detailId = `${cardId}-${item.kind}-detail`;
                 return (
                   <li key={item.kind} className="acpmux-status-row" data-tone={item.level}>
                     <span className="acpmux-status-row-dot" aria-hidden="true" />
                     <span className="acpmux-status-row-words">{words}</span>
                     {when ? <span className="acpmux-status-row-time">{when}</span> : null}
                     {action && actionWords ? (
-                      <button type="button" className="acpmux-status-action" onClick={() => onAction?.(action)}>
+                      <button
+                        type="button"
+                        className="acpmux-status-action"
+                        disabled={item.pending}
+                        onClick={() => onAction?.(action)}
+                      >
                         {t(actionWords)}
                       </button>
+                    ) : null}
+                    {item.detail !== undefined ? (
+                      <button
+                        type="button"
+                        className="acpmux-status-action acpmux-status-details"
+                        aria-expanded={detailShown}
+                        aria-controls={detailShown ? detailId : undefined}
+                        onClick={() => setDetailOpen((was) => (was === item.kind ? undefined : item.kind))}
+                      >
+                        {t("host.details")}
+                      </button>
+                    ) : null}
+                    {detailShown ? (
+                      <p id={detailId} className="acpmux-status-row-detail selectable">
+                        {item.detail}
+                      </p>
                     ) : null}
                   </li>
                 );

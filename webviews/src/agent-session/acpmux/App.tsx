@@ -546,7 +546,8 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
-import { usePublishHostRecovery } from "./composerStatusStore";
+import { useDotSaysRecovery, usePublishHostRecovery } from "./composerStatusStore";
+import type { HostFailure } from "./composerStatusModel";
 import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -9873,36 +9874,51 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
+  // The pane asks again by itself unless asking cannot change the answer: a chat too large to
+  // open, or another build's acpmux holding the socket (only Restart clears it).
+  const hostRetriesItself = hostSelfRetrying(
+    hostFailure,
+    acpmuxRestartOffered,
+    hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+  );
+  const restartOtherAcpmux = acpmuxRestartOffered
+    ? () => {
+        // The person's click: the app stops the other binary's daemon (its chats are kept),
+        // and the next handshake starts this app's own acpmux.
+        // No handshake runs meanwhile: the old daemon is still there until it stops.
+        void restartGate.run(() => callNative("acpmux.restart"), {
+          cancelRetries: () => cancelRetry.current?.(),
+          changed: setRestartingAcpmux,
+          connected: () => !!directClient.current,
+          ask: () => retryHost.current?.(),
+        });
+      }
+    : undefined;
+  // RFD 0128 (Leo, 2026-11-24: "we simply go and move"): once the composer's status dot is mounted,
+  // the failure is its item, with the same Retry (or Restart) and Details, and the card above the
+  // composer stays away (composerStatusModel.ts `hostFailureItem`).
+  const dotSaysHost = useDotSaysRecovery();
+  const hostFailureSaid: HostFailure | undefined = hostErrorSaid
+    ? {
+        words: hostWords.words,
+        ...(hostWords.subject !== undefined ? { subject: hostWords.subject } : {}),
+        ...(hostWords.detail ? { detail: hostWords.detail } : {}),
+        selfRetrying: hostRetriesItself,
+        action: restartOtherAcpmux ? "restartService" : "retry",
+        pending: restartOtherAcpmux ? restartingAcpmux || retryQueued : retryQueued,
+        ...(hostTroubleSince !== undefined ? { since: hostTroubleSince } : {}),
+      }
+    : undefined;
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostErrorSaid}>
+    <Notice id="host-error" tier="error" when={hostErrorSaid && !dotSaysHost}>
       <HostUnavailableLine
         message={hostWords.line}
         detail={hostWords.detail}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
-        // The pane asks again by itself unless asking cannot change the answer: a chat too large to
-        // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={hostSelfRetrying(
-          hostFailure,
-          acpmuxRestartOffered,
-          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
-        )}
+        selfRetrying={hostRetriesItself}
         restarting={restartingAcpmux}
-        onRestart={
-          acpmuxRestartOffered
-            ? () => {
-                // The person's click: the app stops the other binary's daemon (its chats are kept),
-                // and the next handshake starts this app's own acpmux.
-                // No handshake runs meanwhile: the old daemon is still there until it stops.
-                void restartGate.run(() => callNative("acpmux.restart"), {
-                  cancelRetries: () => cancelRetry.current?.(),
-                  changed: setRestartingAcpmux,
-                  connected: () => !!directClient.current,
-                  ask: () => retryHost.current?.(),
-                });
-              }
-            : undefined
-        }
+        onRestart={restartOtherAcpmux}
       />
     </Notice>
   );
@@ -9913,8 +9929,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
   usePublishHostRecovery(
     restartingAcpmux
-      ? undefined
-      : { relinkingSince, restoring: hostRestoring, failureShown: hostErrorSaid, waitingSince: hostWaitingSince },
+      ? hostFailureSaid && { failure: hostFailureSaid }
+      : {
+          relinkingSince,
+          restoring: hostRestoring,
+          failureShown: hostErrorSaid,
+          waitingSince: hostWaitingSince,
+          ...(hostFailureSaid ? { failure: hostFailureSaid } : {}),
+        },
+    { retry: () => retryHost.current?.(), restartService: restartOtherAcpmux },
   );
   const hostWaitOrError =
     hostWaitingSince !== undefined ? (
