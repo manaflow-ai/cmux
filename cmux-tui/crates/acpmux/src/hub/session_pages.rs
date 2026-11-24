@@ -602,6 +602,67 @@ mod tests {
         assert!(refuse_watch_filters(&json!({"localOnly": true})).is_err());
         assert!(refuse_watch_filters(&json!({"excludeStatus": ["closed"]})).is_err());
     }
+
+    /// The Mac and the phone draw one list in one order: neither app sorts it. The phone's Cloud
+    /// chats read `{localOnly, limit: shown}` (grown by a page for Show Older Chats), its Mac
+    /// chats `{localOnly, limit, cursor}` page after page, and the Mac's lists the whole list
+    /// (the watch's first read). For the same sessions each reads this machine's chats in the
+    /// same order: newest `updatedAt` first, ties by `sessionId`. A session with no `updatedAt`
+    /// is the oldest, whatever its `lastTurn.endedAt` says (the phone used to fall back to it,
+    /// so a device could draw the list in another order).
+    #[test]
+    fn the_mac_and_the_phone_read_one_order() {
+        let mut rows = vec![
+            json!({"sessionId": "tie-b", "updatedAt": 7, "status": "idle"}),
+            json!({"sessionId": "old", "updatedAt": 1, "status": "closed"}),
+            json!({"sessionId": "no-stamp", "status": "idle", "lastTurn": {"endedAt": 99}}),
+            json!({"sessionId": "tie-a", "updatedAt": 7, "status": "running"}),
+            json!({"sessionId": "peer-new", "updatedAt": 50, "peer": "huge-blue", "status": "idle"}),
+            json!({"sessionId": "mid", "updatedAt": 4, "status": "idle"}),
+            json!({"sessionId": "tie-a", "updatedAt": 7, "peer": "cmux16", "status": "idle"}),
+            json!({"sessionId": "newest", "updatedAt": 9, "status": "idle"}),
+        ];
+        sort_session_summaries(&mut rows);
+        let mine = ["newest", "tie-a", "tie-b", "mid", "old", "no-stamp"];
+
+        // The Mac: the whole list, this machine's rows in the order it came.
+        let whole = session_list_reply(rows.clone(), &json!({})).unwrap();
+        let mac: Vec<&str> = whole["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| peer(*row).is_none())
+            .map(session_id)
+            .collect();
+        assert_eq!(mac, mine);
+
+        // The phone's Cloud chats: the first `shown`, and more when it grows by a page.
+        for shown in 1..=mine.len() + 1 {
+            let reply =
+                session_list_reply(rows.clone(), &json!({"localOnly": true, "limit": shown}))
+                    .unwrap();
+            assert_eq!(ids(&reply), &mine[..shown.min(mine.len())]);
+            assert_eq!(reply["nextCursor"].is_null(), shown >= mine.len(), "shown {shown}");
+        }
+
+        // The phone's Mac chats: page after page, at every page size.
+        for limit in 1..=mine.len() {
+            let (mut read, mut cursor) = (Vec::new(), Value::Null);
+            loop {
+                let reply = session_list_reply(
+                    rows.clone(),
+                    &json!({"localOnly": true, "limit": limit, "cursor": cursor}),
+                )
+                .unwrap();
+                read.extend(ids(&reply).into_iter().map(str::to_owned));
+                cursor = reply["nextCursor"].clone();
+                if cursor.is_null() {
+                    break;
+                }
+            }
+            assert_eq!(read, mine, "limit {limit}");
+        }
+    }
 }
 
 #[cfg(test)]
