@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextHome
+import CmuxNextDesign
 import Testing
 
 /// The Home page's switch and sidebar slide (the person, 2026-11-23: "switching chiefs is super
@@ -66,4 +67,61 @@ import Testing
         for _ in 0..<240 where !slide.isSettled { slide.advance(1.0 / 60) }
         #expect(slide.isSettled && abs(slide.reveal) < 0.5)
     }
+
+    // MARK: The name pill under the full-screen titlebar ("tapping the Chief > button does nothing")
+
+    /// A window with one button whose top reaches into a band a second window (the full-screen
+    /// titlebar window stand-in) covers on screen.
+    private func coveredButton() -> (router: FullScreenTitlebarPress, band: NSWindow, button: NSButton, clicks: ClickCounter) {
+        let covered = NSWindow(contentRect: NSRect(x: 0, y: 600, width: 400, height: 432), styleMask: .borderless, backing: .buffered, defer: true)
+        let band = NSWindow(contentRect: NSRect(x: 0, y: 990, width: 400, height: 32), styleMask: .borderless, backing: .buffered, defer: true)
+        let button = NSButton(frame: NSRect(x: 100, y: 380, width: 100, height: 30))
+        let clicks = ClickCounter()
+        button.target = clicks
+        button.action = #selector(ClickCounter.click)
+        covered.contentView?.addSubview(button)
+        let router = FullScreenTitlebarPress()
+        router.coveredWindow = { $0 === band ? covered : nil }
+        return (router, band, button, clicks)
+    }
+
+    private func press(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                           eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
+    }
+
+    @Test func aClickTheTitlebarBandTookClicksTheButtonUnderIt() {
+        let (router, band, _, clicks) = coveredButton()
+        // Screen (150, 1000): the band's (150, 10), the covered window's (150, 400), on the button.
+        #expect(router.take(press(.leftMouseDown, at: NSPoint(x: 150, y: 10)), in: band), "the press is held for the button")
+        #expect(clicks.count == 0, "nothing acts on the press itself")
+        #expect(router.take(press(.leftMouseUp, at: NSPoint(x: 150, y: 10)), in: band))
+        #expect(clicks.count == 1, "the release on the button clicks it")
+    }
+
+    @Test func aReleaseOffTheButtonDoesNotClickIt() {
+        let (router, band, _, clicks) = coveredButton()
+        #expect(router.take(press(.leftMouseDown, at: NSPoint(x: 150, y: 10)), in: band))
+        #expect(router.take(press(.leftMouseUp, at: NSPoint(x: 350, y: 10)), in: band), "the release is the held press's")
+        #expect(clicks.count == 0, "dragged off and let go: no click, as on a button")
+    }
+
+    @Test func pressesTheBandHasAControlForOrNoButtonIsUnderStayAppKits() {
+        let (router, band, _, clicks) = coveredButton()
+        #expect(!router.take(press(.leftMouseDown, at: NSPoint(x: 350, y: 10)), in: band), "no button under it")
+        let light = NSButton(frame: NSRect(x: 140, y: 0, width: 20, height: 20))
+        band.contentView?.addSubview(light)
+        #expect(!router.take(press(.leftMouseDown, at: NSPoint(x: 150, y: 10)), in: band), "the band's own control (a traffic light) keeps it")
+        #expect(!router.take(press(.leftMouseUp, at: NSPoint(x: 150, y: 10)), in: band))
+        #expect(clicks.count == 0)
+        let elsewhere = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: .borderless, backing: .buffered, defer: true)
+        #expect(!router.take(press(.leftMouseDown, at: NSPoint(x: 10, y: 10)), in: elsewhere), "any other window: AppKit's")
+    }
+}
+
+/// Counts a button's actions.
+@MainActor
+private final class ClickCounter: NSObject {
+    var count = 0
+    @objc func click() { count += 1 }
 }
