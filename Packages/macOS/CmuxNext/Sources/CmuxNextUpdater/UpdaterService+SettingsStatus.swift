@@ -160,7 +160,7 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .update: self = .update
         case .cancelDownload: self = .cancelDownload
         case .retry: self = .retry
-        case .releaseNotes, .details: return nil
+        case .releaseNotes, .details, .goBack: return nil
         }
     }
 

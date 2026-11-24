@@ -1,10 +1,8 @@
 /// `sidebar.groupHeader.background` (Lawrence 2026-11-05: "invariant: groups must always have a visible bg
 /// color, groups should support both glassy and solid bgs too"): how a sidebar group header's background
-/// draws. `glass`, `solid` and `auto` keep the background visible against the sidebar (`GroupBackground`);
-/// `folder`, the default since David Beyer's feedback (2026-11-20: groups should be plain folders, with all
-/// threads in one place), and `sections` draw none.
+/// draws. Automatic, the default, keeps the header band visible against the sidebar (`GroupBackground`).
 public nonisolated enum SidebarGroupBackgroundStyle: String, Hashable, Sendable, CaseIterable {
-    /// A plain folder, the default: a folder glyph and the name in the theme's primary ink, no fill, no rim and no
+    /// A plain folder: a folder glyph and the name in the theme's primary ink, no fill, no rim and no
     /// members' line; the members sit one indent step in under it, as a file list's folder holds its files.
     case folder
     /// cmux's own group look (Leo's tinted glass, 2026-11-05; Debug `sidebar.groupGlass` may set it solid).
