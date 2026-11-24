@@ -8,8 +8,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub(crate) const METHOD: &str = "_acpmux/controls";
-pub(crate) const NOTICE: &str = "_acpmux/control";
+pub(crate) use crate::rpc::method::{MUX_CONTROL as NOTICE, MUX_CONTROLS as METHOD};
 pub(crate) const FEATURE: &str = "linkControls";
 pub(crate) const BOUND: usize = 256 << 10;
 pub(crate) const PAGE: usize = 64 << 10;
