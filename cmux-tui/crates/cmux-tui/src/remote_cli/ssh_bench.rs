@@ -63,7 +63,7 @@ pub(super) struct Sample {
 
 impl Sample {
     pub(super) fn line(&self) -> String {
-        serde_json::to_string(self).expect("a sample is plain data")
+        serde_json::to_string(self).unwrap_or_default()
     }
 }
 
