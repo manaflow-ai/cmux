@@ -31,6 +31,13 @@
 //! waits here. Nothing is dropped: the queues are
 //! bounded by the connections' TCP windows, and past `MAX_QUEUED` packets
 //! the driver leaves smoltcp's output in the device, which then blocks TCP.
+//!
+//! A bulk connection is also held to a delay-based window on the wire
+//! ([`crate::delay_window`]): from its own round-trip times it keeps the
+//! path's queue near [`crate::delay_window::TARGET`] instead of full, so
+//! what the classes above send never waits behind it in the path either.
+//! Its backlog waits here, behind them. An interactive connection is never
+//! held.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
@@ -39,6 +46,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;
+
+use crate::delay_window::DelayWindow;
 
 /// Pacing gain over the measured rate (the usual slow-start pacing ratio).
 const GAIN: f64 = 2.0;
@@ -191,6 +200,8 @@ struct Connection {
     timed: Option<(u32, Instant)>,
     srtt: Option<Duration>,
     last_seen: Instant,
+    /// The delay-based window on the wire (bulk only).
+    delay: DelayWindow,
 }
 
 impl Connection {
@@ -207,6 +218,7 @@ impl Connection {
             timed: None,
             srtt: None,
             last_seen: now,
+            delay: DelayWindow::default(),
         }
     }
 
@@ -218,6 +230,31 @@ impl Connection {
         }
     }
 
+    /// Bytes on the wire: sent and not yet acknowledged.
+    fn wire_flight(&self) -> u32 {
+        match (self.snd_max, self.snd_una) {
+            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
+            _ => 0,
+        }
+    }
+
+    /// Whether the delay window lets the queue's head leave: anything but
+    /// fresh data does, and so does fresh data that fits the window (or
+    /// with nothing on the wire). An interactive connection is never held.
+    fn window_open(&self) -> bool {
+        let Some(window) = self.delay.window() else { return true };
+        if self.interactive() {
+            return true;
+        }
+        let Some(head) = self.queue.front().and_then(|packet| segment(packet)) else {
+            return true;
+        };
+        let end = head.seq.wrapping_add(head.len);
+        let fresh = head.len > 0 && self.snd_max.is_none_or(|max| after(end, max));
+        let flight = self.wire_flight();
+        !fresh || flight == 0 || flight.saturating_add(head.len) <= window
+    }
+
     /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
     fn interactive(&self) -> bool {
         self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
@@ -226,7 +263,12 @@ impl Connection {
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
+        // Held to a window, the backlog queued here is not flight.
+        let flight = match self.delay.window() {
+            Some(window) => self.flight().min(window),
+            None => self.flight(),
+        };
+        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -248,6 +290,13 @@ impl Connection {
                 self.snd_max = Some(end);
                 if self.timed.is_none() {
                     self.timed = Some((end, now));
+                }
+                // Not a SYN: a repeated SYN restarts the connection here,
+                // so the next SYN-ACK copy would look fresh and the first
+                // copy's ACK would time it at zero, a base no queue exceeds.
+                if !segment.syn {
+                    let flight = self.wire_flight();
+                    self.delay.departed(end, flight, now);
                 }
             } else if self.timed.is_some_and(|(timed, _)| !after(end, timed)) {
                 // A retransmission: its ACK cannot be timed (Karn).
@@ -271,6 +320,7 @@ impl Connection {
         self.una_window_seq = None;
         self.rcv_max = None;
         self.timed = None;
+        self.delay.restart();
     }
 
     fn acked(&mut self, ack: u32, seq: u32, window: u16, now: Instant) {
@@ -282,6 +332,9 @@ impl Connection {
             self.snd_una = Some(ack);
             self.una_window = Some(window);
             self.una_window_seq = Some(seq);
+        }
+        if newer && let Some(max) = self.snd_max {
+            self.delay.acked(ack, max, now);
         }
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
@@ -450,6 +503,20 @@ impl Pacer {
         let end = segment.seq.wrapping_add(segment.len);
         if !fresh && segment.len > 0 && connection.snd_una.is_some_and(|una| after(end, una)) {
             self.resent += 1;
+            connection.delay.resent();
+            // Ahead of the fresh data queued here (TCP takes it in any
+            // order): the delay window may hold that data until an ACK this
+            // segment is what brings.
+            if let Some(max) = connection.snd_max
+                && let Some(at) = connection.queue.iter().position(|waiting| {
+                    self::segment(waiting).is_some_and(|queued| {
+                        queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+                    })
+                })
+            {
+                connection.queue.insert(at, packet);
+                return fresh;
+            }
         }
         connection.queue.push_back(packet);
         fresh
@@ -583,7 +650,8 @@ impl Pacer {
         let earliest = self
             .connections
             .values()
-            .filter(|connection| !connection.queue.is_empty())
+            // One the window holds waits for an ACK, not a time.
+            .filter(|connection| !connection.queue.is_empty() && connection.window_open())
             .map(|connection| connection.next_free)
             .chain(bulk_free)
             .min();
@@ -641,6 +709,7 @@ impl Pacer {
                 !connection.queue.is_empty()
                     && connection.interactive() == interactive
                     && connection.next_free <= now
+                    && connection.window_open()
             })
             .min_by_key(|(_, connection)| connection.queue.len())
             .map(|(flow, _)| *flow)?;

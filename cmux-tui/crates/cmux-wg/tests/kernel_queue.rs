@@ -88,14 +88,24 @@ async fn slowest_media_during_upload(send_buffer: u32) -> Duration {
 }
 
 /// A socket buffer of 100 datagrams holds 50 ms of the upload, and media
-/// waits behind it: the round 5 symptom. A buffer of 4 holds 2 ms, the
-/// backlog waits in the driver, and media leaves first.
+/// waits behind it: the round 5 symptom, with the bulk delay window off
+/// (`CMUX_WG_DELAY_WINDOW=off`). The window keeps the upload's queue, the
+/// socket buffer's included, near its target, so media waits far less. A
+/// buffer of 4 holds 2 ms, the backlog waits in the driver, and media leaves
+/// first either way.
 #[tokio::test(start_paused = true)]
 async fn a_small_socket_buffer_keeps_the_backlog_where_media_overtakes_it() {
     let deep = slowest_media_during_upload(100).await;
     let shallow = slowest_media_during_upload(4).await;
     eprintln!("slowest media during the upload: deep buffer {deep:?}, shallow {shallow:?}");
-    assert!(deep >= ONE_WAY + Duration::from_millis(40), "deep buffer: media waited {deep:?}");
+    let window_off =
+        std::env::var("CMUX_WG_DELAY_WINDOW").is_ok_and(|value| value == "off" || value == "0");
+    let symptom = ONE_WAY + Duration::from_millis(40);
+    if window_off {
+        assert!(deep >= symptom, "deep buffer: media waited {deep:?}");
+    } else {
+        assert!(deep < symptom, "deep buffer, delay window: media waited {deep:?}");
+    }
     // One way, plus the 4 datagrams already in the buffer (2 ms), plus one
     // datagram time.
     let bound = ONE_WAY + Duration::from_millis(4);
