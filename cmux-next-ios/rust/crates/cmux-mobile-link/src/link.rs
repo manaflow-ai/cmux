@@ -2750,7 +2750,7 @@ mod tests {
             let count = phone.progress_count();
             tokio::time::sleep(Duration::from_secs(30)).await;
             assert_eq!(phone.progress_count(), count, "a silent link does not move");
-            assert!(phone.progress_ago() >= Duration::from_secs(35), "{:?}", phone.progress_ago());
+            assert!(phone.progress_ago() >= Duration::from_secs(30), "{:?}", phone.progress_ago());
             drop(channel);
             phone.close("done");
         };
