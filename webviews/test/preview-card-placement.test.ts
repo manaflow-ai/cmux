@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("preview-card-placement.test.ts", async () => {
@@ -36,7 +36,10 @@ await requireBrowserLane("preview-card-placement.test.ts", async () => {
 
   const engines: Array<[string, BrowserType]> = [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("preview-card-placement webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ];
   for (const [engine, type] of engines)
     describe(engine, () => {

@@ -40,8 +40,9 @@ export function subscribeExperimentSwitches(listener: () => void): () => void {
 
 const subscribe = subscribeExperimentSwitches;
 
-/// Whether switch `name` is on; re-renders when the person flips it. The same read serves a
-/// server render (renderToStaticMarkup in tests and galleries), which throws without one.
+/// Whether switch `name` is on; re-renders when the person flips it. The same read serves the
+/// server snapshot, so a row rendered to a string (the transcript's server renders) reads the
+/// switches as they are set now instead of throwing.
 export function useExperimentSwitch(name: string): boolean {
   const read = () => current[name] === true;
   return useSyncExternalStore(subscribe, read, read);
