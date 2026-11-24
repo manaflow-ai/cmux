@@ -119,7 +119,11 @@ export type AutoSessionView = {
 }
 
 /** Who is asking: the owner (a signed-in session or a person's install) or the VM install bound to one of the owner's machines. */
-export type AutoCaller = { readonly kind: "owner"; readonly owner: string } | { readonly kind: "machine"; readonly owner: string; readonly machine: string }
+/**
+ * `install` (an owner's caller from a route): the id of the install that called when it is one that holds chats (a
+ * laptop's cmux), null for one that never does (a phone, a browser session). Unset on the store's own reads.
+ */
+export type AutoCaller = { readonly kind: "owner"; readonly owner: string; readonly install?: string | null } | { readonly kind: "machine"; readonly owner: string; readonly machine: string }
 
 export type AutoFail =
   | "not_found"
@@ -133,6 +137,8 @@ export type AutoFail =
   | "auto.chunk_mismatch"
   | "auto.too_large"
   | "auto.closed"
+  | "auto.wrong_device"
+  | "auto.not_a_laptop"
 /** A refusal carries the chat as it is now (when the caller may see it), and what the code promises: `lastSeq`, `missing`. */
 export type RefusalExtra = { readonly lastSeq?: number; readonly missing?: ReadonlyArray<string> }
 export type AutoRefusal = { readonly ok: false; readonly code: AutoFail; readonly message: string; readonly session?: AutoSessionView; readonly extra?: RefusalExtra }
