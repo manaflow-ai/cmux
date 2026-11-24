@@ -328,6 +328,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `sidebar.drawnMenus`: the sidebar's right-click and more-button menus open as ``GlassMenu``s, which
+    /// the menu look styles; off keeps the system menu. Read as a menu opens.
+    public var sidebarDrawnMenus = false
     /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
     /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
     public var liquidGlass = false

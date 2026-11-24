@@ -1,0 +1,3 @@
+# Vendored smoltcp keeps its upstream format, rustfmt's defaults: without this file the
+# pre-commit hook and `cargo fmt` take cmux-tui/rustfmt.toml (use_small_heuristics = "Max")
+# and rewrite the whole file around any patch (CMUX_PATCH.md).

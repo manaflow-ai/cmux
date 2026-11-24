@@ -95,13 +95,14 @@ const LOOK_PREFIXES: [&str; 8] = [
     "app.uiScale",
 ];
 /// Look keys outside those prefixes: the terminal font and the chat code font;
-/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
+/// the sidebar's shape, edges, text, group headers and buttons, whether its
+/// menus are drawn (so the menu look styles them), and the sidebar
 /// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
 /// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 39] = [
+const LOOK_KEYS: [&str; 40] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -112,6 +113,7 @@ const LOOK_KEYS: [&str; 39] = [
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
     "sidebar.look",
+    "sidebar.drawnMenus",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",

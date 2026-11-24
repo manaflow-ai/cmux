@@ -82,7 +82,8 @@ declare namespace Cmux {
   type CloudGroup = { id: Cmux.GroupId; name: string; created_by: Cmux.UserId; created_at: number; archived: boolean; default_placement: "local" | "mini" | "cloud_vm"; item_count: number; role: "owner" | "edit" | "view" }
   type CloudGroupItem = { workspace: Cmux.GroupWorkspaceId; title?: string; placement: Cmux.GroupPlacement; position: number; added_by: Cmux.UserId; added_at: number }
   type CloudGroupMember = { user: Cmux.UserId; role: "owner" | "edit" | "view"; display_name: string | null; active: boolean }
-  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; paused_hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; evict_at?: number | null; delete_reason?: Cmux.CloudDeleteReason | null; keep?: boolean; notice?: Cmux.CloudRetentionNotice | null; paused_by?: "spend_cap"; spend_cap_pause_at?: number; revision: Cmux.Revision }
+  type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; paused_hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; evict_at?: number | null; delete_reason?: Cmux.CloudDeleteReason | null; keep?: boolean; notice?: Cmux.CloudRetentionNotice | null; paused_by?: "spend_cap"; spend_cap_pause_at?: number; origin?: Cmux.CloudMachineOrigin; expires_at?: number; revision: Cmux.Revision }
+  type CloudMachineOrigin = { kind?: "workflow" | "lane" | "agent" | "person"; label: string; url?: string; run?: string; workflow?: string; lane?: string }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
   type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown | null; vm_hours_used_by_you?: unknown | null; period_end: number }; retention?: Cmux.CloudRetention | null; spend_cap?: { state: "under" | "near" | "at_cap" | null; spent_usd: unknown | null; cap_usd: unknown | null; period_end: number | null; checked_at: number | null; pause_at: number | null; paused_at: number | null } }
@@ -101,6 +102,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -147,9 +149,11 @@ declare namespace Cmux {
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
-  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
+  type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment>; review?: Cmux.DiffReviewTarget }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
-  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string>; threads?: Array<string> }
+  type DiffCommentsThreadResult = { comment: Cmux.DiffComment }
+  type DiffReviewTarget = { url: string; repo: string; number: number; title: string; head: string; base: string }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -202,6 +206,8 @@ declare namespace Cmux {
   type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
+  type GitReviewPostResult = { url: string; posted: number; in_body: number; cleared: Array<string> }
+  type GitReviewStartResult = { root: string; branch: string; url: string; repo: string; number: number; title: string; head: string; base: string; diff: string; setup: Cmux.GitWorktreeSetupStart; reused: boolean }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
@@ -532,9 +538,9 @@ declare namespace Cmux {
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
   type ThemeScheme = { name: string | null; author: string | null; background: string; foreground: string; cursor: string | null; cursorText: string | null; selectionBackground: string | null; selectionForeground: string | null; palette: Array<string>; accent: string | null; base16: Array<string> }
-  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSchemeSwatch = { color: string; share: number }
-  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSlotsDiagnostic = { kind: "unreadable_file" | "invalid_value" | "corrected_value"; path: string; message: string; line: number | null }
   type ThemeSlotsResolveResult = { slots: Record<string, string>; diagnostics: Array<Cmux.ThemeSlotsDiagnostic> }
   type Timestamp = string
@@ -923,6 +929,10 @@ interface CmuxGlobal {
       /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
       preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
     }
+    usage: {
+      /** `cloud.usage.current` (read, scope `cloud:read`): The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+      current: CmuxOp<Record<string, never>, Cmux.CloudUsageCurrent>
+    }
     vm: {
       attention: {
         /** `cloud.vm.attention.emit` (mutation, scope `cloud:execute`): Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -1019,6 +1029,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
       save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `diff.comments.thread` (mutation, scope `diff:write`) */
+      thread: CmuxOp<{ machine?: string; session?: string; root: string; id: string; reply?: string; author?: "reviewer" | "agent"; resolved?: boolean }, Cmux.MutationResult<Cmux.DiffCommentsThreadResult>>
     }
   }
   diffs: {
@@ -1119,6 +1131,14 @@ interface CmuxGlobal {
     fingerprint: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope?: Cmux.GitFingerprintScope }, Cmux.GitFingerprintResult>
     /** `git.push` (mutation, scope `git:external`) */
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
+    review: {
+      /** `git.review.comment` (mutation, scope `git:write`) */
+      comment: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; file: string; line: number; start_line?: number; side?: "new" | "old" | "additions" | "deletions"; message: string }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `git.review.post` (mutation, scope `git:external`) */
+      post: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions: Record<string, string> }, Cmux.MutationResult<Cmux.GitReviewPostResult>>
+      /** `git.review.start` (mutation, scope `git:execute`) */
+      start: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; url: string }, Cmux.MutationResult<Cmux.GitReviewStartResult>>
+    }
     /** `git.status` (read, scope `git:read`) */
     status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; github?: boolean }, Cmux.GitStatusResult>
     worktree: {
@@ -1998,6 +2018,13 @@ interface CmuxGlobal {
     /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
   }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, `cmux.watch("media.now_playing")`. */
+  media: {
+    /** `media.get` (read, scope `media:read`): what plays now, or `{track: null}` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** `media.control` (mutation, scope `media:control`, needs a gesture): play or pause, skip, or seek to `seconds` in. Throws CmuxError `media.nothing_playing` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
+  }
   /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google `calendar.*` ops. */
   system_calendar: {
     /** `system_calendar.events` (read, scope `system_calendar:read`): events from now (ones in progress too) through `days` (1-31, default 7), sorted by start, at most `limit` (1-50, default 20), from every calendar. Never prompts: without full access it answers the status and no events. */
@@ -2023,6 +2050,8 @@ interface CmuxSignalMap {
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
   /** `http.json`: A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host. Scope: any of `net:<host>`; polled every 300 s (never faster than 60 s): nothing pushes it yet. */
   "http.json": { params: { /** The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains). */ url: string; /** Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request. */ everySeconds?: number }; value: unknown }
+  /** `media.now_playing`: What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself. Scope: any of `media:read`; pushed by `media.changed`. */
+  "media.now_playing": { params: {  }; value: { /** What plays, or null while nothing does. */ track: null | { title: string; artist: string; artwork?: string; playing: boolean; position?: number; duration?: number; rate: number; position_ms: number; can_previous: boolean; can_next: boolean; source?: string } } }
   /** `system_calendar.events`: The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s. Scope: any of `system_calendar:read`; pushed by `system_calendar.changed`. */
   "system_calendar.events": { params: { days?: number; limit?: number }; value: { access: "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"; events: Array<{ id: string; title: string; /** Unix ms */ start: number; /** Unix ms */ end: number; allDay: boolean; /** The calendar's title */ calendar: string; /** The calendar's color, #rrggbb */ color?: string; location?: string; url?: string }> } }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */

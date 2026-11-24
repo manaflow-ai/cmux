@@ -21,6 +21,7 @@ use cmux_process::{Command, Stdio};
 use serde_json::{Map, Value, json};
 use std::io::Read;
 use std::time::Duration;
+use std::time::Instant;
 
 use super::host_join_doctor::JoinStep;
 use super::host_steps::StepState as JoinStepState;
@@ -241,6 +242,73 @@ pub(crate) fn step(r: &dyn Remote, machine: &str) -> StepResult {
     step_of(machine, &found)
 }
 
+/// Install every missing agent during `host enroll`. Installation is safe and
+/// non-secret; signing in remains a separate person action. Each completed
+/// install is emitted as its own progress row so the Add Machine UI can show
+/// how long it took.
+pub(crate) fn install_missing(
+    r: &dyn Remote,
+    machine: &str,
+    emit: &mut dyn FnMut(&StepResult),
+) -> Result<()> {
+    let found = probe(r)?;
+    install_missing_with(&found, machine, |id| install_over_ssh(r, id), emit);
+    Ok(())
+}
+
+fn install_missing_with<F>(
+    found: &Found,
+    machine: &str,
+    mut install: F,
+    emit: &mut dyn FnMut(&StepResult),
+) where
+    F: FnMut(&str) -> Result<()>,
+{
+    for agent in &found.agents {
+        if agent.path.is_some() {
+            continue;
+        }
+        let (_, name, _) =
+            AGENTS.iter().find(|(id, ..)| *id == agent.id).copied().unwrap_or_default();
+        let started = Instant::now();
+        let result = install(&agent.id);
+        let seconds = started.elapsed().as_secs_f64();
+        match result {
+            Ok(()) => emit(&StepResult::new(
+                Step::Agents,
+                StepState::Fixed,
+                format!("installed {name} in {seconds:.3}s"),
+            )),
+            Err(error) => emit(
+                &StepResult::new(
+                    Step::Agents,
+                    StepState::Warn,
+                    format!("{name} install failed after {seconds:.3}s: {error:#}"),
+                )
+                .with_fix(format!("Run `acpmux machine agents {machine} --install {}`.", agent.id)),
+            ),
+        }
+    }
+}
+
+fn install_over_ssh(r: &dyn Remote, id: &str) -> Result<()> {
+    let argv = hosts::ssh_argv(r.host(), &format!("{DAEMON_BIN} --json harness install {id}"))?;
+    let out = Command::new("ssh")
+        .args(argv)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let error = String::from_utf8_lossy(&out.stderr);
+    if error.contains("unrecognized subcommand") || error.contains("unexpected argument") {
+        bail!("{DAEMON_BIN} cannot install agents yet; update the machine first")
+    }
+    bail!("ssh install exited {}: {}", out.status, error.trim())
+}
+
 fn step_of(machine: &str, found: &Found) -> StepResult {
     let agents: Vec<Value> =
         found.agents.iter().map(|a| agent_json(machine, &found.os, a)).collect();
@@ -432,6 +500,54 @@ mod tests {
         assert_eq!(
             none.fix.as_deref(),
             Some("Install Claude Code there: `acpmux machine agents hb --install claude`.")
+        );
+    }
+
+    #[test]
+    fn enroll_installs_each_missing_linux_agent_and_times_the_rows() {
+        let found = parse("os\tLinux\nagent\tclaude\t\t\nagent\tcodex\t\t\n");
+        let mut calls = Vec::new();
+        let mut rows = Vec::new();
+        install_missing_with(
+            &found,
+            "ubuntu",
+            |id| {
+                calls.push(id.to_owned());
+                Ok(())
+            },
+            &mut |row| rows.push(row.clone()),
+        );
+        assert_eq!(calls, ["claude", "codex"]);
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.step == Step::Agents));
+        assert!(rows.iter().all(|row| row.state == StepState::Fixed));
+        assert!(rows[0].detail.starts_with("installed Claude Code in "));
+        assert!(rows[0].detail.ends_with('s'));
+        assert!(rows[1].detail.starts_with("installed Codex in "));
+    }
+
+    #[test]
+    fn enroll_skips_installed_agents_and_names_a_failed_install() {
+        let found =
+            parse("os\tLinux\nagent\tclaude\t/home/u/.local/bin/claude\t1\nagent\tcodex\t\t\n");
+        let mut calls = Vec::new();
+        let mut rows = Vec::new();
+        install_missing_with(
+            &found,
+            "ubuntu",
+            |id| {
+                calls.push(id.to_owned());
+                anyhow::bail!("installer unavailable")
+            },
+            &mut |row| rows.push(row.clone()),
+        );
+        assert_eq!(calls, ["codex"]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].state, StepState::Warn);
+        assert!(rows[0].detail.contains("Codex install failed after "));
+        assert_eq!(
+            rows[0].fix.as_deref(),
+            Some("Run `acpmux machine agents ubuntu --install codex`.")
         );
     }
 

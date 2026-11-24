@@ -38,9 +38,9 @@ correlation, and idempotency metadata.
 | `closed` | 3 | `closed.delete`, `closed.list`, `closed.reopen` |
 | `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `credential` | 3 | `credential.mint`, `credential.rotate`, `credential.verify` |
-| `diff` | 4 | `diff.comments.delete`, `diff.comments.list`, `diff.comments.save`, `diff.comments.send` |
+| `diff` | 5 | `diff.comments.delete`, `diff.comments.list`, `diff.comments.save`, `diff.comments.send`, `diff.comments.thread` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
-| `git` | 18 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.fingerprint`, `git.push`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
+| `git` | 21 | `git.branches`, `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.diff`, `git.files.list`, `git.files.search`, `git.fingerprint`, `git.push`, `git.review.comment`, `git.review.post`, `git.review.start`, `git.status`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `git.worktree.setup` |
 | `keybinding` | 4 | `keybindings.get`, `keybindings.remove`, `keybindings.reset`, `keybindings.set` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |

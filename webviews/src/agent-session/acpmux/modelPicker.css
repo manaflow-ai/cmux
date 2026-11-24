@@ -192,13 +192,14 @@
    STYLED IT'S FUCKING TONKA TOYS"): 28px rows and 24px in submenus, chrome type (13px, never the
    transcript's content size), 16px marks, compact insets, as Claude desktop's and Codex's pickers. */
 .acpmux-quick-menu {
-  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  /* A look's menu tokens (docs/cmux-next/look-addons.md) reach this menu too; unset, the native density holds. */
+  --ui-row-height: var(--menu-row-height, calc(28px * var(--cmux-interface-scale, 1)));
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-body);
   width: max-content;
   min-width: min(280px, var(--available-width, calc(100vw - 24px)));
   max-width: min(440px, var(--available-width, calc(100vw - 24px)));
-  padding: 4px;
+  padding: var(--menu-padding, 4px);
   border: 0;
   /* Every popup's one radius (popupSurface.css, the native popovers' 8 pt), never a 10 of its own. */
   border-radius: var(--ui-popup-radius);
@@ -218,15 +219,15 @@
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
   padding: 4px var(--ui-row-padding-inline) 2px;
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
+  color: var(--menu-label-color, var(--agent-muted));
+  font-size: var(--menu-label-size, var(--text-caption));
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
   margin: 4px var(--ui-row-padding-inline);
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--menu-separator, var(--agent-border));
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
    shortcut digit stays right-aligned even when the names have different lengths. */
@@ -237,7 +238,7 @@
   height: var(--ui-row-height);
   min-height: 0;
   padding-block: 0;
-  border-radius: 5px;
+  border-radius: var(--menu-hover-radius, var(--cmux-menu-highlight-radius));
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
