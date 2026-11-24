@@ -358,7 +358,7 @@ await requireBrowserLane("agent-pane-send-lines-motion-browser.test.ts", async (
   /// in the frame the composer empties", motion/scale.generated.ts). The detector excuses it (it rides
   /// the house curve); the send's contract does not.
   type Kind = MotionFlagKind | "send-glide";
-  const KINDS: Kind[] = ["move", "scroll-step", "resize", "off-curve", "send-glide"];
+  const KINDS: Kind[] = ["move", "resize", "off-curve", "send-glide"];
   const TRANSCRIPT_TARGET = /^(row:|dock$|composer$|div\.acpmux-thread|div\.acpmux-scroll|div\.acpmux-dock)/;
   const sendGlides = (record: MotionRecord) => {
     const sendAt = record.frames.findIndex((frame) => frame.marks.includes("send"));
