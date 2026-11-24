@@ -69,7 +69,9 @@ extension CloudHandlers {
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
         for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
-            bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
+            // A cancel is never refused.
+            let allowed: @MainActor () -> String? = { nil }
+            bind(id, registry, reason: cancels ? allowed : reason) { invocation in
                 guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
