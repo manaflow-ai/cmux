@@ -42,6 +42,7 @@
     "mermaid/zoom": 5,
     "one-word-deltas/reconnect-replay": 5,
     "one-word-deltas/scroll-burst": 5,
+    "one-word-deltas/tab-switch": 1,
     "one-word-deltas/workspace-switch": 5,
     "one-word-deltas/zoom": 2,
     "rtl/scroll-burst": 6,
