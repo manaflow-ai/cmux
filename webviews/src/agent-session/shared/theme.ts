@@ -1,4 +1,4 @@
-import { MOTION_MS, MOTION_SEND_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
@@ -34,7 +34,6 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   statusIndicators: null,
   workingLook: null,
   slots: null,
-  subagentTray: null,
   subagentTrayPlacement: null,
 };
 
@@ -100,9 +99,16 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     const send = Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS);
     root.style.setProperty("--agent-motion-send", `${send}ms`);
     root.style.setProperty("--agent-motion-send-fade", `${send}ms`);
+    // The sent prompt's pop (conversation.css SEND-POP) on the same scaling: 0 with animations off
+    // or the app's Reduce Motion (its move step is 0), so the prompt is then in place at once.
+    root.style.setProperty(
+      "--agent-motion-send-pop",
+      `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_POP_MS)}ms`,
+    );
   } else {
     root.style.removeProperty("--agent-motion-send");
     root.style.removeProperty("--agent-motion-send-fade");
+    root.style.removeProperty("--agent-motion-send-pop");
   }
   // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
   // CSS animations and transitions that represent loops or third-party surfaces stop as well as
