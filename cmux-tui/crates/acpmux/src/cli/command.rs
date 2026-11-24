@@ -218,6 +218,10 @@ pub enum Command {
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
+    /// The harness-magic scorecard of this machine's turns: tokens and leo-units per settled pull
+    /// request, steering rate, time to the first useful result, firstModelMs, requests per turn,
+    /// cache-hit ratio and every harnessMagic counter, by the features the turns ran with.
+    Scorecard(crate::cli::scorecard::ScorecardArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
     Bead(crate::cli::beads::BeadCmd),
@@ -670,6 +674,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Download one large file over parallel range requests (16 by default), for a path where
+    /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
+    /// and, with --sha256, the hash before the file appears at -o.
+    Fetch(crate::cli::fetch::FetchArgs),
     /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
     /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
     #[command(subcommand)]
@@ -833,6 +841,7 @@ pub enum Command {
         held: bool,
         fleet: bool,
         allow: Vec<String>,
+        set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
     },
@@ -1341,18 +1350,24 @@ pub enum SessionCmd {
     /// Hold a session: it takes no turn until the person asks for it. Every other agent's
     /// message, tool notice or background task's end waits in its inbox; its idle agent is
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
-    /// With `--fleet`: hold every session on this machine but the `--allow` names (a trailing
+    /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them.
+    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
+    /// `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
-        /// With `--fleet`: names that keep running, comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
+        /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
+        /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        /// With `--fleet`: replace the whole allowlist with these names (then `--allow` adds to
+        /// it); `--set-allow ''` empties it.
+        #[arg(long, value_delimiter = ',', num_args = 0..=1)]
+        set_allow: Option<Vec<String>>,
         /// With `--fleet`: why, shown in each refusal.
         #[arg(long)]
         reason: Option<String>,
@@ -1930,14 +1945,23 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, reason, status } => {
-                Command::SessionHold { session, held: true, fleet, allow, reason, status }
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+                Command::SessionHold {
+                    session,
+                    held: true,
+                    fleet,
+                    allow,
+                    set_allow,
+                    reason,
+                    status,
+                }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
                 fleet,
                 allow: Vec::new(),
+                set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
             },

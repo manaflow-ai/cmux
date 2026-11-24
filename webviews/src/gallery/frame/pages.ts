@@ -416,6 +416,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.surge) provider.surge = JSON.parse(JSON.stringify(state.surge));
   if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
   if (state.planId) provider.account.plan.plan_id = state.planId;
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {

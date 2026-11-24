@@ -1366,6 +1366,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
+    def test_a_pull_request_canary_compiles_its_pinned_head_in_debug(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
+        step = next(s for s in job["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
+        self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
+        self.assertIn('compile-check --ref "$REF" --app', step["run"])
+
 
 def kill_group(pid: int) -> None:
     # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
@@ -1849,15 +1856,10 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
-        self.assertTrue(runs_on.endswith(
-            "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-            "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        ), runs_on)
-        route_without_pools = re.sub(
-            r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
-        )
-        self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
+        # Its RUNNER_POOLS.linux_8 read is frozen to the label it resolved to (scripts/ci/one_linux_label.py),
+        # and no variable picks the route.
+        self.assertIn("|| 'cmux-fleet-linux-x64' }}", runs_on)
+        self.assertNotIn("vars.", runs_on, "no variable picks the cargo job's runner")
         # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         # The cargo route goes before the label guard, which stays last
@@ -3875,7 +3877,14 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertNotIn("--release", args)
         self.assertIn("Build fleet app compile: pass", summary)
+
+    def test_the_native_pr_app_job_always_runs_debug_instead_of_reading_release(self):
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertNotIn("fleet_compile_result.py", step["run"])
+        self.assertNotIn("tip check's SwiftPM Release", step["run"])
+        self.assertIn("compile-check --ref \"$REF\" --app --timeout 1200 --queue-timeout 300", step["run"])
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
         result, output, _, _ = self.run_check(1)

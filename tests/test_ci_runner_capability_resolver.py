@@ -385,7 +385,8 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         self.assertEqual(route(event="push", head=""), "cmux-linux")
         self.assertEqual(route(event="workflow_dispatch", head=""), "cmux-linux")
         self.assertEqual(route(attempt=2), "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(route(attempt=2, trusted="blacksmith-2vcpu-ubuntu-2404"), "blacksmith-2vcpu-ubuntu-2404")
+        # The CI_TRUSTED_RUNNER picker is frozen to its label: the variable no longer moves the route.
+        self.assertEqual(route(attempt=2, trusted="blacksmith-2vcpu-ubuntu-2404"), "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(route(head="contributor/cmux"), "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(route(head="contributor/cmux", trusted="cmux-linux"), "blacksmith-4vcpu-ubuntu-2404")
 
