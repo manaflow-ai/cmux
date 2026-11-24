@@ -162,7 +162,10 @@ async fn a_sent_draft_is_cleared() {
     assert_eq!(stored(&drafts, "s1").as_deref(), Some("ship it"));
     app.send_prompt(false);
     assert!(app.input.text().is_empty());
-    app.draft_tick(Instant::now() + BOUND);
+    // The tick after the send sees the emptied composer; the bound later, it is written.
+    let sent = Instant::now();
+    app.draft_tick(sent);
+    app.draft_tick(sent + BOUND);
     pump(&mut app, &mut rx, |a| !a.draft_sync.unsettled()).await;
     assert_eq!(stored(&drafts, "s1"), None);
 }
