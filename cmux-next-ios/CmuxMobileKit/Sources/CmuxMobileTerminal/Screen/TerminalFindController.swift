@@ -106,11 +106,13 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         if isActive { snapshotStale = true }
     }
 
-    func search(_ query: String, options newOptions: TerminalFindOptions? = nil, revealing: Bool = true, nearRow: Int? = nil) {
-        if let newOptions {
-            options.caseSensitive = newOptions.caseSensitive
-            options.wholeWord = newOptions.wholeWord
-        }
+    /// The system bar's Match Case and Full Words (Regular Expression is the controller's own).
+    func setOptions(_ newOptions: TerminalFindOptions) {
+        options.caseSensitive = newOptions.caseSensitive
+        options.wholeWord = newOptions.wholeWord
+    }
+
+    func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
         if !daemonUnavailable, let source = daemon() {
             return searchDaemon(query, source: source)
         }
@@ -326,7 +328,8 @@ private final class TerminalFindSession: UIFindSession {
         var found = TerminalFindOptions()
         found.caseSensitive = !(options?.stringCompareOptions.contains(.caseInsensitive) ?? true)
         found.wholeWord = options?.wordMatchMethod == .fullWord
-        owner?.search(query, options: found)
+        owner?.setOptions(found)
+        owner?.search(query)
     }
 
     override func highlightNextResult(in direction: UITextStorageDirection) {
