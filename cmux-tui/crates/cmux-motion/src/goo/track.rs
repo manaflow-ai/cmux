@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(tr.state(1.), (0., 0.));
         assert_eq!(tr.state(0.5), (0., 0.));
         let rest = tr.rest_time(0.25);
-        assert!(rest > 0.2 && rest < 5., "{rest}");
+        assert!((0.2..5.).contains(&rest), "{rest}");
         let (x, v) = tr.state(1. + rest);
         assert!((x - 200.).abs() < 0.25 && v.abs() < 2., "{x} {v}");
         // Under-damped: it passes its target on the way.
@@ -237,7 +237,7 @@ mod tests {
         let tr = Track::new(10., 0., 110., 0., GooTuning::for_level(GooLevel::Subtle).select);
         let mut out = [0.; 512];
         let n = tr.sample(120., &mut out);
-        assert!(n > 10 && n < 512, "{n}");
+        assert!((11..512).contains(&n), "{n}");
         assert_eq!(out.get(n - 1), Some(&110.));
         assert_eq!(out.first(), Some(&10.));
     }
