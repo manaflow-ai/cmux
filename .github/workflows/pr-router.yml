@@ -49,6 +49,8 @@ jobs:
       statuses: write
     outputs:
       start: ${{ steps.route.outputs.start }}
+      # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
+      table: ${{ steps.route.outputs.table }}
     steps:
       - name: Checkout the router (blobless, the merge commit and the base tip)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -152,5 +154,7 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
     uses: ./.github/workflows/pr-pipeline.yml
+    with:
+      jobs: ${{ needs.route.outputs.table || '' }}
     permissions:
       contents: read

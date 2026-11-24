@@ -270,7 +270,11 @@ GATED = {
 KEEP_ON_LABELED = {"backend-migrations.yml"}
 # Jobs whose own `if:` starts with `github.event_name != 'pull_request'`: they never run on a pull request, so a
 # draft term would only change what tests/test_cmux_next_pr_autofix_push_gate.py evaluates.
-NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
+# Re-run-only on a pull request (#53046: act_fixer asks for the re-run after a mechanical red), so a draft head's
+# first run never starts them either.
+RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
+# Push-only jobs: their if: excludes a pull request, so no draft head ever runs them.
+NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push"), ("chief-evals.yml", "fleet-ab")}
 
 
 def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
@@ -323,7 +327,13 @@ class GatedWorkflowTests(unittest.TestCase):
             self.assertTrue(jobs, name)
             for job, condition in jobs.items():
                 if (name, job) in NEVER_ON_PULL_REQUEST:
-                    self.assertIn("github.event_name != 'pull_request'", condition or "", f"{name}: job {job}")
+                    self.assertTrue(any(c in (condition or "") for c in
+                                        ("github.event_name != 'pull_request'", "github.event_name == 'push'")),
+                                    f"{name}: job {job}")
+                    continue
+                if (name, job) in RERUN_ONLY_ON_PULL_REQUEST:
+                    self.assertIn("(github.event_name != 'pull_request' || github.run_attempt > 1)", condition or "",
+                                  f"{name}: job {job}")
                     continue
                 self.assertIsNotNone(condition, f"{name}: job {job} has no if:")
                 self.assertIn(expected, condition, f"{name}: job {job}")

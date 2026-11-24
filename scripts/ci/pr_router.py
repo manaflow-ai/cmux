@@ -117,6 +117,19 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
     return steps
 
 
+def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
+    """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
+    when the change or the table is unknown (the router routes more, never less)."""
+    jobs = [job for config in callees.values() for job in config.get("table_jobs", [])]
+    if files is None:
+        return jobs
+    try:
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+    except Exception:  # noqa: BLE001
+        return jobs
+    return [job for job in jobs if routed.get(job)]
+
+
 def route(event: dict, callees: dict, files: list[str] | None,
           draft_switch: str = "1", decided: tuple[str, str] | None = None) -> tuple[list[str], dict[str, str]]:
     """(the callee files to start, a reason per callee) for one pull_request event. DECIDED: head_tier's
@@ -243,9 +256,11 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
     return "success" if decided[0] == "full" else "pending"
 
 
-def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None, status: str = "") -> None:
+def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
+                  table: list[str] | None = None, status: str = "") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
@@ -267,7 +282,7 @@ def main(argv: list[str]) -> int:
         files = changed_files()
         decided = head_tier.decide("pull_request", event)
         start, why = route(event, callees, files, decided=decided)
-        write_outputs(start, why, files, land_status(event, decided))
+        write_outputs(start, why, files, table_jobs_routed(callees, files), land_status(event, decided))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
