@@ -65,6 +65,8 @@ import { chooseChatFolder } from "../missingFolderModel";
 import { ManagedBanner } from "../ManagedBanner";
 import { PaneNotices } from "../PaneNotices";
 import { PlanScopeDriftNotice } from "../PlanScopeDriftNotice";
+import { ComputerUseSetupNotice } from "../computerUse/ComputerUseSetupNotice";
+import type { ComputerUseHold, ComputerUsePlace } from "../computerUse/computerUseState";
 import { bridgeGone } from "../watchBannerModel";
 import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../cmuxCommands";
 import { heldSendNotice } from "../sendFailure";
@@ -112,6 +114,7 @@ import type { FileSearchSource } from "../fileSearchModel";
 import type { ComposerPlusExtension, CaptureMode } from "../composerPlusRegistry";
 import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
+import { commandPlace } from "../commandPlace";
 
 /// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
 const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
@@ -363,6 +366,15 @@ export type PaneComposerDeps = {
   authPreflightPending: boolean;
   composerMic: React.JSX.Element;
   importFile: (file: File) => Promise<void>;
+  /// The Computer Use setup notice a held `@computer-use` send raised (undefined while none shows).
+  computerUseAsk: ComputerUseHold | undefined;
+  /// Where the held send that raised it was going: the notice shows (and its Set Up opens setup) only
+  /// while this composer still sends there, never after a switch to Cloud or another machine.
+  computerUseAsked: ComputerUsePlace | undefined;
+  setUpComputerUse: () => void;
+  setComputerUseAsked: React.Dispatch<React.SetStateAction<ComputerUsePlace | undefined>>;
+  /// Whether a send of `text` from `place` waits for Computer Use (App.tsx, #48541).
+  holdsForComputerUseSetup: (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean;
 };
 
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
@@ -561,7 +573,32 @@ export function drawPaneComposer({
   authPreflightPending,
   composerMic,
   importFile,
+  computerUseAsk,
+  computerUseAsked,
+  setUpComputerUse,
+  setComputerUseAsked,
+  holdsForComputerUseSetup,
 }: PaneComposerDeps) {
+  // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
+  // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
+  // tools, #48541), so its send is held too, and the chat says so.
+  // A fresh chat on another machine has no summary yet: `startsElsewhere` (its connection's origin) says so.
+  const computerUsePlace: ComputerUsePlace =
+    cloudPicked || sandboxing || snapshot.summary?.hostKind === "cloud" || snapshot.startsOnCloud
+      ? "cloud"
+      : snapshot.summary?.host || machinePeer || snapshot.summary?.peer || startsElsewhere
+        ? "machine"
+        : "here";
+  // `/side --on cloud …` goes to a Cloud chat whatever this chat is: held as a Cloud send, with the
+  // Cloud notice, never this Mac's setup (commandPlace.ts reads the `--on` the command handler reads).
+  const sendPlace = (text: string): ComputerUsePlace => {
+    // Read without the attachments placed in the text (U+FFFC tokens), as the command's dispatch reads it.
+    const words = text.replace(/\uFFFC[^\uFFFC]*\uFFFC/g, "").trim();
+    const side = /^\/side(?:\s+([\s\S]*))?$/i.exec(words);
+    const placed = side ? commandPlace(side[1]) : undefined;
+    return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
+  };
+  const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return (
     (readOnlySubagent || !reviewing) && (
       <>
@@ -577,6 +614,15 @@ export function drawPaneComposer({
         {!readOnlySubagent && (
           <>
             <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
+            <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
+              {shownComputerUseAsk && (
+                <ComputerUseSetupNotice
+                  hold={shownComputerUseAsk}
+                  onSetUp={setUpComputerUse}
+                  onDismiss={() => setComputerUseAsked(undefined)}
+                />
+              )}
+            </Notice>
             <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
               <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
             </Notice>
@@ -914,6 +960,9 @@ export function drawPaneComposer({
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
+            // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
+            // gesture opens the setup page; onSend checks again for a send that waited for its files.
+            holdsSend={(text, late) => holdsForComputerUseSetup(text, false, sendPlace(text), !late)}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -922,6 +971,10 @@ export function drawPaneComposer({
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
+              // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
+              if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
+              setComputerUseAsked(undefined);
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
                 // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
@@ -1281,6 +1334,16 @@ export function drawPaneComposer({
               return removed;
             }}
             onQueueChange={(promptId, edit) => {
+              // An edit that adds `@computer-use` while Computer Use is not ready is refused as a send is: the
+              // queued prompt keeps its old text and the editor keeps the edit (CMUX-682).
+              // A typed refusal (not "refused by acpmux"): the queue editor opens again with the edit.
+              if (edit.op === "update" && holdsForComputerUseSetup(edit.text, false, computerUsePlace))
+                return Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }));
+              // Send Now runs the queued text at once: held as a send is, the row stays queued.
+              if (edit.op === "send_now") {
+                const queued = snapshot.queue.find((entry) => entry.id === promptId)?.prompt;
+                if (queued && holdsForComputerUseSetup(queued, false, computerUsePlace)) return Promise.resolve(false);
+              }
               // A held prompt's text and images change in the pane; nothing else applies to it.
               if (trustHeld.has(promptId)) {
                 trustHeld.edit(promptId, edit);
@@ -1303,6 +1366,8 @@ export function drawPaneComposer({
                 opensSideSessions && !isSideSession && snapshot.sessionId
                   ? async (promptId, prompt) => {
                       const sessionId = snapshot.sessionId!;
+                      // A side chat on this Mac runs the text as a send: held before the row leaves the queue.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace)) return false;
                       // A row still waiting for the chat to take it leaves here; one with images stays,
                       // as a side chat asks the text alone.
                       const local = startingSends.rows.find((row) => row.id === promptId);
@@ -1319,6 +1384,12 @@ export function drawPaneComposer({
                         console.warn("agent pane: the side session did not start", error);
                         setBtwFailure({ sessionId, reason: knownRefusalText(error) ?? "" });
                       };
+                      // Asked again once the row left the queue (the removal awaited): it holds and says
+                      // why, and the text comes back to the composer.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace, false)) {
+                        composerHandle.current?.restore(prompt, []);
+                        return false;
+                      }
                       callNative<string>("chat.btw", { question: prompt }).then(
                         (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
                         (error: unknown) => {
