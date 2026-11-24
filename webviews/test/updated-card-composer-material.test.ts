@@ -80,9 +80,7 @@ test("the Updated card paints the shared material at the composer's height", () 
   const surface = /\.wn-card\.wn-updated \{([^}]*)\}/.exec(card)?.[1] ?? "";
   expect(surface).toContain("background: var(--composer-material-tint)");
   expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
-  // Leo, 2026-11-23: "the fuck is a pill with 2 lines supposed to be for anyways?" The card keeps
-  // the composer's material and height but wears the card corner, not the round-control corner.
-  expect(surface).toContain("border-radius: var(--grid-card-radius, 16px)");
+  expect(surface).toContain("border-radius: var(--composer-material-radius)");
   const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
   expect(rest).toContain("height: var(--composer-material-height)");
 });
@@ -93,9 +91,7 @@ test("the doodle-decorated card wears the same material", () => {
   const surface = /\.wn-card\[data-decoration="doodle"\] \{([^}]*)\}/.exec(card)?.[1] ?? "";
   expect(surface).toContain("background: var(--composer-material-tint)");
   expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
-  // Leo, 2026-11-23: "the fuck is a pill with 2 lines supposed to be for anyways?" The card keeps
-  // the composer's material and height but wears the card corner, not the round-control corner.
-  expect(surface).toContain("border-radius: var(--grid-card-radius, 16px)");
+  expect(surface).toContain("border-radius: var(--composer-material-radius)");
   const tsx = read("pages/changelog/UpdateSurfaces.tsx");
   const doodle = /<section[^>]*data-decoration="doodle"[^>]*>/s.exec(tsx)?.[0] ?? "";
   expect(doodle).toContain('data-composer-material=""');
