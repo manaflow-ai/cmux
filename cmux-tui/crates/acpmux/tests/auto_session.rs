@@ -21,6 +21,9 @@ mod leftover;
 // Auto on and Keep in Cloud answered from the store's answer.
 #[path = "auto_session/switch.rs"]
 mod switch;
+// The Cloud's transcript read on the Mac while the Cloud runs the chat.
+#[path = "auto_session/transcript.rs"]
+mod transcript;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

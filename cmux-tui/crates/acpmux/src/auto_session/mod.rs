@@ -111,6 +111,9 @@ pub trait SessionImporter: Send + Sync {
 pub struct HolderHandle {
     me: Holder,
     commands: runtime::Commands,
+    /// The Cloud's events of the chats held elsewhere (`runtime/projection.rs`).
+    projections: Arc<runtime::projection::Projections>,
+    clock: Arc<dyn runtime::WallClock>,
 }
 
 impl fmt::Debug for HolderHandle {
