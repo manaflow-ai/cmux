@@ -4,7 +4,7 @@ import { TERMINAL_HISTORY_FIND, type TranscriptHit, type TranscriptProvider } fr
 
 test("a completed oversized record is folded, searchable and read only at the requested offset", async () => {
   const calls: Record<string, unknown>[] = [];
-  const range = { start: 32, end: 96, position: "after" };
+  const range = { start: 32, end: 96, position: "after" as const };
   const hit: TranscriptHit = {
     role: "raw",
     pageEnd: 96,

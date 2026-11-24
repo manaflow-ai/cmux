@@ -250,5 +250,5 @@ try {
   assert.ok(metrics.navigation_to_visible_ms < 200, "packed navigation through visible latest turn exceeded 200 ms");
 } finally {
   await browser.close();
-  origin.stop(true);
+  await origin.stop(true);
 }
