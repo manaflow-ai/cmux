@@ -201,8 +201,12 @@ fn claim_refresh(cache: &Path) -> Option<RelayLease> {
     let mark = cache.with_file_name(REFRESH_MARK);
     let lock_path = cache.with_file_name(REFRESH_LOCK);
     let now = crate::store::now_ms();
-    let Ok(mut file) =
-        std::fs::OpenOptions::new().create(true).read(true).write(true).open(lock_path)
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
     else {
         return None;
     };
