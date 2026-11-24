@@ -6,12 +6,12 @@
 #     --script scripts/measure/idle-cpu.sh --ref SHA --arg=artifact=sha256:HEX \
 #     [--arg=minutes=10] [--arg=window=60] [--arg=windows=3] [--arg=chats=0] [--arg=history=0] [--arg=prompt_kb=0] [--arg=writers=0] [--arg=sample=1|0|each] \
 #     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] [--arg=cef_switches=A:B|none] \
-#     [--arg=peer_rows=40 --arg=restart_at=2 [--arg=restart_cycles=3]] --artifact .build/idle-cpu/report.tgz --timeout 3600
+#     [--arg=peer_rows=40 --arg=restart_at=2 [--arg=restart_cycles=3]] [--arg=wake_trace=10] --artifact .build/idle-cpu/report.tgz --timeout 3600
 # On a fleet host, scripts/cmux-next/idle-cpu-run.py makes this step for a build job or tag through the
 # mini scheduler. Output: IDLE-CPU lines and IDLE-CPU-VERDICT. Exit 0 within budget, 1 over, 3 not run.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-artifact="" history=0 prompt_kb=0 writers=0 minutes=10 window=60 windows=3 chats=0 sample=1 budget_cpu=1.0 budget_wakeups=1.0 cef_switches="" peer_rows=0 restart_at="" restart_cycles=3
+artifact="" history=0 prompt_kb=0 writers=0 minutes=10 window=60 windows=3 chats=0 sample=1 budget_cpu=1.0 budget_wakeups=1.0 cef_switches="" peer_rows=0 restart_at="" restart_cycles=3 wake_trace=0
 for arg in "$@"; do
   case "$arg" in
     artifact=*) artifact="${arg#artifact=}" ;;
@@ -29,11 +29,12 @@ for arg in "$@"; do
     peer_rows=*) peer_rows="${arg#peer_rows=}" ;;
     restart_at=*) restart_at="${arg#restart_at=}" ;;
     restart_cycles=*) restart_cycles="${arg#restart_cycles=}" ;;
+    wake_trace=*) wake_trace="${arg#wake_trace=}" ;;
     *) echo "idle-cpu.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$artifact" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "idle-cpu.sh: artifact=sha256:<64 hex> is required" >&2; exit 2; }
-for n in "$minutes" "$window" "$windows" "$chats" "$history" "$prompt_kb" "$writers" "$budget_cpu" "$budget_wakeups" "$peer_rows" "$restart_cycles" ${restart_at:+"$restart_at"}; do
+for n in "$minutes" "$window" "$windows" "$chats" "$history" "$prompt_kb" "$writers" "$budget_cpu" "$budget_wakeups" "$peer_rows" "$restart_cycles" "$wake_trace" ${restart_at:+"$restart_at"}; do
   [[ "$n" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "idle-cpu.sh: $n is not a number" >&2; exit 2; }
 done
 [[ "$prompt_kb" =~ ^[0-9]+$ ]] || { echo "idle-cpu.sh: prompt_kb= must be a whole number" >&2; exit 2; }
@@ -48,6 +49,7 @@ flags=()
 [[ -n "$cef_switches" ]] && flags+=(--cef-switches "$cef_switches")
 [[ "$peer_rows" != 0 ]] && flags+=(--peer-rows "$peer_rows" --restart-cycles "$restart_cycles")
 [[ -n "$restart_at" ]] && flags+=(--restart-at "$restart_at")
+[[ "$wake_trace" != 0 ]] && flags+=(--wake-trace "$wake_trace")
 python3 -I scripts/cmux-next/idle_cpu.py --artifact "$artifact" --minutes "$minutes" --window "$window" \
   --windows "$windows" --chats "$chats" --history "$history" --history-prompt-kb "$prompt_kb" --writers "$writers" --budget-cpu "$budget_cpu" --budget-wakeups "$budget_wakeups" \
   ${flags[@]+"${flags[@]}"} --out "$out"
