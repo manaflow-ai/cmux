@@ -193,15 +193,20 @@ pub(crate) const HYBRID_CHAT_START_ENV: &str = "CMUX_HYBRID_START";
 
 /// The hybrid start's flag (`hybrid::Account::flag`), which wins over the plan: `CMUX_HYBRID_START`
 /// when it says on or off, else off when the managed policy or this tester's wave disables
-/// [`HYBRID_CHAT_START`] (`disabled`), else none (the plan decides).
+/// [`HYBRID_CHAT_START`] (`disabled`), else on when cmux-next.json's `cloud.autoCloud` is `true`
+/// (`auto_cloud`, read only then; Leo, 2026-11-24: "austin was also really wanting to have a demo
+/// of the auto/hybrid cloud thing"), else none (the plan decides). A `false` or absent key is none,
+/// never off: it leaves the plan's default as it was.
 pub(crate) fn hybrid_chat_start_flag(
     env: &dyn Fn(&str) -> Option<String>,
     disabled: &dyn Fn(&str) -> bool,
+    auto_cloud: &dyn Fn() -> Option<bool>,
 ) -> Option<bool> {
     match env(HYBRID_CHAT_START_ENV).as_deref().map(str::trim) {
         Some("1" | "true" | "on" | "yes") => Some(true),
         Some("0" | "false" | "off" | "no") => Some(false),
         _ if disabled(HYBRID_CHAT_START) => Some(false),
+        _ if auto_cloud() == Some(true) => Some(true),
         _ => None,
     }
 }

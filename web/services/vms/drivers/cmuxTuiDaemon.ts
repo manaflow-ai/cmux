@@ -90,6 +90,33 @@ export function cmuxTuiLayoutSelector(): string {
   );
 }
 
+/** Exit status of an agent command on a machine whose unprivileged work user is not usable. */
+export const CMUX_TUI_EXIT_NO_WORK_USER = 83;
+
+/**
+ * The selector of every command that starts or talks to an agent (the keyed
+ * acpmux start, its person_holds check; the API Worker copy in
+ * backend/apps/api/src/cloud-acpmux-guest.ts layoutSelector). Same probes as
+ * cmuxTuiLayoutSelector, but it fails closed: when the work user is not
+ * usable it prints one clear line and exits CMUX_TUI_EXIT_NO_WORK_USER, and
+ * never picks the root layout. No extra probe, so no extra latency.
+ */
+export function cmuxTuiAgentLayoutSelector(): string {
+  const user = CMUX_CLOUD_USER;
+  const home = CMUX_CLOUD_HOME;
+  const line =
+    `cmux: this machine's ${user} user is not usable (missing, no setpriv, home not writable or no passwordless sudo), ` +
+    `and agents never run as root. Recreate the machine from a current image to repair it.`;
+  return (
+    `if id -u ${user} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups test -w ${home} 2>/dev/null && ` +
+    `setpriv --reuid=${user} --regid=${user} --init-groups sudo -n true >/dev/null 2>&1; then ` +
+    `CMUX_TUI_USER=${user}; CMUX_TUI_HOME=${home}; CMUX_TUI_LAYOUT=user; ` +
+    `else echo ${shellQuote(line)} >&2; exit ${CMUX_TUI_EXIT_NO_WORK_USER}; fi; ` +
+    `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
+  );
+}
+
 /**
  * Runs `cmux-tui <args>` as the daemon's own user, home and state dir. Every
  * driver-side call (status, enrollment, snapshots) goes through this: reading
