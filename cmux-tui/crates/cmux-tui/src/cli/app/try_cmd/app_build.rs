@@ -438,6 +438,25 @@ fn quit_keeping_sessions(app: &Path, socket: &Path) -> Result<(), String> {
     }
 }
 
+/// Before `app` quits for the swap: the incoming build's `server hold-terminals` (`cli`) marks every
+/// terminal of the app's daemon that has no tab and no `keep` mark as kept, so the running daemon's
+/// reaper (of any build) leaves them when the app's attach streams end; the next daemon lifts the
+/// mark (cmux-tui-core `mux/update_hold.rs`). Best effort: a failure leaves the quit as it was.
+fn hold_terminals_for_update(app: &Path, cli: &Path) {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return };
+    let app_cli = app.join(live::BIN).join("cmux");
+    let Some(identity) = crate::app_identity::AppIdentity::from_bundle(Some(&app_cli)) else {
+        return;
+    };
+    let Some(session) = identity.daemon_session_in(&home) else { return };
+    let mut command = cmux_process::Command::new(cli);
+    command.arg("--session").arg(session).args(["--json", "server", "hold-terminals"]);
+    if let Some(state_dir) = identity.daemon_state_dir_in(&home) {
+        command.arg("--state-dir").arg(state_dir);
+    }
+    let _ = command.output();
+}
+
 fn open_behind(app: &Path) -> Result<(), String> {
     run("/usr/bin/open", &[OsStr::new("-g"), app.as_os_str()])
 }
@@ -540,6 +559,7 @@ pub(super) fn run_swap(spec_path: &Path) -> i32 {
 fn swap(spec: &Spec) -> Result<String, String> {
     let staged = spec.staged.as_deref().ok_or("the swap names no staged build")?;
     let root = spec.stage_root.clone().unwrap_or_else(|| staged.to_path_buf());
+    hold_terminals_for_update(&spec.app, &staged.join(live::BIN).join("cmux"));
     quit_keeping_sessions(&spec.app, &spec.socket)?;
     // The app itself is kept as the original; an earlier try only until this one stays up.
     let aside = if spec.replaces_try { root.join("replaced.app") } else { spec.original.clone() };
