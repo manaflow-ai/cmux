@@ -5,7 +5,7 @@ impl Config {
     /// `none`, and `clear` remove an override and restore the computed default.
     /// `acpmux config --set KEY=VALUE`: a permission-mode key
     /// (`set_permission_mode`), `remote_daemon` (a loopback `host:port`, or `none`),
-    /// `transport.wireguard` (`true`/`false`), else a
+    /// `lane_gh_broker` (the broker's socket path, or `none`), `transport.wireguard` (`true`/`false`), else a
     /// session resource limit (`set_session_resource`).
     ///
     /// The whole resulting config must pass the daemon's start check
@@ -36,6 +36,20 @@ impl Config {
             self.remote_daemon = match value.to_ascii_lowercase().as_str() {
                 "" | "none" | "clear" | "off" => None,
                 _ => Some(loopback_daemon_address(value)?.to_string()),
+            };
+            return Ok(());
+        }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "lane_gh_broker" | "laneghbroker"
+        ) {
+            let value = value.trim();
+            self.lane_gh_broker = match value.to_ascii_lowercase().as_str() {
+                "" | "none" | "clear" | "off" => None,
+                _ if value.starts_with('/') || value.starts_with("~/") => Some(value.to_owned()),
+                _ => anyhow::bail!(
+                    "lane_gh_broker must be the broker's socket as an absolute path (or ~/...)"
+                ),
             };
             return Ok(());
         }
