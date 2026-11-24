@@ -10,6 +10,7 @@ What it reads, in the cmux NEXT UI (SURFACES): the web pages (webviews/src), the
 and the iOS app (cmux-next-ios, Packages/iOS). Tests, galleries, fixtures and previews are not read.
 
 A connection state is a string the person can read that says one (CONNECTION_WORDS: connecting, reconnecting,
+reattaching (the iOS terminal pill's "Reattaching…"),
 retrying, restoring, handshaking, "Getting access", offline, disconnected, not connected, unreachable, can't reach,
 link down, waiting for the service): an inline literal that is copy (it starts with a capital: "Reconnecting…",
 "Not connected to cmux."), a JSX text node, or a dotted string-table key whose English value says one
@@ -79,7 +80,7 @@ SKIP = re.compile(
 # What says a connection state. Matched against the English text, case-insensitive.
 CONNECTION_WORDS = re.compile(
     r"(?i)\b("
-    r"re-?connecting|connecting|retrying|restoring|handshak\w*|getting access"
+    r"re-?connecting|connecting|re-?attaching|retrying|restoring|handshak\w*|getting access"
     r"|offline|disconnected|not connected|no connection|connection (?:lost|closed|dropped|interrupted)"
     r"|lost (?:the )?connection|can'?t reach|cannot reach|couldn'?t reach|unreachable"
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
