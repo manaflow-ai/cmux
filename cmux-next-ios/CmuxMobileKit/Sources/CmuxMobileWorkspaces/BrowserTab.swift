@@ -5,6 +5,7 @@ import SwiftUI
 import UIKit
 import WebKit
 import CmuxMobileBrowserStream
+import CmuxMobileDesign
 import CmuxTabsKit
 
 /// One browser tab's `WKWebView` and the state the tab toolbar shows. The
@@ -375,6 +376,9 @@ struct BrowserCard: View {
     var lastKnown: UIImage?
     /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
     var tabID: String?
+    /// The page's host, for the site monogram (`SiteMonogram`, off by default).
+    var host: String?
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -384,6 +388,8 @@ struct BrowserCard: View {
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
                 }
+            } else if monograms, SiteMonogram.letter(host) != nil {
+                SiteMonogramFace(host: host)
             } else {
                 Image(systemName: "globe")
                     .font(.system(size: 72, weight: .light))
@@ -393,7 +399,8 @@ struct BrowserCard: View {
             }
         }
         .modifier(TabCardFaceRecord(tabID: tabID,
-                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown"
+                                        : monograms && SiteMonogram.letter(host) != nil ? "monogram" : "placeholder"))
     }
 }
 #endif

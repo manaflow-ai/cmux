@@ -38,6 +38,8 @@ import SwiftUI
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
 ///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `favicons`: browser tab cards with no picture: today's globe, then the site monogram (A, Settings
+///   → Advanced → Site Monograms on Tab Cards) and the variants it was picked from, B and C.
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -99,6 +101,8 @@ public struct RecoveryGalleryRoot: View {
                 TerminalKeyBarGallery()
             case "lastsent":
                 TerminalLastSentGallery()
+            case "favicons":
+                SiteMonogramGallery()
             default:
                 states
             }

@@ -33,6 +33,9 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
+        /// browser card with no picture yet shows its site's letter on the site's hue, not the globe.
+        public static let tabCardMonograms = "cmuxMobile.settings.tabCardMonograms"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
     }
@@ -48,6 +51,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
+    public static let defaultTabCardMonograms = false
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
     public static let steerFollowUp = "steer"
@@ -120,6 +124,12 @@ public enum CmuxMobilePreferences {
 
     /// `FollowUpBehavior.queue.rawValue`.
     public static let queueFollowUp = "queue"
+
+    /// Whether browser cards with no picture show the site monogram (off by default).
+    public static func tabCardMonograms(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.tabCardMonograms) == nil ? defaultTabCardMonograms : defaults.bool(forKey: Key.tabCardMonograms)
+    }
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: Key.compactWorkspaceList)
