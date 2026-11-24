@@ -52,6 +52,31 @@ class Holder(unittest.TestCase):
                 row("h3/tabs-refine", "ready", updated=5), row("h4/sidebar-x", updated=99)]
         self.assertEqual(live.holder(cell, rows, ""), ("h3/tabs-refine", "a lane of tabs-refine,tab-strip-*"))
 
+    def test_the_tag_key_is_the_cells_workstream_and_the_notice_prints_it(self):
+        cell = ("PL-daemon, else lanes *tdaemon*,daemon-*,cmux-tui-*: request speed (coordinator rule 2026-11-23: "
+                "the live lane working in it; cmux-b6 ended)")
+        self.assertEqual(live.owns_key(cell), "PL-daemon")
+        self.assertEqual(live.holder(cell, [row("h/x", owns="PL-daemon")], "")[0], "h/x")
+        # 2026-11-24: owns=cmux-tui-daemon (an area slug) was never the key, so the notice kept coming.
+        self.assertEqual(live.holder(cell, [row("h/x", owns="cmux-tui-daemon")], "")[0], None)
+        self.assertIn("owns=PL-daemon`", live.unheld_notice("a", cell, ["f"], "h" * 12, "b", "d"))
+        self.assertIn("owns=PL-daemon`", live.notice("a", cell, ["f"], "h" * 12, "b", "d"))
+        self.assertEqual(live.owns_key("a590"), "WORKSTREAM")
+
+    def test_the_live_lane_working_in_it_is_the_pusher(self):
+        cell = "PL-daemon, else lanes daemon-* (coordinator rule 2026-11-23: the live lane working in it)"
+        rows = [row("g9/ask-ca8a4d06e0-3", sid="S1"), row("c/coord", owns="coordinator")]
+        self.assertEqual(live.holder(cell, rows, "", "ask-ca8a4d06e0-3"), ("g9/ask-ca8a4d06e0-3", live.WORKING))
+        self.assertEqual(live.holder(cell, rows, "", "S1")[0], "g9/ask-ca8a4d06e0-3")
+        # A tag or a role lane still holds first; a cell without the rule, or a closed pusher, falls through.
+        self.assertEqual(live.holder(cell, rows + [row("h/daemon-x")], "", "S1")[1], "a lane of daemon-*")
+        self.assertEqual(live.holder("PL-daemon", rows, "", "S1")[0], "c/coord")
+        self.assertEqual(live.holder(cell, [row("g9/ask", "closed"), row("c/coord", owns="coordinator")], "", "ask")[0], "c/coord")
+
+    def test_performance_lead_cell_is_the_pl_lead_key(self):
+        self.assertEqual(live.owns_key("Performance Lead"), "PL-lead")
+        self.assertEqual(live.holder("Performance Lead", [row("h/lead", owns="PL-lead")], "")[0], "h/lead")
+
     def test_a_tag_the_full_listing_dropped_is_read_from_the_filtered_one(self):
         rows = [{"name": "h2/acpmux-owner", "sessionId": "s1", "status": "ready", "tags": None, "updatedAt": 1}]
         merged = live.merge_tagged(rows, [{"name": "h2/acpmux-owner", "sessionId": "s1", "tags": {"owns": "PL-acpmux"}}])

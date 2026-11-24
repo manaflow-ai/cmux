@@ -48,11 +48,20 @@ SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
 LEAD = "PL-lead"
 COORDINATOR = "coordinator"
+WORKING = "the live lane working in it"  # the coordinator rule of 2026-11-23 a row's cell may carry
 
 
 def cell_names(cell: str) -> tuple[list[str], list[str]]:
     """(workstreams, sessions) an owner cell names: `PL-acpmux`, and `cmux-4f` from "session cmux-4f"."""
-    return list(dict.fromkeys(WORKSTREAM.findall(cell or ""))), list(dict.fromkeys(SESSION.findall(cell or "")))
+    workstreams = list(dict.fromkeys(WORKSTREAM.findall(cell or "")))
+    if not workstreams and "Performance Lead" in (cell or ""):
+        workstreams = [LEAD]  # "Performance Lead" is the row of owns=PL-lead (the Wakeup primitives row)
+    return workstreams, list(dict.fromkeys(SESSION.findall(cell or "")))
+
+
+def owns_key(cell: str) -> str:
+    """The `owns=` value that takes CELL's area: its first workstream (PL-daemon), else the placeholder."""
+    return (cell_names(cell)[0] or ["WORKSTREAM"])[0]
 
 
 def cell_lanes(cell: str) -> list[str]:
@@ -129,8 +138,10 @@ def registry_coordinator(path: Path | None = None) -> str | None:
     return current if isinstance(current, str) and current else None
 
 
-def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple[str | None, str]:
-    """(live session, how) for the owner CELL, or (None, why none)."""
+def holder(cell: str, rows: list[dict], coordinator: str | None = None,
+           pusher: str | None = None) -> tuple[str | None, str]:
+    """(live session, how) for the owner CELL, or (None, why none). PUSHER is the session making the push (its name or
+    id): a cell that says "the live lane working in it" is held by it when no tag or role lane holds the area."""
     workstreams, sessions = cell_names(cell)
     live = [r for r in rows if is_live(r)]
     for w in workstreams:
@@ -143,6 +154,10 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
+    if pusher and WORKING in (cell or ""):
+        named = _named(rows, pusher)
+        if named and is_live(named[0]):
+            return _name(named[0]), WORKING
     for s in sessions:
         named = _named(rows, s)
         if named and is_live(named[0]):
@@ -263,7 +278,7 @@ def is_fallback(how: str) -> bool:
 def unheld_notice(area: str, cell: str, files: list[str], head: str, branch: str | None, doc: str) -> str:
     return (f"OWNERS.md area {area} has no live holder ({cell}), so its pushes come to you; this one: {branch or 'a branch'} "
             f"at {head[:12]} ({len(files)} file(s), {files[0]}). Give it a live holder: tag one "
-            f"(`acpmux session tag SESSION owns=WORKSTREAM`) or rewrite the OWNERS.md row. You hear of it once a day "
+            f"(`acpmux session tag SESSION owns={owns_key(cell)}`, that exact value) or rewrite the OWNERS.md row. You hear of it once a day "
             f"while it stays unheld.")
 
 
@@ -271,4 +286,4 @@ def notice(area: str, cell: str, files: list[str], head: str, branch: str | None
     shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
     return (f"A push to {branch or 'a branch'} at {head[:12]} changes {area}, which OWNERS.md gives to {cell}; you hold "
             f"it now. Files: {shown}. Read {doc}; `git show {head[:12]}` for the change. If it is not yours, tag the "
-            f"holder (`acpmux session tag SESSION owns=WORKSTREAM`) or fix the OWNERS.md row.")
+            f"holder (`acpmux session tag SESSION owns={owns_key(cell)}`) or fix the OWNERS.md row.")
