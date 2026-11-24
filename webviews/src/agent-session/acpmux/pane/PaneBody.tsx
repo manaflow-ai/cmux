@@ -1303,6 +1303,7 @@ export function drawPaneBody({
                       chat={snapshot.sessionId}
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
+                        mirror: inTabRow && tabRow.standInRowTools === true && !inspectorOpen,
                         callNative,
                         panel: sessionInfo.on
                           ? {

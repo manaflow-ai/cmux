@@ -27,18 +27,36 @@ import CmuxNextSettings
     /// view's top-left and trailing edges, so a view resized with no new offer yet (a divider drag lays the chat out
     /// before its pane offers the row again) gets holes at its new width in the same page update, not stale ones
     /// that the offer then corrects with a second update of the page window in the same frame.
-    private var shape: (height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool)?
+    private(set) var shape: (height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool)?
+    /// The page's tools as it publishes them for the stand-in (`pane.tabRowTools.set` with ``nativeToolsEnabled`` off;
+    /// `AgentPaneTabRow+StandIn`).
+    public internal(set) var standInTools: [PaneTabRowTool] = []
+    /// A resize drag moves the row, or ended and the page has not drawn at its final size yet: the pane draws the tools.
+    public internal(set) var standingIn = false
+    /// The leftmost x, from the row's leading edge, the page's tools took since the stand-in began.
+    var standInLeft: CGFloat?
+    /// What the band paints, fixed when the stand-in begins.
+    var standInFill: CGColor?
+    /// Counts stand-in starts and ends, so an end's late paint answer does not end a stand-in begun since.
+    var standInEpoch: UInt64 = 0
+    /// The band in the chat view's coordinates, worked out with ``holes``; nil with no stand-in.
+    public internal(set) var standInBand: CGRect?
+    /// The page was last offered the stand-in (`standInRowTools`): it publishes its tools while drawing them.
+    private(set) var offeredStandIn: Bool?
 
     /// Works ``holes`` out from ``shape`` for a chat view of `bounds`. The holes are laid out from the row's top-left
     /// corner; the chat view is not flipped, so each one is mirrored from its own maxY (a hole shorter than the row,
     /// the rim's, stays at the top; at y 0 they cut the composer's footer out of the page instead).
     func resolveHoles(in bounds: CGRect, flipped: Bool) {
-        guard let shape else { holes = []; return }
-        holes = nativeHoles(width: bounds.width, height: shape.height, trailingInset: shape.trailingInset,
-                            tools: shape.tools, tabs: shape.tabs).map { hole in
+        guard let shape else { holes = []; standInBand = nil; return }
+        let band = standInBand(width: bounds.width, height: shape.height, trailingInset: shape.trailingInset, tools: shape.tools)
+        let place = { (hole: CGRect) in
             let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
             return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
         }
+        holes = nativeHoles(width: bounds.width, height: shape.height, trailingInset: shape.trailingInset,
+                            tools: shape.tools, tabs: shape.tabs, band: band?.minX).map(place)
+        standInBand = band.map(place)
     }
     /// What the pane's toolbar hole paints (``holeFill(chromium:shares:tabsShown:page:)``), set with each offer.
     public private(set) var holeFill: CGColor?
@@ -75,6 +93,7 @@ import CmuxNextSettings
         guard offered != nil || toolsWidth != 0 else { return }
         offered = nil
         offeredNativeRowTools = nil
+        offeredStandIn = nil
         toolsWidth = 0
         awaitingReport = neededWidth > 0
         onChange?()
@@ -83,7 +102,8 @@ import CmuxNextSettings
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
     var event: AgentPageEvent {
         .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0,
-                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
+                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false,
+                standInRowTools: offeredStandIn ?? false)
     }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the page draws no tools in the row. A page
@@ -110,6 +130,8 @@ import CmuxNextSettings
         let on = height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
+        // A Chromium chat's tools trail a resize drag: the pane stands in for them (`AgentPaneTabRow+StandIn`).
+        let standIn = on && !nativeRowTools && view.chromiumPage != nil
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
         let shares = on && row.sharedWidth(zoom: zoom) != nil
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
@@ -123,9 +145,11 @@ import CmuxNextSettings
                                   tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : nil
             view.applyNativeRects()
         }
-        guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
+        guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools || row.offeredStandIn != standIn })
+                ?? (next.height > 0 || nativeRowTools) else { return }
         row.offered = next
         row.offeredNativeRowTools = nativeRowTools
+        row.offeredStandIn = standIn
         let event = row.event
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
     }
@@ -150,22 +174,27 @@ import CmuxNextSettings
 /// top edge, the page window over it drew a flat gray line in place of the window's lit glass rim,
 /// so the rim broke off where the chat's tools began (Leo 2026-11-03: "there is clearly a rectangle
 /// that is just covering up the glass at the rim of the top of the app"). The three never overlap:
-/// the fork masks the page with them even-odd, and an overlap would cover that part again.
-private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool) -> [CGRect] {
+/// the fork masks the page with them even-odd, and an overlap would cover that part again. `band`: a resize drag's
+/// stand-in begins there (``AgentPaneTabRow/standInBand``), and the row from it to the trailing edge is the pane's.
+func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool, band: CGFloat? = nil) -> [CGRect] {
     let room = max(0, width - trailingInset)
     let span = min(max(0, tools), room / 2)
-    let tabsEnd = tabs ? room - span : 0
+    let bandStart = min(band ?? room, room)
+    let tabsEnd = min(tabs ? room - span : 0, bandStart)
     return [CGRect(x: 0, y: 0, width: tabsEnd, height: height),
-            CGRect(x: tabsEnd, y: 0, width: room - tabsEnd, height: min(AgentPaneTabRow.rimHeight, height)),
-            CGRect(x: room, y: 0, width: width - room, height: height)].filter { !$0.isEmpty }
+            CGRect(x: tabsEnd, y: 0, width: bandStart - tabsEnd, height: min(AgentPaneTabRow.rimHeight, height)),
+            CGRect(x: bandStart, y: 0, width: width - bandStart, height: height)].filter { !$0.isEmpty }
 }
 
 extension AgentPageEvent {
     /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
     /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
-    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false) -> AgentPageEvent {
+    /// `standInRowTools`: the page publishes its tools while it draws them, for the pane's stand-in through a resize drag.
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false,
+                       standInRowTools: Bool = false) -> AgentPageEvent {
         AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
-                                               "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)])
+                                               "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab),
+                                               "standInRowTools": .bool(standInRowTools)])
     }
 }
 
@@ -178,4 +207,5 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public func setTabRowTabs(shown: Bool) { model.tabRow.tabsShown = shown }
     public var tabRowTakesLoneTab: Bool { true }
     public var tabRowHoleFill: CGColor? { model.tabRow.holeFill }
+    public var tabRowStandIn: PaneTabRowStandIn? { model.tabRow.standIn }
 }

@@ -28,12 +28,15 @@ public protocol PaneTabRowSharing: AnyObject {
     /// toolbar a hole, and where it paints its own surface across the row (alone in its pane) the hole would
     /// show the pane's instead, a block of another shade beside the tools. Nil: the row is clear there.
     var tabRowHoleFill: CGColor? { get }
+    /// The view's tools drawn by the pane while a resize drag moves the row (``PaneTabRowStandIn``); nil otherwise.
+    var tabRowStandIn: PaneTabRowStandIn? { get }
 }
 
 extension PaneTabRowSharing {
     public func setTabRowTabs(shown: Bool) {}
     public var tabRowTakesLoneTab: Bool { false }
     public var tabRowHoleFill: CGColor? { nil }
+    public var tabRowStandIn: PaneTabRowStandIn? { nil }
 
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
     public func tabRowWidth(room: CGFloat) -> CGFloat { min(max(0, tabRowToolsWidth ?? 0), max(0, room / 2)) }
@@ -60,6 +63,7 @@ extension PaneTabRowSharing {
         setTabRowTabs(shown: tabs || height <= 0)
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
         toolbar?.paintTabRowHole(height > 0 ? tabRowHoleFill : nil, rim: PaneTabRowRim.height)
+        (toolbar as? PaneTabRowStandInHosting)?.placeTabRowStandIn(height > 0 ? tabRowStandIn : nil, from: self as? NSView)
     }
 }
 
@@ -139,6 +143,9 @@ extension NSView {
         let existing = layer?.sublayers?.first { $0.name == Self.tabRowHoleID }
         guard let fill else {
             existing?.removeFromSuperlayer()
+            // No row shared here (another tab shows, or a hole the row clears): no stand-in either; an offer places it
+            // again right after, in the same turn (``PaneTabRowSharing/offerTabRow(height:trailingInset:tabs:toolbar:in:)``).
+            (self as? PaneTabRowStandInHosting)?.placeTabRowStandIn(nil, from: nil)
             return
         }
         wantsLayer = true
