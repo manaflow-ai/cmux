@@ -807,3 +807,26 @@ fn a_gateway_server_is_an_http_entry_for_claude_code_and_acp() {
     assert!(!crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": false}}))));
     assert!(!crate::agent_tools::takes_http(None));
 }
+
+/// A server that writes progress faster than its harness reads the SSE stream: the request holds
+/// one note however many come, the reader gets the newest, and the ones it replaced are counted
+/// (RFD 0124 R4).
+#[test]
+fn progress_for_a_slow_reader_keeps_only_the_newest_note() {
+    let (progress, mut notes) = watch::channel((0, None));
+    let before = progress_coalesced();
+    for n in 0..10_000 {
+        post_progress(
+            &progress,
+            json!({"method": "notifications/progress", "params": {"progress": n}}),
+        );
+    }
+    let mut seen = 0;
+    let note = newest_progress(&mut notes, &mut seen).expect("the newest note");
+    assert_eq!(note["params"]["progress"], 9_999);
+    assert!(progress_coalesced() - before >= 9_999, "the replaced notes are counted");
+    assert!(newest_progress(&mut notes, &mut seen).is_none(), "a note is read once");
+    post_progress(&progress, json!({"params": {"progress": 10_000}}));
+    let next = newest_progress(&mut notes, &mut seen).expect("the next note");
+    assert_eq!(next["params"]["progress"], 10_000);
+}
