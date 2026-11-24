@@ -118,7 +118,10 @@ impl Peer {
                     tracing::info!(peer = %self.name, hint = ?route.path, "a tailnet path to this machine is a candidate");
                     if self.link().is_ready() {
                         if self.probing.load(Ordering::SeqCst) {
-                            tokio::spawn(self.clone().probe(Via::Tailnet));
+                            self.scope.spawn_named(
+                                "peer-tailnet-probe",
+                                self.clone().probe(Via::Tailnet),
+                            );
                         } else {
                             self.start_probes();
                         }
@@ -145,7 +148,7 @@ impl Peer {
             state.watching = true;
         }
         let peer = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("peer-tailnet-watch", async move {
             let mut stopped = peer.stop_changed.subscribe();
             loop {
                 tokio::select! {
