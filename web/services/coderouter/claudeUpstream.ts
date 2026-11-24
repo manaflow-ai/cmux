@@ -9,6 +9,7 @@ import {
   teamHasAnyClaudeAccount,
   type ClaudeFallbackDependencies,
   type FallbackRefusal,
+  type FallbackReservation,
 } from "./claudeFallback";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
@@ -188,6 +189,12 @@ export type ClaudeSelectionInput = {
    * when the model cannot be read.
    */
   readonly model?: () => string | null;
+  /**
+   * The request's upper bound in list-price cents, read only by the house
+   * route, which then holds it against the cap (claudeFallback.ts). Absent for
+   * a call that costs nothing (count_tokens).
+   */
+  readonly reserveCents?: () => number;
 };
 
 export type ClaudeSelection =
@@ -198,6 +205,8 @@ export type ClaudeSelection =
     readonly healthy: number;
     /** House route only: the team's included usage before this request. */
     readonly included?: { readonly spentCents: number; readonly capCents: number };
+    /** House route only: the request's hold on the cap; the caller must release it once the request settles. */
+    readonly reservation?: FallbackReservation;
   }
   /** The team has no accounts at all. */
   | { readonly kind: "none" }
@@ -450,18 +459,63 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    */
   async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
     throwIfAborted(input.signal);
-    let rows = await store.list(teamId, input.signal, input.access);
+    const rows = await store.list(teamId, input.signal, input.access);
     throwIfAborted(input.signal);
-    let included: { spentCents: number; capCents: number } | undefined;
-    if (rows.length === 0) {
-      const house = await decideClaudeFallback(dependencies.fallback, fallbackCaller(teamId, input.access), input.model, input.signal);
+    if (rows.length === 0) return selectHouse(teamId, input);
+    const picked = pick(rows, input);
+    if (picked.kind === "exhausted") return picked;
+    const upstream = await decrypt(picked.row, input.signal);
+    throwIfAborted(input.signal);
+    return { kind: "selected", upstream, total: rows.length, healthy: picked.healthy };
+  }
+
+  /**
+   * The house route (claudeFallback.ts) for a caller with no visible account.
+   * A reservation it admits is handed to the caller with the selection, and
+   * released here on every other way out.
+   */
+  async function selectHouse(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
+    const house = await decideClaudeFallback(
+      dependencies.fallback,
+      fallbackCaller(teamId, input.access),
+      input.model,
+      input.signal,
+      input.reserveCents,
+    );
+    if (house.kind !== "row") {
       throwIfAborted(input.signal);
       if (house.kind === "none") return { kind: "none" };
       if (house.kind === "refused") return { kind: "fallback_refused", reason: house.reason };
-      if (house.kind === "unavailable") return { kind: "fallback_unavailable" };
-      rows = [house.row];
-      included = { spentCents: house.spentCents, capCents: house.capCents };
+      return { kind: "fallback_unavailable" };
     }
+    const reservation = house.reservation;
+    try {
+      throwIfAborted(input.signal);
+      const picked = pick([house.row], input);
+      if (picked.kind === "exhausted") {
+        reservation?.release();
+        return picked;
+      }
+      const upstream = await decrypt(picked.row, input.signal);
+      throwIfAborted(input.signal);
+      return {
+        kind: "selected",
+        upstream: { ...upstream, fallback: true },
+        total: 1,
+        healthy: picked.healthy,
+        included: { spentCents: house.spentCents, capCents: house.capCents },
+        ...(reservation ? { reservation } : {}),
+      };
+    } catch (error) {
+      reservation?.release();
+      throw error;
+    }
+  }
+
+  function pick(
+    rows: readonly ClaudeAccountRow[],
+    input: ClaudeSelectionInput,
+  ): Extract<ClaudeSelection, { kind: "exhausted" }> | { readonly kind: "picked"; readonly row: ClaudeAccountRow; readonly healthy: number } {
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
     const eligible = rows.filter((row) => row.state === "active" && !excluded.has(row.id));
@@ -474,13 +528,10 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
         capacityRetryAfterSeconds: capacityRetryAfter(eligible, at),
       };
     }
-    const chosen = input.stickyKey
+    const row = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    const decrypted = await decrypt(chosen, input.signal);
-    throwIfAborted(input.signal);
-    if (!included) return { kind: "selected", upstream: decrypted, total: rows.length, healthy: healthy.length };
-    return { kind: "selected", upstream: { ...decrypted, fallback: true }, total: 1, healthy: healthy.length, included };
+    return { kind: "picked", row, healthy: healthy.length };
   }
 
   async function cooldown(

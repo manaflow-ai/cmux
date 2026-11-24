@@ -5,6 +5,12 @@
 /// the motion renders it again.
 export const FIELD_GROWTH_EVENT = "acpmux-field-growth";
 
+/// An attachment tile in the text took a new shape with no edit (its header read, its loading tile
+/// turned into its chip, its chip dropped before its node goes): dispatched on the tile's node, bubbling,
+/// in the render's own commit (inlineAttachments.tsx), so the field's move (fieldGrowth.ts) starts
+/// before the frame lays out, as an edit's does.
+export const TILE_SHAPE_EVENT = "acpmux-tile-shape";
+
 export type FieldGrowthDetail = {
   /// The height the field lands on (px); its drawn height minus this is what the stack has yet to grow.
   to: number;

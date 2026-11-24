@@ -129,6 +129,81 @@ class SpawnOwnerRatchet(unittest.TestCase):
         self.assertIn("fresh.rs:1", out)
         self.assertNotIn("remote_table_bench", out)
 
+    def test_every_test_only_declaration_form_is_test_code(self):
+        # Past #41227's plain `#[cfg(test)] mod x;`: a cfg(all(test, ...)) (shell_integration's test_pty and
+        # fork_watch), a #[path] before or after the cfg (server's update_cost_bench, vnc's
+        # session_backpressure), a child of a declared module, a non-mod.rs parent's folder and a
+        # *_tests.rs file's own modules.
+        self.baseline({})
+        hub = "cmux-tui/crates/acpmux/src/hub"
+        spawn = "fn t() { std::thread::spawn(|| {}); }\n"
+        self.write(f"{hub}/mod.rs", "\n".join([
+            "pub mod fresh;",
+            "#[cfg(test)]",
+            "mod remote_table_bench;",
+            "#[cfg(test)] mod nested;",
+            "#[cfg(all(test, unix))]",
+            '#[path = "load_cost_bench.rs"]',
+            "mod load;",
+            '#[path = "pathed_first.rs"]',
+            "#[cfg(test)]",
+            "pub(crate) mod pathed;",
+            "",
+        ]))
+        self.write(f"{hub}/remote_table_bench.rs", spawn)
+        self.write(f"{hub}/nested/mod.rs", "mod inner;\n" + spawn)
+        self.write(f"{hub}/nested/inner.rs", spawn)
+        self.write(f"{hub}/load_cost_bench.rs", spawn)
+        self.write(f"{hub}/pathed_first.rs", spawn)
+        # A non-mod.rs parent owns a folder of its name; a *_tests.rs file's own modules are tests too.
+        self.write("cmux-tui/crates/acpmux/src/server.rs", "#[cfg(test)]\nmod bench;\n")
+        self.write("cmux-tui/crates/acpmux/src/server/bench.rs", spawn)
+        self.write("cmux-tui/crates/acpmux/src/store_tests.rs", "mod helper;\n")
+        self.write("cmux-tui/crates/acpmux/src/store_tests/helper.rs", spawn)
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("check-spawn-owner: ok (0 baselined line(s) in 0 file(s))", out)
+
+    def test_modules_that_also_build_outside_tests_still_count(self):
+        self.baseline({})
+        hub = "cmux-tui/crates/acpmux/src/hub"
+        spawn = "fn t() { std::thread::spawn(|| {}); }\n"
+        self.write(f"{hub}/mod.rs", "\n".join([
+            "mod plain;",
+            "#[cfg(any(test, feature = \"bench\"))]",
+            "mod either;",
+            "#[cfg(not(test))]",
+            "mod release_only;",
+            "// #[cfg(test)] mod commented;",
+            "mod commented;",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    fn t() {}",
+            "}",
+            "",
+        ]))
+        for name in ("plain", "either", "release_only", "commented"):
+            self.write(f"{hub}/{name}.rs", spawn)
+        code, out = self.check("--list")
+        self.assertEqual(code, 0, out)
+        listed = sorted(l.split(":")[0].rsplit("/", 1)[1] for l in out.splitlines() if ".rs:" in l)
+        self.assertEqual(listed, ["commented.rs", "either.rs", "plain.rs", "release_only.rs"], out)
+
+    def test_the_sibling_ratchets_skip_cfg_test_mod_files_too(self):
+        # The same name-only test rule sat in check-no-raw-spawn.py, check-no-process-scan.py,
+        # check-app-id-special-cases.py and check-capability-text.py; all four now read rust_test_modules.py.
+        src = "cmux-tui/crates/cmux-tui-core/src"
+        self.write(f"{src}/lib.rs", "pub mod real;\n#[cfg(all(test, unix))]\nmod fake_pty;\n")
+        line = 'use std::process::Command;\nfn f() { let _ = Command::new("pgrep").spawn(); }\n'
+        self.write(f"{src}/real.rs", line)
+        self.write(f"{src}/fake_pty.rs", line)
+        for script in ("check-no-raw-spawn.py", "check-no-process-scan.py"):
+            result = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/cmux-next" / script),
+                                     str(self.root), "--list"], capture_output=True, text=True)
+            out = result.stdout + result.stderr
+            self.assertIn("real.rs", out, f"{script}: {out}")
+            self.assertNotIn("fake_pty.rs", out, f"{script}: {out}")
+
     def test_a_file_at_its_row_passes(self):
         self.baseline({HUB: 2})
         self.write(HUB, "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n}\n")

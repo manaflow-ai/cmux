@@ -41,6 +41,7 @@ export const CATEGORY_CARDS = [
   "cloudEnvironments",
   "cloudModels",
   "worktreeSetup",
+  "extensions",
   "contextMenus",
   "sharedLinks",
   "customizeLibrary",
@@ -49,6 +50,7 @@ export const CATEGORY_CARDS = [
   "models",
   "keys",
   "mcpServers",
+  "integrationsHub",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

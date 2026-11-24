@@ -5,7 +5,8 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { Icon } from "./icons/Icon";
+import { shownName, type SlashCommand, type SlashMatch, isFastCommand } from "./slashCommands";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -32,7 +33,10 @@ export function SlashMenu({
   fast,
   onHover,
   onPick,
+  mark = "/",
 }: {
+  /** What the rows' names start with: the typed menu's own mark (`/`, Codex's `$`, the plugins' `@`). */
+  mark?: "/" | "$" | "@";
   matches: SlashMatch[];
   active: number;
   empty: string;
@@ -112,9 +116,11 @@ export function SlashMenu({
         ? t("composer.slashSkill")
         : command.source === "prompt"
           ? t("composer.slashPrompt")
-          : command.source === "extension"
-            ? (command.extension ?? "cmux")
-            : "cmux";
+          : command.source === "saved"
+            ? t("composer.slashSaved")
+            : command.source === "extension"
+              ? (command.extension ?? "cmux")
+              : "cmux";
   // A tag every row shares tells no row apart: the tags show only for a list of more than one source.
   const tagged = new Set(matches.map(sourceTag)).size > 1;
 
@@ -124,8 +130,9 @@ export function SlashMenu({
       listRef={list}
       shellRef={escape}
       items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
+      // The text a row writes too: an extension's `/browser-use` and the built-in Browser Use row share a name.
+      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}:${match.command.insert ?? ""}`}
+      textValue={(match) => match.command.label ?? shownName(match.command)}
       label={t(COMPOSER_LABELS.commands)}
       autoFocus={false}
       activeIndex={active}
@@ -164,8 +171,26 @@ export function SlashMenu({
                 <BoltIcon size={14} />
               </span>
             )}
+            {match.command.icon && (
+              <span className="acpmux-mention-icon" aria-hidden="true">
+                {match.command.image ? (
+                  <img
+                    className="acpmux-tool-image"
+                    src={match.command.image}
+                    width={14}
+                    height={14}
+                    alt=""
+                    draggable={false}
+                  />
+                ) : (
+                  <Icon name={match.command.icon} size={14} />
+                )}
+              </span>
+            )}
             <span className="acpmux-slash-name">
-              {fastRow ? (
+              {match.command.label ? (
+                match.command.label
+              ) : fastRow ? (
                 // The typed letters stay bold where the shown name spells the command (English).
                 fastName.toLowerCase() === match.command.name.toLowerCase() ? (
                   <Highlighted name={fastName} ranges={match.ranges} />
@@ -174,7 +199,8 @@ export function SlashMenu({
                 )
               ) : (
                 <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
+                  {mark}
+                  <Highlighted name={shownName(match.command)} ranges={match.ranges} />
                 </>
               )}
             </span>
@@ -184,7 +210,7 @@ export function SlashMenu({
                 <span className="acpmux-slash-hint">{match.command.hint}</span>
               </>
             )}
-            {tagged && sourceTag(match) && (
+            {!match.command.label && tagged && sourceTag(match) && (
               <span className="acpmux-slash-source" data-popup-skip>
                 {sourceTag(match)}
               </span>

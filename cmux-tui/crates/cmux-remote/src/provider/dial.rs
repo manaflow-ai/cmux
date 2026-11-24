@@ -104,7 +104,7 @@ impl Dialer for OsTcpDialer {
     }
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
-        let addresses = resolve_dial_target(host, port).await?;
+        let addresses = super::hedge::v6_first(&resolve_dial_target(host, port).await?);
         let stream = super::hedge::connect(
             &addresses,
             super::hedge::HedgePolicy::INTERNET,

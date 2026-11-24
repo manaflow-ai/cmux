@@ -28,6 +28,8 @@ cmux-pty.workspace = true
 cmux-link.workspace = true
 cmux-netwatch.workspace = true
 cmux-remote-protocol.workspace = true
+# The signed Linux release file an unbundled build's pin comes from (ssh_artifacts).
+cmux-signed-envelope.workspace = true
 cmux-tui-core.workspace = true
 cmux-unix-socket.workspace = true
 cmux-wg = { workspace = true, optional = true }

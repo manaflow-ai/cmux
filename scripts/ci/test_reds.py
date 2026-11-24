@@ -81,7 +81,10 @@ FAILED = (
     re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
-    re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
+    # unittest, with a subTest's message and parameters kept (`FAIL: test_x (mod.C.test_x) [msg] (path='a.py')`):
+    # a lint that reports each offender as its own subTest is one red per offender, so a new offender inside a test
+    # the base already fails is a new failing item, never "the same red" (hq excuse-key-drops-identity, 2026-11-22).
+    re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\)(?: .*\S)?)\s*$"),
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
     # vitest's failure heading: ` FAIL  test/x.test.ts > <describe> > <test>` (backend/apps/api, workerd pool).
     re.compile(r"^\s*FAIL\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .+))$"),

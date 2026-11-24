@@ -12,7 +12,11 @@
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
-import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "../transcriptGrid";
+import { acpmuxSendCall } from "../conversation/acpmuxSends";
+import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, MARK_STEP, transcriptGap } from "../transcriptGrid";
+import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
+import { SUBAGENT_STARTED } from "../subagents/subagentRows";
+import { subagentNamed } from "../subagents/subsessions";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -31,9 +35,23 @@ export type RowProbe = {
   opens?: boolean;
   /** The opening row is another agent's line (a notice or message), not the person's prompt. */
   received?: boolean;
+  /** Another agent's message the turn received after its opening row (`received`), or a send to one (`sent`): an
+   *  activity row, which stands `toolGap` (ST-02). */
+  message?: "received" | "sent";
+  /** The gap a tool row would stand in this row's place, under the same drawn row (transcriptGrid.ts transcriptGap
+   *  over MARK_STEP). Set on `message` rows. */
+  toolGap?: number;
   /** The row is the turn's header ("Working for" / "Worked for"), or, before it has one, its first row under the prompt. */
   head?: boolean;
   text?: string;
+  /** A "Worked for" line's or a turn footer's status: `completed`, `failed`, `cancelled`. */
+  status?: string;
+  /** The turn footer carries the turn's error. */
+  error?: boolean;
+  /** The calls in the row that still read as running (pending or in progress, not a background shell). */
+  running?: number;
+  /** The calls the row holds. */
+  calls?: number;
   /** Browser lane only: the row's measured top, bottom and the visible gap over it. */
   top?: number;
   bottom?: number;
@@ -57,7 +75,18 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule:
+    | "a-turn-gap"
+    | "a-head-gap"
+    | "b-mid-turn-fold"
+    | "b-mid-turn-shrink"
+    | "c-rerender"
+    | "d-blank"
+    | "d-shift"
+    | "d-started-pill"
+    | "d-started-lines"
+    | "d-action-only"
+    | "d-steer-order";
   step: number;
   at: number;
   label: string;
@@ -124,6 +153,11 @@ const foldOf = (row: AcpmuxRow): string => {
   return "";
 };
 const opensTurn = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind !== "hidden";
+/// A tool run whose every call sends another agent a message (`acpmux send`): its "Sent to" line.
+const isSendRow = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool) &&
+  (row.items ?? []).every((item) => !item.tool || acpmuxSendCall(item.tool) !== undefined);
 const isHeader = (row: AcpmuxRow) => row.kind === "worked" || (row.kind === "working" && row.below !== true);
 const textOf = (row: AcpmuxRow) => (typeof row.text === "string" ? row.text.slice(0, 80) : undefined);
 
@@ -173,11 +207,17 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
   const cache = new Map();
+  // The subagent lines the running tray puts in the transcript (App.tsx `withSubagentLines`, on by
+  // default): each turn's "started working" line and each subagent's end line.
+  const subagentLines: DoneLineCache = new Map();
+  // (d) each drawn row's top at the step before, and whether the chat drew any row yet.
+  const tops = new Map<string, number>();
+  let drewRows = false;
   // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
   const drawnHeights = new Map<string, number>();
   // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
   // step reads as a fold change, and the turn view then shapes every turn again (no reuse).
-  const folds = new Set<string>();
+  let folds = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let shaped = 0;
@@ -203,14 +243,15 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         workingSince = undefined;
       }
       client.seekReplay(step.seq);
-    }
+    } else if ("open" in step.reader) folds = new Set([...folds, step.reader.open]); // App.tsx sets a new `folds`
+
     const snap = snapshot;
     if (!snap) {
       current = undefined;
       return undefined;
     }
     const view = turnViewFrom(
-      snap.rows,
+      withSubagentLines(snap.rows, subagentLines) as AcpmuxRow[],
       folds,
       {
         now: step.at,
@@ -261,6 +302,21 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
+      // Another agent's line under a row of its own turn (a message steered in mid-turn, or the message that opened a
+      // finished turn drawn under that turn's "Worked for"), or a send: an activity row (ST-02).
+      const message =
+        row.kind === "user" && (row.incoming || row.received) && prevDrawn?.turn === own
+          ? "received"
+          : isSendRow(row)
+            ? "sent"
+            : undefined;
+      if (message) {
+        probe.message = message;
+        let aboveAt = at - 1;
+        while (aboveAt >= 0 && layout.heights[aboveAt] === 0) aboveAt -= 1;
+        if (aboveAt >= 0 && layout.marks)
+          probe.toolGap = transcriptGap(layout.marks[aboveAt]!, MARK_STEP) * (layout.scale ?? 1);
+      }
       // The turn's head: its header line, or the first row under its opening row.
       if (!headAt.has(own) && ((prevDrawn?.opens && prevDrawn.turn === own) || isHeader(row))) {
         probe.head = true;
@@ -268,6 +324,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       }
       const words = textOf(row);
       if (words) probe.text = words;
+      if ((row.kind === "worked" || row.kind === "turnSummary") && row.status) probe.status = row.status;
+      if (row.kind === "turnSummary" && row.error) probe.error = true;
+      const calls = (row.items ?? []).filter((item) => item.tool);
+      if (calls.length) {
+        probe.calls = calls.length;
+        const running = calls.filter(
+          (item) => (item.tool!.status === "pending" || item.tool!.status === "in_progress") && !item.tool!.background,
+        ).length;
+        if (running) probe.running = running;
+      }
       const box = measured?.[at];
       if (box) {
         probe.top = box.top;
@@ -401,6 +467,62 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       }
     }
 
+    // (d) what Leo saw from 22:05 to 22:11Z on 2026-11-22 (test/fixtures/chat-sim/leo-2205-subagent-burst.ndjson):
+    // "ENTIRE THING FUCKING BLANKED AND FUCKING SHIFTED AND PLAYED SOME BULLSHIT ANIMATIONS WHEN YOU
+    // STARTED A SUBAGENT"; "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT THEN
+    // MY STEER WENT UNDER IT".
+    if (rows.length > 0) drewRows = true;
+    else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
+    const lines = new Map<string, string>();
+    for (let at = 0; at < rows.length; at += 1) {
+      const row = rows[at]!;
+      const live = isLive(row) || LIVE_KINDS.has(row.kind);
+      // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
+      const top = layout.tops[at]!;
+      const was = tops.get(row.id);
+      if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
+        flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);
+      if (row.kind !== SUBAGENT_STARTED) continue;
+      // A start line names at most STARTED_LINE_NAMES subagents, each named, each one this pane saw start.
+      const agents = row.subagents ?? [];
+      const named = agents.slice(0, row.startedNamed ?? agents.length);
+      if (named.length > STARTED_LINE_NAMES)
+        flag("d-started-pill", row.id, `names ${named.length} subagents (want <= ${STARTED_LINE_NAMES})`);
+      for (const agent of agents)
+        if (!subagentNamed(agent) || agent.startUnseen)
+          flag(
+            "d-started-pill",
+            row.id,
+            `${agent.startUnseen ? "a subagent whose start it never read" : "an unnamed subagent"}`,
+          );
+      // One start line a turn.
+      const key = `${ownTurn(row)}\u0000${row.inBackground ?? ""}`;
+      const other = lines.get(key);
+      if (other !== undefined)
+        flag("d-started-lines", row.id, `a second start line in turn ${ownTurn(row)} (first ${other})`);
+      else lines.set(key, row.id);
+    }
+    tops.clear();
+    for (let at = 0; at < rows.length; at += 1) tops.set(rows[at]!.id, layout.tops[at]!);
+    // A steer stands where it was sent: no row of its turn that came after it is drawn over it.
+    for (let at = 0; at < rows.length; at += 1) {
+      const steer = rows[at]!;
+      if (steer.kind !== "user" || steer.steer === undefined) continue;
+      for (let above = 0; above < at; above += 1) {
+        const row = rows[above]!;
+        if (isLive(row) || LIVE_KINDS.has(row.kind) || ownTurn(row) !== ownTurn(steer)) continue;
+        if (row.at > steer.at + 1)
+          flag("d-steer-order", steer.id, `${row.kind} ${row.id} (+${row.at - steer.at} ms after it) drawn over it`);
+      }
+    }
+    // A turn that ended draws more than its prompt and its action row.
+    if (step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result") {
+      const own = rows.filter((row) => ownTurn(row) === turn);
+      if (own.length > 0 && own.every((row) => row.kind === "user" || row.kind === "turnSummary"))
+        flag("d-action-only", own.at(-1)!.id, `turn ${turn} ended with only its prompt and action row`);
+    }
+
     // (c) rows above the newest change rebuilt with nothing of their own changed (same id, version and fold).
     const rerendered: string[] = [];
     const before = new Map<string, AcpmuxRow>();
@@ -494,8 +616,11 @@ export async function runSimulationAsync(
   return sim.result();
 }
 
-/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
+/// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads, nor a
+/// message steered into the running turn.
 function isTurnPrompt(event: EventRecord): boolean {
+  // A message steered into the running turn (`steer: true`) joins that turn (direct.ts startsTurn).
+  if (event.msg?.steer === true) return false;
   const kind = event.msg?._meta?.provenance?.kind;
   return kind !== "inbox_notice" && kind !== "agent_digest";
 }

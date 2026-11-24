@@ -996,6 +996,11 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
+    public final Object processCensus() throws CmuxException {
+        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);

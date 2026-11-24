@@ -187,14 +187,12 @@ impl Overlay {
                 }
                 Kind::Link => {}
                 Kind::Dir => {
-                    let (first, children) = self.manifest.children(index);
-                    for (offset, child) in children.iter().enumerate() {
-                        let Ok(offset) = u32::try_from(offset) else { break };
+                    for (child_id, child) in self.manifest.children(index) {
                         let child_path = if check { join(&at, &child.name) } else { String::new() };
                         if check && Self::hidden(&inner, &child_path) {
                             continue;
                         }
-                        stack.push((first + offset, child_path));
+                        stack.push((child_id, child_path));
                     }
                 }
             }

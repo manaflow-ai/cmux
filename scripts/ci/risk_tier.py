@@ -1132,6 +1132,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         print(f"::warning::risk:high: {pending}")
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
+    if args.files_out:
+        # The changed files, for the next step's UI try line (ui_review_advisory.py --add-try): no second read.
+        Path(args.files_out).write_text(json.dumps([{"filename": f} for f in files]))
     if args.github_output:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
@@ -1342,6 +1345,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo-dir", help="a clone holding the base commit and RECENT_DAYS of its history, "
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
+    p.add_argument("--files-out", help="write the changed files here as JSON [{filename}]")
     p.add_argument("--summary")
     p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
                    "GET pulls/N call")
