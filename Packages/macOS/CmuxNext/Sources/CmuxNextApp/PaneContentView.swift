@@ -134,7 +134,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.nativeRowTools.value, stripModel.hidesLoneTab, stripModel.tabs.count) }) // the count: a summary's room (#53314) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.nativeRowTools.value, stripModel.hidesLoneTab, stripModel.tabs.count) }) { // the count: a summary's room (#53314)
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -181,9 +181,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, rowNeed = rowContent?.tabRowNeedWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
-        let base = shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowNeed, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil,
-                                                             sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowNeed
-        let (slot, accessoryRoom) = TabRowAccessoryFit.fit(base: base, accessory: rowTools - rowNeed, width: bounds.width, tabs: stripView.isHidden ? 0 : stripView.naturalWidth) // a summary takes only what the tabs leave at full width (#53314)
+        let (slot, accessoryRoom) = TabRowAccessoryFit.fit(base: shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowNeed, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil, sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowNeed,
+                                                           accessory: rowTools - rowNeed, width: bounds.width, tabs: stripView.isHidden ? 0 : stripView.naturalWidth) // the summary: only what the tabs leave at full width (#53314)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
