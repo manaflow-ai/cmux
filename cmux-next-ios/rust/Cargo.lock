@@ -511,6 +511,14 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -602,6 +610,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-braid-carrier",
+ "cmux-braid-path",
  "cmux-build-space",
  "cmux-fault",
  "cmux-mobile-link",
