@@ -7,7 +7,8 @@ import NIOPosix
 
 /// The sockets under SSH: Network.framework (NIOTransportServices) on Apple platforms, plain POSIX
 /// sockets (NIOPosix) elsewhere, so the package's tests run on Linux.
-enum SSHTransport {
+struct SSHTransport {
+    package init() {}
     /// An event loop for a new connection.
     static func nextEventLoop() -> any EventLoop {
         #if canImport(Network)

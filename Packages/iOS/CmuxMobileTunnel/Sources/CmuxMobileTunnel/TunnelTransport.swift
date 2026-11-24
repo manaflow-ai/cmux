@@ -8,7 +8,8 @@ import NIOPosix
 
 /// The sockets under the tunnel: Network.framework (NIOTransportServices) on Apple platforms, plain
 /// POSIX sockets (NIOPosix) elsewhere, so the plumbing's tests run on Linux.
-enum TunnelTransport {
+struct TunnelTransport {
+    package init() {}
     /// Binds a loopback listener on `host:port` whose accepted channels run `childInitializer`, with
     /// half-closure allowed and auto-read off.
     static func listen(
