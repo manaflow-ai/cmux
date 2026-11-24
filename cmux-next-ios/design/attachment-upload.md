@@ -80,3 +80,40 @@ progress as the `compressing` stage; cancel stops the export.
   time, long before Send.
 - Background upload with the app suspended: the link parks (`link.rs:63`) and the upload resumes
   from its last ack when the app returns.
+
+## Next: transfer early, send less, wait on progress (Leo, 2026-11-24)
+
+Leo: "attachments and s**t potentially need to be optimistically transferred from phone to mac...
+and the size needs to be optimized too". And: "10s timeout for messages being sendsble is a shame.
+if it's making good progress, it shiukd be allowed to keep going?"
+
+What already holds before this section:
+
+- Pick-time transfer: the engine starts the upload when the attachment is picked, not at Send.
+- Resume from the last acked byte (#53651, acks durable per MiB) and per-attempt bounds that retry.
+- The upload itself fails only after 5 minutes with no new acked byte: progress-based already.
+- Chunk-level dedup for files ≤ 64 MiB over `bundle` (#54356): a re-send crosses only the chunks
+  the Mac lacks.
+
+What this section adds:
+
+1. **Whole-file dedup by hash, any size.** The engine hashes the file (SHA-256, streamed, off the
+   main thread) while it compresses or before the first byte. `upload` open carries `sha256`; hostd
+   keeps an index `sha256 -> stored path` of finished uploads and answers `final` with that path and
+   no bytes when it has it (verifying size and hash of the stored file first). An older Mac ignores
+   the field and the upload proceeds as today.
+2. **Images sized to what the agent needs.** `image_plan(width, height, bytes, format) -> ImagePlan`
+   in Rust: send the original when its long side is ≤ 2048 px and it is ≤ 2 MiB; otherwise downscale to
+   a long side of 2048 px and re-encode JPEG q 0.85 (HEIC in, JPEG out: agents read JPEG). Swift glue
+   runs ImageIO (`CGImageSourceCreateThumbnailAtIndex`) and reports it as `compressing`. Screenshots
+   with text stay legible at 2048 px.
+3. **Original on demand.** When a plan re-encoded, the composer chip keeps the original's local
+   identifier and offers "Send original"; it starts a second upload of the untouched file, deduped
+   like any other. The agent's message names the sent copy's size, so the agent can ask for it.
+4. **Progress-based deadlines, not fixed ones.** A held chat prompt comes back to the composer after
+   10 s (`AcpmuxHub.heldPromptWindow`). It becomes: held while its attachment upload or the link's
+   redial makes progress, and returned only after 10 s with no progress. The other fixed bounds on
+   the attach path (open 15 s, have 10 s, final 60 s) already end an attempt, not the send.
+
+Measured before and after, on lte and lossy-3, idle and under duress: bytes on the wire and time
+from pick to "sent" for a 12 MP photo, a 1-minute 4K clip, and a re-send of each.
