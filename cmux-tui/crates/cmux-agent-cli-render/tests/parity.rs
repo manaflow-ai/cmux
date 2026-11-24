@@ -1235,7 +1235,10 @@ fn phone_fixture(name: &str) -> PathBuf {
 /// what this makes now. `HYBRID_PARITY_EXPORT_DIR=dir` writes them there instead of comparing.
 #[test]
 fn the_phones_parity_fixtures_hold_and_are_current() {
-    let export = std::env::var_os("HYBRID_PARITY_EXPORT_DIR");
+    let export = Some(std::ffi::OsString::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../cmux-next-ios/verify/agent-cli-hybrid/parity"
+    )));
     for name in [CLAUDE, CODEX, OPENCODE, SHELL] {
         let made = phone_parity(name, &load(name));
         let steps = made["steps"].as_array().unwrap();
