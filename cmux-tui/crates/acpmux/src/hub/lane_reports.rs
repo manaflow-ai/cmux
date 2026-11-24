@@ -409,6 +409,9 @@ fn state(summary: &Value) -> String {
                 format!("waiting on a question: {ask}")
             };
         }
+        Some("secret") => return "waiting on a secret".into(),
+        Some("elevation") => return "waiting on a root password".into(),
+        Some("mcp_connect") => return "waiting on an MCP server connect".into(),
         Some(_) => return "waiting on a permission".into(),
         None => {}
     }
@@ -1557,7 +1560,7 @@ mod tests {
         // The parent's close has begun (`kill` marks it closing, then closes it) but has not
         // retired its links yet: the link check passes, the parent must still refuse it.
         parent.closing.store(true, Ordering::SeqCst);
-        hub.set_status(&parent, SessionStatus::Closed);
+        hub.set_status(&parent, NotWaiting::Closed);
         hub.lane_hand_over(&lane.id, due).await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");

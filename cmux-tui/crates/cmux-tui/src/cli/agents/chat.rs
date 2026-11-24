@@ -303,6 +303,12 @@ pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
     acp::peers(app_acpmux(global).as_deref())
 }
 
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -981,6 +987,11 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
+    }
+
     /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
     pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
         block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
@@ -1080,6 +1091,23 @@ pub(in crate::cli) mod acp {
                 .request(
                     acpmux::rpc::method::MUX_WAIT,
                     json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
                 )
                 .await
         })
