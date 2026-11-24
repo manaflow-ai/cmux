@@ -673,7 +673,8 @@ impl SignalingClient {
             crate::local::HUB_VERSION
         );
         // The hub is a Mac on this network: no proxy reaches it.
-        let direct = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
+        let direct =
+            crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
         let client = Self::open(url, token, device_id, None, direct).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
