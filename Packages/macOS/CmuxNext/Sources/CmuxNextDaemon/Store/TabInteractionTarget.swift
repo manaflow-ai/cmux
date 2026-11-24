@@ -19,6 +19,10 @@ public struct TabInteractionTarget {
         attentionGeneration = tab.attentionGeneration
     }
 
+    /// Still the tab pressed (not closed, nor its store replaced, even if its id is reused), with the mark it showed then:
+    /// a click released on it reads only that mark, never a request that replaced it while the press was down.
+    public var isCurrent: Bool { store.tab(idOrResource: tab.id) === tab && attentionUnchanged }
+
     /// Whether the tab still shows the mark it showed when pressed.
     public var attentionUnchanged: Bool {
         guard tab.attention?.requestID == attentionRequestID else { return false }
