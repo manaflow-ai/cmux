@@ -23,7 +23,8 @@ import {
   type Effect,
   type ErrorClass,
 } from "./classify";
-import { cloudErgonomicsStates, UNCOVERED, type ErgoState } from "./states";
+import { cloudErgonomicsStates, type ErgoState } from "./states";
+import { UNCOVERED } from "./turnFailureFixtures";
 
 export const SCHEMA = "cloud-ergonomics/v1";
 

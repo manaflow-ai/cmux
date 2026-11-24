@@ -28,7 +28,7 @@ import {
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
-import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/nativeSessionInfoLoader";
 import {
   sessionInfoState,
   resetSessionInfoState,

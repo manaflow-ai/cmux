@@ -1,5 +1,3 @@
-import { ArxivMark, GitHubMark, Globe } from "./icons";
-import { FileKindIcon } from "../chips/FileKindIcon";
 import { fenceStep } from "./fenceRule";
 import { closesFence, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
@@ -423,14 +421,6 @@ export function linkKind(href: string): "github" | "citation" | "file" | "web" {
   if (/arxiv\.org/.test(href)) return "citation";
   return "web";
 }
-
-export const linkIcon = (href: string) => {
-  const kind = linkKind(href);
-  if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
-  if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
-  if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
-  return <Globe size={16} className="cv-link__icon" />;
-};
 
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
 // paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"

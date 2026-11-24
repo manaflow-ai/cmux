@@ -8,7 +8,8 @@ import { noChat } from "../../../gallery/fixtures/acpmux";
 import type { AddWidgetLook } from "./AddWidgetGallery";
 import { NewTabScreen } from "./NewTabScreen";
 import type { ScreenTemplate } from "./templates";
-import { NewTabWidgets, NewTabWidgetsHost, type WidgetTileLook } from "./NewTabWidgets";
+import { NewTabWidgets, type WidgetTileLook } from "./NewTabWidgets";
+import { NewTabWidgetsHost } from "./newTabWidgetsHost";
 import type { WidgetEditLook } from "./WidgetEditing";
 
 export const FIXTURE_TILES: WidgetTilePlacement[] = [

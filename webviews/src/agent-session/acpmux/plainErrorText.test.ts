@@ -9,7 +9,7 @@ import { HandoffClient } from "./handoff/client";
 import { HANDOFF_OPS } from "./handoff/protocol";
 import { translate } from "./i18n";
 import { paneNotices } from "./paneToasts";
-import { shareFailureText } from "./share/ShareControl";
+import { shareFailureText } from "./share/shareNotices";
 import { knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedAsk } from "./useFolderTrustAsk";
 

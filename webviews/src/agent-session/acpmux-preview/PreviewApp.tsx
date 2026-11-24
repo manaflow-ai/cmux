@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "../acpmux/App";
 import { applyAgentTheme } from "../shared/theme";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
@@ -295,8 +294,4 @@ export function PreviewApp() {
       </div>
     </main>
   );
-}
-
-export function mountPreview() {
-  createRoot(document.getElementById("root")!).render(<PreviewApp />);
 }

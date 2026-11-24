@@ -3,7 +3,8 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { useT } from "../i18n";
-import { CarriedSection, carriedSummary } from "./CarriedSection";
+import { CarriedSection } from "./CarriedSection";
+import { carriedSummary } from "./carriedSummary";
 import {
   NOT_CONFIGURED,
   parseResolution,

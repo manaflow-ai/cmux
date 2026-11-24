@@ -51,7 +51,7 @@ import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { fitsLine, newestWholeKey, readForIds, setThreadRead, THREAD_PAGE, threadRead } from "./inboxThreadRead";
 import { useInboxThreadLook } from "./inboxThreadLook";
 import { Markdown } from "./Markdown";
-import { inboxHover } from "./MessageGroupHover";
+import { inboxHover } from "./messageGroupHoverModel";
 import { withoutRelayEnvelope } from "./relayEnvelope";
 import { bareSender } from "./senderIdentity";
 import { SentFromLine } from "./SentFromLine";

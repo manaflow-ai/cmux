@@ -4,47 +4,17 @@
 // the scene it gets. cmux ships no widgets of its own, so with no extension installed nothing shows.
 // Off by default: Settings > Advanced > Experiments > Extension Chat Widgets (`experiments.chatWidgets`);
 // while it is off no call is routed and no card is drawn.
-import { createContext, memo, useContext, useEffect, useState, useSyncExternalStore } from "react";
+import { memo, useContext, useEffect, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../../pages/shared/pageClient";
-import { ChatWidgetMount, type ChatWidgetTool } from "../../../apps/scene/chatWidgetClient";
+import { ChatWidgetMount } from "../../../apps/scene/chatWidgetClient";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import { SceneMount } from "../../../apps/scene/panels";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { pageHostClient } from "../pageHost";
 import type { AcpmuxActivity } from "../model";
-import { mcpCall } from "./mcpCalls";
+import { ChatWidgetClientContext, widgetTool } from "./toolWidgetModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-
-/** The page client widgets mount through; galleries and tests provide their own. */
-export const ChatWidgetClientContext = createContext<PageClient | null | undefined>(undefined);
-
-function parse(text: string | undefined): unknown {
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
-
-/** The call as the daemon routes it: an MCP call by its `mcp__<server>__<tool>` name with its
- * arguments (Codex nests them; Claude Code passes them as the input), any other call by the name its
- * harness gave it. */
-export function widgetTool(tool: Tool): ChatWidgetTool {
-  const mcp = mcpCall(tool);
-  const name = mcp
-    ? `mcp__${mcp.server}__${mcp.tool}`
-    : (tool.provenance?.claudeCodeToolName ?? tool.provenance?.claudeTool ?? tool.title).trim();
-  const input = mcp ? mcp.args : parse(tool.inputSummary);
-  return {
-    name: name.slice(0, 128),
-    ...(tool.title && { title: tool.title }),
-    status: tool.status,
-    ...(input !== undefined && { input }),
-    ...(tool.output && { output: tool.output }),
-  };
-}
 
 /// The widget an installed extension draws under a finished call, or nothing.
 export const ToolWidget = memo(function ToolWidget({ tool }: { tool: Tool }) {

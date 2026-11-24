@@ -9,12 +9,7 @@
 // agent pane could not be drawn after i opedn up background tasks"; handbook failure-drops-its-reason).
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
-
-/// The line a caught render error is logged under: what failed, then the error's own words.
-export function paneFailureLine(error: unknown): string {
-  const words = error instanceof Error ? error.message : String(error);
-  return `agent pane render failed: ${words || "no message"}`;
-}
+import { paneFailureLine } from "./paneFailureLine";
 
 type Props = { children?: ReactNode; onRetry?: () => void };
 type State = { failed: boolean };

@@ -5,7 +5,8 @@
 // and the palette are native, so they are drawn here as their shape, with the real TeamTag for the
 // web surfaces. `list` is the one that ships.
 import { Icon } from "./icons/Icon";
-import { TeamTag, teamIconName, type ActiveTeamTag } from "./TeamTag";
+import { TeamTag } from "./TeamTag";
+import { teamIconName, type ActiveTeamTag } from "./teamTagModel";
 
 export type ActiveTeamDesign = "list" | "submenu" | "header" | "badge";
 

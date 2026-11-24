@@ -7,13 +7,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { newWorktree } from "./startFolderModel";
-import {
-  WorktreeSetupLine,
-  followWorktreeSetup,
-  forgetWorktreeSetup,
-  rememberWorktreeSetup,
-  type SetupView,
-} from "./worktreeSetup";
+import { WorktreeSetupLine } from "./worktreeSetup";
+import { followWorktreeSetup, type SetupView } from "./worktreeSetupModel";
+import { forgetWorktreeSetup, rememberWorktreeSetup } from "./worktreeSetupStore";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

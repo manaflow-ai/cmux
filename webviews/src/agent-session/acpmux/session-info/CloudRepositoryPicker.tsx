@@ -5,7 +5,7 @@ import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
 import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
-import { LastKnown } from "../../../lastKnown";
+import { knownRepos } from "./lastKnownRepos";
 
 export type CloudRepo = {
   fullName: string;
@@ -37,24 +37,6 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
     // Older hosts do not expose the local catalog. The machine's persisted catalog remains usable.
     return undefined;
   }
-}
-
-type KnownRepos = { repos: CloudRepo[]; connectUrl?: string };
-
-/// The last list each chat's search answered (by chat and query), per request function (the host's
-/// `postNative`; a gallery's or test's own stub keeps its own lists): the picker opened again draws
-/// it at once, with no "Searching" line, and lists again behind it.
-let lastReposByRequest = new WeakMap<object, LastKnown<KnownRepos>>();
-
-function knownRepos(request: object): LastKnown<KnownRepos> {
-  let known = lastReposByRequest.get(request);
-  if (!known) lastReposByRequest.set(request, (known = new LastKnown<KnownRepos>(16)));
-  return known;
-}
-
-/// Drops every last-known list (tests).
-export function resetLastKnownReposForTests(): void {
-  lastReposByRequest = new WeakMap();
 }
 
 function reposOf(value: unknown): CloudRepo[] {

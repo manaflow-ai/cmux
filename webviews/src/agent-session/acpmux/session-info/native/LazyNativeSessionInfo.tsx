@@ -6,36 +6,7 @@
 // 2026-11-19-agent-pane-startup-graph; test/agent-pane-startup-graph.test.ts keeps it out of pane.js.
 import { useSyncExternalStore } from "react";
 import type { NativeSessionInfoProps } from "./NativeSessionInfo";
-
-type Module = typeof import("./NativeSessionInfo");
-
-let loaded: Module | undefined;
-let loading: Promise<Module> | undefined;
-const listeners = new Set<() => void>();
-
-/** Starts loading the App-drawn panel's code once; a failed fetch is tried again on the next call. */
-export function loadNativeSessionInfo(): Promise<Module> {
-  loading ??= import("./NativeSessionInfo").then(
-    (module) => {
-      loaded = module;
-      for (const listener of listeners) listener();
-      return module;
-    },
-    (error: unknown) => {
-      loading = undefined;
-      throw error;
-    },
-  );
-  return loading;
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  if (!loaded) void loadNativeSessionInfo().catch(() => undefined);
-  return () => listeners.delete(listener);
-}
-
-const current = () => loaded;
+import { current, subscribe } from "./nativeSessionInfoLoader";
 
 export function LazyNativeSessionInfo(props: NativeSessionInfoProps) {
   const module = useSyncExternalStore(subscribe, current, current);

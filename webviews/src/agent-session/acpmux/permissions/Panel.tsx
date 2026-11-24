@@ -13,7 +13,8 @@ import type { PermissionClientState, PermissionDecision, PermissionGroupItem } f
 import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
 import { focusRoute } from "../../../ui/focusRoute";
-import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./HoldButton";
+import { HoldRing } from "./HoldButton";
+import { holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./useHoldToApprove";
 import { holdApplies, holdSettings } from "./holdToApprove";
 import type { HoldScope } from "./holdToApprove.experiment";
 

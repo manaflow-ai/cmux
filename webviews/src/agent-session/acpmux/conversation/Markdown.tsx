@@ -17,7 +17,8 @@ import { RenderCard } from "./RenderCard";
 import { isChart } from "./diagramBlockModel";
 import { canRender } from "./renderCardModel";
 import { renderFence } from "./renderCall";
-import { TourBlock, isTourFence } from "../repoTour/TourBlock";
+import { TourBlock } from "../repoTour/TourBlock";
+import { isTourFence } from "../repoTour/tourBlockModel";
 import { CompareButton, RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
@@ -37,7 +38,8 @@ import { entranceAllowed } from "../../shared/pageReveal";
 
 import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
 import { ReplyScan } from "./replyScan";
-import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
+import { type InlineOptions, renderInline } from "./inlineMarkdown";
+import { InlineImage } from "./InlineImage";
 
 /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
 /// number of one or two digits keeps the list's usual indent.

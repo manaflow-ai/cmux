@@ -150,7 +150,7 @@ async function mount({ flag, mode, chat: firstChat }: { flag?: boolean; mode: "p
   let chat = firstChat;
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-  const { useChatCloudEnvironment } = await import("../src/agent-session/acpmux/CloudEnvironmentChip");
+  const { useChatCloudEnvironment } = await import("../src/agent-session/acpmux/useCloudEnvironment");
   // As App.tsx: the chat's pick rides on its run mode, and its Cloud send takes it.
   function Held(props: Parameters<typeof ComposerContext>[0] & { chat: string }) {
     const { chat: key, ...rest } = props;

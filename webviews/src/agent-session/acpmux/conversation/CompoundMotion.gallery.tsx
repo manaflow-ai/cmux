@@ -11,7 +11,8 @@ import { useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { COMPOUND_CASES, type CompoundCase } from "./compoundCases";
-import { CompoundPane, playCompound, type PaneState } from "./compoundScenarios";
+import { CompoundPane, type PaneState } from "./compoundScenarios";
+import { playCompound } from "./compoundPlay";
 import { COMPOUND_MOTION_ATTR } from "./motionTransaction";
 
 type Props = { which: CompoundCase; arm: "transaction" | "separate" };

@@ -63,9 +63,10 @@ import {
 } from "./sessionAuth";
 import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance } from "./toastAvoidance";
-import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
+import { OpenAppCard } from "./OpenAppCard";
+import { afterLatestFooter } from "./afterLatestFooter";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
-import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
+import { useChatCloudEnvironment } from "./useCloudEnvironment";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
@@ -162,7 +163,7 @@ import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
-import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
+import { setStreamingRowBlocked } from "./streamingRow";
 import { liveToolOutput } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { type ComposerHandle, type ComposerRelay, type ComposerWake } from "./Composer";
@@ -589,7 +590,7 @@ import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
 import { useSyncedRef } from "../../diff-viewer/useSyncedRef";
-import { useWorktreeSetupStart } from "./worktreeSetup";
+import { useWorktreeSetupStart } from "./worktreeSetupModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { handoffStrings } from "./handoff/strings";
@@ -729,7 +730,7 @@ export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
 import { drawPaneBody } from "./pane/PaneBody";
-import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
+import { preloadNewTabWhenIdle } from "./newtab/newTabLoader";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -776,28 +777,6 @@ const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
-
-export const currentRegistry = (): NativeRegistry => ({
-  ...defaultRegistry,
-  ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
-});
-
-/// The index of the streaming reply's row when `next` differs from `drawn` only in that row's
-/// text (HOT PATH AUDIT area F, row W1), else -1. Every other field compares by identity: the client
-/// keeps the same objects while they do not change (direct.ts `publishedSummary`, `NO_CATALOG`,
-/// subagentFold.ts `views`), so this is O(fields + rows), with no serialization. Drawn only while
-/// the transcript draws that row as the client holds it (`drawsAsIs`) and no view that reads the
-/// pane's rows is open (`streamingRowBlocked`).
-export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): number {
-  const before = drawn as unknown as Record<string, unknown>;
-  const after = next as unknown as Record<string, unknown>;
-  const keys = Object.keys(after);
-  if (keys.length !== Object.keys(before).length) return -1;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
-  if (streamingRowBlocked()) return -1;
-  const at = textOnlyRow(drawn.rows, next.rows);
-  return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
-}
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
 /// A provided value's failure reaches the card (it keeps the typed secret); a decline stays quiet.

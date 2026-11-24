@@ -2,5 +2,5 @@
   "plugins": ["react"],
   "categories": { "correctness": "off" },
   "ignorePatterns": ["**/*.gallery.tsx", "**/*.test.tsx", "**/*.spec.tsx", "**/*.fixture.tsx", "**/generated/**"],
-  "rules": { "react/only-export-components": ["error", { "allowConstantExport": true }] }
+  "rules": { "react/only-export-components": ["error", { "allowConstantExport": true, "customHOCs": ["glyph"] }] }
 }

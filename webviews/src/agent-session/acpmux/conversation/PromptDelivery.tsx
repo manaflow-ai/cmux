@@ -10,45 +10,20 @@
 // (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
 // folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
 // code, each hop's time and the ids, and Copy debug info.
-import { useContext, useEffect, useId, useState } from "react";
-import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
+import { useContext, useId, useState } from "react";
+import type { AcpmuxRow, PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
 import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
 import { useTranscriptReadOnly } from "./readOnly";
-import { FailedSendsContext, deliveryDebugText } from "./promptDeliveryModel";
-const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
+import { FailedSendsContext, deliveryDebugText, pendingLabel } from "./promptDeliveryModel";
 
 const HOP_LABEL = {
   connection: "prompt.delivery.hop.connection",
   acpmux: "prompt.delivery.hop.acpmux",
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
-
-/// What a prompt still on its way says: the one sentence its footer shows.
-export function pendingLabel(delivery: PromptDelivery): StringKey {
-  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
-}
-
-/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
-/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
-/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
-/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
-/// the host, it still says "Sending when ready".
-export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
-  const sending = delivery?.state === "sending";
-  const sentAt = delivery?.sentAt ?? 0;
-  const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
-  useEffect(() => {
-    if (!sending || late) return;
-    const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
-    return () => clearTimeout(timer);
-  }, [sending, late, sentAt]);
-  if (delivery?.waitingForHost === true) return sending;
-  return sending && late && !queued;
-}
 
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
 /// slot the age takes once it lands, so the row moves nothing when it does.

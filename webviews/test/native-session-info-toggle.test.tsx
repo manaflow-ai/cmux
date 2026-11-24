@@ -19,7 +19,7 @@ import {
   setNativeSessionInfoHost,
 } from "../src/agent-session/acpmux/session-info/native/host";
 import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/session-info/native/model";
-import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/nativeSessionInfoLoader";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";

@@ -1,7 +1,7 @@
 import { SessionMark } from "../shared/AgentMark";
-import { newestFormerName } from "./AgentIdentityChip";
 import { Bot } from "./conversation/icons";
 import type { IncomingRelation } from "./conversation/incomingMessage";
+import { newestFormerName } from "./formerNames";
 import { useT, type StringKey } from "./i18n";
 import type { SenderIdentity } from "./senderIdentity";
 import "./senderIdentity.css";

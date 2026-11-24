@@ -17,7 +17,7 @@ import {
   computePopoverStyle,
   popoverWidth,
 } from "../src/branchBasePopover";
-import { headerToolPreviewPlacement } from "../src/agent-session/acpmux/header/HeaderToolPreview";
+import { headerToolPreviewPlacement } from "../src/agent-session/acpmux/header/headerToolPreviewPlacement";
 import { locationMenuHeights, locationMenuSide } from "../src/agent-session/acpmux/locationPopover";
 import { INTERFACE_SCALE_EVENT, interfaceScale, onInterfaceScaleChange, scaledPx } from "../src/ui/interfaceScale";
 import { tooltipScale } from "../src/ui/tooltipTokens";

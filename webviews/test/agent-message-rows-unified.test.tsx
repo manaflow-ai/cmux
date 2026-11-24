@@ -307,8 +307,9 @@ test("a send and a subagent's report draw through the same row as a received mes
 });
 
 test("a group's hover lists its messages newest first, short names, two lines each, then +N more", async () => {
-  const { GroupHoverLookContext, MessageGroupHover, hoverMessages } =
-    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { MessageGroupHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, hoverMessages } =
+    await import("../src/agent-session/acpmux/conversation/messageGroupHoverModel");
   const list: IncomingMessage[] = Array.from({ length: 7 }, (_, index) => ({
     name: `gcp-agent-lane-3/lane-${index} ${SUFFIX}`,
     text: relayed(`message ${index}\nsecond line ${index}`, `abcd000${index}`, `gcp-agent-lane-3/lane-${index}`),
@@ -335,8 +336,9 @@ test("a group's hover lists its messages newest first, short names, two lines ea
 });
 
 test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
-  const { GroupHoverLookContext, MessageGroupHover, inboxHover } =
-    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { MessageGroupHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/messageGroupHoverModel");
   const notice: InboxNotice = {
     threads: [
       {
@@ -397,7 +399,7 @@ test("an inbox notice's hover lists every message of every thread, newest first,
 });
 
 test("a lane batch's hover counts a preview-only delivery as its thread's whole count", async () => {
-  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/messageGroupHoverModel");
   const one = (name: string, text: string): IncomingMessage => ({ name, text, raw: "" });
   const list = hoverMessages([one("a", "older"), one("b", "newer")], [undefined, 6]);
   expect(list.messages.map((m) => m.text)).toEqual(["newer", "older"]);
@@ -408,7 +410,7 @@ test("a lane batch's hover counts a preview-only delivery as its thread's whole 
 // (an inbox message's `at`, else its row's), not by the rows' order reversed: a notice lists its
 // threads in its own order, which is not the messages' age.
 test("a lane batch's hover lists its messages newest first by their time, not their order", async () => {
-  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/messageGroupHoverModel");
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
   const notice: InboxNotice = {
     threads: [
@@ -455,8 +457,9 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 // row and the group's hover still mark its sender's name as a claim.
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
-  const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
-    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { MessageGroupHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, hoverMessages, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/messageGroupHoverModel");
   const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
     threads: [
       {

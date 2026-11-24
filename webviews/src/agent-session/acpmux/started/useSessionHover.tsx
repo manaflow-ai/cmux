@@ -20,9 +20,8 @@ import {
   trackPointerRest,
   type PointerPlace,
 } from "../../../ui/scrollHover";
-import { type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";
 import { SESSION_HOVER_DELAY, SessionHoverContext, hoverCardSide } from "./sessionHoverCardModel";
-import { SessionHoverContent } from "./SessionHoverCard";
+import { SessionHoverBody } from "./SessionHoverBody";
 
 /// One group for every reference: after one card, the next shows at once while the pointer moves on.
 const group = new HoverGroup(HOVER_INTENT.cardGrace);
@@ -211,37 +210,6 @@ export function useSessionHover(
     </AnchoredCard>
   ) : null;
   return { trigger, card, takeOver };
-}
-
-function SessionHoverBody({
-  store,
-  sessionId,
-  buttonRef,
-  onOpen,
-  onEscape,
-  onBlur,
-  onFocus,
-}: {
-  store: SessionHoverStore;
-  sessionId: string;
-  buttonRef: { current: HTMLButtonElement | null };
-  onOpen(): void;
-  onEscape(): void;
-  onBlur(event: FocusEvent<HTMLElement>): void;
-  onFocus(): void;
-}) {
-  const info = useSessionHoverInfo(store, sessionId);
-  if (!info) return null;
-  return (
-    <SessionHoverContent
-      info={info}
-      buttonRef={buttonRef}
-      onOpen={onOpen}
-      onEscape={onEscape}
-      onBlur={onBlur}
-      onFocus={onFocus}
-    />
-  );
 }
 
 /// The card's content: the whole card is one button that opens the session.

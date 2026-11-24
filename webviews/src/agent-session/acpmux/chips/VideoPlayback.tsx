@@ -4,7 +4,7 @@
 // speed (0.5x, 1x, 2x), a frame step either way and loop. The compare viewer plays two clips side by
 // side (or one above the other) on one clock: one play, one scrub, one speed, one step, and the
 // second clip follows the first frame for frame. Rules live in videoPlaybackModel.ts.
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useScrimClose } from "../../../ui/scrimClose";
@@ -12,45 +12,8 @@ import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Close, PlayTriangle } from "../conversation/icons";
 import { loadPlayableMedia } from "./replyMediaModel";
-import {
-  PLAYBACK_RATES,
-  clockTime,
-  followerSeek,
-  nextRate,
-  pairCaptions,
-  playbackKey,
-  steppedTime,
-  type PlaybackKey,
-} from "./videoPlaybackModel";
-
-/// Applies a viewer key to `videos` (the first leads); true when it was the viewer's.
-export function applyPlaybackKey(key: PlaybackKey, videos: HTMLVideoElement[]): boolean {
-  const lead = videos[0];
-  if (!lead) return false;
-  switch (key.kind) {
-    case "toggle":
-      if (lead.paused) for (const video of videos) void video.play()?.catch(() => {});
-      else for (const video of videos) video.pause();
-      return true;
-    case "step": {
-      for (const video of videos) video.pause();
-      const time = steppedTime(lead.currentTime, key.direction, lead.duration);
-      for (const video of videos)
-        video.currentTime = Math.min(time, Number.isFinite(video.duration) ? video.duration : time);
-      return true;
-    }
-    case "rate": {
-      const rate = nextRate(lead.playbackRate, key.direction);
-      for (const video of videos) video.playbackRate = rate;
-      return true;
-    }
-    case "loop": {
-      const loop = !lead.loop;
-      for (const video of videos) video.loop = loop;
-      return true;
-    }
-  }
-}
+import { PLAYBACK_RATES, clockTime, followerSeek, pairCaptions, type PlaybackKey } from "./videoPlaybackModel";
+import { applyPlaybackKey, onPlaybackKeyDown } from "./videoPlaybackKeys";
 
 /// What the bar shows of the lead clip, read when it changes. A snapshot in state, never read off the
 /// element while rendering: React Compiler memoizes such reads on the element, which does not change.
@@ -185,19 +148,6 @@ export function PlaybackBar({ videos, transport = false }: { videos: () => HTMLV
       </button>
     </div>
   );
-}
-
-/// Viewer keys on `videos` from a key event, for a dialog's onKeyDown. A key typed into a control
-/// that uses it (the scrub's arrows, a focused button's Space) stays the control's.
-export function onPlaybackKeyDown(event: KeyboardEvent<HTMLElement>, videos: () => HTMLVideoElement[]) {
-  const key = playbackKey(event);
-  if (!key) return;
-  const target = event.target as HTMLElement | null;
-  if (key.kind === "toggle" && target?.closest("button, input, video")) return;
-  if (applyPlaybackKey(key, videos())) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
 }
 
 /// Keeps `follower` on `lead`'s frame and play state while both are mounted.

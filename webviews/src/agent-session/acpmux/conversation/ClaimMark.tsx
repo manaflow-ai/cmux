@@ -2,16 +2,13 @@
 // runs say (acpmux hub/claim_check.rs): green when the newest matching run exited 0, red when it
 // failed or no run backs it. A click shows that run's row. The mark only colors the phrase's
 // underline, so the reply's lines never move when a turn's checks arrive (design/claim-checks.md).
-import { createContext, useContext, type ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { ClaimCheck } from "../model";
 import { TurnActionsContext } from "./turnActions";
 import "./ClaimMark.css";
 import { WithFacts } from "../chips/FactsHoverCard";
-
-/// How a mark draws. `underline` ships; the others are the gallery's alternatives.
-export type ClaimLook = "underline" | "glyph" | "chip";
-export const ClaimLookContext = createContext<ClaimLook>("underline");
+import { ClaimLookContext } from "./claimLookContext";
 
 export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: ReactNode }) {
   const t = useT();

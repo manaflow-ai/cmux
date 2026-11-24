@@ -232,7 +232,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
     what: "a prompt coach card arriving under a turn",
   },
   "src/agent-session/acpmux/pane/PaneBody.tsx": { count: 1, what: "the hand-off error line under the header" },
-  "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
+  "src/agent-session/acpmux/session-info/SessionInfoPresence.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },

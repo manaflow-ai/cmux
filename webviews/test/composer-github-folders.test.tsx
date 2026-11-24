@@ -38,7 +38,7 @@ const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromR
 const { cloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
 const { setNativeHost } = await import("../src/agent-session/acpmux/native");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
-const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
+const { widestLines } = await import("../src/agent-session/acpmux/folderFit");
 const { useState } = await import("react");
 
 afterAll(async () => {

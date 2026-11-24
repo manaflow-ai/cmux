@@ -8,7 +8,8 @@ import { JSDOM } from "jsdom";
 import { failureKind } from "../failureCopy";
 import { classifyError, controlsIn, controlWay, etaIn, outOfAppWords, waitReason } from "./classify";
 import { measureCloudErgonomics } from "./measure";
-import { cloudErgonomicsStates, KINDS, NOT_ON_CLOUD, TURN_FAILURE_FIXTURES, turnFailureRoute } from "./states";
+import { cloudErgonomicsStates } from "./states";
+import { KINDS, NOT_ON_CLOUD, TURN_FAILURE_FIXTURES, turnFailureRoute } from "./turnFailureFixtures";
 
 const html = (body: string) => new JSDOM(`<!doctype html><body>${body}</body>`).window.document.body;
 

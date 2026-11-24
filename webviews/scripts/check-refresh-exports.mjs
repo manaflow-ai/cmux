@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
  *
  * Oxlint's `react/only-export-components` (the eslint-plugin-react-refresh rule) finds them, with
  * `allowConstantExport` because the runtime keeps a primitive constant that did not change
- * (scripts/lint/refresh-exports.json). Gallery entries, tests and fixtures are outside it: they
+ * (scripts/lint/refresh-exports.json), and `glyph` as a component factory (conversation/icons.tsx: each
+ * `glyph(name)` returns a named component, which the runtime registers). Gallery entries, tests and fixtures are outside it: they
  * never load in a pane. Files with findings from before the rule have a count in
  * refresh-exports-baseline.tsv. A file fails with more findings than its row (a file with no row may
  * have none), and with fewer until the row is lowered (`--update-baseline`), so the count only moves

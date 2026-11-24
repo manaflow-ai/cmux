@@ -14,7 +14,8 @@ import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
 import { ProposedEdits } from "./permissions/ProposedEdits";
-import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./permissions/HoldButton";
+import { HoldRing } from "./permissions/HoldButton";
+import { holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./permissions/useHoldToApprove";
 import { holdApplies, holdSettings } from "./permissions/holdToApprove";
 import type { HoldScope } from "./permissions/holdToApprove.experiment";
 import {

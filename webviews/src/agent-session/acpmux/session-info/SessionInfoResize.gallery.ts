@@ -82,6 +82,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/session-info/useSessionInfo.tsx",
+    "agent-session/acpmux/session-info/SessionInfoPresence.tsx",
     "agent-session/acpmux/session-info/sessionInfoState.ts",
   ],
   variants: {

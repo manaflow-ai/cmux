@@ -66,7 +66,8 @@ import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRe
 import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
-import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
+import { CloudEnvironmentChip, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
+import { useCloudEnvironmentControl } from "./useCloudEnvironment";
 import type { CloudEnvironmentControl } from "./cloudEnvironmentChoice";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
@@ -87,7 +88,7 @@ import {
   type FolderChipState,
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
-import { useMachineCard } from "./MachineCard";
+import { useMachineCard } from "./useMachineCard";
 import { AutoIcon } from "./AutoWhere";
 import { AUTO_LOOK } from "./autoWhereModel";
 import { useSameValue } from "./session-info/sameValue";
