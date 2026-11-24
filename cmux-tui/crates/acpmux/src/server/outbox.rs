@@ -676,6 +676,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
+        // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
+        let opened = hub.mesh.gate().opened.notified();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -922,13 +927,25 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() || !wake_on_ready {
-                    sleep.await;
-                } else {
-                    tokio::select! {
+                // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
+                // opens: the outbox drains as soon as the hub is back, not on each send's own
+                // schedule. Its key makes the post again the same message.
+                let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
+                match (delivery.projection_only(), wake_on_ready, by_hub) {
+                    (true, _, _) | (false, false, false) => sleep.await,
+                    (false, true, false) => tokio::select! {
                         () = sleep => {}
                         () = ready => {}
-                    }
+                    },
+                    (false, false, true) => tokio::select! {
+                        () = sleep => {}
+                        () = opened => {}
+                    },
+                    (false, true, true) => tokio::select! {
+                        () = sleep => {}
+                        () = ready => {}
+                        () = opened => {}
+                    },
                 }
             }
         }

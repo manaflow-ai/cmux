@@ -2177,7 +2177,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
-        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
