@@ -128,6 +128,18 @@ class ThisTree(unittest.TestCase):
         self.assertIn("vars.SET_ONE='glaeda-runner-one'", text)
         self.assertNotIn("does not pass", text)
 
+    def test_a_variable_read_in_another_case_gets_its_value(self) -> None:
+        # GitHub reads vars.new_one and vars.NEW_ONE as the same variable (review round 1).
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text("jobs:\n  a:\n    runs-on: ${{ vars.new_one || 'x' }}\n", encoding="utf-8")
+            env = {check.RUNS_ON_VARIABLES_ENV: "LINUX_RUNNER=cmux-linux\n",
+                   check.ALL_VARIABLES_ENV: '{"NEW_ONE": "glaeda-runner-one"}'}
+            with tempfile.TemporaryDirectory() as out:
+                summary = Path(out, "s.md")
+                self.assertEqual(check.main([f"b={tmp}"], env | {"GITHUB_STEP_SUMMARY": str(summary)}), 1)
+                text = summary.read_text(encoding="utf-8")
+        self.assertIn("vars.new_one='glaeda-runner-one'", text)
+
     def test_without_every_variable_an_unpassed_one_is_still_named(self) -> None:
         self.assertIsNone(check.parse_all(""))
         self.assertIsNone(check.parse_all("not json"))

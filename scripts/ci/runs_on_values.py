@@ -268,7 +268,10 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
             values = parse_values(raw)
             everything = parse_all(env.get(ALL_VARIABLES_ENV, ""))
             if everything is not None:
-                values = {name: "" for name in read_variables(trees)} | everything | values
+                # GitHub matches variable names in any case: vars.new_one reads NEW_ONE. An explicit value wins.
+                given = {name.upper(): value for name, value in (everything | values).items()}
+                values = everything | values | {name: values[name] if name in values else given.get(name.upper(), "")
+                                                for name in read_variables(trees)}
             found = problems(trees, values)
         except ValueError as error:
             found = [str(error)]
