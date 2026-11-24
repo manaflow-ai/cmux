@@ -104,7 +104,8 @@ public struct WorkspaceAutoNameReader {
                 workspaceTitle: "", workspaceName: workspace.name,
                 workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
                 explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
-                displayName: givenName, formerSessionNames: formerNames,
+                displayName: NewWorkspaceName.clean(turns.displayName(for: session)),
+                formerSessionNames: formerNames,
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
                 explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
             // A chat with none of those (an unnamed session whose title was never generated) reads
