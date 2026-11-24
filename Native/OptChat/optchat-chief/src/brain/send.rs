@@ -202,7 +202,8 @@ impl Brain {
             } else {
                 Vec::new()
             };
-            self.state.outbox.push(self.reply_with_media(entry, files));
+            let reply = self.reply_with_media(entry, files);
+            self.state.outbox.push(reply);
         }
         self.save();
         self.flush_outbox();
