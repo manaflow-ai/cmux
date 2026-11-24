@@ -47,7 +47,7 @@ import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
 import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
-import { ComposerQueue } from "./ComposerQueue";
+import { ComposerQueue, type SystemLook } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
@@ -300,6 +300,8 @@ export type ComposerWake = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// Where the queue draws acpmux's own prompts (ComposerQueue.tsx `SystemNotes`): its gallery arms.
+  queueSystemLook?: SystemLook;
   /// The chat's saved draft was read into the prompt, or acpmux answered that it can't say: the
   /// prompt holds what it will hold, so the last launch's copy may give way (App.tsx, firstPaint.ts).
   onDraftSettled?(sessionId: string): void;
@@ -695,6 +697,7 @@ export function Composer(props: Props) {
 /// so its arguments can follow.
 function ComposerFrame({
   snapshot,
+  queueSystemLook,
   guestHarnesses,
   headerCwd,
   turnQueue,
@@ -3327,6 +3330,7 @@ function ComposerFrame({
         commands={commands}
         onLeave={leaveQueue}
         onList={markQueue}
+        {...(queueSystemLook ? { systemLook: queueSystemLook } : {})}
       />
       {context}
       {dropHost && (

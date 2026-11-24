@@ -1165,10 +1165,13 @@ test("acpmux's ask to resume a subagent is a labelled row with the subagent's na
   );
   expect(text.textContent).toBe("composer.queuedSubagentRetryCap context cost");
   expect(text.textContent).not.toContain("agent id");
-  // Opened, the error follows on its own line; the row keeps its actions.
+  // Leo, 2026-11-24: "why would a user steer or whatever on these?" It is a quiet note apart from
+  // the steer rows, with no actions; opened, the error follows on its own line.
+  expect(text.closest(".acpmux-queue-system")).not.toBeNull();
+  expect(text.closest("ol")).toBeNull();
   await act(async () => text.click());
   expect(text.querySelector(".acpmux-queued-detail")?.textContent).toBe("529");
-  expect(actions(container, "r-1").length).toBe(3);
+  expect(actions(container, "r-1").length).toBe(0);
 });
 
 test("a truncated resume row's tooltip is the row's own text, never the raw prompt or its agent id", async () => {
