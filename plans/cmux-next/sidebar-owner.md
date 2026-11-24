@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-24 (a590 Chief crown): Sidebar-Look: Lawrence 2026-11-23 (msg 48175): "get rid of the crown". The
+  Chief Activity item draws the sparkles SF Symbol, not the icon pack's `agent.chief` crown: `SidebarBuiltIn.icon`
+  is optional and nil for `.chief`. A Chief picture still replaces its glyph. The Chief's top row keeps Home's house
+  (Lucas 2026-11-23, #53281, entry below). The crown came from Leo fd01d525 (#18971, 2026-10-10, the pack's glyph)
+  and was on the Chief item since Leo aeaa1dad (#22759, 2026-10-20). Other `agent.chief` uses (server panel, App
+  Store feature previews, first-run pet row) are unchanged. Regression: `ChiefReplacesHomeTests.theChiefRowsDrawNoCrown`.
 - 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
   changed how groups look. A group opens with its visible header band and member rail. Folders and the six
   other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
