@@ -185,6 +185,7 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
                 daemon_id: String::new(),
                 same_user: true,
                 ops: vec!["move".into()],
+                max_policy: None,
             }],
             Some(state.join(name).join("ledger")),
         )
