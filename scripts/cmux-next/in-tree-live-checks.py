@@ -1976,6 +1976,17 @@ try:
     time.sleep(2)  # test harness: the first terminal attaches
     terminal_tab = (rpc("debug.focus") or {})
     RAW["focus_at_launch"] = terminal_tab
+    # Chromium first: a step whose app has no Chromium runtime (the fleet's download failed: no credentials, the
+    # store's 503) stops here in seconds and says so, instead of a `page` FAIL after a 60 s wait with every row unrun
+    # (step 055f2175: "Chromium is not available in this build", unavailable notBundled).
+    cef_word = rpc("debug.cef") or {}
+    unavailable = cef_word.get("unavailable") if isinstance(cef_word, dict) else None
+    if unavailable:
+        RAW["cef_at_launch"] = cef_word
+        row("FAIL", "rig.no_chromium", {"note": "the app has no Chromium runtime: no row can run (a rig limit, not a "
+                                                 "product result); run on a host whose app has the runtime",
+                                        "unavailable": unavailable, "runtime": cef_word.get("runtime")})
+        raise SystemExit
     opened = action("openBrowser.chromium", {"url": URL})
     RAW["open"] = opened
     ready = wait(lambda: (lambda r: r if r.get("value") is True else None)(page_eval("document.readyState === 'complete' && !!window.startSteal")), 60, 0.5)
