@@ -37,6 +37,14 @@ pub type HedgePolicy = cmux_braid_path::RacePolicy;
 /// `cmux_vault_egress::happy::v6_first`).
 pub use cmux_braid_path::v6_first;
 
+/// Keep a caller's preferred prefix ahead of RFC 8305 family ordering.
+pub fn v6_first_after_prefix(addresses: &[SocketAddr], preferred_len: usize) -> Vec<SocketAddr> {
+    let (preferred, rest) = addresses.split_at_checked(preferred_len).unwrap_or((addresses, &[]));
+    let mut out = preferred.to_vec();
+    out.extend(v6_first(rest));
+    out
+}
+
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
 /// is the last attempt's (an attempt that ran out of time is `TimedOut`). The
@@ -64,7 +72,21 @@ pub async fn connect_tcp(
     addresses: &[SocketAddr],
     policy: HedgePolicy,
 ) -> io::Result<TcpStream> {
-    connect_remembered(&LAST_GOOD, host, port, addresses, policy, TcpStream::connect).await
+    connect_remembered(&LAST_GOOD, host, port, addresses, 0, policy, TcpStream::connect).await
+}
+
+/// [`connect_tcp`] with the first `preferred_len` addresses kept ahead of the RFC 8305 order
+/// of the rest (a direct Tailscale path, [`super::tailnet`]). The last-good route still goes
+/// first, so a preferred address races beside it at t=0 rather than displacing it.
+pub async fn connect_tcp_preferring(
+    host: &str,
+    port: u16,
+    addresses: &[SocketAddr],
+    preferred_len: usize,
+    policy: HedgePolicy,
+) -> io::Result<TcpStream> {
+    connect_remembered(&LAST_GOOD, host, port, addresses, preferred_len, policy, TcpStream::connect)
+        .await
 }
 
 async fn connect_remembered<T, F, Fut>(
@@ -72,6 +94,7 @@ async fn connect_remembered<T, F, Fut>(
     host: &str,
     port: u16,
     addresses: &[SocketAddr],
+    preferred_len: usize,
     policy: HedgePolicy,
     connect: F,
 ) -> io::Result<T>
@@ -80,9 +103,15 @@ where
     Fut: Future<Output = io::Result<T>>,
 {
     let key = (host.to_ascii_lowercase(), port);
-    cmux_braid_path::race_remembered(memory, key, &v6_first(addresses), policy, connect)
-        .await
-        .map(|(_, won)| won.value)
+    cmux_braid_path::race_remembered(
+        memory,
+        key,
+        &v6_first_after_prefix(addresses, preferred_len),
+        policy,
+        connect,
+    )
+    .await
+    .map(|(_, won)| won.value)
 }
 
 #[cfg(test)]
