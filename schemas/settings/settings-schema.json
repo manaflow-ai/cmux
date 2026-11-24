@@ -111880,7 +111880,7 @@
       "page_hidden" : false,
       "path" : [
         "experiments",
-        "composerV2"
+        "composerHatGroups"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -111981,7 +111981,6 @@
       },
       "validation" : "portable"
     },
-
     {
       "accepts" : [
         true,

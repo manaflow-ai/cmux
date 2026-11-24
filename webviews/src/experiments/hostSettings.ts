@@ -46,7 +46,7 @@ export function settingArms(on: (name: string) => boolean = experimentSwitchOn):
   return arms;
 }
 
-/** The switch that picks an arm of `experimentId` (one per experiment), if any. */
+/** The switch that picks an arm of `experimentId`, if any. */
 export function switchFor(experimentId: string): string | undefined {
   return Object.keys(SETTING_ARMS).find((name) =>
     armsFor(SETTING_ARMS[name]!).some((arm) => arm.experiment === experimentId),

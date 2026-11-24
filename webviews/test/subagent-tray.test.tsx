@@ -2073,7 +2073,7 @@ describe("the tally header", () => {
   });
 });
 
-// The `summary` arm, the default (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "this 2
+// The opt-in `summary` arm (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "this 2
 // is too bare. it being alone, it's just bad. ... x subagents running y commands running etc with full
 // text when you have space and it gradually shrinks when there is none").
 describe("the summary header", () => {

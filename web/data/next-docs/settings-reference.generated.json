@@ -7390,17 +7390,17 @@
           "group": "Experiments"
         },
         {
-          "key": "experiments.composerV2",
-          "title": "Composer Refresh",
-          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+          "key": "experiments.composerHatGroups",
+          "title": "Composer Hat: Two Groups",
+          "help": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
         },
         {
-          "key": "experiments.composerHatGroups",
-          "title": "Composer Hat: Two Groups",
-          "help": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
+          "key": "experiments.composerV2",
+          "title": "Composer Refresh",
+          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
