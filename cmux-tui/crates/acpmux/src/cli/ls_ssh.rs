@@ -135,7 +135,8 @@ fn cache_path(socket: &Path, destination: &str) -> PathBuf {
 fn cached_read(path: &Path, deadline: Instant, read: impl FnOnce() -> Listing) -> Listing {
     use std::io::{Read, Seek};
 
-    let mut file = match crate::config::private_state_dir(path.parent().expect("cache folder"))
+    let Some(dir) = path.parent() else { return read() };
+    let mut file = match crate::config::private_state_dir(dir)
         .and_then(|()| crate::config::private_state_rw(path))
     {
         Ok(file) => file,
