@@ -46,6 +46,14 @@ import Testing
         #expect(CmuxMobileBackgroundSetting(defaults: defaults, arguments: []).policy == .layered)
     }
 
+    @Test func aSolidGroundIsOpaqueEvenWhenTheMacWindowIsSeeThrough() {
+        let seeThrough = CmuxMobileColorToken(dark: CmuxMobileRGBA(red: 0.1, green: 0.1, blue: 0.2, alpha: 0.45),
+                                              light: CmuxMobileRGBA(red: 0.9, green: 0.9, blue: 0.9, alpha: 0.45))
+        let solid = CmuxMobileGroundRows.opaque(seeThrough)
+        #expect(solid.dark.alpha == 1 && solid.light.alpha == 1)
+        #expect(solid.dark.blue == 0.2)
+    }
+
     @Test func aLaunchArgumentPicksThePolicyForScreenshots() {
         let setting = CmuxMobileBackgroundSetting(defaults: Self.defaults(), arguments: ["app", "-cmux-mobile-bg-policy", "flat"])
         #expect(setting.policy == .flat)

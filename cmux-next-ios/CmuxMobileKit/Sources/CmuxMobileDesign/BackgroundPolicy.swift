@@ -117,7 +117,7 @@ public struct CmuxMobileGround<Legacy: View>: View {
     }
 
     static func solid(grouped: Bool) -> Color {
-        grouped ? CmuxMobileTheme.standard.colors.bgGrouped.color : CmuxMobileTheme.standard.colors.bg.color
+        CmuxMobileGroundRows.opaque(grouped ? CmuxMobileTheme.standard.colors.bgGrouped : CmuxMobileTheme.standard.colors.bg).color
     }
 }
 
@@ -142,7 +142,16 @@ public enum CmuxMobileGroundRows {
     public static func fill(_ level: CmuxMobileGroundLevel, legacy: UIColor) -> UIColor {
         let setting = CmuxMobileBackgroundSetting.shared
         if setting.policy == .current { return legacy }
-        return showsWallpaper(level) ? .clear : CmuxMobileTheme.standard.colors.bg.uiColor
+        return showsWallpaper(level) ? .clear : opaque(CmuxMobileTheme.standard.colors.bg).uiColor
+    }
+
+    /// `token` at full opacity: a Mac theme's ground carries its window's opacity (a see-through
+    /// window over the desktop), which on the phone would let a wallpaper drawn lower show through
+    /// a screen the policy keeps solid.
+    public static func opaque(_ token: CmuxMobileColorToken) -> CmuxMobileColorToken {
+        func full(_ v: CmuxMobileRGBA) -> CmuxMobileRGBA { CmuxMobileRGBA(red: v.red, green: v.green, blue: v.blue) }
+        return CmuxMobileColorToken(dark: full(token.dark), light: full(token.light),
+                                    darkHighContrast: token.darkHighContrast.map(full), lightHighContrast: token.lightHighContrast.map(full))
     }
 }
 #endif

@@ -21,7 +21,7 @@ public struct CmuxMobileBackdrop: View {
     public static var listRow: Color {
         let legacy = CmuxMobileMacTheme.shared.wallpaper == nil ? CmuxMobileTheme.standard.colors.bg.color : Color.clear
         guard CmuxMobileBackgroundSetting.shared.policy != .current else { return legacy }
-        return CmuxMobileGroundRows.showsWallpaper(.root) ? .clear : CmuxMobileTheme.standard.colors.bg.color
+        return CmuxMobileGroundRows.showsWallpaper(.root) ? .clear : CmuxMobileGroundRows.opaque(CmuxMobileTheme.standard.colors.bg).color
     }
 
     public var body: some View {
@@ -36,8 +36,10 @@ public struct CmuxMobileBackdrop: View {
                     .overlay(bg.color.opacity(max(wallpaper.tint, minTint)))
             }
             .accessibilityHidden(true)
-        } else {
+        } else if CmuxMobileBackgroundSetting.shared.policy == .current {
             bg.color
+        } else {
+            CmuxMobileGroundRows.opaque(bg).color
         }
     }
 }
