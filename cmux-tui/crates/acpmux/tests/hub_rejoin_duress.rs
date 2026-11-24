@@ -23,8 +23,9 @@
 //!   --test hub_rejoin_duress -- --ignored --nocapture'
 //! ```
 //!
-//! Prints `REJOIN-NUMBERS quiet plain ...`, `quiet kept`, `duress plain` and `duress kept`. No
-//! gate: numbers only.
+//! Prints `REJOIN-NUMBERS quiet plain ...`, `quiet kept`, `duress plain` and `duress kept`, and
+//! fails a pass whose rejoin p50 is 5 s or more, or that never rejoined: a relay back after a
+//! 3 s outage must not leave the link waiting out its backoff (`hub_carrier_relay_up.rs`).
 #![cfg(all(target_os = "linux", feature = "hub-carrier"))]
 
 #[path = "support/daemon_env.rs"]
@@ -431,6 +432,11 @@ async fn rounds(label: &'static str, p: &Pair) {
         load1(),
         std::thread::available_parallelism().map_or(0, |n| n.get()),
         started.elapsed().as_secs_f64(),
+    );
+    let p50 = pct(&mut rejoin.clone(), 0.5);
+    assert!(
+        never == 0 && p50 < 5_000.0,
+        "{label}: rejoin p50 {p50:.0}ms, never rejoined {never} of {ROUNDS}"
     );
 }
 
