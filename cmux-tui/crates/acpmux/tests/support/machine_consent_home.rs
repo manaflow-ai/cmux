@@ -51,7 +51,7 @@ impl Drop for ConsentHome {
     fn drop(&mut self) {
         // This test owns the absent-at-entry directory created by its children.
         if self.root.exists() {
-            std::fs::remove_dir_all(&self.root).unwrap();
+            let _ = std::fs::remove_dir_all(&self.root);
         }
     }
 }

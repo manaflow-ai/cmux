@@ -15,7 +15,10 @@ impl Children {
 impl Drop for Children {
     fn drop(&mut self) {
         if let Ok(text) = std::fs::read_to_string(&self.0) {
-            for pid in serde_json::from_str::<BTreeMap<String, i32>>(&text).unwrap().values() {
+            // Never panic in drop: it would abort the shared test process during unwinding.
+            for pid in
+                serde_json::from_str::<BTreeMap<String, i32>>(&text).unwrap_or_default().values()
+            {
                 unsafe { libc::kill(*pid, libc::SIGKILL) };
             }
         }
