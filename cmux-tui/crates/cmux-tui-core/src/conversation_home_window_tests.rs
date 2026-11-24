@@ -206,9 +206,8 @@ fn a_store_change_orders_again() {
     ]))
     .unwrap();
     let made = store.create("home-window-new", LOCAL_USER, "New", &people).unwrap().summary.id;
-    let read = store
-        .home_window(&mut ask(&input), &HomeWindow::Ids(vec![made.clone()]), HomeScope::All)
-        .unwrap();
+    let read =
+        store.home_window(&mut ask(&input), &HomeWindow::Ids(vec![made]), HomeScope::All).unwrap();
     assert!(read.ordered_now, "a new conversation orders again");
     assert_eq!(read.rows.len(), 1);
     // Not every seeded conversation is in this caller's list; the new one is.
