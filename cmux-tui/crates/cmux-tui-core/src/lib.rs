@@ -78,7 +78,6 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
-pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
@@ -160,8 +159,8 @@ use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;
-pub mod terminal_host;
-pub mod terminal_host_protocol;
+// The terminal host's wire is its own crate (cmux-remote and acpmux build without this one).
+pub use cmux_terminal_host_protocol::{net_keepalive, terminal_host, terminal_host_protocol};
 pub mod terminal_host_runtime;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub mod test_owner;
