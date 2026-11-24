@@ -297,8 +297,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
-    /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    /// What it waits on the person for: `question` (an agent question), `permission`,
+    /// `secret` (a private card asking a secret's value), `elevation` (a card asking the
+    /// password to run one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server); null while it waits on nothing. A `waiting` status always has one. Only the
+    /// person allows a permission or answers a card.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,

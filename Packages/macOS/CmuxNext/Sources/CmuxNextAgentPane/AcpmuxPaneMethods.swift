@@ -59,6 +59,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this
+        // machine's budget and answers here or a place from the targets the page passed; it starts,
+        // moves and writes nothing. Its reply is cut to ``replyShapes``; acpmux answers this Mac's
+        // app and unix socket only.
+        "_acpmux/place_chat",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
         // the messages of one thread of the chat in the pane's scope, read without marking them.
         "_acpmux/inbox_thread",

@@ -1236,7 +1236,7 @@ impl Hub {
             // after a read of its flag a shutdown could begin behind.
             if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
                 if session.status() == SessionStatus::Disconnected {
-                    self.set_status(session, SessionStatus::Ready);
+                    self.set_status(session, NotWaiting::Ready);
                 }
             } else if self.hands_off(session) {
                 super::digest::forget_joined(Some(joined));
@@ -1401,7 +1401,7 @@ impl Hub {
             self.clear_deferred_unread(session);
         }
         self.end_foreground_subagents(session);
-        self.set_status(session, SessionStatus::Running);
+        self.set_status(session, NotWaiting::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
         #[cfg(test)]
@@ -1528,7 +1528,7 @@ impl Hub {
                 self.detach_child(session).await;
                 self.resume_before_turn();
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
-                self.set_status(session, SessionStatus::Running);
+                self.set_status(session, NotWaiting::Running);
                 {
                     let mut m = session.meta.lock().unwrap();
                     m.harness = to.clone();
@@ -1600,7 +1600,7 @@ impl Hub {
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
                         // Its start read the chat ready: the turn runs on.
-                        self.set_status(session, SessionStatus::Running);
+                        self.set_status(session, NotWaiting::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
                             // A Stop since this turn began: not written. That is one while its
                             // copies were made (as the first), and one while the chat had no
@@ -1671,7 +1671,7 @@ impl Hub {
                         self.detach_child(session).await;
                         self.resume_before_turn();
                         *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
-                        self.set_status(session, SessionStatus::Running);
+                        self.set_status(session, NotWaiting::Running);
                         kept.restore(session);
                         self.move_profile(session, &from, &e2.message, &turn_id, true);
                         result = Err(super::fallback_start::fallback_not_started(
@@ -1724,7 +1724,9 @@ impl Hub {
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
-        let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
+        let goes_on = !trigger
+            && !super::idle::cache_compact::is_own(run.provenance.as_ref())
+            && !super::cold_wake::is_own(run.provenance.as_ref());
         // A cut `/compact` is resent as itself, not continued (`auto_resume::resent_command`).
         let cut_text = super::session::prompt_text(&run.blocks);
         let slash = super::auto_resume::resent_command(&cut_text);
@@ -2164,21 +2166,18 @@ impl Hub {
             // held across the write, so an answer in between cannot leave it
             // waiting on nothing.
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let asking = self.open_ask(session, &state);
             // An agent MDM's off ended leaves the chat idle; read under the lock its end marks it
             // under (`end_managed_full_access`, reviews 2 and 3 of #26034).
             let ended = child.ended_on_purpose();
-            self.set_status(
-                session,
-                match (ended, alive, asking) {
-                    // The next turn runs already (`carried_turn.rs`).
-                    (false, true, _) if carries_on => SessionStatus::Running,
-                    (true, _, _) => SessionStatus::Idle,
-                    (false, false, _) => SessionStatus::Disconnected,
-                    (false, true, true) => SessionStatus::Waiting,
-                    (false, true, false) => SessionStatus::Ready,
-                },
-            );
+            match (ended, alive, asking) {
+                // The next turn runs already (`carried_turn.rs`).
+                (false, true, _) if carries_on => self.set_status(session, NotWaiting::Running),
+                (true, _, _) => self.set_status(session, NotWaiting::Idle),
+                (false, false, _) => self.set_status(session, NotWaiting::Disconnected),
+                (false, true, Some(reason)) => self.set_waiting(session, reason),
+                (false, true, None) => self.set_status(session, NotWaiting::Ready),
+            }
             drop(state);
         }
         self.save_meta(session);
@@ -2206,7 +2205,7 @@ impl Hub {
         // Its before picture has no after coming (`turn_shots.rs`).
         super::turn_shots::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
-            self.set_status(session, SessionStatus::Ready);
+            self.set_status(session, NotWaiting::Ready);
         }
     }
 
@@ -2272,7 +2271,7 @@ impl Hub {
             // for the next prompt, or says its agent is not running.
             if session.status() != SessionStatus::Closed {
                 let status =
-                    if stopped_early { SessionStatus::Ready } else { SessionStatus::Disconnected };
+                    if stopped_early { NotWaiting::Ready } else { NotWaiting::Disconnected };
                 self.set_status(session, status);
             }
             self.save_meta(session);
@@ -2303,7 +2302,7 @@ impl Hub {
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
         if session.status() != SessionStatus::Closed {
-            let status = if refused { SessionStatus::Ready } else { SessionStatus::Disconnected };
+            let status = if refused { NotWaiting::Ready } else { NotWaiting::Disconnected };
             self.set_status(session, status);
         }
         self.save_meta(session);
@@ -2864,7 +2863,7 @@ impl Hub {
         self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
-        self.set_status(session, SessionStatus::Closed);
+        self.set_status(session, NotWaiting::Closed);
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
@@ -3024,7 +3023,7 @@ impl Hub {
         self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
         }
     }
 }
