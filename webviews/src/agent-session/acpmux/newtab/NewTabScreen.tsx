@@ -105,7 +105,6 @@ import {
   shortHost,
   type ScreenRow,
   pageChatCards,
-  promptLeads,
   returnRow,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
@@ -1225,19 +1224,8 @@ export function NewTabScreen(props: Props) {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
   };
-  // The prompt for the chip's own agent leads: not drawn (screenModel promptLeads), the list starts
-  // at the next row.
-  const firstDrawn = promptLeads(rows, harness) ? 1 : 0;
-  const drawnRows = rows.length - firstDrawn;
-  // The arrows' next row. With the prompt's row hidden, it and "no row" are one stop, the prompt
-  // (-1, which keeps ↑ and ↓ for a multi-line prompt's caret): ↓ from it reaches the first drawn row
-  // and ↓ from the last row comes back to it; ↑ from the first drawn row comes back to it in one press.
-  const stepRows = (from: number, by: 1 | -1) => {
-    if (!firstDrawn) return stepSelection(from, by, rows.length);
-    if (from < firstDrawn) return by === 1 ? firstDrawn : rows.length - 1;
-    if (by === 1) return from + 1 < rows.length ? from + 1 : -1;
-    return from - 1 < firstDrawn ? -1 : from - 1;
-  };
+  // The prompt for the chip's own agent is drawn as the top row: "Ask Claude Code" says what Return
+  // does with plain text (Lucas 2026-11-23).
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
@@ -1896,7 +1884,7 @@ export function NewTabScreen(props: Props) {
       // From the last row, with none open, and Shift-Tab always, focus moves on, so the keyboard
       // can leave the field.
       event.preventDefault();
-      pick(stepRows(current, 1));
+      pick(stepSelection(current, 1, rows.length));
       return;
     }
     // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
@@ -1904,10 +1892,9 @@ export function NewTabScreen(props: Props) {
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
     // the suggestion rows.
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
-    // Only drawn rows take the arrows: a prompt whose one row is its own hidden Ask keeps them for the caret.
-    if (step && drawnRows) {
+    if (step && rows.length) {
       event.preventDefault();
-      pick(stepRows(current, step));
+      pick(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -2630,7 +2617,7 @@ export function NewTabScreen(props: Props) {
                   "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current] && current >= firstDrawn
+                    : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
@@ -2800,7 +2787,7 @@ export function NewTabScreen(props: Props) {
           {lists}
         </>
       )}
-      {drawnRows > 0 && anchor && (
+      {rows.length > 0 && anchor && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
@@ -2812,7 +2799,7 @@ export function NewTabScreen(props: Props) {
           // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
           className={
             // The Console template's field has the popup corner; the portal cannot see the screen's template.
-            `nt-composer-surface nt-popover${drawnRows === 1 ? " nt-popover-single" : ""}${
+            `nt-composer-surface nt-popover${rows.length === 1 ? " nt-popover-single" : ""}${
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
@@ -2828,57 +2815,55 @@ export function NewTabScreen(props: Props) {
             role="listbox"
             aria-label={nt("suggestions")}
           >
-            {rows.map((row, index) =>
-              index < firstDrawn ? null : (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
-                  // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
-                  onMouseMove={(event) => {
-                    const at = `${event.screenX},${event.screenY}`;
-                    if (at === pointerAt.current) return;
-                    const known = pointerAt.current !== "";
-                    pointerAt.current = at;
-                    if (known && index !== current) pick(index);
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    activate(row, event.altKey || event.metaKey);
-                  }}
-                >
-                  <SuggestionGlyph row={row} />
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  {row.type === "action" && !!row.keycaps?.length && (
-                    <span className="nt-row-shortcut" data-popup-skip>
-                      {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
-                        <React.Fragment key={strokeIndex}>
-                          {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
-                          {stroke.map((cap, index) => (
-                            <kbd key={index}>{cap}</kbd>
-                          ))}
-                        </React.Fragment>
-                      ))}
-                    </span>
-                  )}
-                  {/* Return's row says so: a "return" cap at its end. The prompt for the chip's agent is no row, so a
-                    highlighted row is never the prompt: no highlight, Return sends to the agent. */}
-                  {index === current && (
-                    <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                      {keycapLegend("↩")}
-                    </kbd>
-                  )}
-                </div>
-              ),
-            )}
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`nt-row-${index}`}
+                ref={index === current ? keepInView : undefined}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === current}
+                data-type={row.type}
+                className={index === current ? "nt-row is-selected" : "nt-row"}
+                // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
+                // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
+                onMouseMove={(event) => {
+                  const at = `${event.screenX},${event.screenY}`;
+                  if (at === pointerAt.current) return;
+                  const known = pointerAt.current !== "";
+                  pointerAt.current = at;
+                  if (known && index !== current) pick(index);
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  activate(row, event.altKey || event.metaKey);
+                }}
+              >
+                <SuggestionGlyph row={row} />
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                {row.type === "action" && !!row.keycaps?.length && (
+                  <span className="nt-row-shortcut" data-popup-skip>
+                    {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
+                      <React.Fragment key={strokeIndex}>
+                        {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
+                        {stroke.map((cap, index) => (
+                          <kbd key={index}>{cap}</kbd>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </span>
+                )}
+                {/* Return's row says so: a "return" cap at its end. The Ask row needs none: it is what
+                    Return does with plain text, as its name says. */}
+                {index === current && row.type !== "ask" && (
+                  <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
+                    {keycapLegend("↩")}
+                  </kbd>
+                )}
+              </div>
+            ))}
           </div>
         </Popover>
       )}
