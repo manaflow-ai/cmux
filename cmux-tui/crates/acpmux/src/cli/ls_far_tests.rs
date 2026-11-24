@@ -17,6 +17,16 @@ pub(crate) fn stalled_relay() -> SendRelay {
 
 const ONE_ROW: &str = r#"printf '%s' '{"sessions":[{"peer":"relayed-vm","sessionId":"r-1","name":"relayed-vm/worker","status":"idle","updatedAt":5}]}'"#;
 
+#[test]
+fn concurrent_processes_claim_one_relay_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join(CACHE_FILE);
+    assert!(claim_refresh(&cache));
+    assert!(!claim_refresh(&cache), "a second caller must not start another relay process");
+    std::fs::remove_file(cache.with_file_name(REFRESH_MARK)).unwrap();
+    assert!(claim_refresh(&cache), "the owner may retry after releasing its mark");
+}
+
 #[tokio::test]
 async fn a_stalled_relay_misses_its_budget_and_is_not_listed_without_a_cache() {
     let dir = tempfile::tempdir().unwrap();

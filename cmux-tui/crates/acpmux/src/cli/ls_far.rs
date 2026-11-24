@@ -165,12 +165,14 @@ type RelayTask = tokio::task::JoinHandle<anyhow::Result<Option<Vec<Value>>>>;
 
 /// One relay listing process per command while callers arrive at the same time. The relay is
 /// keyed by its argv, so two configured relays never join one another's read.
-static RELAY_READS: OnceLock<crate::single_flight::SingleFlight<String, Result<Option<Vec<Value>>, String>>> =
-    OnceLock::new();
+static RELAY_READS: OnceLock<
+    crate::single_flight::SingleFlight<String, Result<Option<Vec<Value>>, String>>,
+> = OnceLock::new();
 
 /// One `_acpmux/peers` socket read per daemon socket while far listings are in flight.
-static PEER_READS: OnceLock<crate::single_flight::SingleFlight<String, Result<Vec<Value>, String>>> =
-    OnceLock::new();
+static PEER_READS: OnceLock<
+    crate::single_flight::SingleFlight<String, Result<Vec<Value>, String>>,
+> = OnceLock::new();
 
 fn claim_refresh(cache: &Path) -> bool {
     let mark = cache.with_file_name("relay-ls-cache.refreshing");
@@ -178,7 +180,17 @@ fn claim_refresh(cache: &Path) -> bool {
     if refreshing(cache, now) {
         return false;
     }
-    let _ = crate::home_fs::remove_file(&mark);
+    // A process that was killed can leave its lease behind. Its bounded relay child has ended by
+    // this age, so reclaim only an expired mark before attempting the atomic create.
+    if std::fs::read_to_string(&mark)
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .is_some_and(|at| {
+            now.saturating_sub(at) > send_relay::LS_DEADLINE.as_millis() as u64 + 5_000
+        })
+    {
+        let _ = crate::home_fs::remove_file(&mark);
+    }
     let Ok(mut file) = std::fs::OpenOptions::new().write(true).create_new(true).open(&mark) else {
         return false;
     };
@@ -206,17 +218,9 @@ async fn peer_rows(client: Arc<Client>) -> Result<Vec<Value>, String> {
     PEER_READS
         .get_or_init(Default::default)
         .run(key, || async move {
-            client
-                .request("_acpmux/peers", json!({}))
-                .await
-                .map_err(|e| e.to_string())
-                .map(|reply| {
-                    reply
-                        .get("peers")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default()
-                })
+            client.request("_acpmux/peers", json!({})).await.map_err(|e| e.to_string()).map(
+                |reply| reply.get("peers").and_then(Value::as_array).cloned().unwrap_or_default(),
+            )
         })
         .await
 }
@@ -273,8 +277,7 @@ pub(crate) fn start_with(
                 return RelayPart::Kept(kept);
             }
             let read_by = deadline.min(Instant::now() + KEPT_WAIT);
-            let task =
-                relay_task(relay, read_by);
+            let task = relay_task(relay, read_by);
             return RelayPart::Racing { cache, task, kept, until: read_by + KEPT_GRACE };
         }
         // A relay that missed its budget before and never gave a listing: not waited on again
@@ -334,6 +337,7 @@ impl FarRead {
                         });
                     }
                     task.abort();
+                    let _ = crate::home_fs::remove_file(cache.with_file_name(REFRESH_MARK));
                     refresh_detached(&cache);
                     return Some(kept);
                 }
@@ -363,6 +367,7 @@ impl FarRead {
                     format!("not read within {}", seconds(budget))
                 }
             };
+            let _ = crate::home_fs::remove_file(cache.with_file_name(REFRESH_MARK));
             refresh_detached(&cache);
             Some(match read_cache(&cache, crate::store::now_ms()) {
                 Some((as_of_ms, rows)) => RelayRead {
@@ -464,7 +469,6 @@ fn refreshing(cache: &Path, now: u64) -> bool {
 /// deadline is still marked. Not in tests: this process is the test binary there.
 #[cfg_attr(test, allow(clippy::needless_return))]
 fn refresh_detached(cache: &Path) {
-    let mark = cache.with_file_name(REFRESH_MARK);
     let now = crate::store::now_ms();
     if refreshing(cache, now) {
         return;
@@ -497,12 +501,11 @@ pub(crate) async fn refresh_now() -> anyhow::Result<()> {
         Some(relay) => {
             let source = source_name(&relay);
             let deadline = Instant::now() + send_relay::LS_DEADLINE;
-            let read =
-                relay_task(relay, deadline).await??;
-            if let Ok(Some(rows)) = &read {
+            let read = relay_task(relay, deadline).await??;
+            if let Some(rows) = &read {
                 write_cache(&cache, &source, rows, crate::store::now_ms());
             }
-            read.map(|_| ())
+            Ok(())
         }
         None => Ok(()),
     };
