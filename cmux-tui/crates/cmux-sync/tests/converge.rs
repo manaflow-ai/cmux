@@ -1,4 +1,4 @@
-//! Deterministic simulation, as Dropbox tested Nucleus ("Testing sync at Dropbox", 2020): many
+//! Deterministic simulation, the way the best sync clients are tested: many
 //! seeds, each a random run of edits, deletes, partial and duplicated deltas, partitions and
 //! restarts across a Mac, a VM and two phones, then a heal. Every run must end with every replica
 //! equal, and the bytes a reconnect moves must follow the edits missed, not the state's size.

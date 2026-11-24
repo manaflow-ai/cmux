@@ -1,5 +1,5 @@
 //! Hybrid logical clocks (Kulkarni, Demirbas et al., "Logical Physical Clocks and Consistent
-//! Snapshots in Globally Distributed Databases", 2014; CockroachDB's timestamps).
+//! Snapshots in Globally Distributed Databases", 2014).
 //!
 //! A [`Stamp`] is (wall milliseconds, counter, actor). It follows the wall clock while the wall
 //! clock moves forward, never goes backwards when it does not, and once a replica has
