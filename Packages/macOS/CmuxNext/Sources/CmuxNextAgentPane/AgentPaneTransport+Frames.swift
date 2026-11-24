@@ -272,13 +272,19 @@ extension AgentPaneTransport {
     /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
     /// socket. No challenge (a remote wire, an older daemon): no proof, nothing to report.
     ///
-    /// No key, or a proof the daemon refused, leaves the pane unproven: the daemon records each
-    /// prompt typed here as an unverified sender's, and the agent reads it as not the person's
-    /// (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). That is never silent: the
-    /// pane says so (``onPersonProof``) and gets the key to the daemon again (``recoverPersonProof``).
+    /// No key, or a proof the daemon refused, leaves the pane unproven: allows from it are refused.
+    /// The transport gets the key to the daemon again (``recoverPersonProof``) without a word to
+    /// the person (https://github.com/manaflow-ai/cmux/issues/48636); a refused allow says why in the approval.
+    /// Another install's daemon never takes this app's key: no proof goes there (the person line's
+    /// rule too), and nothing is recovered, so the pane does not reconnect to it in a loop.
     private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
-        guard let socketPath else { return }
-        guard let challenge = await socket.personChallenge() else { return }
+        // No proof runs (no socket path, another install's daemon, a remote wire, an older daemon
+        // without a challenge): nothing is refused that a proof would allow, so no line stays up.
+        guard let socketPath, !daemonIsForeign else { return personProofNotNeeded() }
+        guard let challenge = await socket.personChallenge() else {
+            if self.socket === socket { personProofNotNeeded() }
+            return
+        }
         guard self.socket === socket else { return }
         let connection = current
         guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,

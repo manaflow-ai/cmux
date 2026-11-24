@@ -31,25 +31,12 @@ extension AgentPaneView {
     }
 }
 
-/// One line above the composer while this pane's connection did not prove the person to its
-/// acpmux (`hub/person.rs`): the daemon would record what the person types here as an unverified
-/// sender's, and the agent would read it as not theirs (Leo, 2026-11-10: "Oh, it's turned me into
-/// an unverified sender."). The transport gets the key to the daemon again and reconnects
-/// (``AgentPaneTransport/recoverPersonProof``); the line goes when a connection proves the person.
+/// The pane's person proof is recovered without a word (https://github.com/manaflow-ai/cmux/issues/48636).
+/// Typing and sending never need it: the daemon records the composer's prompts as the person's
+/// either way (acpmux `app_pane_unproven`). Only an allow needs it, and an allow the daemon
+/// refuses is said in the approval itself (the permission panel's `transport.personRequired`),
+/// so no standing line above the composer says it ahead of time.
 extension AgentPaneView {
-    func showPersonProof(_ proven: Bool) {
-        // Nothing the person can do about it: the line waits ``NoticeTiming/connectionQuiet`` before it shows, so a
-        // reconnect that proves them again inside it never pushes the composer up (Leo, 2026-11-21).
-        personUnprovenHold.update(!proven) { [weak self] in
-            guard let self, personUnprovenNotice == nil else { return }
-            personUnprovenNotice = AgentPaneNotice(id: "personUnproven", title: Self.personUnprovenMessage)
-            pushPaneNotices()
-        }
-        guard proven, personUnprovenNotice != nil else { return }
-        personUnprovenNotice = nil
-        pushPaneNotices()
-    }
-
     /// The host's full lookup for this chat: it hands off a daemon an update replaced and gives
     /// the daemon this launch's person key. True when it finished.
     func recoverPersonProof() async -> Bool {

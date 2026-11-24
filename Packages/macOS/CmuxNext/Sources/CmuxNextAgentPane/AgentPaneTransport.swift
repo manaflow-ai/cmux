@@ -236,10 +236,13 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
-    /// Told after each local connection's person proof whether the daemon took it: false while
-    /// prompts typed here would reach the agent as an unverified sender's (the pane shows "not
-    /// verified, reconnecting identity"), true once a connection proved the person again.
-    public var onPersonProof: (@MainActor (Bool) -> Void)?
+    /// The silent recovery (``recoverPersonProof``) gave up on this pane's person proof: allows
+    /// from it stay refused, and each refusal says so in its approval. False again once a
+    /// connection proves the person, or runs no proof (https://github.com/manaflow-ai/cmux/issues/48636).
+    var personProofGaveUp = false
+    /// The current connection's daemon is another cmux install's (``AcpmuxServerPeer/Match/foreign``):
+    /// it never takes this app's person key, so no proof is sent there and none is recovered.
+    var daemonIsForeign = false
     /// Gets this launch's person key to the daemon again (the host's full lookup: it hands off a
     /// daemon an update replaced, then enrolls). True when the lookup finished, so a new
     /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
@@ -379,8 +382,10 @@ import CmuxNextCompat
                 close(connection: id)
                 throw .connectFailed
             }
+            daemonIsForeign = match == .foreign
             onOtherInstall?(match == .foreign)
         } else {
+            daemonIsForeign = false
             onOtherInstall?(false)
         }
         AgentPaneLaunchTimings.shared.mark("agent_pane.transport_accepted_checked")
