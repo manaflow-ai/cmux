@@ -53,8 +53,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	clas
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.chatFolderMissing	26	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.peerRefused	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.sourceAgentsStopped	16	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.list	18	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.scan	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings	passwords.csv.guide.name.other	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.browser.notConnected	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.install.body	36	25
@@ -220,9 +218,9 @@ webviews/src/pages/home-channels/Localizable.xcstrings	chief.backend.none	14	10
 webviews/src/pages/home-channels/Localizable.xcstrings	chief.field.personalityPlaceholder	8	6
 webviews/src/pages/home-channels/Localizable.xcstrings	chief.field.rolePlaceholder	7	6
 webviews/src/pages/home-channels/Localizable.xcstrings	connect.listenerRefused	21	20
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.hero.body	31	25
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.intro	41	25
-webviews/src/pages/home-messages/cards/Localizable.xcstrings	home.firstRun.introFocus	34	25
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.hero.body	31	25
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.intro	41	25
+webviews/src/pages/setup-card/Localizable.xcstrings	home.firstRun.introFocus	34	25
 webviews/src/pages/markdown/Localizable.xcstrings	run.all.title	17	6
 webviews/src/pages/markdown/Localizable.xcstrings	run.title	8	6
 webviews/src/pages/onboarding/Localizable.xcstrings	onboarding.access.none	11	10

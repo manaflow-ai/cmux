@@ -143,7 +143,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
-<dialog open class="ui-dialog ui-glass ui-glass-floats acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-add-project-palette" id="add-project">Add project</div></div>
 <div class="ui-dialog ui-glass ui-glass-floats share-dialog-popup" id="share">Share</div>
 ${tooltips}`,
     glass: [
@@ -165,8 +165,8 @@ ${tooltips}`,
       // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
       // (Leo 2026-10-30: "I don't like the non-glassness").
       "summary",
-      // Dialogs, not popups (no popup elevation), but glass all the same: the sheet role.
       "add-project",
+      // Share uses the glass sheet role.
       "share",
     ],
     surfaces: [
@@ -186,6 +186,7 @@ ${tooltips}`,
       "new-tab-suggestions",
       "needs-you",
       "agents-list",
+      "add-project",
     ],
   };
 
@@ -283,7 +284,10 @@ ${tooltips}`,
         const ids = pane.surfaces;
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
-        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        // One elevation, not one corner: the New Tab suggestions take the field's corner (#47587, --nt-box-radius,
+        // 20 px at Default, newtab/screen.css) so their rows stay concentric with the box they serve.
+        const corner = (id: string) => (id === "new-tab-suggestions" ? "20px" : want.radius);
+        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, { ...want, radius: corner(id) }])));
         await page.close();
       });
 
