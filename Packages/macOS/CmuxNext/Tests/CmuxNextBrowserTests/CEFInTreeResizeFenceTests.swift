@@ -82,3 +82,31 @@ import Testing
         #expect(!CEFInTreeHosting.joinsFence(windowResized: false, fullScreenTransition: false))
     }
 }
+
+/// An in-tree page needs no window page-update fan-out (``CEFHostView/pagesNeedUpdate(force:geometryOnly:)``): the fork's
+/// update of it reads no occlusion or clip and already runs on the frame notices of its host and the host's ancestors.
+/// Each post repeated that update (a headless window frame and a Views layout of the hidden Browser view) once more per
+/// page per motion frame.
+@MainActor
+@Suite(.serialized, .closesItsWindows) struct CEFInTreeGeometryPostTests {
+    @Test func anInTreePagesHostPostsNoGeometryOnTheWindowsPageUpdate() {
+        InTreePages.shared.setForTesting(requested: true, engine: .supported)
+        defer { InTreePages.shared.setForTesting(requested: nil) }
+        let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView?.addSubview(host)
+        let page = NSView()
+        let calls = CEFInTreeCalls(setInTreeHosting: { _, container in container == nil ? nil : page }, contentView: { _ in page })
+        host.inTree.pageWindowCreated(browser: 5, calls: calls)
+        CFRunLoopRunInMode(.defaultMode, 0.01, false)  // the request runs at the end of the turn
+        #expect(host.inTree.isInTree)
+        let posts = CEFHostView.trackerStats.geometryPosts
+        host.frame.origin.x = 30  // a motion frame moved it
+        host.pagesNeedUpdate(force: false, geometryOnly: true)
+        host.pagesNeedUpdate(force: false)
+        #expect(CEFHostView.trackerStats.geometryPosts == posts, "an in-tree page's host posted the fork a geometry change per page update")
+    }
+}
