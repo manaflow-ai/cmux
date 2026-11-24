@@ -2,7 +2,7 @@
 // (pageHost.ts); otherwise Swift's `agentSession` message handler
 // (CmuxNextAgentPane AgentPaneRequest), which answers `{ok: true, value}` or `{ok: false, error}`.
 import { NativeError, type NativeErrorReply } from "./nativeError";
-import { callPageHost, pageHostClient } from "./pageHost";
+import { callPageHost, pageHostClient } from "./pageHostClient";
 import { translate } from "./i18n";
 import { takeEarlyReady } from "./chatSnapshot/earlyOpen";
 

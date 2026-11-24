@@ -97,6 +97,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_usage;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -111,7 +112,12 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
+pub mod github_lane_mint;
+#[cfg(unix)]
 pub mod github_mcp;
+pub mod github_rest_op;
+#[cfg(unix)]
+pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -126,6 +132,13 @@ pub mod github_mcp {
 
     pub async fn run() -> anyhow::Result<()> {
         anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
+/// Machines a Mac lends GitHub are unix machines (`github_session_env.rs`).
+#[cfg(not(unix))]
+pub mod github_session_env {
+    pub fn lent() -> bool {
+        false
     }
 }
 pub mod github_status;
@@ -238,6 +251,8 @@ pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+// A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -264,6 +279,7 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -280,6 +296,7 @@ pub mod routes;
 pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
+pub mod sccache_env;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
@@ -291,6 +308,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
@@ -326,6 +345,7 @@ pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
+pub mod scorecard;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
