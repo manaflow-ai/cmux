@@ -128,12 +128,13 @@ pub fn plan(home: &Path, options: &Options, git: &dyn GitFacts) -> Plan {
     for checkout in &found.checkouts {
         let project = project(home, checkout, &history, git, &mut plan.warnings);
         let mut name = project.name.clone();
-        let mut n = 2;
+        let mut n = 2usize;
         while !names.insert(name.clone()) {
             let suffix = format!("-{n}");
-            let stem: String = project.name.chars().take(40 - suffix.len()).collect();
+            let stem: String =
+                project.name.chars().take(40usize.saturating_sub(suffix.len())).collect();
             name = format!("{}{suffix}", stem.trim_end_matches('-'));
-            n += 1;
+            n = n.saturating_add(1);
         }
         plan.projects.push(Project { name, ..project });
     }
@@ -200,7 +201,7 @@ pub fn find_checkouts(
                 found.truncated = true;
                 break;
             }
-            dirs_read += 1;
+            dirs_read = dirs_read.saturating_add(1);
             let Ok(entries) = fs::read_dir(&dir) else { continue };
             let mut children: Vec<PathBuf> = entries
                 .filter_map(Result::ok)
@@ -213,7 +214,7 @@ pub fn find_checkouts(
                 .map(|e| e.path())
                 .collect();
             children.sort();
-            stack.extend(children.into_iter().rev().map(|c| (c, depth + 1)));
+            stack.extend(children.into_iter().rev().map(|c| (c, depth.saturating_add(1))));
         }
     }
     for folder in extra {
@@ -585,18 +586,18 @@ fn head_cwd(file: &Path, lines: usize) -> Option<PathBuf> {
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && let Some(hex) = bytes.get(i + 1..i + 3)
+    let mut i = 0usize;
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'%'
+            && let Some(hex) = bytes.get(i.saturating_add(1)..i.saturating_add(3))
             && let Ok(hex) = std::str::from_utf8(hex)
             && let Ok(b) = u8::from_str_radix(hex, 16)
         {
             out.push(b);
-            i += 3;
+            i = i.saturating_add(3);
         } else {
-            out.push(bytes[i]);
-            i += 1;
+            out.push(byte);
+            i = i.saturating_add(1);
         }
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -805,13 +806,13 @@ fn size(path: &Path) -> u64 {
     if !meta.is_dir() {
         return meta.len();
     }
-    let mut total = 0;
+    let mut total = 0u64;
     let mut stack = vec![path.to_path_buf()];
     let mut seen = 0usize;
     while let Some(dir) = stack.pop() {
         let Ok(entries) = fs::read_dir(&dir) else { continue };
         for entry in entries.filter_map(Result::ok) {
-            seen += 1;
+            seen = seen.saturating_add(1);
             if seen > MAX_SIZE_ENTRIES {
                 return total;
             }
@@ -822,7 +823,7 @@ fn size(path: &Path) -> u64 {
             if meta.is_dir() {
                 stack.push(entry.path());
             } else {
-                total += meta.len();
+                total = total.saturating_add(meta.len());
             }
         }
     }
@@ -840,7 +841,7 @@ fn walk_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>, max: usize) {
         }
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() && depth > 0 {
-            walk_files(&entry.path(), depth - 1, out, max);
+            walk_files(&entry.path(), depth.saturating_sub(1), out, max);
         } else if kind.is_file() {
             out.push(entry.path());
         }

@@ -77,7 +77,7 @@ pub fn plan(host_label: &str, probe_output: &str) -> Plan {
     for line in probe_output.lines().filter(|l| !l.trim().is_empty()) {
         match parse_line(line) {
             Some(f) => facts.push(f),
-            None => unreadable += 1,
+            None => unreadable = unreadable.saturating_add(1),
         }
     }
     if unreadable > 0 {
@@ -129,7 +129,7 @@ pub fn plan(host_label: &str, probe_output: &str) -> Plan {
             .map(|s| s.split(',').filter(|x| !x.is_empty()).collect())
             .unwrap_or_default();
         let bytes = f.num("bytes");
-        repo_bytes += bytes;
+        repo_bytes = repo_bytes.saturating_add(bytes);
         let repo = Repo {
             url: f.get("url").map(strip_login),
             branch: f.get("branch").filter(|b| *b != "HEAD").map(str::to_owned),
@@ -138,8 +138,8 @@ pub fn plan(host_label: &str, probe_output: &str) -> Plan {
                 .filter(|c| c.len() >= 7 && c.chars().all(|ch| ch.is_ascii_hexdigit()))
                 .map(str::to_owned),
             path: Some(path.to_owned()),
-            dirty_files: f.num("dirty").min(u64::from(u32::MAX)) as u32,
-            unpushed_commits: f.num("unpushed").min(u64::from(u32::MAX)) as u32,
+            dirty_files: u32::try_from(f.num("dirty")).unwrap_or(u32::MAX),
+            unpushed_commits: u32::try_from(f.num("unpushed")).unwrap_or(u32::MAX),
         };
         let base = path.trim_end_matches('/').rsplit('/').next().unwrap_or(path);
         let mut project = Project {
