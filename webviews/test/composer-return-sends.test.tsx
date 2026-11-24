@@ -697,6 +697,21 @@ test("Return with the command menu closed sends the typed /word", async () => {
   expect({ sent, proceeded }).toEqual({ sent: [{ text: "/rev", steer: false }], proceeded: false });
 });
 
+// Review of #48024 (Return sends the unfinished prompt): a `$word` is often a price or a variable, so
+// Return picks its row only once the arrows chose it (slashCommands.ts returnPicks); the arrows must
+// mark the row chosen, else Return sent the half-typed prompt.
+test("Return picks the $ row the arrows chose instead of sending the half-typed prompt", async () => {
+  const commands = [
+    { name: "browser-use", insert: "@browser-use ", description: "Browser use", source: "extension" as const },
+  ];
+  const { field, sent } = await composer(chat({ commands }), "open it with $brow");
+  expect(host.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await dispatch(field, key({ key: "ArrowDown" }));
+  const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect({ sent, proceeded }).toEqual({ sent: [], proceeded: false });
+  expect(field.textContent).toContain("@browser-use");
+});
+
 test("Shift-Return adds a line and sends nothing", async () => {
   const { field, sent } = await composer(chat(), "first line");
   expect(lines(field)).toBe(1);
