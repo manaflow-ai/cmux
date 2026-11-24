@@ -153,6 +153,10 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         endHandle.isHidden = !showsHandles
     }
 
+    #if DEBUG
+    var drawnRects: [CGRect] { highlight.isHidden ? [] : highlight.rects }
+    #endif
+
     // MARK: Gestures
 
     @objc private func longPressed(_ press: UILongPressGestureRecognizer) {

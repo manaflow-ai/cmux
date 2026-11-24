@@ -181,6 +181,18 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         host.bringSubviewToFront(highlight)
     }
 
+    #if DEBUG
+    var drawnRects: [CGRect] {
+        highlight.isHidden || highlight.superview == nil ? [] : highlight.rects.map { $0.0.offsetBy(dx: highlight.frame.minX, dy: highlight.frame.minY) }
+    }
+
+    func debugSearch(_ query: String) {
+        present(terminalHadFocus: false)
+        interaction?.searchText = query
+        search(query)
+    }
+    #endif
+
     // MARK: UIFindInteractionDelegate
 
     func findInteraction(_ interaction: UIFindInteraction, sessionFor view: UIView) -> UIFindSession? {
