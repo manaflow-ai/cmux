@@ -104,8 +104,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
     /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `app`: the editor id
-    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil)
+    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸. `repo` and
+    /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
+    /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -337,14 +340,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
     /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
     case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
-    /// `pane.inputEchoed`: the page drew the first key the person typed into its composer
-    /// (webviews inputEchoMark.ts, once per page life), the launch mark `agent_pane.input_echoed`:
-    /// the chat's first input in scripts/ci/launch_tti_check.py beside the terminal's `terminal_echo`.
-    case inputEchoed
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).
     case launchSettle(settledAt: Date, maxMovePx: Double, element: String, shifts: Int)
+    /// `pane.inputEchoed {echoedEpochMs}` (webviews launchInputEcho.ts): once per chat document while a launch
+    /// harness reads the marks, the frame where the composer first drew a key the person typed. Forwarded as the
+    /// launch mark `agent_pane.input_echoed` only (``AgentPaneLaunchTimings/inputEchoed(at:)``).
+    case inputEchoed(at: Date)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready

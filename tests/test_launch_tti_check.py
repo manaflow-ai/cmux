@@ -109,6 +109,22 @@ class InAppPathTests(unittest.TestCase):
         [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
         self.assertIn("probe_no_key_window", why)
 
+    def test_in_app_chat_round_without_the_echo_fails_nothing(self):
+        # The app's one key goes in before a chat page is up: an in_app chat round measures nothing, fails nothing.
+        row = {"post_access": False, "input_ms": None}
+        self.assertEqual([], tti.round_failures("chat", "in_app", row, {"agent_pane.painted": 900.0}, 30))
+        # The posted path's keys time the chat: a build with the mark that never echoes fails the round.
+        self.assertTrue(tti.round_failures("chat", "posted", {"post_access": True, "input_ms": None}, {}, 30))
+
+    def test_measured_launches_may_take_the_front(self):
+        # fresh_home_launch_smoke's own launch runs with CMUX_NEXT_NO_ACTIVATE=1, under which no window ever takes
+        # key: every launch the run times runs without it, and nothing else in the environment changes.
+        env = {"HOME": "/h", tti.NO_ACTIVATE_VARIABLE: "1", "CMUX_NEXT_SOCKET_PATH": "/s"}
+        out = tti.interactive_env(env)
+        self.assertEqual({"HOME": "/h", "CMUX_NEXT_SOCKET_PATH": "/s"}, out)
+        self.assertEqual("1", env[tti.NO_ACTIVATE_VARIABLE])
+        self.assertNotIn(tti.NO_ACTIVATE_VARIABLE, tti.launch_env(out, Path("/p.csv"), "in_app"))
+
     def test_probe_that_took_the_front_is_measured_and_named(self):
         # A background runner's launch is never key at the first frame: the probe took the front as a Dock launch.
         for mark, focus in (("terminal.probe_app_inactive", "app_inactive"),

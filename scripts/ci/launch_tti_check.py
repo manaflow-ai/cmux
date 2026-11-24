@@ -76,8 +76,13 @@ interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `ter
 process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
-round's input number (its paint number stands). A build whose chat pages do not post the composer's input mark
-reads `no_mark` for the chat's input on either path.
+round's input number (its paint number stands). The app types that one key wherever its key window takes it, before a
+chat page is up, so on the in_app path a chat round ends when the chat drew and fails nothing; the posted path's keys
+time the chat, and a build whose chat pages do not post the composer's input mark reads `no_mark` for its input.
+
+Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
+launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
+behind, NoActivateKeyboardGuard gives the front back), so no key, posted or the app's own, could reach a window.
 """
 from __future__ import annotations
 
@@ -210,6 +215,15 @@ class Keys:
             if event:
                 self.cg.CGEventPostToPid(pid, event)
                 self.cg.CFRelease(event)
+
+
+NO_ACTIVATE_VARIABLE = "CMUX_NEXT_NO_ACTIVATE"
+
+
+def interactive_env(env: dict) -> dict:
+    """The run's environment without CMUX_NEXT_NO_ACTIVATE, for every launch it times: a person's launch activates
+    the app and its window takes key; under the variable none ever does, so a key could reach no window."""
+    return {k: v for k, v in env.items() if k != NO_ACTIVATE_VARIABLE}
 
 
 def activate(pid: int) -> None:
@@ -484,11 +498,12 @@ def probe_focus(marks: dict) -> str | None:
 
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
-    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
+    before a chat page is up, so its chat round measures nothing and fails nothing."""
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
+    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
         if which == "browser":
             out.append(f"the browser page took no keys within {settle:.0f} s ({BROWSER_INPUT})")
         elif path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
@@ -766,9 +781,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         # The paint number: the front's PAINT_MARK, or (a build without it, `no_mark`) nothing to wait for.
         painted = PAINT_MARK[which] in marks or not has_marks["paint"]
         if which == "chat":
-            # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run):
-            # the round ends when the chat drew and types nothing into its draft; `no_mark`, not a failure of the app.
-            took = CHAT_MARK in marks or (not has_marks["input"] and "agent_pane.painted" in marks)
+            # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run),
+            # or the in_app path (its one key is typed before a chat page is up): the round ends when the chat drew
+            # and types nothing into its draft; `no_mark` or nothing measured, not a failure of the app.
+            took = CHAT_MARK in marks or ((not has_marks["input"] or path == "in_app") and "agent_pane.painted" in marks)
         elif which == "browser":
             took = BROWSER_INPUT in marks or not has_marks["input"]
             # A build without the browser marks: the round ends 2 s after its first frame (nothing to read).
@@ -896,6 +912,7 @@ def check(args) -> int:
         app = Path(app)
         inst = rr.Instance(str(socket_path), str(app), env["HOME"])
         work = os.path.join(env["HOME"], "l5-work")
+        env = interactive_env(env)  # every launch from here takes the front, as a person's does
         started = time.monotonic()
         try:
             made = rr.seed(inst, args.fake_agent, work, front_terminal=False)

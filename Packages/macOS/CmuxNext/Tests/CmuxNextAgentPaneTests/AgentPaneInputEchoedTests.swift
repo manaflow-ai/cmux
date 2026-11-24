@@ -1,14 +1,21 @@
-@testable import CmuxNextAgentPane
 import Foundation
 import Testing
+@testable import CmuxNextAgentPane
 
-/// The chat's first-input launch mark: the page's `pane.inputEchoed` (webviews inputEchoMark.ts, once per page life)
-/// decodes, is served on the page host, and is boot traffic the host answers without touching the chat.
-/// Leo, 2026-11-22: "we should be able to just show it up as fast as the terminal does."
-@MainActor @Suite struct AgentPaneInputEchoedTests {
-    @Test func theReportDecodesAndIsServed() {
-        #expect(AgentPaneRequest(body: ["method": "pane.inputEchoed"]) == .inputEchoed)
-        #expect(AgentPaneRequest(body: ["method": "pane.inputEchoed", "params": [:]]) == .inputEchoed)
-        #expect(AgentPageOps.methods["pane.inputEchoed"] == "pane.inputEchoed", "the page host refuses the op")
+/// The chat composer's first echo of a typed key at launch (`pane.inputEchoed {echoedEpochMs}`, webviews
+/// launchInputEcho.ts) parses to the page's wall-clock time, for the launch mark `agent_pane.input_echoed`; a report
+/// without a finite time is refused.
+@Suite struct AgentPaneInputEchoedTests {
+    @Test func theReportCarriesThePagesTime() {
+        let request = AgentPaneRequest(body: ["method": "pane.inputEchoed", "params": ["echoedEpochMs": 1_700_000_000_250.0]])
+        guard case .inputEchoed(let at) = request else { return #expect(Bool(false), "pane.inputEchoed did not parse") }
+        #expect(at == Date(timeIntervalSince1970: 1_700_000_000.25))
+    }
+
+    @Test func aReportWithoutATimeIsRefused() {
+        for params: [String: Any] in [[:], ["echoedEpochMs": "soon"], ["echoedEpochMs": Double.nan]] {
+            let request = AgentPaneRequest(body: ["method": "pane.inputEchoed", "params": params])
+            guard case .unsupported = request else { return #expect(Bool(false), "\(params) parsed") }
+        }
     }
 }
