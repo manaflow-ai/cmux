@@ -6,6 +6,8 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+#[cfg(unix)]
+mod closed_tmp;
 mod control_asks;
 
 mod account_usage;
