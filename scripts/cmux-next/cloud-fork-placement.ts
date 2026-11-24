@@ -11,7 +11,12 @@
 // Prints one JSON verdict line at the end (and writes it to --out when given).
 //
 //   bun scripts/cmux-next/cloud-fork-placement.ts [--backend staging] [--sign-in password|oidc]
-//       [--team TEAM] [--runs N] [--out FILE]
+//       [--team TEAM] [--runs N] [--out FILE] [--divergence]
+//
+// --divergence (cmux-platform Divergence.ts, the dirty-byte meter): after parity, wait for the copy's
+// baseline disk read, write DIVERGENCE_WRITE_MB on the copy, wait past one periodic read, pause the copy
+// and compare its `paused_hourly_rate_usd` (billed at what it wrote) with its parent's (its whole disk).
+// The copy's id is in the row, so its `cloud.divergence.read` log lines and usage rows can be read after.
 //
 // Credentials: CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test
 // account), or --sign-in oidc in a GitHub Actions job the API trusts.
@@ -55,9 +60,55 @@ export type RunRow = {
   parity: Parity | null;
   child_cost: unknown;
   agent: string;
+  divergence?: Divergence | null;
   error: string | null;
   cleanup: string[];
 };
+
+/** What a copy pauses at after writing DIVERGENCE_WRITE_MB, against its parent (a whole-disk machine). */
+export type Divergence = {
+  written_mb: number;
+  write_ms: number | null;
+  child_running: { paused_hourly_rate_usd: number | null } | null;
+  child_paused: { status: string | null; paused_hourly_rate_usd: number | null } | null;
+  parent: { paused_hourly_rate_usd: number | null } | null;
+  /** child_paused's rate over the parent's: about written / disk when the copy is billed by divergence. */
+  ratio: number | null;
+  billed_as_diverged: boolean;
+};
+
+export const DIVERGENCE_WRITE_MB = 1024;
+/** The first read of a snapshot-made machine is due at once (Divergence.ts divergenceDueAt); the alarm takes it. */
+export const DIVERGENCE_BASELINE_WAIT_MS = 120_000;
+/** DIVERGENCE_READ_EVERY_MS (10 min) plus a minute for the alarm. */
+export const DIVERGENCE_PERIODIC_WAIT_MS = 11 * 60_000;
+const DIVERGE_FILE = "$HOME/cmux-fork-diverge";
+
+/** Writes `mb` MiB of random bytes (so no layer can dedupe or compress them) and syncs them to the disk. */
+export function divergenceWriteCommand(mb = DIVERGENCE_WRITE_MB): string {
+  return `set -e; dd if=/dev/urandom of=${DIVERGE_FILE} bs=1M count=${mb} conv=fsync status=none; sync; echo written=$(du -m ${DIVERGE_FILE} | cut -f1)`;
+}
+
+const rate = (m: any): number | null => (typeof m?.paused_hourly_rate_usd === "number" ? m.paused_hourly_rate_usd : null);
+
+/**
+ * Billed as diverged: the paused copy's rate is below its parent's. A copy billed at its whole disk pauses at
+ * exactly the parent's rate (same size), so any drop is the divergence meter; the ratio says by how much.
+ */
+export function divergenceVerdict(written_mb: number, write_ms: number | null, childRunning: any, childPaused: any, parent: any): Divergence {
+  const c = rate(childPaused);
+  const p = rate(parent);
+  const ratio = c !== null && p !== null && p > 0 ? Number((c / p).toFixed(4)) : null;
+  return {
+    written_mb,
+    write_ms,
+    child_running: childRunning ? { paused_hourly_rate_usd: rate(childRunning) } : null,
+    child_paused: childPaused ? { status: typeof childPaused.status === "string" ? childPaused.status : null, paused_hourly_rate_usd: c } : null,
+    parent: parent ? { paused_hourly_rate_usd: p } : null,
+    ratio,
+    billed_as_diverged: ratio !== null && ratio < 1 && childPaused?.status === "paused",
+  };
+}
 
 /** The setup command: marker, one-commit repo, a detached counter. Prints marker sha, HEAD, pid. */
 export function setupCommand(nonce: string): string {
@@ -110,7 +161,7 @@ const median = (xs: number[]) => {
 };
 
 export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
-  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean));
+  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean) && (r.divergence === undefined || r.divergence?.billed_as_diverged === true));
   const nums = (k: "fork_call_ms" | "fork_to_first_exec_ms") => rows.map((r) => r[k]).filter((v): v is number => typeof v === "number");
   return {
     kind: "cloud-fork-placement",
@@ -157,6 +208,7 @@ async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: 
 async function main(): Promise<number> {
   const backend = resolveBackend(arg("--backend", "staging")!);
   const runs = Math.max(1, Math.min(10, Number(arg("--runs", "1"))));
+  const divergence = process.argv.includes("--divergence");
   const team = arg("--team") || undefined;
   const secrets: string[] = [];
   const api = new Api(backend.api, team);
@@ -213,6 +265,24 @@ async function main(): Promise<number> {
       row.agent = agent.stdout.includes("up") ? "acpmux answers on the copy" : `acpmux did not answer: ${(agent.stderr || agent.stdout).slice(0, 200)}`;
       const read = await http("GET", `${platform}/v1/machines/${encodeURIComponent(row.child)}`, undefined, platformHeaders(), 15_000);
       row.child_cost = read.status === 200 ? { route: "GET {platform}/v1/machines/{id} cost", cost: read.body?.cost ?? null } : { route: "GET {platform}/v1/machines/{id}", status: read.status };
+      if (divergence) {
+        row.divergence = null;
+        say(`divergence: copy ${row.child}, parent ${row.parent}; baseline wait ${DIVERGENCE_BASELINE_WAIT_MS / 1000} s`);
+        await sleep(DIVERGENCE_BASELINE_WAIT_MS);
+        const w0 = Date.now();
+        const wrote = await childExec(divergenceWriteCommand(), 300_000);
+        if (wrote.code !== 0) throw new Error(`divergence write on the copy: exit ${wrote.code} ${wrote.stderr.slice(0, 300)}`);
+        const writeMs = Date.now() - w0;
+        say(`divergence: wrote ${facts(wrote.stdout).written ?? "?"} MiB in ${writeMs} ms; periodic wait ${DIVERGENCE_PERIODIC_WAIT_MS / 1000} s`);
+        await sleep(DIVERGENCE_PERIODIC_WAIT_MS);
+        const running = await api.read("cloud.machine.get", { machine: row.child });
+        await api.op("cloud.machine.pause", { machine: row.child }, `${tag}-pause-child-${run}`);
+        const paused = await waitMachine(api, row.child, (m) => m?.status === "paused", 180_000);
+        // A minute paused, so the meter bills a stored stretch at the divergence before the delete.
+        await sleep(60_000);
+        const parentRow = await api.read("cloud.machine.get", { machine: row.parent });
+        row.divergence = divergenceVerdict(DIVERGENCE_WRITE_MB, writeMs, running, paused, parentRow);
+      }
     } catch (e) {
       row.error = scrub(String((e as Error).message), secrets);
     } finally {
@@ -231,7 +301,7 @@ async function main(): Promise<number> {
     rows.push(row);
   }
   await api.op("install.revoke", { install: install.id }, `${tag}-install-revoke`).catch((e) => say(`install ${install.id} not revoked: ${String((e as Error).message).slice(0, 200)}`));
-  const v = verdict(rows, { backend: backend.name, platform, at: new Date().toISOString() });
+  const v = verdict(rows, { backend: backend.name, platform, at: new Date().toISOString(), ...(divergence ? { mode: "divergence" } : {}) });
   const line = scrub(JSON.stringify(v), secrets);
   const out = arg("--out");
   if (out) writeFileSync(out, `${line}\n`);

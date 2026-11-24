@@ -13,6 +13,10 @@ on:
       runs:
         description: "How many forks to time (1 to 10)"
         default: "5"
+      divergence:
+        description: "Divergence mode: write 1 GiB on one copy, wait past a meter read, pause it, compare its paused rate with its parent's"
+        type: boolean
+        default: false
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -51,9 +55,15 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           RUNS: ${{ inputs.runs || '5' }}
+          DIVERGENCE: ${{ github.event_name == 'pull_request' || inputs.divergence }}
         run: |
           set -o pipefail
-          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --out "$RUNNER_TEMP/fork-placement.json"
+          # A pull request runs the divergence proof once (cmux-platform Divergence.ts): it is the longer, stricter run.
+          if [ "$DIVERGENCE" = "true" ]; then
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs 1 --divergence --out "$RUNNER_TEMP/fork-placement.json"
+          else
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --out "$RUNNER_TEMP/fork-placement.json"
+          fi
       - name: Verdict in the summary
         if: always()
         run: |
