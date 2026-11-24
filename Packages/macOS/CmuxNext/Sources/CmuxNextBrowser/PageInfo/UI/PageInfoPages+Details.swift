@@ -8,7 +8,7 @@ extension PageInfoPages {
         var views: [NSView] = [header(PageInfoStrings.cookiesHeader, subtitle: model.site.displayName, back: true)]
         guard let data = model.siteData else {
             views.append(PageInfoRowView(symbol: nil, title: PageInfoStrings.loading, interactive: false))
-            return stack(views)
+            return page(views)
         }
         if data.thirdPartyPolicy == .blocked {
             views.append(PageInfoRowView(symbol: "eye.slash", title: PageInfoStrings.thirdPartyCookies,
@@ -22,7 +22,7 @@ extension PageInfoPages {
                                      identifier: "pageInfo.manageSiteData")
         manage.onActivate = { send(.manageSiteData) }
         views.append(manage)
-        return stack(views)
+        return page(views)
     }
 
     // MARK: One permission
@@ -52,7 +52,7 @@ extension PageInfoPages {
                                      identifier: "pageInfo.manage")
         manage.onActivate = { send(.siteSettings) }
         views.append(manage)
-        return stack(views)
+        return page(views)
     }
 
     // MARK: Words and symbols

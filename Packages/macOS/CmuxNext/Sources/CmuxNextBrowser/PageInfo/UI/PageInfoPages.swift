@@ -24,7 +24,7 @@ import CmuxNextDesign
         var views: [NSView] = [header(site.displayName, subtitle: nil, back: false)]
         guard let connection = site.connection else {
             views.append(identityRow(for: site.kind))
-            return stack(views)
+            return page(views)
         }
         let security = PageInfoRowView(
             symbol: Self.connectionSymbol(connection), title: Self.shortSummary(connection),
@@ -65,7 +65,7 @@ import CmuxNextDesign
             about.onActivate = { send(.aboutThisPage) }
             views.append(about)
         }
-        return stack(views)
+        return page(views)
     }
 
     private func permissionRow(_ state: SitePermissionState) -> NSView {
@@ -103,7 +103,7 @@ import CmuxNextDesign
     private func securityPage() -> NSView {
         let site = model.site
         var views: [NSView] = [header(PageInfoStrings.securityHeader, subtitle: site.displayName, back: true)]
-        guard let connection = site.connection else { return stack(views) }
+        guard let connection = site.connection else { return page(views) }
         let danger = Self.isDanger(connection)
         let summary = PageInfoRowView(symbol: Self.connectionSymbol(connection), title: Self.longSummary(connection),
                                       tint: danger ? PageInfoStyle.danger : nil, interactive: false)
@@ -129,7 +129,7 @@ import CmuxNextDesign
             row.onActivate = { send(.showCertificate) }
             views.append(row)
         }
-        return stack(views)
+        return page(views)
     }
 
     /// The user proceeded past this site's certificate warning (Chrome:
@@ -160,7 +160,72 @@ import CmuxNextDesign
         let line = HairlineView()
         line.translatesAutoresizingMaskIntoConstraints = false
         line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        return line
+        line.identifier = Self.separatorID
+        guard let inset = PageInfoStyle.look?.separatorInset, inset > 0 else { return line }
+        // The menu look's rule starts where a menu's does, off both edges.
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.identifier = Self.separatorID
+        container.addSubview(line)
+        NSLayoutConstraint.activate([
+            line.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: inset),
+            line.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -inset),
+            line.topAnchor.constraint(equalTo: container.topAnchor, constant: DesignTokens.space1),
+            line.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -DesignTokens.space1),
+        ])
+        return container
+    }
+
+    static let separatorID = NSUserInterfaceItemIdentifier("pageInfo.separator")
+
+    /// A whole page: today's stack, or the active ``PageInfoLook``'s arrangement of the same views
+    /// (the band's rule under the header; the card look's sections, the runs between separators,
+    /// each on its own card surface in place of the separators).
+    func page(_ views: [NSView]) -> NSStackView {
+        guard let look = PageInfoStyle.look else { return stack(views) }
+        var views = views
+        if look.headerIsBand, views.first is PageInfoHeaderView { views.insert(separator(), at: 1) }
+        guard look.sectionCards else { return stack(views, spacing: look.sectionGap) }
+        var arranged: [NSView] = []
+        var section: [NSView] = []
+        func close() {
+            if !section.isEmpty { arranged.append(card(section, radius: look.cornerRadius - look.cardPadding)) }
+            section = []
+        }
+        for view in views {
+            if view is PageInfoHeaderView {
+                close()
+                arranged.append(view)
+            } else if view.identifier == Self.separatorID {
+                close()
+            } else {
+                section.append(view)
+            }
+        }
+        close()
+        return stack(arranged, spacing: look.sectionGap)
+    }
+
+    /// `views` on one card surface (the agent pane's ``CardSurfaceView``), concentric with the bubble.
+    func card(_ views: [NSView], radius: CGFloat) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        let surface = CardSurfaceView(cornerRadius: radius)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        let rows = stack(views, spacing: 0)
+        container.addSubview(surface)
+        container.addSubview(rows)
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            surface.topAnchor.constraint(equalTo: container.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            rows.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            rows.topAnchor.constraint(equalTo: container.topAnchor),
+            rows.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
     }
 
     func padded(_ view: NSView) -> NSView {
@@ -169,7 +234,8 @@ import CmuxNextDesign
         container.addSubview(view)
         let inset = PageInfoStyle.rowInset
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PageInfoStyle.iconColumn + inset),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor,
+                                          constant: PageInfoStyle.look?.textX ?? PageInfoStyle.iconColumn + inset),
             view.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -inset),
             view.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
             view.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -inset),
