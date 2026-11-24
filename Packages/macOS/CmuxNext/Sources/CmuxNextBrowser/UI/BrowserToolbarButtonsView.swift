@@ -70,11 +70,17 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// alone by default; making all nine was a fifth of Shift-Cmd-L's key turn, #32909).
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
-    private weak var tab: (any BrowserTab)?
+    private(set) weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
     private var pageURL: URL?
     /// The last facts rendered: zoom and Downloads show only on some.
     private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
+    /// The More menu while it is open on cmux's glass (``presentGlass(_:from:)``): its zoom row
+    /// reads the page's zoom again when the page reports a new one.
+    var openGlassMenu: GlassMenu?
+    /// Shows a glass menu under its anchor, trailing edges lined up; false when it cannot show.
+    /// Tests replace it: a real one needs a window on a screen.
+    var showGlassMenu: (GlassMenu, NSView) -> Bool = { menu, anchor in menu.show(from: anchor, trailing: true) }
 
     public init() {
         super.init(frame: .zero)
@@ -91,6 +97,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
         view.setAccessibilityIdentifier(button.identifier)
         view.rightClickPresses = button.opensMenu
+        view.opensOnPress = button.followsPress
         // One ⋮ in the pane: More draws the tab bar's glyph at its size (Lawrence msg 19627).
         if button == .overflow { view.iconSide = { OverflowButton.paneGlyphSize } }
         let order = BrowserToolbarButton.allCases
@@ -249,7 +256,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         // leaving 100 % at level 2 may let level 0 fit again.
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
+        let zoomed = facts.zoom != self.facts.zoom
         self.facts = facts
+        if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))

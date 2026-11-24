@@ -25,8 +25,10 @@ import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setComputerUseState } from "./computerUse/computerUseState";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -132,6 +134,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "liveTree":
+      return bridge?.applyLiveTree?.(event.value === true);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.
@@ -141,6 +145,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
+    case "experiments":
+      // Direct, like sessionStatus: a push before a component mounts is kept.
+      return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);
     case "paneNotices":
@@ -190,6 +197,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);
+    case "computerUseState":
+      // Computer Use on this Mac, for a send that names `@computer-use` (computerUse/computerUseState.ts).
+      return setComputerUseState(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":

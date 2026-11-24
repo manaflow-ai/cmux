@@ -1,21 +1,39 @@
 /* Harness updates available (HarnessUpdates.tsx): the model menus' update footer. The reference's
-   order: a heading with Update all, one row per agent CLI, the reason under them. One hairline sets
+   order: a heading with Update all, one row per agent CLI. One hairline sets
    the footer off from the model list; the rows sit together under their heading with none between
-   them (David Beyer, Nov 20: messy). It stays put while the model list above it scrolls. */
+   them (David Beyer, Nov 20: messy). It stays put while the model list above it scrolls.
+   It is a bar on the menu's own insets (Lawrence 2026-11-23, msg 48182: "spacing here is bad"; its
+   one 20 px button sat 4 px under the divider and 8 px over the bottom, 12 px in on the left and
+   8 px from the end). Its button is centered in a primary row's height (--ds-control-primary, the
+   search row's control) with the same inset to the divider, the bottom and the menu's end; each row
+   is a menu row (--ui-row-height) and the section's padding makes up the rest. The mark starts where
+   a model row's content and the search icon do (the menu's padding plus a row's). The divider runs
+   the menu's whole width and nothing pads the bottom past the inset, as under the columns
+   (test/harness-updates-footer-insets.browser.test.ts). A 28 px bar left 4 px around the button and
+   pinned it against the menu's rounded corner. */
 .acpmux-harness-updates {
+  /* The button's inset from the divider, the bottom and the menu's end. */
+  --acpmux-harness-updates-inset: calc((var(--ds-control-primary) - var(--ds-control-icon)) / 2);
   flex: none;
+  padding-block: calc(var(--acpmux-harness-updates-inset) - (var(--ui-row-height) - var(--ds-control-icon)) / 2);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
+}
+/* A list menu draws its footer inside its padding (ui/Menu.tsx `footer`): the footer takes that
+   padding back, so its divider and its insets are the columns' too. */
+.acpmux-quick-menu > .acpmux-harness-updates {
+  margin: 0 calc(-1 * var(--menu-padding, 4px)) calc(-1 * var(--menu-padding, 4px));
 }
 .acpmux-harness-updates-head,
 .acpmux-harness-update {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: var(--ds-control-row);
-  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+  min-height: var(--ui-row-height);
+  padding-block: 0;
+  padding-inline: calc(var(--ui-popup-padding) + var(--ui-row-padding-inline)) var(--acpmux-harness-updates-inset);
 }
 .acpmux-harness-updates-title {
   flex: 1;
@@ -58,16 +76,21 @@
   font: inherit;
   cursor: default;
 }
-.acpmux-harness-update-run {
-  min-width: 56px;
-  background: var(--ds-surface-inset);
-  color: var(--agent-text);
-}
-.acpmux-harness-updates-all:hover,
+.acpmux-harness-update-run { min-width: 56px; color: var(--agent-text); }
+/* A row's Update and Skip This Version are quiet; the default button (Update all, or the one row's
+   Update) is the footer's one filled button, in the theme's accent. */
+.acpmux-harness-update-run:hover:not(:disabled),
 .acpmux-harness-update-skip:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
-.acpmux-harness-update-run:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
-.acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
-.acpmux-harness-updates-hint {
-  margin: 0;
-  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+.acpmux-harness-updates [data-default] {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, var(--agent-page-bg));
 }
+.acpmux-harness-updates [data-default]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-accent) 88%, var(--agent-text));
+  color: var(--agent-accent-text, var(--agent-page-bg));
+}
+.acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
+/* Beside Update all, a row's Update (or a failed row's Try Again) shows on the row's hover or focus
+   only; it keeps its space, so nothing moves when it appears. A running update's spinner always shows. */
+.acpmux-harness-update-run[data-reveal] { opacity: 0; }
+.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal] { opacity: 1; }

@@ -452,6 +452,14 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `inference gateway status --json [--team TEAM]`: a team's inference gateway and the agents it serves now
+    /// (`serves`), which the Cloud start gate counts when nothing of the person's own serves the chat (hq#15762).
+    /// `team`: the backend team the start's machines are made in (the install's own). A team's gateway serves only
+    /// that team's machines, so the gate reads that one, never the active team's (`--team` absent).
+    InferenceGatewayStatus {
+        #[serde(default)]
+        team: Option<String>,
+    },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -460,6 +468,14 @@ pub enum Call {
     /// `link start-chat warm-spare --request JSON`: the person's paused spare, warmed on intent.
     StartChatWarmSpare {
         request: String,
+    },
+    /// `link start-chat ensure --workspace K --key K --environment ENV [--platform URL]` (the access token on stdin): a new
+    /// machine in a cloud environment (`/v1/cloud-environments`) from the platform's workspace ensure, keyed by `key`.
+    StartChatEnsure {
+        key: String,
+        environment: String,
+        #[serde(default)]
+        platform: Option<String>,
     },
     /// `link start-chat plan --request JSON`.
     StartChatPlan {
@@ -678,6 +694,14 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(150),
             min_timeout_seconds: None,
         },
+        // One status read on a start's path, before any machine: short, so a slow API costs a start little.
+        Call::InferenceGatewayStatus { team } => {
+            let mut args = words(&["inference", "gateway", "status", "--json"]);
+            if let Some(team) = team {
+                args.extend(words(&["--team", team]));
+            }
+            Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
+        }
         Call::StartChatReservation { release, request } => Invocation {
             args: words(&[
                 "link",
@@ -695,6 +719,24 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(95),
             min_timeout_seconds: None,
         },
+        Call::StartChatEnsure { key, environment, platform } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "ensure",
+                "--workspace",
+                key,
+                "--key",
+                key,
+                "--environment",
+                environment,
+            ]);
+            if let Some(platform) = platform {
+                args.extend(words(&["--platform", platform]));
+            }
+            // The platform call's own limit is 120 s (a new machine's admission).
+            Invocation { args, timeout_seconds: Some(150), min_timeout_seconds: None }
+        }
         Call::StartChatPlan { request } => {
             plain(words(&["link", "start-chat", "plan", "--request", request]))
         }

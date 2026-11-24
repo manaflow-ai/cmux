@@ -4,8 +4,10 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextPages
+import CmuxNextRemoteView
 import CmuxNextScreenshots
 import CmuxNextTabs
+import WebKit
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -64,9 +66,10 @@ struct AppWindowImage {
     /// pages (their pixels are only in their child windows), then the app's own Chromium pages
     /// painted in, then the masks on top. It fails closed: a mask that cannot be painted, or a
     /// window that keeps animating or resizing, refuses the capture instead of giving its pixels.
-    /// - Returns: The image and how many areas it masks.
+    /// - Returns: The image, how many areas it masks, and each area's name and frame in window
+    ///   coordinates (``ScreenshotMask/Rules/name``), so the result can say what is grey.
     /// - Throws: ``WindowScreenshotFailure`` or ``ScreenshotMask/Failure``.
-    static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int) {
+    static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int, areas: [ScreenshotMask.Area]) {
         for _ in 0..<ScreenshotMask.attempts {
             let sampler = ScreenshotMask.Sampler(window: window, rules: .app)
             defer { sampler.stop() }
@@ -83,10 +86,10 @@ struct AppWindowImage {
             guard mask.isSettled else { continue }
             layers += mask.regions.map(WindowImageLayer.mask)
             guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
-                if mask.regions.isEmpty { return (base, 0) }
+                if mask.regions.isEmpty { return (base, 0, []) }
                 throw ScreenshotMask.Failure.unmaskable
             }
-            return (image, mask.regions.count)
+            return (image, mask.regions.count, mask.areas)
         }
         throw ScreenshotMask.Failure.unsettled
     }
@@ -103,26 +106,42 @@ extension ScreenshotMask.Rules {
     static let app = ScreenshotMask.Rules(
         covers: ScreenshotMask.covers,
         area: { view in
-            // A browser pane whole, its toolbar and tab strip included: the address bar shows a
-            // URL, which can carry a token or a one-time link, and the title and the badges come
-            // from the page. #23983 masked the whole chrome and this keeps that. It is an `area`
-            // rather than a `covers`, so `read` still descends and sees a page whose pixels have
-            // moved out from under the mask. A pane hidden while the capture runs stays masked:
-            // the mask is every reading's, and the screen lags the view tree by less than
-            // ``ScreenshotMask/settle``, the wait between the first reading and the capture.
+            // A browser pane whole, its toolbar and tab strip included: the address bar shows a URL, which can carry a
+            // token or a one-time link, and the title and the badges come from the page (#23983). It is an `area`, not a
+            // `covers`, so `read` still descends and sees a page whose pixels moved out from under the mask. A pane hidden
+            // while the capture runs stays masked: the mask is every reading's, and the screen lags the view tree by less
+            // than ``ScreenshotMask/settle``, the wait between the first reading and the capture.
             if let chrome = view as? BrowserChromeView { return chrome }
-            // PaneContentView keeps the tab strip beside the browser chrome. Tab titles, badges,
-            // and page-derived labels in that sibling can carry the same secrets as the page.
-            // Cover the strip as a separate area so window and pane crops cannot expose it.
+            // PaneContentView keeps the tab strip beside the browser chrome; its titles, badges and page-derived labels can
+            // carry the page's secrets, so it is its own area and no window or pane crop shows it.
             if let strip = view as? TabStripView { return strip }
-            // A chat's last frame, drawn under the pane's content until its page paints. Hidden
-            // it has already been replaced by the content above it, which `visit` reaches itself.
+            // A chat's last frame, drawn under the pane's content until its page paints (hidden: replaced by the content).
             guard let launch = (view as? PaneContentView)?.launchImageView, !launch.isHidden else { return nil }
             return launch
         },
         isAppPage: { $0 is PageWebView },
-        coversContents: { $0 is BrowserChromeView }
+        coversContents: { $0 is BrowserChromeView },
+        name: ScreenshotMask.areaName
     )
+}
+
+extension ScreenshotMask {
+    /// What a masked area is, as the capture's `masked_areas` names it: `home` for every Home view,
+    /// `chat` for an agent chat or its launch frame, `browser` for a browser pane, its page or a stray web view,
+    /// `tab-strip` for a pane's tab strip, `remote-screen` for another machine's picture, `page:<id>` for an app page.
+    static func areaName(_ view: NSView) -> String {
+        if let page = view as? PageWebView { return "page:\(page.descriptor.id)" }
+        if let tab = view as? InternalPageView { return tab.page == .homeDock || tab.page == .homeTab ? "home" : "page:\(tab.page.rawValue)" }
+        if view is HomeHostView || view is TopHomePageView || view is HomeNewMessageView || view is HomeDockSwitchView
+            || view is HomeSidebarView || view is HomeNativeTranscriptView { return "home" }
+        if view is AgentPaneView { return "chat" }
+        if view is RemoteVideoView { return "remote-screen" }
+        if view is TabStripView { return "tab-strip" }
+        if view is BrowserChromeView || BrowserChromeView.isPageContent(view) || view is WKWebView { return "browser" }
+        // A pane's launch image is the only other area (``Rules/app``): a chat's last frame.
+        if sequence(first: view, next: \.superview).contains(where: { ($0 as? PaneContentView)?.launchImageView === view }) { return "chat" }
+        return "area"
+    }
 }
 
 extension ScreenshotMask {
@@ -136,19 +155,21 @@ extension ScreenshotMask {
     ]
 
     /// The native page tabs (``InternalPageView`` whose content is not a ``PageWebView``) a
-    /// capture shows, by ``InternalPageID``: the same checked pages as ``shownAppPages``. Every
-    /// other native page (Phone and Mac Screen frames, Passwords, History, Stashed, Inbox, Mobile
-    /// Pairing's code, the Chief's pages, a new page) is masked whole until someone checks it.
+    /// capture shows, by ``InternalPageID``: the same checked pages as ``shownAppPages``, and Mac Screen, whose cards
+    /// (Couldn't connect, Try Again) show while the other Mac's picture is masked (``covers(_:)``: Leo 2026-11-21, "our
+    /// screen shared scren look slike ass"; masked whole, a failed share was flat gray). Every other native page (Phone
+    /// frames, Passwords, History, Stashed, Inbox, Mobile Pairing's code, the Chief's pages, a new page) is masked whole.
     static let shownNativePages: Set<String> = [
-        "keybindings", "changelog", "diff", "files", "files-pane", "find-pane", "markdown", "editor", "debug-settings",
+        "keybindings", "changelog", "diff", "files", "files-pane", "find-pane", "markdown", "editor", "debug-settings", "mac-screen",
     ]
 
     /// Whether a capture covers `view` whole: a browser tab's page, an agent chat, a Home
-    /// conversation, list or draft, an app page not in ``shownAppPages`` or a native page tab
-    /// not in ``shownNativePages``. Any other web view is
+    /// conversation, list or draft, an app page not in ``shownAppPages``, a native page tab not in ``shownNativePages``
+    /// or another machine's picture (``RemoteVideoView``, on any page). Any other web view is
     /// covered unless a shown app page holds it (``ScreenshotMask/read(_:rules:)``).
     static func covers(_ view: NSView) -> Bool {
         if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
+        if view is RemoteVideoView { return true }
         // A web page tab is judged by its PageWebView above; a native one by its page id here.
         if let tab = view as? InternalPageView, !(tab.content is PageWebView) { return !shownNativePages.contains(tab.page.rawValue) }
         return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
