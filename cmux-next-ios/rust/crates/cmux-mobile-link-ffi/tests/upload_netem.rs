@@ -67,18 +67,32 @@ async fn netem_host_child() {
         pairing: None,
     };
     let mac = SignalingClient::connect(&url, "user:alice", "team", &mac_id).await.unwrap();
-    tokio::spawn(serve_signaling(
-        mac,
-        AnswerContext {
-            owner_user_id: "alice".into(),
-            services: Arc::new(services),
-            ice: IceSource::Fixed(Vec::new()),
-            include_loopback: true,
-            exclude_cgnat: false,
-            mailbox: None,
-            session_exposure: None,
-        },
-    ));
+    let services = Arc::new(services);
+    let context = move || AnswerContext {
+        owner_user_id: "alice".into(),
+        services: Arc::clone(&services),
+        ice: IceSource::Fixed(Vec::new()),
+        include_loopback: true,
+        exclude_cgnat: false,
+        mailbox: None,
+        session_exposure: None,
+    };
+    // As the real hostd (`host.rs`): when signaling drops (a long blackout), connect again,
+    // move live WireGuard sessions onto the new socket, and serve on.
+    tokio::spawn(async move {
+        let mut mac = mac;
+        loop {
+            let reason = serve_signaling(mac, context()).await;
+            eprintln!("host: signaling closed ({reason}); reconnecting");
+            mac = loop {
+                match SignalingClient::connect(&url, "user:alice", "team", &mac_id).await {
+                    Ok(mac) => break mac,
+                    Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+                }
+            };
+            cmux_mobile_link::dial::wireguard::rehome(&mac);
+        }
+    });
     println!("{READY}");
     let _ = std::io::stdout().flush();
     // The phone half holds our stdin; its exit (or kill) closes it.
