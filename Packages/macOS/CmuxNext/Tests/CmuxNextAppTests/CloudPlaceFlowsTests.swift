@@ -13,12 +13,28 @@ import Testing
 
         func core(_ operation: String, _ request: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any] else { return nil }
-            if operation == "cloud_move_place_view" { return Data(#"{"state":"moving"}"#.utf8) }
+            if operation == "cloud_move_place_view" { return Data((events.last == "failed" ? #"{"state":"failed"}"# : #"{"state":"moving"}"#).utf8) }
             let event = (object["event"] as? [String: Any])?["event"] as? String ?? ""
             lock.withLock { names.append(event) }
             let next = event == "cancel" && stopOnCancel ? "stop" : "go"
             return Data(#"{"flow":{"n":1},"next":"\#(next)"}"#.utf8)
         }
+    }
+
+    /// A fake app: one chat on this Mac, and how it answers a move (refused at once, or started).
+    @MainActor final class Host: CloudPlaceHost {
+        var chats = [CloudPlaceChat(id: "tab", session: "s", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)]
+        var refusal: String?
+        var runs = 0
+        func placeChats() -> [CloudPlaceChat] { chats }
+        func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
+            runs += 1
+            if let refusal { return .refused(refusal) }
+            return .started({})
+        }
+        func placeCloudSessions() -> [String] { [] }
+        func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) { (nil, []) }
+        func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {}
     }
 
     private func flows(_ recorder: Recorder) -> CloudPlaceFlows {
@@ -57,6 +73,23 @@ import Testing
         place.onCancel("t") { stopped += 1 }
         #expect(place.cancel("t") == .go)
         #expect(stopped == 1)
+    }
+
+    /// A move the app refuses at once (no first message, no chat there) fails in the chat's flow, so the chat shows why and
+    /// Retry, and the page's action answers with the reason; never the asked mode with nothing moving (review of #52230, F1).
+    @Test func aMoveRefusedAtOnceFailsInTheChatsFlowAndAnswersWhy() {
+        let recorder = Recorder(), host = Host()
+        let place = flows(recorder)
+        let driver = CloudPlaceDriver(place: place, host: host)
+        host.refusal = "Send a first message, then move this chat."
+        #expect(driver.setMode("cloud", tab: nil, session: "s") == .refused("Send a first message, then move this chat."))
+        #expect(recorder.events == ["begin", "failed"])
+        #expect(place.state(of: "s") == "failed")
+        #expect(place.mode(of: "s") == "cloud")
+        #expect(driver.retry(tab: nil, session: "s") == .refused("Send a first message, then move this chat."))
+        host.refusal = nil
+        #expect(driver.retry(tab: nil, session: "s") == nil)
+        #expect(host.runs == 3)
     }
 
     @Test func modesPersist() {

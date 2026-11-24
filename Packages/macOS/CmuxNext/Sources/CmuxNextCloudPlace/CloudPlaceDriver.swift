@@ -26,14 +26,27 @@ public struct CloudPlaceOwnMachine: Encodable, Sendable {
     public init(id: String, sessions: [String], gone: Bool) { self.id = id; self.sessions = sessions; self.gone = gone }
 }
 
+/// A move the app was asked to run (``CloudPlaceHost/placeRun(_:toCloud:machine:trigger:claims:)``).
+public enum CloudPlaceRun {
+    /// The app refused it at once (no chat there, a chat that cannot move yet), with why: nothing moved.
+    case refused(String)
+    /// It started; awaiting this returns when it ends.
+    case started(@MainActor () async -> Void)
+}
+
+/// Why a place action started no move: the app refused it at once, with why (the chat's flow shows it failed, with Retry).
+public nonisolated enum CloudPlaceRefusal: Error, Equatable {
+    case refused(String)
+}
+
 /// What the app supplies: its chats, how it runs a move, and what its ledger knows. Everything else is here.
 @MainActor
 public protocol CloudPlaceHost: AnyObject {
     /// Every chat the app shows that may move: local ones, and Cloud ones a move from this Mac put there.
     func placeChats() -> [CloudPlaceChat]
-    /// Runs the chat's move (to Cloud on `machine`, or back) as the app's move actions do, and returns when it ends.
+    /// Starts the chat's move (to Cloud on `machine`, or back) as the app's move actions do: refused at once, or started.
     /// `claims` (when the move is a person's from the page) override the cargo the app reads.
-    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) async
+    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun
     /// The sessions of the chats a move from this Mac put on Cloud machines and not brought back (the ledger).
     func placeCloudSessions() -> [String]
     /// The machine this session was moved to before, and the machines with the sessions each holds.
@@ -75,15 +88,18 @@ public final class CloudPlaceDriver {
     // MARK: Actions
 
     /// `chatPlace.set`: records the mode, and moves the chat where it puts it now (Cloud: its own VM; Local: back).
-    public func setMode(_ mode: String, tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) {
-        guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab: tab, session: session) else { return }
+    /// Returns why the move it needs did not start (its flow shows that failure, with Retry); nil when it started or none was needed.
+    @discardableResult
+    public func setMode(_ mode: String, tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) -> CloudPlaceRefusal? {
+        guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab: tab, session: session) else { return nil }
         place.setMode(mode, of: chat.session)
         switch mode {
-        case "cloud" where !chat.onCloud: move(chat, toCloud: true, trigger: .person, claims: claims)
-        case "local" where chat.onCloud: move(chat, toCloud: false, trigger: .person, claims: claims)
+        case "cloud" where !chat.onCloud: return move(chat, toCloud: true, trigger: .person, claims: claims)
+        case "local" where chat.onCloud: return move(chat, toCloud: false, trigger: .person, claims: claims)
         case "auto": evaluate()
         default: break
         }
+        return nil
     }
 
     /// `chatMove.cancel`: the reducer decides whether the move stops (through `sync`) or finishes.
@@ -94,9 +110,11 @@ public final class CloudPlaceDriver {
 
     /// `chatMove.retry`: the chat's move again, as the person's, to the machine its first try was for (its own VM:
     /// Rust's `own_machine` again, never whichever machine a nil would pick).
-    public func retry(tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) {
-        guard let chat = chat(tab: tab, session: session) else { return }
-        if chat.onCloud { run(chat, toCloud: false, machine: nil, trigger: .person, claims: claims) } else { move(chat, toCloud: true, trigger: .person, claims: claims) }
+    /// Returns why the move did not start, as ``setMode(_:tab:session:claims:)`` does.
+    @discardableResult
+    public func retry(tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) -> CloudPlaceRefusal? {
+        guard let chat = chat(tab: tab, session: session) else { return nil }
+        return move(chat, toCloud: !chat.onCloud, trigger: .person, claims: claims)
     }
 
     /// `cloudEvacuate`: every local chat (or the named ones) to its own VM, as many at once as Rust's plan says.
@@ -136,7 +154,7 @@ public final class CloudPlaceDriver {
             Task { @MainActor in
                 while !self.place.evacuationStopped, let chat = pending.next() {
                     self.place.evacuationPhase(chat.session, .running)
-                    await self.moved(chat, toCloud: toCloud, trigger: .evacuate)
+                    if case .success(let ended) = self.start(chat, toCloud: toCloud, trigger: .evacuate) { await ended() }
                     self.place.evacuationPhase(chat.session, .ended)
                 }
             }
@@ -153,19 +171,30 @@ public final class CloudPlaceDriver {
 
     // MARK: Running a move
 
-    private func move(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims = .init()) {
-        // task-owner: one move; the app's registry tracks its work.
-        Task { await moved(chat, toCloud: toCloud, trigger: trigger, claims: claims) }
+    /// Starts the move and lets it run; returns why it did not start.
+    @discardableResult
+    private func move(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims = .init()) -> CloudPlaceRefusal? {
+        switch start(chat, toCloud: toCloud, trigger: trigger, claims: claims) {
+        case .failure(let refusal): return refusal
+        case .success(let ended):
+            // task-owner: one move; the app's registry tracks its work.
+            Task { await ended() }
+            return nil
+        }
     }
 
-    private func run(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) {
-        // task-owner: one move; the app's registry tracks its work.
-        Task { await host?.placeRun(chat, toCloud: toCloud, machine: machine, trigger: trigger, claims: claims) }
-    }
-
-    /// To Cloud, the chat's own VM (Rust's rule): the one it used before when still there and holding no other chat, else a new one.
-    private func moved(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims = .init()) async {
-        await host?.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: chat.session) : nil, trigger: trigger, claims: claims)
+    /// Starts the move; to Cloud, the chat's own VM (Rust's rule): the one it used before when still there and holding no
+    /// other chat, else a new one. A move the app refuses at once fails in the chat's flow, so the chat shows why and offers Retry.
+    private func start(_ chat: CloudPlaceChat, toCloud: Bool, trigger: CloudPlaceFlows.Trigger,
+                       claims: CloudPlaceClaims = .init()) -> Result<@MainActor () async -> Void, CloudPlaceRefusal> {
+        guard let host else { return .success({}) }
+        switch host.placeRun(chat, toCloud: toCloud, machine: toCloud ? ownMachine(for: chat.session) : nil, trigger: trigger, claims: claims) {
+        case .refused(let reason):
+            place.refused(chat.session, toCloud: toCloud, trigger: trigger, reason: reason)
+            return .failure(.refused(reason))
+        case .started(let ended):
+            return .success(ended)
+        }
     }
 
     func ownMachine(for session: String) -> CloudPlaceMachine? {

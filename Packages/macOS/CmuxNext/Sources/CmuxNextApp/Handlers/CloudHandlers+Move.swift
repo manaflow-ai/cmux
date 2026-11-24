@@ -77,8 +77,10 @@ extension CloudHandlers {
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation))
-                case AppServices.placeRetry: place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation))
+                    // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
+                    if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
+                case AppServices.placeRetry:
+                    if let refusal = place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
                 case AppServices.placeEvacuateCancel: place.cancelEvacuation()
                 case AppServices.placeBringBackAll: place.bringBackAll(sessions: named)
@@ -181,6 +183,15 @@ extension CloudPlaceClaims {
     }
 }
 
+extension CloudPlaceRefusal {
+    /// What the page and the person read.
+    var message: String {
+        switch self {
+        case .refused(let reason): reason
+        }
+    }
+}
+
 /// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`. A person's move from the page
 /// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; no Swift source reads the
 /// queued prompts, so Auto and Evacuate leave it out.
@@ -231,7 +242,7 @@ extension AppServices: CloudPlaceHost {
         return found
     }
 
-    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) async {
+    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
         var arguments: [String: ActionValue] = ["trigger": .string(trigger.argument)]
         if let queued = claims.queued { arguments["queued"] = .int(queued) }
         if let hasDraft = claims.hasDraft { arguments["hasDraft"] = .bool(hasDraft) }
@@ -243,7 +254,14 @@ extension AppServices: CloudPlaceHost {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: arguments, origin: .user)
         let registry = self.registry
         let action = toCloud ? CloudMove.action : CloudBringBack.action
-        for work in registry.capturingWork({ _ = registry.perform(action, invocation: invocation) }) { _ = await work.value }
+        var ran = false, work: [ActionWork] = []
+        // The move's own checks refuse before it starts (no chat there, no first message, no folder): that refusal is the run's answer.
+        let refusal = registry.reportingRefusal { work = registry.capturingWork { ran = registry.perform(action, invocation: invocation) } }
+        if work.isEmpty, let reason = refusal ?? (ran ? nil : registry.unavailableReason(for: action) ?? CloudMoveStrings.moveFailed("")) {
+            return .refused(reason.trimmingCharacters(in: .whitespaces))
+        }
+        let started = work
+        return .started { for work in started { _ = await work.value } }
     }
 
     func placeCloudSessions() -> [String] { cloud.movedChats.all().filter { $0.broughtBack == nil }.map(\.session) }
