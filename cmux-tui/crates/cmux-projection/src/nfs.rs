@@ -331,7 +331,10 @@ impl NFSFileSystem for Nfs {
                 let Ok((range, end)) = page(&all, start_after, max_entries) else {
                     return Ok(None);
                 };
-                let entries = all[range]
+                let Some(window) = all.get(range) else {
+                    return Ok(None);
+                };
+                let entries = window
                     .iter()
                     // A path deleted since the listing is left out.
                     .filter_map(|(ino, _, name)| {

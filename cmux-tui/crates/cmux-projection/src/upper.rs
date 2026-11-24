@@ -41,7 +41,11 @@ const NOATIME: libc::c_int = libc::O_NOATIME;
 const NOATIME: libc::c_int = 0;
 
 /// A permission or type mode as the system's `mode_t`.
-#[allow(clippy::unnecessary_cast, clippy::cast_possible_truncation)]
+#[allow(
+    clippy::unnecessary_cast,
+    clippy::cast_possible_truncation,
+    reason = "mode_t is u16 on macOS; permission and type bits fit in 16 bits"
+)]
 pub(crate) fn mode_t(mode: u32) -> libc::mode_t {
     mode as libc::mode_t
 }
@@ -255,7 +259,8 @@ impl Upper {
         #[allow(
             clippy::useless_conversion,
             clippy::cast_possible_truncation,
-            clippy::cast_possible_wrap
+            clippy::cast_possible_wrap,
+            reason = "dev_t is i32 on macOS; rdev came from this platform's own stat"
         )]
         let rdev = rdev as libc::dev_t;
         // SAFETY: valid descriptor and C string.
@@ -578,7 +583,7 @@ fn rename_at(
             flags,
         )
     };
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, reason = "the rename syscall returns 0 or -1")]
     check(done as libc::c_int).map(drop)
 }
 
