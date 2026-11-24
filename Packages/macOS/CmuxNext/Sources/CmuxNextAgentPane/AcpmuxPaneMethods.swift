@@ -21,7 +21,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/seen", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
@@ -59,6 +59,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this
+        // machine's budget and answers here or a place from the targets the page passed; it starts,
+        // moves and writes nothing. Its reply is cut to ``replyShapes``; acpmux answers this Mac's
+        // app and unix socket only.
+        "_acpmux/place_chat",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
         // the messages of one thread of the chat in the pane's scope, read without marking them.
         "_acpmux/inbox_thread",
@@ -133,6 +138,12 @@ nonisolated enum AcpmuxPaneMethods {
         // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
         // for a chat in scope, and only on a gesture (``gestureRules``).
         "_acpmux/memory_resolve",
+        // Session Info's Carried memory (session-info/CarriedSection.tsx; acpmux agent_home.rs):
+        // `_acpmux/agent_home` reads the instructions and memory files that follow the person to this
+        // machine and the notes other machines propose; `_acpmux/agent_home_resolve` accepts or drops
+        // proposals by id. Both only for a chat in scope; the resolve only on the person's click
+        // (``gestureRules``), and acpmux takes it only from the person.
+        "_acpmux/agent_home", "_acpmux/agent_home_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
         // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
@@ -152,6 +163,9 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Every subagent of a chat in the pane's scope, running and latest ended, for the
+        // Background tasks panel (direct.ts listSubagents; acpmux hub/subagent_list.rs). Read only.
+        "_acpmux/subagents",
         // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
         // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
         // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
@@ -347,8 +361,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
-        "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/seen", "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/subagents", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
@@ -454,6 +468,10 @@ nonisolated enum AcpmuxPaneMethods {
         // match the facts against its offer, so Accept and Dismiss go only on the person's click
         // (direct.ts resolveMemory sends with no await before it).
         "_acpmux/memory_resolve": .always,
+        // An accepted proposal reaches every later chat's agent on every machine the person uses, so
+        // Accept and Drop go only on the person's click (direct.ts resolveAgentHome sends with no
+        // await before it).
+        "_acpmux/agent_home_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

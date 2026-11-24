@@ -1,6 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// The newest messages of a conversation as this device last saw them, so a store built again
 /// (the app back from the background, a relaunch, a reconnect) shows them at once instead of a

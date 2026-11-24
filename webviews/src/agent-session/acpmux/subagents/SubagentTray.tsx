@@ -154,6 +154,7 @@ import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -1044,6 +1045,7 @@ export const SubagentTray = memo(function SubagentTray({
         // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
         <div
           className="acpmux-running-tray__rim"
+          {...RESIZE_HANDLE_PROPS}
           title={t("tray.resize")}
           aria-hidden="true"
           onPointerDown={onRimDown}

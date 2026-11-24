@@ -76,7 +76,34 @@ pub fn panic_log_path() -> std::path::PathBuf {
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+    resolve_supervised_home(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// `<account_home>/.acpmux`, or the real directory it links to when it is a symlink to the
+/// person's own supervised home (`<account_home>/.acpmux-supervised/<name>`, what a supervised
+/// daemon's `ACPMUX_HOME` names). The private-state directory opens with O_NOFOLLOW and the
+/// consent check refuses redirection, so both must see the real path. A link anywhere else is
+/// returned unresolved and keeps being refused.
+pub fn resolve_supervised_home(account_home: &Path) -> PathBuf {
+    let link = default_home_in(account_home);
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link(&link) {
+        return link;
+    }
+    let supervised = account_home.join(".acpmux-supervised");
+    if is_link(&supervised) {
+        return link;
+    }
+    let (Ok(real), Ok(account)) =
+        (std::fs::canonicalize(&link), std::fs::canonicalize(account_home))
+    else {
+        return link;
+    };
+    if real.parent() == Some(account.join(".acpmux-supervised").as_path()) && real.is_dir() {
+        real
+    } else {
+        link
+    }
 }
 
 /// [`default_home`] for the OS account whose home folder is `account_home`.
@@ -1293,6 +1320,16 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
+    /// `lanes`: the host's lane cap each session's default memory ceiling is sized from
+    /// (RAM / lanes x 2, `session_budget.rs`). Unset: `ACPMUX_HOST_LANES`, else this host's
+    /// fleet-registry.json `lanes.max_lanes`, else none (half the RAM). 0 is unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lanes: Option<u64>,
+    /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
+    /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
@@ -1510,6 +1547,19 @@ pub struct PersonHoldConfig {
     pub ms: Option<u64>,
 }
 
+/// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
+/// these chats starts a turn only when it is a page (a block or question from a session, a
+/// first-seen FIRE or program block, a message from or tagged for the person); the rest waits
+/// for the next notice, at most `inbox.rs` `FLUSH_MS`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRuleConfig {
+    /// The chats, by name (`NAME`, or `HOST/NAME` as fleet-registry.json `coordinators` writes
+    /// them), that only a page wakes.
+    #[serde(default)]
+    pub sessions: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1612,6 +1662,10 @@ pub struct Config {
     /// small model reads one as urgent (`hub/person_hold.rs`). Unset: none wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub person_hold: Option<PersonHoldConfig>,
+    /// `pageRule`: the coordinator chats only a page wakes (`hub/inbox_page_rule.rs`). Unset:
+    /// none, every chat wakes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_rule: Option<PageRuleConfig>,
     /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
     /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
     #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
@@ -1710,6 +1764,14 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
+    /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
+    /// machines on it first when their name resolves to a private address (one GCP region's VPC),
+    /// with the relay as the fallback. The same Noise XX and node keys as a relay circuit admit a
+    /// connection, so it lets in no one the relay would not. Unset (the default): relay only.
+    /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_port: Option<u16>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on

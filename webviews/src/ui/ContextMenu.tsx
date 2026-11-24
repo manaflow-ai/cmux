@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
@@ -18,6 +19,7 @@ import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
+import { pointerAnchor, usePointerMenuPosition } from "./pointerMenuPosition";
 import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
@@ -109,32 +111,6 @@ export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bot
 export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
   const need = rows * NATIVE_ROW_PX + 8;
   return viewportHeight - y < need && y > viewportHeight - y;
-}
-
-/**
- * Where a page-drawn menu of `size` sits for a pointer at `point`: below it, above it when there is no
- * room below and more above (the same call `opensUp` makes), and capped at the larger space, scrolling,
- * when neither side holds it.
- */
-export function placeMenu(
-  point: { x: number; y: number },
-  size: { width: number; height: number },
-  viewport: { width: number; height: number },
-): { left: number; top: number; maxHeight: number | undefined } {
-  const margin = 4;
-  const below = viewport.height - point.y - margin;
-  const above = point.y - margin;
-  const up = size.height > below && above > below;
-  const room = Math.max(below, above);
-  const capped = size.height > room;
-  const height = capped ? room : size.height;
-  const left = point.x + size.width > viewport.width - margin ? point.x - size.width : point.x;
-  const top = up ? point.y - height : point.y;
-  return {
-    left: Math.max(margin, Math.min(left, viewport.width - size.width - margin)),
-    top: Math.max(margin, Math.min(top, viewport.height - height - margin)),
-    maxHeight: capped ? room : undefined,
-  };
 }
 
 /** The control a closed menu gives focus back to. */
@@ -234,13 +210,10 @@ export function ContextMenu({
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      if (host) setShown(node);
-    },
-    [host],
-  );
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    menu.current = node;
+    setShown(node);
+  }, []);
   useEffect(
     () => () => {
       heldPress.current?.();
@@ -250,39 +223,21 @@ export function ContextMenu({
     },
     [],
   );
+  const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
+  const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
+  const placed = place !== null;
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
-  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
-  useEscapingPopup(
-    host,
-    shown,
-    () =>
-      point && {
-        getBoundingClientRect: () => ({
-          left: point.x,
-          right: point.x,
-          top: point.y,
-          bottom: point.y,
-        }),
-      },
-    // Up when the page has no room below the pointer: the host's panel then opens above it, not down
-    // into no space (the composer hat at the window's bottom edge).
-    { side: point && opensUp(point.y, items.length) ? "top" : "bottom", align: "start", gap: 0, shell: "self" },
-  );
-  // Where the menu sits, measured before it paints.
-  const [place, setPlace] = useState<{ left: number; top: number; maxHeight: number | undefined } | null>(null);
+  // (popupHost.ts). The side is the one the measured placement chose, so the host's panel opens up when
+  // the page's own menu would.
+  useEscapingPopup(host, shown, () => anchor, {
+    side: place?.side ?? "bottom",
+    align: "start",
+    gap: 0,
+    shell: "self",
+  });
   useLayoutEffect(() => {
-    const node = menu.current;
-    if (!point || !node) {
-      setPlace(null);
-      return;
-    }
-    const { width, height } = node.getBoundingClientRect();
-    setPlace(placeMenu(point, { width, height }, { width: window.innerWidth, height: window.innerHeight }));
-  }, [point]);
-  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
-  useLayoutEffect(() => {
-    if (place) menu.current?.focus();
-  }, [place]);
+    if (placed) menu.current?.focus();
+  }, [placed, point]);
   // The experiments' arms (a Settings flip redraws live); they shape only the page-drawn menu.
   const look = useExperimentArm(menuStyleV2);
   const states = useExperimentArm(menuRowStates);
@@ -475,9 +430,7 @@ export function ContextMenu({
         : null;
     if (native && nativePopup.available) {
       setNativeSide(opensUp(at.y, native.model.rows.length) ? "top" : "bottom");
-      setNativeAnchor({
-        getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
-      });
+      setNativeAnchor(pointerAnchor(at.x, at.y));
       setNativeOpen(true);
       return;
     }
@@ -602,6 +555,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
+                data-pointer-menu=""
                 className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
@@ -611,12 +565,14 @@ export function ContextMenu({
                 tabIndex={-1}
                 {...menuArms}
                 style={{
-                  position: "fixed",
-                  minWidth: 180,
+                  position: "absolute",
+                  minWidth: "min(180px, 100%)",
+                  maxWidth: "min(360px, 100%)",
+                  maxHeight: "100%",
+                  width: "max-content",
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,
                   visibility: place ? undefined : "hidden",
-                  ...(place?.maxHeight ? { maxHeight: place.maxHeight, overflowY: "auto" as const } : {}),
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {

@@ -456,18 +456,3 @@ test("a caller's own popup side is never overwritten by the flip", async () => {
   expect(popupSide("bottom", "top")).toBe("top");
   expect(popupSide("bottom", "bottom")).toBe("bottom");
 });
-
-test("the page-drawn placement agrees with opensUp, and caps and scrolls when neither side has room", async () => {
-  const { placeMenu, opensUp } = await import("./ContextMenu");
-  const view = { width: 1000, height: 800 };
-  const rows = 4;
-  const size = { width: 200, height: rows * 28 + 8 };
-  for (const y of [20, 300, 700, 780]) {
-    const placed = placeMenu({ x: 100, y }, size, view);
-    expect(placed.top < y).toBe(opensUp(y, rows, view.height));
-    expect(placed.maxHeight).toBeUndefined();
-  }
-  const tall = placeMenu({ x: 100, y: 500 }, { width: 200, height: 2000 }, view);
-  expect(tall.maxHeight).toBe(500 - 4);
-  expect(tall.top).toBeGreaterThanOrEqual(4);
-});

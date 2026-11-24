@@ -1366,6 +1366,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
+    def test_a_pull_request_canary_compiles_its_pinned_head_in_debug(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
+        step = next(s for s in job["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
+        self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
+        self.assertIn('compile-check --ref "$REF" --app', step["run"])
+
 
 def kill_group(pid: int) -> None:
     # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
@@ -2443,8 +2450,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
-                         "the swift archive, whose pointer readers follow, goes last")
+                         ["${{ matrix.workspace }}/" + FAST_CACHE_DIRS["home"],
+                          "${{ matrix.workspace }}/" + FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last; each at its pool's path")
         for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
@@ -2475,8 +2483,11 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
+        # blacksmith-root2: the same seed at the owned minis' second seed root's path (owned_spm_scratch).
+        self.assertEqual(set(pools), {"blacksmith", "blacksmith-root2"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["workspace"], "/Users/runner/_work/cmux-2/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["runner"], "blacksmith-6vcpu-macos-26")
 
     def test_a_seed_key_names_the_path_its_restore_writes(self):
         """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
@@ -3877,7 +3888,14 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertNotIn("--release", args)
         self.assertIn("Build fleet app compile: pass", summary)
+
+    def test_the_native_pr_app_job_always_runs_debug_instead_of_reading_release(self):
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertNotIn("fleet_compile_result.py", step["run"])
+        self.assertNotIn("tip check's SwiftPM Release", step["run"])
+        self.assertIn("compile-check --ref \"$REF\" --app --timeout 1200 --queue-timeout 300", step["run"])
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
         result, output, _, _ = self.run_check(1)
@@ -3889,7 +3907,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
         that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
         output stays unavailable, so release-compile still takes over where mac_release sends it."""
-        for client_exit in (69, 75, 124, 2, 3, 137):
+        for client_exit in (69, 124, 2, 3, 137):
             with self.subTest(client_exit=client_exit):
                 result, output, _, summary = self.run_check(client_exit)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
@@ -3900,6 +3918,16 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 self.assertIn(f"exit {client_exit}", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
+
+    def test_a_fleet_that_kept_the_compile_queued_is_a_warning_not_a_red(self):
+        """cmux-ci exit 75 (queued past --queue-timeout) was 652 of 1030 red app compiles in 24 h, each re-run
+        queueing again; the verdict stays unavailable so the Release compile still takes over where asked."""
+        result, output, _, summary = self.run_check(75)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=unavailable", output)
+        self.assertNotIn("verdict=pass", output)
+        self.assertIn("::warning title=Build fleet compile: still queued", result.stdout)
+        self.assertIn("Build fleet app compile: unavailable", summary)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
@@ -4569,20 +4597,22 @@ class FastTierCargoRoute(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.reaches("docs/x.md", path))
 
-    def test_every_tree_input_runs_it(self):
-        # The crates' embeds and build scripts outside cmux-tui/ (check_cmux_tui_tree_inputs.py keeps the list whole).
-        for raw in (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text(encoding="utf-8").splitlines():
-            parts = raw.split("#", 1)[0].split()
-            if len(parts) == 2:
-                with self.subTest(line=raw):
-                    self.assertTrue(self.reaches(parts[1] + ("/x" if parts[0] == "tree" else "")))
+    def test_a_dependency_crate_or_tree_input_change_waits_for_the_base_run(self):
+        # The feat-cmux-next push run and the merge car's cargo_affected.py test these after the merge.
+        self.assertFalse(self.reaches("cmux-tui/crates/acpmux/src/lib.rs", "webviews/src/app.tsx",
+                                      "cmux-tui/crates/acpmux-core/src/lib.rs", "schemas/x/vectors.json"))
 
     def test_every_registry_entry_runs_it(self):
         registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
         for entry in registry["entries"]:
             if entry["kind"] in ("cargo", "script"):
                 with self.subTest(entry=entry["name"]):
-                    path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
+                    if entry["kind"] == "cargo":
+                        own = self.route.package_dir(ROOT, entry["path"], entry["package"])
+                        self.assertIsNotNone(own, entry["package"])
+                        path = own + "src/lib.rs"
+                    else:
+                        path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
     def test_a_change_that_reaches_no_entry_skips_it(self):

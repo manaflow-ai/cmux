@@ -36,10 +36,10 @@ use acpmux::config::{Config, PeerConfig, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
     Ack, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, OutMessage, Receipt,
-    RefuseControl, Sender, Target,
+    Sender, Target,
 };
 use acpmux::rpc::{Message, method};
-use acpmux::server::mesh_relay::{MeshRelay, RelayOptions};
+use acpmux::server::mesh_relay::{MeshRelay, RefuseControl, RelayOptions};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
 use acpmux::wireguard::{StaticConfig, StaticPeer, Transport};
