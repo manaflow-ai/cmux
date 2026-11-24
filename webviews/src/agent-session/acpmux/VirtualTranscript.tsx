@@ -17,6 +17,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { setEffectKeyframes } from "./conversation/keyframeKinds";
 import { dockClearSpans, dockClearStops } from "./conversation/dockClear";
 import { KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
@@ -430,14 +431,14 @@ function holdUnderStack(
       : Math.max(0, ...rows.map((each) => each.getBoundingClientRect().bottom - hostTop));
     stack.held = still.map((each) => each.animate(hold, { ...timing, composite: "add" }));
     stack.cuts = new Map();
-  } else for (const held of stack.held ?? []) (held.effect as KeyframeEffect).setKeyframes(hold);
+  } else for (const held of stack.held ?? []) setEffectKeyframes(held.effect as KeyframeEffect, hold);
   const heldRows = new Set(stack.held?.map((held) => (held.effect as KeyframeEffect).target));
   for (const each of rows) {
     if (heldRows.has(each)) continue;
     // A row rising with the thread moves as one with it, so its box reads its settled place there.
     const frames = pushUpCut(each.getBoundingClientRect().bottom - hostTop - stack.line, stack.from);
     const cut = stack.cuts?.get(each);
-    if (cut) (cut.effect as KeyframeEffect).setKeyframes(frames);
+    if (cut) setEffectKeyframes(cut.effect as KeyframeEffect, frames);
     else if (frames.length) {
       const animation = each.animate(frames, timing);
       animation.currentTime = time;
@@ -4459,7 +4460,7 @@ function TranscriptView({
           // displacement to its current transform without restarting the original animation clock.
           if (typeof progress === "number" && progress < 1) {
             stack.from += (delta - stack.delta) / (1 - progress);
-            effect.setKeyframes([{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
+            setEffectKeyframes(effect, [{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
             // What grew late grew above the held rows: their line moves down the thread with it.
             if (stack.line !== undefined) stack.line += delta - stack.delta;
             holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
