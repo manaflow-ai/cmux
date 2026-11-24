@@ -193,6 +193,10 @@ path = "tests/test_edge_feed.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_egress_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
@@ -329,6 +333,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_install_zig_ci_reviewed_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_instrument_tokens.py"
 lane = "linux-guard"
 
 [[test]]
@@ -490,6 +498,11 @@ path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_new_tab_startup_bench.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_new_tab_startup_bench.py"
+
+[[test]]
 path = "tests/test_next_batch.py"
 lane = "linux-guard"
 
@@ -573,6 +586,11 @@ lane = "linux-guard"
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
+
+[[test]]
+path = "tests/test_prepush_generated_freshness.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_prepush_generated_freshness.py"
 
 [[test]]
 path = "tests/test_prepush_no_verdict_never_subtracts.py"
@@ -770,6 +788,11 @@ lane = "linux-guard"
 path = "tests/test_shortcut_alternates_documented.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_side_instance_parked_launch.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh launch or stop (kept with its siblings): python3 tests/test_side_instance_parked_launch.py; needs only bash and python3 (open, ps and pgrep are stand-ins)."
 
 [[test]]
 path = "tests/test_side_instance_protected_root.py"

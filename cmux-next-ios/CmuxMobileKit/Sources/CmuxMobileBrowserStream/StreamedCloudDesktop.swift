@@ -108,4 +108,25 @@ public struct StreamedViewOnlySurface: UIViewRepresentable {
         view.accessibilityLabel = label
     }
 }
+
+/// A stream's picture taking touches and keys: every finger on it a pointer at 0...1 of the
+/// picture, the keyboard (``StreamedBrowserModel/wantsKeyboard``) typing into it. A Mac
+/// screen link's control session (its connection maps them to the Mac's input).
+public struct StreamedTouchSurface: View {
+    let model: StreamedBrowserModel
+    let label: String
+    let identifier: String
+
+    public init(model: StreamedBrowserModel, label: String, identifier: String) {
+        self.model = model
+        self.label = label
+        self.identifier = identifier
+    }
+
+    public var body: some View {
+        SimulatorSurface(model: model)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(identifier)
+    }
+}
 #endif
