@@ -345,12 +345,28 @@ class PathEval:
 
 
 def python_facts(file_abs: str) -> PyFacts | None:
+    """What FILE_ABS imports, builds as paths, puts on sys.path, globs and runs, or None when it does not parse.
+    Cached on the path and its text: tooling_steps.py's router asks again for every step whose closure holds the file
+    (611 parses of a few hundred files, about half its 10 s), and a file edited in between is parsed afresh."""
     try:
         source = Path(file_abs).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    key = (file_abs, source)
+    if key not in _PY_FACTS:
+        _PY_FACTS[key] = _python_facts(file_abs, source)
+    return _PY_FACTS[key]
+
+
+_PY_FACTS: dict[tuple[str, str], "PyFacts | None"] = {}
+
+
+def _python_facts(file_abs: str, source: str) -> PyFacts | None:
+    try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tree = ast.parse(source, file_abs)
-    except (OSError, UnicodeError, SyntaxError, ValueError):
+    except (SyntaxError, ValueError):
         return None
     nodes = list(ast.walk(tree))
     evaluator = PathEval(file_abs, nodes)
@@ -400,6 +416,7 @@ HEREDOC_SHELL = re.compile(r"(?:^|[\s;&|(])(?:bash|sh|zsh|dash)(?:\s+-\w+)*\s*(?
 QUOTED_LINES_MAX = 400
 
 
+@functools.lru_cache(maxsize=None)  # pure; the router lexes the same script lines once per step that reaches them
 def _quotes_close(line: str) -> bool:
     lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
     lexer.whitespace_split = True
@@ -476,7 +493,19 @@ def rooted_run(repo: "Repo", target: str) -> str | None:
 
 
 def shell_words(text: str, script_dir: str | None, env: dict[str, str], unknown: list[str]):
-    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped."""
+    """Each command's words once the forms this resolves are substituted; a word left with `$` is dropped. Cached on
+    its arguments (the words depend on nothing else): the router lexes a script once per step whose closure holds it."""
+    key = (text, script_dir, tuple(sorted(env.items())))
+    if key not in _SHELL_WORDS:
+        _SHELL_WORDS[key] = tuple(_shell_words(text, script_dir, env))
+    for command in _SHELL_WORDS[key]:
+        yield list(command)
+
+
+_SHELL_WORDS: dict[tuple, tuple[list[str], ...]] = {}
+
+
+def _shell_words(text: str, script_dir: str | None, env: dict[str, str]):
     variables = dict(env)
     logical = re.sub(r"\\\n", " ", text)
     for line in shell_lines(logical):

@@ -1261,19 +1261,39 @@ jobs:
       # puts its own copy first on PATH wherever it lands. pytest-xdist runs the two slowest files (the
       # webviews runner's and the web lint hook's tests, about 80 s each, nearly all of it waiting on
       # subprocesses and their timeouts at about 0.2 cores) four tests at a time; every test still runs,
-      # each in its own temporary directory.
+      # each in its own temporary directory. A persistent host (the cmux-linux pool, a mini) keeps the venv
+      # below ~/.cache, named for the pins and the interpreter, so a later job reuses it instead of a pip
+      # install (4 to 10 s on every job, 2026-11-24); one that no longer imports is built again.
       - name: Prepare tooling-test Python (PyYAML, pytest-xdist)
         id: setup-python
         run: |
           set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/tooling-tests-venv"
-          "$RUNNER_TEMP/tooling-tests-venv/bin/python" -m pip install \
-            --disable-pip-version-check \
-            --no-input \
-            PyYAML==6.0.3 \
-            pytest==8.3.5 \
-            pytest-xdist==3.6.1
-          echo "$RUNNER_TEMP/tooling-tests-venv/bin" >> "$GITHUB_PATH"
+          pins=(PyYAML==6.0.3 pytest==8.3.5 pytest-xdist==3.6.1)
+          key="$( { python3 -c 'import sys; print(sys.version, sys.executable)'; printf '%s\n' "${pins[@]}"; } | sha256sum | cut -c1-16)"
+          cache="${XDG_CACHE_HOME:-$HOME/.cache}/cmux-ci"
+          mkdir -p "$cache" 2>/dev/null && [ -w "$cache" ] || cache="$RUNNER_TEMP"
+          venv="$cache/tooling-tests-venv-$key"
+          build() {
+            rm -rf "$1"
+            python3 -m venv "$1"
+            "$1/bin/python" -m pip install --disable-pip-version-check --no-input "${pins[@]}"
+            touch "$1/.complete"
+          }
+          if [ -e "$venv/.complete" ] && "$venv/bin/python" -c 'import yaml, pytest, xdist' 2>/dev/null; then
+            echo "reusing $venv"
+          else
+            # A venv's scripts name its own path, so it is built where it stays, by one job at a time (a lock over
+            # 15 minutes old is a dead job's); a job that finds another building it builds its own in RUNNER_TEMP.
+            find "$cache" -maxdepth 1 -name "tooling-tests-venv-$key.lock" -mmin +15 -exec rmdir {} + 2>/dev/null || true
+            if mkdir "$venv.lock" 2>/dev/null; then
+              trap 'rmdir "$venv.lock" 2>/dev/null || true' EXIT
+              build "$venv"
+            else
+              venv="$RUNNER_TEMP/tooling-tests-venv"
+              build "$venv"
+            fi
+          fi
+          echo "$venv/bin" >> "$GITHUB_PATH"
 
       # Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". Each selectable step below runs only
       # when this pull request's diff reaches a test it runs (scripts/ci/tooling_steps.py). A step of this job, not a
