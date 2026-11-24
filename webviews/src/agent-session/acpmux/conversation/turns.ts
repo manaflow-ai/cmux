@@ -1557,7 +1557,11 @@ function foldsTurn(
   turnStartedAtMs: number | undefined,
 ): boolean {
   if (summary.status !== "completed") return true;
-  const { durationMs } = turnClock(user, body, turnStartedAtMs, summary);
+  // The harness's own measure of the turn counts too: a wake that came after the answer moves the
+  // clock's start to itself, so the clock alone reads 0 over work the turn did before it.
+  const clock = turnClock(user, body, turnStartedAtMs, summary).durationMs;
+  const durationMs =
+    clock === undefined && summary.durationMs === undefined ? undefined : Math.max(clock ?? 0, summary.durationMs ?? 0);
   return worthFolding(workRowCount(user, body), durationMs);
 }
 
