@@ -89,6 +89,9 @@ pub enum SignalPayload {
         /// path label `turn-tls`); absent from older phones.
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// The hop/1 allocation among `relayed`. Older peers send plain WireGuard to its port.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<String>,
         /// The WireGuard protocol version ([`WG_VERSION`]); absent (0) from
         /// older peers, which still send relay frames and their marker.
         #[serde(default, skip_serializing_if = "is_zero")]
@@ -130,6 +133,9 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// The hop/1 allocation among `relayed`. Older peers send plain WireGuard to its port.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<String>,
     },
     #[serde(rename = "bye")]
     Bye {
