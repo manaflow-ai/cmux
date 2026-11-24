@@ -81,6 +81,9 @@ public struct WorkspacesList: View {
     @State private var listControl = WorkspacesListControl()
     /// Settings → Compact Workspace List.
     @AppStorage(CmuxMobilePreferences.Key.compactWorkspaceList) private var compactList = false
+    /// Settings → Needs You Look (the Mac's `notifications.attention.mark`): badge, or a glow until opened.
+    @AppStorage(CmuxMobilePreferences.Key.attentionMark) private var attentionMarkRaw = AttentionMarkLook.default.rawValue
+    private var attentionMark: AttentionMarkLook { AttentionMarkLook(stored: attentionMarkRaw) }
     /// Each row's frame in the list (read on demand, never drawn from).
     @State var rowFrames = RowFrames()
     /// The inbox, built once per change of what it reads.
@@ -474,6 +477,7 @@ public struct WorkspacesList: View {
         var pending: Set<String>
         var tracks: Bool
         var compact: Bool
+        var attentionMark: AttentionMarkLook
         var grouping: WorkspaceListGrouping
         var unfolded: Set<String>
         var searching: Bool
@@ -501,7 +505,7 @@ public struct WorkspacesList: View {
             }
         }
         let input = ListModelInput(inboxBuild: inboxMemo.builds, names: macNames(), rights: rights,
-                                   pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList,
+                                   pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList, attentionMark: attentionMark,
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
                                    recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
@@ -672,7 +676,9 @@ public struct WorkspacesList: View {
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
                                  tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
                                  canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down,
-                                 compact: compactList)
+                                 compact: compactList,
+                                 glows: WorkspaceRow.glows(status: status, look: attentionMark, seenAt: store.seenAt[ws.id],
+                                                           lastActivityAt: ws.lastActivityAt))
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -1103,6 +1109,8 @@ struct WorkspaceRowModel: Equatable {
     var canMoveDown: Bool
     /// Settings → Compact Workspace List: the name line only.
     var compact = false
+    /// Settings → Needs You Look is Glow and the row waits unseen (`WorkspaceRow.glows`).
+    var glows = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
@@ -1121,7 +1129,7 @@ struct WorkspaceListRow: View, Equatable {
             host.openWorkspace(ws, status: model.status)
         } label: {
             WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName,
-                         compact: model.compact)
+                         compact: model.compact, glows: model.glows)
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
@@ -1536,6 +1544,9 @@ struct WorkspaceRow: View {
     var offlineMacName: String?
     /// The Mac's Compact Workspace List: one line (the status line goes; VoiceOver still reads it).
     var compact = false
+    /// Settings → Needs You Look is Glow and the row waits unseen: the gutter's dot goes
+    /// (keeping its room) and the row breathes a halo in its color (`WorkspaceRow+NeedsYouGlow`).
+    var glows = false
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The status gutter; the title, separators and section titles start after it.
     private var gutter: CGFloat { Self.textLeading(typeSize) }
@@ -1570,6 +1581,7 @@ struct WorkspaceRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             mark
+                .opacity(glows ? 0 : 1)
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
@@ -1590,6 +1602,7 @@ struct WorkspaceRow: View {
         }
         .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background { needsYouGlow }
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
