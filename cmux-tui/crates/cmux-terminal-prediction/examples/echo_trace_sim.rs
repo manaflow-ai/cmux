@@ -100,6 +100,8 @@ enum Event {
 #[derive(Default)]
 struct Row {
     paint_ms: Vec<f64>,
+    /// Key-to-paint of the keys the overlay drew.
+    predicted_ms: Vec<f64>,
     predicted: usize,
     withdrawals: usize,
     left_over: usize,
@@ -126,7 +128,7 @@ fn speculative(engine: &TerminalPredictionEngine) -> usize {
     engine.glyphs().iter().filter(|g| g.standing == Standing::Speculative).count()
 }
 
-fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
+fn replay(trace: &Trace, profile: &Profile, full_screen: bool, seed: u64, row: &mut Row) {
     let mut random = Random(seed | 1);
     let count = trace.keys.len();
     let mut typed_at = Vec::with_capacity(count);
@@ -163,7 +165,11 @@ fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
     }
     events.sort_by_key(|&(time, order, _)| (time, order));
 
-    let mut engine = TerminalPredictionEngine::new(PredictionConfiguration::default(), true, true);
+    let configuration = PredictionConfiguration {
+        predict_in_full_screen_apps: full_screen,
+        ..PredictionConfiguration::default()
+    };
+    let mut engine = TerminalPredictionEngine::new(configuration, true, true);
     engine.observed_output(&trace.preamble, us(1_000_000));
     engine.presented_frame(us(1_000_000));
     let mut shown_at: Vec<Option<u64>> = vec![None; count];
@@ -233,7 +239,11 @@ fn replay(trace: &Trace, profile: &Profile, seed: u64, row: &mut Row) {
     }
     for key in 0..count {
         let painted = shown_at[key].map_or(painted_by[key], |shown| shown.min(painted_by[key]));
-        row.paint_ms.push((painted - typed_at[key]) as f64 / 1000.0 + frame_ms);
+        let ms = (painted - typed_at[key]) as f64 / 1000.0 + frame_ms;
+        row.paint_ms.push(ms);
+        if shown_at[key].is_some() {
+            row.predicted_ms.push(ms);
+        }
         row.predicted += usize::from(shown_at[key].is_some());
     }
 }
@@ -250,38 +260,55 @@ fn main() {
         std::process::exit(2);
     }
     println!(
-        "| program | link | keys | paint p50 ms | p95 | max | keys >100 ms | predicted | withdrawals | wrong left | status at key press |"
+        "| program | link | full-screen apps | keys | paint p50 ms | p95 | max | keys >100 ms | predicted p95 | predicted | withdrawals | wrong left | status at key press |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for trace in &traces {
-        for profile in &PROFILES {
-            let mut row = Row::default();
-            for round in 0..ROUNDS {
-                replay(trace, profile, 0x5EED ^ (round << 8) ^ profile.rtt_ms, &mut row);
+        for full_screen in [false, true] {
+            for profile in &PROFILES {
+                let mut row = Row::default();
+                for round in 0..ROUNDS {
+                    replay(
+                        trace,
+                        profile,
+                        full_screen,
+                        0x5EED ^ (round << 8) ^ profile.rtt_ms,
+                        &mut row,
+                    );
+                }
+                let mut predicted_ms = row.predicted_ms.clone();
+                predicted_ms.sort_by(f64::total_cmp);
+                let predicted_p95 = if predicted_ms.is_empty() {
+                    "-".to_owned()
+                } else {
+                    format!("{:.1}", percentile(&predicted_ms, 95.0))
+                };
+                let mut sorted = row.paint_ms.clone();
+                sorted.sort_by(f64::total_cmp);
+                let over = sorted.iter().filter(|&&ms| ms > 100.0).count();
+                let status = row
+                    .status
+                    .iter()
+                    .map(|(name, n)| format!("{name} {n}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!(
+                    "| {} | {} | {} | {} | {:.1} | {:.1} | {:.1} | {} | {} | {:.0}% | {} | {} | {} |",
+                    trace.name,
+                    profile.name,
+                    if full_screen { "on" } else { "off" },
+                    sorted.len(),
+                    percentile(&sorted, 50.0),
+                    percentile(&sorted, 95.0),
+                    sorted[sorted.len() - 1],
+                    over,
+                    predicted_p95,
+                    row.predicted as f64 * 100.0 / sorted.len() as f64,
+                    row.withdrawals,
+                    row.left_over,
+                    status
+                );
             }
-            let mut sorted = row.paint_ms.clone();
-            sorted.sort_by(f64::total_cmp);
-            let over = sorted.iter().filter(|&&ms| ms > 100.0).count();
-            let status = row
-                .status
-                .iter()
-                .map(|(name, n)| format!("{name} {n}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            println!(
-                "| {} | {} | {} | {:.1} | {:.1} | {:.1} | {} | {:.0}% | {} | {} | {} |",
-                trace.name,
-                profile.name,
-                sorted.len(),
-                percentile(&sorted, 50.0),
-                percentile(&sorted, 95.0),
-                sorted[sorted.len() - 1],
-                over,
-                row.predicted as f64 * 100.0 / sorted.len() as f64,
-                row.withdrawals,
-                row.left_over,
-                status
-            );
         }
     }
 }
