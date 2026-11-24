@@ -142,4 +142,25 @@ for dev_id in com.cmuxterm.app.debug.my-tag com.cmuxterm.app.debug.other.tag com
   expect_one_helper "--stamp of $dev_id" "$NAME" com.cmuxterm.app.debug.screen-sharing
 done
 
+# 10. The helper carries the app's icon, so System Settings, the permission alerts and Set Up Computer Use show
+# cmux's icon beside "<name> Helper" instead of a blank app; an app with no .icns yet leaves it without one.
+ID=com.cmuxterm.app.next.dev
+rm -rf "$library"/* "$build/tmp/bundle-screen-sharing-helper.stamp" "$app/Contents/Resources/AppIcon-Nightly.icns"
+write_info "$NAME" "$ID"
+run
+expect_one_helper "no app icon yet" "$NAME" "$ID.screen-sharing"
+[[ -z "$(plist_value "$library/$NAME Helper.app/Contents/Info.plist" CFBundleIconFile)" && ! -e "$library/$NAME Helper.app/Contents/Resources" ]] \
+  || fail "a helper of an app with no icon names one" "$out"
+python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleName": sys.argv[2], "CFBundleIdentifier": sys.argv[3], "CFBundleVersion": "7", "CFBundleIconFile": "AppIcon-Nightly"}, open(sys.argv[1], "wb"))' \
+  "$app/Contents/Info.plist" "$NAME" "$ID"
+printf 'icns-bytes' > "$app/Contents/Resources/AppIcon-Nightly.icns"
+for mode in xcode stamp; do
+  rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+  if [[ $mode == xcode ]]; then run; else run --stamp "$app"; fi
+  expect_one_helper "icon, $mode" "$NAME" "$ID.screen-sharing"
+  helper="$library/$NAME Helper.app"
+  [[ "$(plist_value "$helper/Contents/Info.plist" CFBundleIconFile)" == AppIcon ]] || fail "$mode: the helper names no icon" "$out"
+  [[ "$(cat "$helper/Contents/Resources/AppIcon.icns" 2>/dev/null)" == icns-bytes ]] || fail "$mode: the helper's icon is not the app's" "$out"
+done
+
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"

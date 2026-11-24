@@ -194,6 +194,9 @@ export interface ComputerUseRow {
 export interface ComputerUseState {
   /** The helper app's icon (cmux's own until the helper is found on disk). */
   helperIcon: HostImage | null;
+  /** The app System Settings lists for both grants ("cmux NIGHTLY Helper"); null until the helper is
+   * found, and absent from older hosts. */
+  helperName?: string | null;
   rows: ComputerUseRow[];
   allGranted: boolean;
   /** The footer's one line on why Allow cannot help, if it cannot. */

@@ -339,8 +339,9 @@ def main() -> int:
     @step("cu_open")
     def _(row):
         eyes.press("cmd+shift+p")
-        eyes.type("Computer Use Setup")
-        eyes.wait(r"Computer Use Setup", 10)
+        eyes.type("Set Up Computer Use")
+        # The palette title before cmux#53091 was "Computer Use Setup" (an app built before it still shows it).
+        eyes.wait(r"Set Up Computer Use|Computer Use Setup", 10)
         eyes.press("return")
         eyes.wait(r"Turn On Computer Use", 20)
 

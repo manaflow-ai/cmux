@@ -95,12 +95,12 @@ enum FixAction {
     RunAgain,
     /// `open '<fix_url>'`.
     OpenUrl,
-    /// The palette entry Computer Use Setup.
+    /// The palette entry Set Up Computer Use.
     ComputerUseSetup,
 }
 
 /// The palette entry the setup fixes name, as the app titles it.
-const COMPUTER_USE_SETUP: &str = "Computer Use Setup";
+const COMPUTER_USE_SETUP: &str = "Set Up Computer Use";
 
 impl Check {
     fn new(id: &'static str, label: &'static str, status: Status, reason: &'static str) -> Self {

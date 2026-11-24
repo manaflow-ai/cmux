@@ -57,9 +57,10 @@ plist_get() {
   fi
 }
 
-# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS>.
+# The helper's Info.plist: <path> <bundle id> <name> <version> <minimum macOS> [<icon file>].
 write_plist() {
-  local path="$1" id="$2" name="$3" version="$4" minimum="$5"
+  local path="$1" id="$2" name="$3" version="$4" minimum="$5" icon="${6:-}" icon_key=""
+  [[ -z "$icon" ]] || icon_key="<key>CFBundleIconFile</key><string>$icon</string>"
   cat > "$path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -67,6 +68,7 @@ write_plist() {
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>$EXECUTABLE</string>
+  $icon_key
   <key>CFBundleIdentifier</key><string>$id</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$name</string>
@@ -80,6 +82,22 @@ write_plist() {
 </dict>
 </plist>
 PLIST
+}
+
+# Gives helper <helper> the icon of app <app> (its CFBundleIconFile .icns) and prints the helper's icon file name,
+# or nothing when the app has no .icns yet (an Xcode phase that ran before the asset catalog): System Settings,
+# the permission alerts and Set Up Computer Use then show cmux's icon next to "<app name> Helper", not a blank
+# generic app. The nightly and RC rename re-stamp (--stamp) copies the final app's icon.
+copy_icon() {
+  local app="$1" helper="$2" icon
+  icon="$(plist_get "$app/Contents/Info.plist" CFBundleIconFile)"
+  icon="${icon:-${ASSETCATALOG_COMPILER_APPICON_NAME:-}}"
+  [[ -n "$icon" && "$icon" != */* ]] || return 0
+  icon="${icon%.icns}.icns"
+  [[ -f "$app/Contents/Resources/$icon" ]] || return 0
+  mkdir -p "$helper/Contents/Resources"
+  cp "$app/Contents/Resources/$icon" "$helper/Contents/Resources/AppIcon.icns"
+  echo AppIcon
 }
 
 # Refuses a bundle id or app name that is not one: a value read from a tool's output can carry the tool's own
@@ -145,7 +163,9 @@ if [[ "${1:-}" == "--stamp" ]]; then
   [[ "$found" == "$dest" ]] || { rm -rf "$dest"; mv "$found" "$dest"; }
   remove_other_helpers "$app" "$dest"
   helper_id="$(helper_id_for "$id")"
-  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}"
+  rm -rf "$dest/Contents/Resources/AppIcon.icns"
+  icon="$(copy_icon "$app" "$dest")"
+  write_plist "$dest/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "${version:-1}" "${minimum:-14.0}" "$icon"
   echo "stamped the Screen Sharing helper: $(basename "$dest") ($helper_id)"
   exit 0
 fi
@@ -230,7 +250,8 @@ mkdir -p "$staged/Contents/MacOS"
 cp "$src" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
 helper_id="$(helper_id_for "$id")"
-write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum"
+icon="$(copy_icon "$app" "$staged")"
+write_plist "$staged/Contents/Info.plist" "$helper_id" "$name$SUFFIX" "$version" "$minimum" "$icon"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"

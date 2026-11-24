@@ -284,21 +284,35 @@ fn next_step(status: &Value) -> Option<Value> {
             return action("app", &text, Some(SETUP_PAGE.into()), None);
         }
     }
+    // The app System Settings lists: the grants are the helper's, never cmux's own row.
+    let helper = helper_name(status);
     let grant = |key: &str, pane: &str, url: &str| {
         (status[key] != Value::Bool(true)).then(|| {
             json!({
                 "kind": "grant",
                 "text": format!(
-                    "Allow cmux Computer Use in System Settings > Privacy & Security > {pane} \
-                     (the command opens that pane), then run `cmux setup computer-use` again"
+                    "In System Settings > Privacy & Security > {pane}, turn on \u{201c}{helper}\u{201d} \
+                     (not the plain cmux row; the command opens that list, and Set Up Computer Use \
+                     in cmux walks the person through it), then run `cmux setup computer-use` again"
                 ),
                 "command": format!("open '{url}'"),
                 "url": url,
+                "pane": key,
+                "helper": helper,
             })
         })
     };
     grant("accessibility", "Accessibility", ACCESSIBILITY_URL)
         .or_else(|| grant("screen_recording", "Screen Recording", SCREEN_RECORDING_URL))
+}
+
+/// The app that holds the grants, as System Settings lists it (`helper` in the status, e.g.
+/// "cmux NIGHTLY Helper"); a generic name when the app did not say.
+pub(super) fn helper_name(status: &Value) -> String {
+    status["helper"]
+        .as_str()
+        .filter(|name| !name.trim().is_empty())
+        .map_or_else(|| "the cmux Computer Use helper".to_owned(), str::to_owned)
 }
 
 /// The helper is on its way: rerun in a few seconds.

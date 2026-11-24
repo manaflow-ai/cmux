@@ -766,6 +766,14 @@
   gap: var(--ds-space-3);
   margin-top: var(--ds-space-5);
 }
+/* The app to turn on in System Settings (the helper, not cmux), under the cards while a grant is missing. */
+.onb-cu-look-for {
+  margin-top: var(--ds-space-3);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-align: center;
+}
 .onb-grant {
   display: flex;
   align-items: center;

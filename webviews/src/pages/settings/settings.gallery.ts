@@ -1288,7 +1288,23 @@ Object.assign(variants, {
   "computer-use-default": variant("computerUse", {
     host: { ...host, computer_use: computerUseReady },
     steps: [wait('[data-card="computer-use"] [data-mode]'), focusComputerUse],
-    note: "Full access by default: status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
+    note: "Full access by default: Set Up Computer Use (Screen Recording is missing), status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
+  }),
+  "computer-use-set-up": variant("computerUse", {
+    host: {
+      ...host,
+      computer_use: {
+        ...computerUseReady,
+        accessibility: false,
+        screen_recording: false,
+        helper: "cmux NIGHTLY Helper",
+      },
+    },
+    steps: [
+      wait('[data-card="computer-use"] [data-setup]'),
+      { selector: '[data-card="computer-use"] [data-action="palette.computerUse.setup"]', action: "focus" },
+    ],
+    note: "Both macOS grants missing: Set Up Computer Use leads the card, and each grant row names the app System Settings lists (cmux NIGHTLY Helper).",
   }),
   "computer-use-granted": variant("computerUse", {
     host: {

@@ -91778,6 +91778,402 @@
         }
       }
     },
+    "settingsWindow.computerUse.setUpButton": {
+      "comment": "Settings > Computer Use: the button at the top of the card while a macOS permission is missing or Computer Use is off; opens the step-by-step setup window",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Computer Use"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد استخدام الكمبيوتر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavi Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer Computer Use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use einrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar Computer Use"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura Computer Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作をセットアップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀបចំ Computer Use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 사용 설정하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer Computer Use"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skonfiguruj Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่า Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use'u Kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати Computer Use"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết lập Computer Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 Computer Use"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定電腦操作"
+          }
+        }
+      }
+    },
+    "settingsWindow.computerUse.setUpNeeded": {
+      "comment": "Settings > Computer Use: the line beside Set Up Computer Use at the top of the card while a macOS permission is missing",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can’t use your apps yet. Set Up Computer Use walks you through two macOS permissions, one at a time."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للوكلاء استخدام تطبيقاتك بعد. يرشدك إعداد استخدام الكمبيوتر خلال إذنَين من macOS، واحدًا تلو الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti još ne mogu koristiti vaše aplikacije. Postavljanje Computer Use vas vodi kroz dvije macOS dozvole, jednu po jednu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke bruge dine apps endnu. Konfigurer Computer Use fører dig gennem to macOS-tilladelser, én ad gangen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können deine Apps noch nicht verwenden. Computer Use einrichten führt dich Schritt für Schritt durch zwei macOS-Berechtigungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes aún no pueden usar tus apps. Configurar Computer Use te guía por dos permisos de macOS, uno a la vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents ne peuvent pas encore utiliser vos apps. Configurer Computer Use vous guide à travers deux autorisations macOS, une à la fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti non possono ancora usare le tue app. Configura Computer Use ti guida tra due permessi di macOS, uno alla volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはまだアプリを使えません。「コンピュータ操作をセットアップ」で macOS の 2 つの許可を 1 つずつ設定できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនទាន់អាចប្រើកម្មវិធីរបស់អ្នកបានទេ។ ការរៀបចំ Computer Use នាំអ្នកឆ្លងកាត់ការអនុញ្ញាត macOS ពីរ ម្តងមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 아직 앱을 사용할 수 없습니다. 컴퓨터 사용 설정하기가 macOS 권한 두 가지를 하나씩 안내합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter kan ikke bruke appene dine ennå. Konfigurer Computer Use leder deg gjennom to macOS-tillatelser, én om gangen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci nie mogą jeszcze używać Twoich aplikacji. Skonfiguruj Computer Use przeprowadzi Cię przez dwa uprawnienia macOS, jedno po drugim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes ainda não podem usar seus apps. Configurar Computer Use guia você por duas permissões do macOS, uma de cada vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты пока не могут пользоваться вашими приложениями. «Настроить Computer Use» проведёт вас через два разрешения macOS по одному."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ยังใช้แอปของคุณไม่ได้ ตั้งค่า Computer Use จะพาคุณผ่านสิทธิ์ของ macOS สองรายการทีละรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar henüz uygulamalarınızı kullanamıyor. Computer Use'u Kur, iki macOS iznini tek tek size gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти ще не можуть користуватися вашими застосунками. «Налаштувати Computer Use» проведе вас через два дозволи macOS по одному."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tác tử chưa thể dùng ứng dụng của bạn. Thiết lập Computer Use hướng dẫn bạn qua hai quyền của macOS, từng quyền một."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体还不能使用你的 App。“设置 Computer Use”会逐一引导你完成两项 macOS 权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式還不能使用你的 App。「設定電腦操作」會逐一引導你完成兩項 macOS 權限。"
+          }
+        }
+      }
+    },
+    "settingsWindow.computerUse.grantHolder": {
+      "comment": "Settings > Computer Use: added to the Accessibility and Screen Recording rows' help while that permission is missing; %@ is the helper app's name as System Settings lists it (e.g. cmux NIGHTLY Helper)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Settings lists it as “%@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُدرجه إعدادات النظام باسم „%@“."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Settings ga navodi kao „%@”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemindstillinger viser den som “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Systemeinstellungen heißt es „%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes del Sistema lo muestra como “%@”."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages Système l’affiche sous le nom « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impostazioni di Sistema lo mostra come “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定では「%@」と表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Settings បង្ហាញវាជា “%@”។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에는 “%@”(으)로 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systeminnstillinger viser den som «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W Ustawieniach systemowych widnieje jako „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Ajustes do Sistema mostram como “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В Системных настройках он называется «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่าระบบแสดงเป็น “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları bunu “%@” olarak listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У Системних параметрах він називається «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài đặt hệ thống hiển thị là “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“系统设置”中显示为“%@”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「系統設定」中顯示為「%@」。"
+          }
+        }
+      }
+    },
     "settingsWindow.computerUse.setUpHelp": {
       "comment": "Settings > Agents > Computer Use: help under Guided Setup while Computer Use is off",
       "extractionState": "manual",

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, MachineFlag, scan_globals};
 
-const HELP: &str = "Usage: cmux computer-use <status|doctor|displays|tools|call|screenshot|record|approvals|machines|alerts>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID | --display ID] [--machine M]\n                                                 Save a PNG of a window, or of a display (default: the main one)\n  cmux computer-use record --out FILE --seconds N [--display ID] [--fps N] [--machine M]\n                                                 Record a display to an MP4 (H.264) for N seconds\n  cmux computer-use record start [--max-seconds N] [--display ID] [--machine M]\n  cmux computer-use record stop --out FILE       Start a recording and return; stop it later and save the file\n  cmux computer-use displays [--machine M]      The displays: id (what --display takes), frame, scale, main\n  cmux computer-use doctor [--machine M] [--json]\n                                                 Whether capture and input would work, and what fixes each failure (read-only, no prompts; exit 0 when all pass)\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n  cmux computer-use alerts [--json] [--machine M]\n                                                 System alerts on screen: owner, text, buttons, class (needs computerUse.alerts)\n  cmux computer-use alerts dismiss ID --button TITLE [--machine M]\n                                                 Put one alert off with one of its put_off buttons (never one that allows or opens)\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
+const HELP: &str = "Usage: cmux computer-use <setup|status|doctor|displays|tools|call|screenshot|record|approvals|machines|alerts>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use setup [--dry-run] [--no-window] [--json]\n                                                 Set it up step by step: turns it on (you allow it in cmux), opens Set Up Computer Use, names the app to turn on in System Settings, and once ready runs a quick test (exit 0 when ready)\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID | --display ID] [--machine M]\n                                                 Save a PNG of a window, or of a display (default: the main one)\n  cmux computer-use record --out FILE --seconds N [--display ID] [--fps N] [--machine M]\n                                                 Record a display to an MP4 (H.264) for N seconds\n  cmux computer-use record start [--max-seconds N] [--display ID] [--machine M]\n  cmux computer-use record stop --out FILE       Start a recording and return; stop it later and save the file\n  cmux computer-use displays [--machine M]      The displays: id (what --display takes), frame, scale, main\n  cmux computer-use doctor [--machine M] [--json]\n                                                 Whether capture and input would work, and what fixes each failure (read-only, no prompts; exit 0 when all pass)\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n  cmux computer-use alerts [--json] [--machine M]\n                                                 System alerts on screen: owner, text, buttons, class (needs computerUse.alerts)\n  cmux computer-use alerts dismiss ID --button TITLE [--machine M]\n                                                 Put one alert off with one of its put_off buttons (never one that allows or opens)\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
 const APPROVALS_CMD: &str = "computer-use-approvals";
@@ -67,6 +67,12 @@ pub(super) enum Request {
         json: bool,
     },
     Record(record::RecordRequest),
+    /// `setup`: the person's guided setup (`cmux setup computer-use`, the window, a quick test).
+    Setup {
+        dry_run: bool,
+        window: bool,
+        json: bool,
+    },
 }
 
 impl Request {
@@ -113,6 +119,18 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     };
     match verb {
         "help" | "--help" | "-h" => Ok(Request::Help),
+        "setup" => {
+            let (mut dry_run, mut window, mut json) = (false, true, false);
+            for word in rest {
+                match *word {
+                    "--dry-run" => dry_run = true,
+                    "--no-window" => window = false,
+                    "--json" => json = true,
+                    other => return Err(format!("setup: unknown argument {other:?}")),
+                }
+            }
+            Ok(Request::Setup { dry_run, window, json })
+        }
         "tools" if rest.is_empty() => Ok(Request::Tools),
         "mcp" if rest.is_empty() => Ok(Request::Mcp { primary: false }),
         "mcp" if rest == ["--primary"] => Ok(Request::Mcp { primary: true }),
@@ -352,6 +370,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             print(global, caller(global).call(&tool, &args, &new_call_id()))
         }
         Request::Doctor { machine, json } => doctor::run(global, machine.as_deref(), json),
+        Request::Setup { dry_run, window, json } => setup::run(global, dry_run, window, json),
         Request::Screenshot { out, window, display, machine } => {
             let mut args = json!({"force": true});
             if let Some(window) = window {
@@ -425,6 +444,9 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
 
 #[path = "computer_use_doctor.rs"]
 mod doctor;
+
+#[path = "computer_use_setup.rs"]
+mod setup;
 
 #[path = "computer_use_record.rs"]
 mod record;

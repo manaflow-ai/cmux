@@ -2523,6 +2523,25 @@ button.menu-disclosure {
   color: var(--muted-text);
 }
 
+/* While a macOS grant is missing: one line and Set Up Computer Use, above the status rows. */
+.computer-use-setup {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin: 0 0 var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+}
+.computer-use-setup-line {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.computer-use-setup-button {
+  flex: none;
+}
+
 .computer-use-modes {
   display: grid;
   gap: var(--ds-space-1);

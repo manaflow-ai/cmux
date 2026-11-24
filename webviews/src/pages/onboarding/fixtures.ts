@@ -426,6 +426,7 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
+      helperName: kind === "unavailable" ? null : "cmux NIGHTLY Helper",
       rows,
       allGranted: allOn,
       note:
