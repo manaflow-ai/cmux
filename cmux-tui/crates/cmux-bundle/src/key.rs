@@ -45,11 +45,10 @@ impl std::fmt::Debug for PairKey {
 
 /// An id as 64 lowercase hex digits (the relay cache's URL form).
 pub fn hex(id: &ChunkId) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     let mut s = String::with_capacity(64);
     for b in id {
-        s.push(char::from(DIGITS[usize::from(b >> 4)]));
-        s.push(char::from(DIGITS[usize::from(b & 15)]));
+        let _ = write!(s, "{b:02x}");
     }
     s
 }
@@ -66,8 +65,11 @@ pub fn unhex(s: &str) -> Result<ChunkId> {
         _ => Err(Error::Malformed("chunk id")),
     };
     let mut id = [0u8; 32];
-    for (i, slot) in id.iter_mut().enumerate() {
-        *slot = digit(b[2 * i])? << 4 | digit(b[2 * i + 1])?;
+    for (slot, pair) in id.iter_mut().zip(b.chunks_exact(2)) {
+        let &[hi, lo] = pair else {
+            return Err(Error::Malformed("chunk id"));
+        };
+        *slot = digit(hi)? << 4 | digit(lo)?;
     }
     Ok(id)
 }

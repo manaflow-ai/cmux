@@ -68,7 +68,7 @@ impl DirStore {
 
     fn path(&self, id: &ChunkId) -> PathBuf {
         let name = hex(id);
-        self.root.join(&name[..2]).join(name)
+        self.root.join(name.get(..2).unwrap_or("00")).join(name)
     }
 }
 
