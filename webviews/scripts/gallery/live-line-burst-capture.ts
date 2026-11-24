@@ -15,6 +15,7 @@
 // Writes OUT_DIR/<look>/*.webm and OUT_DIR/report.json, and prints one JSON line per look.
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "../../test/support/galleryFrame";
@@ -37,7 +38,7 @@ fs.mkdirSync(outRoot, { recursive: true });
 const LOOP_MS = 12_000;
 const BURST = { from: 3_500, to: 5_600 };
 
-const webviews = path.resolve(import.meta.dir, "../..");
+const webviews = fileURLToPath(new URL("../..", import.meta.url));
 const gallery = await createServer({
   configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
   server: { port: 0, host: "127.0.0.1", strictPort: false },
