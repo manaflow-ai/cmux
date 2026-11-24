@@ -908,6 +908,95 @@ class SeedRoot(unittest.TestCase):
                          [scratch.SEED_WORKSPACE])
         self.assertEqual(scratch.SECOND_SEED_WORKSPACE.parent.parent, scratch.SEED_WORKSPACE.parent.parent)
 
+    PREFIX = "cmux-next-fast-v3-swift-macOS-ARM64-aaaa-bbbb-cccc-"
+
+    def build_seed_root(self):
+        """A seed root a seeded job built in: both seed builds hold a planned build."""
+        if not (self.workspace / "Packages/macOS/CmuxNext/Package.swift").exists():
+            for build in scratch.SEED_BUILDS:
+                package = self.workspace / Path(build).parent
+                package.mkdir(parents=True, exist_ok=True)
+                (package / "Package.swift").write_text("// swift-tools-version:6.0\n")
+            git(self.workspace, "add", "-A")
+            git(self.workspace, "commit", "-qm", "seed packages")
+            scratch.mirror(self.workspace, self.seed)
+        for build in scratch.SEED_BUILDS:
+            planned = self.seed / build / "arm64-apple-macosx/debug"
+            planned.mkdir(parents=True, exist_ok=True)
+            (planned / "description.json").write_text("{}")
+
+    def lease_and_take(self, prefix=PREFIX, now=None, environ=None):
+        self.assertEqual(self.seed_lease(), self.seed)
+        try:
+            return scratch.take_kept_seed(self.seed, prefix, now=now, environ=environ or {})
+        finally:
+            scratch.release_holders()
+
+    def test_a_kept_seed_of_the_same_prefix_skips_the_restore(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+        scratch.release_holders()
+        self.assertEqual(self.lease_and_take(now=1000.0 + 60), self.PREFIX + "c0ffee")
+        # Put back with the seed's own time: the age bound counts from the restore, not from the last reuse.
+        self.assertEqual(json.loads(scratch.seed_marker(self.seed).read_text())["at"], 1000.0)
+        self.assertEqual(self.lease_and_take(now=1000.0 + 120), self.PREFIX + "c0ffee")
+
+    def test_another_prefix_restores_and_drops_the_marker(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+        scratch.release_holders()
+        # Changed manifests (another prefix): this job builds on other inputs, so no later job trusts the marker.
+        self.assertIsNone(self.lease_and_take(prefix="cmux-next-fast-v3-swift-macOS-ARM64-aaaa-dddd-cccc-",
+                                              now=1060.0))
+        self.assertIsNone(self.lease_and_take(now=1060.0))
+        self.assertFalse(scratch.seed_marker(self.seed).exists())
+
+    def test_an_old_kept_seed_restores(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+        scratch.release_holders()
+        self.assertIsNone(self.lease_and_take(now=1000.0 + 121 * 60))
+
+    def test_the_keep_window_is_a_setting_and_zero_turns_it_off(self):
+        for minutes, kept in (("0", False), ("300", True)):
+            with self.subTest(minutes=minutes):
+                self.assertEqual(self.seed_lease(), self.seed)
+                self.build_seed_root()
+                scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+                scratch.release_holders()
+                taken = self.lease_and_take(now=1000.0 + 200 * 60,
+                                            environ={"CMUX_FAST_TIER_SEED_KEEP_MINUTES": minutes})
+                self.assertEqual(taken is not None, kept)
+
+    def test_a_job_that_never_judges_the_marker_leaves_none(self):
+        # A job whose key step failed builds with unknown inputs: the next job restores the seed.
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+        scratch.release_holders()
+        self.assertEqual(self.seed_lease(), self.seed)
+        scratch.release_holders()
+        self.assertIsNone(self.lease_and_take(now=1060.0))
+
+    def test_a_missing_build_restores(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.write_seed_marker(self.seed, self.PREFIX + "c0ffee", at=1000.0)
+        (self.seed / scratch.SEED_BUILDS[1] / "arm64-apple-macosx/debug/description.json").unlink()
+        scratch.release_holders()
+        self.assertIsNone(self.lease_and_take(now=1060.0))
+
+    def test_seed_lease_reports_the_bytes_the_root_kept(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.build_seed_root()
+        scratch.release_holders()
+        verdict = {}
+        self.assertEqual(self.seed_lease(verdict), self.seed)
+        self.assertGreater(verdict["bytes"], 0)
+
     def test_an_unprovisioned_mini_falls_back(self):
         (self.seed.parent / SEED_MARKER).unlink()
         self.seed.parent.rmdir()
