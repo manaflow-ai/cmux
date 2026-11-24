@@ -1592,6 +1592,8 @@ export function drawPaneBody({
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
                     {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
