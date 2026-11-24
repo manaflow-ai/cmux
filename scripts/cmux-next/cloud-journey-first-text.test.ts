@@ -285,7 +285,7 @@ await done;
     expect(result.stdout.trim()).toBe("@@first-text");
   });
 
-  test("preserves completion ms; only a real model exports first-text fields", () => {
+  test("preserves completion ms; either leg exports first-text fields under its model", () => {
     const steps: Step[] = [
       { step: "send chat", status: "pass", ms: 800, detail: "" },
       { step: "first text", status: "pass", ms: 0, detail: "", fields: { create_marks_ms: { create: 0, first_text: 10000 }, create_to_first_text_ms: 10000 } },
@@ -295,7 +295,7 @@ await done;
     expect(real).toMatchObject({ ms: 5000, create_to_first_text_ms: 10000, model: "real", backend: "prod" });
     const stub = probeRow("old-probe", steps, undefined, new Date(), { backend: "prod", model: "stub" });
     expect(stub.ms).toBe(5000);
-    expect(stub).not.toHaveProperty("create_to_first_text_ms");
+    expect(stub).toMatchObject({ create_to_first_text_ms: 10000, model: "stub", backend: "prod" });
     expect(probeRow("p", steps.slice(0, 1))).not.toHaveProperty("create_to_first_text_ms");
   });
 });

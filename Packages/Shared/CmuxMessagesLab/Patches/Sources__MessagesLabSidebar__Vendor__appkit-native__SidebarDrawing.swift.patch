@@ -47,16 +47,17 @@
      // MARK: Row
  
      /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
-@@ -405,7 +428,7 @@
+@@ -405,7 +428,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
 -        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
-+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: SidebarMetrics.pinTopPad, width: d, height: d)
++        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // cmux: centred in a compact row
++        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -422,8 +445,10 @@
+@@ -422,8 +446,10 @@
          return (n, b)
      }
      /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
@@ -69,7 +70,7 @@
      }
      /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
      static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-@@ -432,7 +457,7 @@
+@@ -432,7 +458,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -78,7 +79,7 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -485,16 +510,34 @@
+@@ -485,16 +511,27 @@
          return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
      }
  
@@ -111,17 +112,10 @@
 +        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
      }
 +
-+    /// cmux: a compact row's name and unread dot (row coordinates): a one-column tile's label, so
-+    /// pinned and unpinned rows line up (Messages' narrow list).
-+    static func compactRowLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
-+        let x0 = m.tileRect(0).minX
-+        let label = tileLabel(m, nameWidth: nw, unread: unread)
-+        return (label.name.offsetBy(dx: x0, dy: 0), label.dot?.offsetBy(dx: x0, dy: 0))
-+    }
  }
  
  /// The list's motion (render-server animations only; no main-thread frames). Start values are the
-@@ -648,7 +691,7 @@
+@@ -648,7 +685,7 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -130,7 +124,7 @@
      /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
      static var stillPhase: Double?
      private static func level(_ i: Int, phase t: Double) -> Double {
-@@ -658,9 +701,14 @@
+@@ -658,9 +695,14 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.

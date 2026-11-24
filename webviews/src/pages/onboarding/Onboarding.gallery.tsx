@@ -103,6 +103,28 @@ export default componentEntry<OnboardingGalleryProps>({
     },
     "agents-install-cards": { props: { step: "agents", agents: "install", look: "cards" } },
     "agents-install-compact": { props: { step: "agents", agents: "install", look: "compact" } },
+    // Offline (the new-user journey, no network at first launch): one line under the title says
+    // the Mac is offline and that sign-ins and installs work once it is back; it goes by itself.
+    "offline-sign-in": {
+      note: "Offline on the agents step with the in-place sign-ins: the offline line under the title, the rows as they were.",
+      props: { step: "agents", agents: "mixed", readiness: "fresh", online: false },
+    },
+    "offline-import": {
+      note: "Offline on a later step (Import from Browsers): the same one line.",
+      props: { step: "importData", importer: "ready", online: false },
+    },
+    "offline-make-it-yours": {
+      note: "Offline on Make cmux Yours.",
+      props: { step: "makeItYours", makeItYours: "fresh", makeLook: "preview", online: false },
+    },
+    "online-again": {
+      note: "Back online: the line is gone and nothing else moved (the same state as offline-sign-in).",
+      props: { step: "agents", agents: "mixed", readiness: "fresh", online: true },
+    },
+    "agents-none-offline": {
+      note: "No agent CLIs and offline: the none line with its next step, and the offline line.",
+      props: { step: "agents", agents: "none", online: false },
+    },
     // The import step, Express (docs/design/onboarding-import-express.md) on the worst list.
     "import-crowded": {
       note: "Express: the checked browsers' icons, one sentence, the kinds, the grant asks; Choose Browsers and Data… opens the full list.",
@@ -126,6 +148,14 @@ export default componentEntry<OnboardingGalleryProps>({
     "computer-use-fresh": { props: { step: "computerUse", computerUse: "fresh" } },
     "computer-use-one-granted": { props: { step: "computerUse", computerUse: "oneGranted" } },
     "computer-use-all-granted": { props: { step: "computerUse", computerUse: "allGranted" } },
+    "computer-use-finished": {
+      note: "The person's Allow got the last grant on: the done view, which closes the window after 2.4 s.",
+      props: { step: "computerUse", computerUse: "finished" },
+    },
+    "computer-use-confirming-capture": {
+      note: "Screenshots was just allowed: macOS asks once more the first time it captures.",
+      props: { step: "computerUse", computerUse: "confirmingCapture" },
+    },
     "computer-use-helper-failed": { props: { step: "computerUse", computerUse: "helperFailed" } },
     "computer-use-off": { props: { step: "computerUse", computerUse: "off" } },
     "computer-use-unavailable": { props: { step: "computerUse", computerUse: "unavailable" } },
