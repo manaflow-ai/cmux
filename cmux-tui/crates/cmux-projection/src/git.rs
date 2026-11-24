@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout};
 
 use cmux_process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use sha1::{Digest as _, Sha1};
@@ -790,37 +791,96 @@ const RECENT_BYTES: usize = 64 * 1024 * 1024;
 
 /// How long a pooled `git cat-file --batch` may sit unused, and the recent blobs stay held, before
 /// the mount gives that memory back. Each process keeps its own delta-base cache and heap (tens of
-/// MB, some past 150 MB), and a pool grows to the busiest moment's concurrency (16 on a lane VM
-/// after one build), so a mount nobody reads kept about 600 MB until it was unmounted. An agent's
-/// checkout sits idle most of its life: that memory is what packs more agents on a host.
+/// MB, some past 150 MB). An agent's checkout sits idle most of its life: that memory is what packs
+/// more agents on a host.
 const IDLE: Duration = Duration::from_secs(30);
 /// How often the reaper looks.
 const SWEEP: Duration = Duration::from_secs(10);
+/// The most `git cat-file --batch` processes one mount runs at once. The pool starts empty, the
+/// first read starts one, and a second (up to this cap) starts only while every live one is busy;
+/// past the cap a read waits for the next free one (a blob read takes about a millisecond). The
+/// mount runs 16 FUSE workers, and the pool used to grow to all 16: on one lane VM 128 checkouts
+/// held 1,459 git processes and 73 GB, and the host thrashed. 4 keeps a parallel build's reads
+/// moving (the kernel's page cache and the recent blobs below answer most repeats) at a quarter of
+/// the worst case.
+const MAX_CATS: usize = 4;
 
 struct Pooled {
     cat: CatFile,
     used: Instant,
 }
 
+/// The pool's processes: the free ones, and how many are alive (free and in use).
+#[derive(Default)]
+struct Pool {
+    /// Most recently used last: a read takes from the end, so the oldest age out first.
+    free: Vec<Pooled>,
+    live: usize,
+}
+
 /// What [`GitBlobs`] holds between reads, shared with its reaper thread by a weak handle.
 struct Held {
-    /// Most recently used last: a read takes from the end, so the oldest age out first.
-    pool: Mutex<Vec<Pooled>>,
+    pool: Mutex<Pool>,
+    /// Signalled when a process goes back to the pool or ends, for a read waiting at the cap.
+    freed: Condvar,
+    /// The most processes alive at once (tests and the bench).
+    peak: AtomicUsize,
     recent: Mutex<VecDeque<(u32, Arc<Vec<u8>>)>>,
     last_read: Mutex<Instant>,
 }
 
 impl Held {
+    /// A free process, a new one while fewer than [`MAX_CATS`] live, or the next one freed.
+    fn take(&self, git_dir: &Path) -> Result<CatFile, FetchError> {
+        let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(pooled) = pool.free.pop() {
+                return Ok(pooled.cat);
+            }
+            if pool.live < MAX_CATS {
+                pool.live += 1;
+                self.peak.fetch_max(pool.live, Ordering::Relaxed);
+                drop(pool);
+                return CatFile::spawn(git_dir).map_err(|_| {
+                    self.ended(1);
+                    FetchError::Failed
+                });
+            }
+            pool = self.freed.wait(pool).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// Puts a process that answered back in the pool.
+    fn give(&self, cat: CatFile) {
+        self.pool
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .free
+            .push(Pooled { cat, used: Instant::now() });
+        self.freed.notify_one();
+    }
+
+    /// Counts `n` processes gone (a failed read drops its process: its pipe state is unknown).
+    fn ended(&self, n: usize) {
+        let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
+        pool.live = pool.live.saturating_sub(n);
+        drop(pool);
+        self.freed.notify_all();
+    }
+
     /// Ends every pooled process unused for `idle` (dropping it closes its stdin, and git exits),
-    /// and drops the recent blobs when the mount was not read for `idle`.
+    /// and, when the mount was not read for `idle`, drops the recent blobs and gives the freed
+    /// heap back to the system.
     fn sweep(&self, now: Instant, idle: Duration) {
         let ended: Vec<Pooled> = {
             let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
             let (old, fresh): (Vec<_>, Vec<_>) =
-                pool.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
-            *pool = fresh;
+                pool.free.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
+            pool.free = fresh;
+            pool.live = pool.live.saturating_sub(old.len());
             old
         };
+        let any_ended = !ended.is_empty();
         drop(ended);
         let quiet = now.saturating_duration_since(
             *self.last_read.lock().unwrap_or_else(PoisonError::into_inner),
@@ -828,8 +888,23 @@ impl Held {
         if quiet {
             let gone =
                 std::mem::take(&mut *self.recent.lock().unwrap_or_else(PoisonError::into_inner));
+            let any_gone = !gone.is_empty();
             drop(gone);
+            if any_ended || any_gone {
+                trim_heap();
+            }
         }
+    }
+}
+
+/// Returns freed heap pages to the system. glibc keeps what a burst of reads freed (the recent
+/// blobs, up to 64 MB, and the read buffers) mapped in the process until asked, so an idle mount
+/// kept its busiest moment's RSS.
+fn trim_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: malloc_trim only returns free heap pages to the system; it touches no live allocation.
+    unsafe {
+        libc::malloc_trim(0);
     }
 }
 
@@ -846,7 +921,9 @@ impl GitBlobs {
     #[must_use]
     pub fn new(git_dir: &Path, sources: Vec<Source>) -> Self {
         let held = Arc::new(Held {
-            pool: Mutex::new(Vec::new()),
+            pool: Mutex::new(Pool::default()),
+            freed: Condvar::new(),
+            peak: AtomicUsize::new(0),
             recent: Mutex::new(VecDeque::new()),
             last_read: Mutex::new(Instant::now()),
         });
@@ -865,7 +942,13 @@ impl GitBlobs {
     /// How many `git cat-file` processes wait in the pool (tests).
     #[cfg(test)]
     fn pooled(&self) -> usize {
-        self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).len()
+        self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).free.len()
+    }
+
+    /// The most `git cat-file` processes alive at once (tests).
+    #[cfg(test)]
+    fn peak(&self) -> usize {
+        self.held.peak.load(Ordering::Relaxed)
     }
 
     fn bytes(&self, entry: u32) -> Result<Arc<Vec<u8>>, FetchError> {
@@ -878,18 +961,18 @@ impl GitBlobs {
         }
         let bytes = match self.sources.get(entry as usize) {
             Some(Source::Blob(oid)) => {
-                let taken = self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
-                let mut cat = match taken {
-                    Some(pooled) => pooled.cat,
-                    None => CatFile::spawn(&self.git_dir).map_err(|_| FetchError::Failed)?,
-                };
-                let bytes = cat.blob(oid)?;
-                self.held
-                    .pool
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(Pooled { cat, used: Instant::now() });
-                bytes
+                let mut cat = self.held.take(&self.git_dir)?;
+                match cat.blob(oid) {
+                    Ok(bytes) => {
+                        self.held.give(cat);
+                        bytes
+                    }
+                    Err(e) => {
+                        drop(cat);
+                        self.held.ended(1);
+                        return Err(e);
+                    }
+                }
             }
             Some(Source::Bytes(bytes)) => bytes.clone(),
             _ => return Err(FetchError::Failed),
