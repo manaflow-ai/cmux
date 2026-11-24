@@ -639,9 +639,9 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 
 ### Relay placement
 
-A Durable Object stays where it is first created, so the first join decides
-where a session's relay lives for good (`backend/src/placement.ts`). The
-Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+A Durable Object stays where it is first created, so the first reach of it
+(the hub's prewarm below, else the first join) decides where a session's
+relay lives for good (`backend/src/placement.ts`). The Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
 The peer is the other party of the session, located by its live signal
 socket. Each end's cost to r is either:
 
@@ -665,6 +665,19 @@ split wins.
   `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
   a relay join). Entries that fail to parse are dropped. The hub keeps the
   value with the socket and never stores it.
+- **Prewarm (added 2026-11-24, server-only, no version change):** when the
+  hub forwards a session's first `wg-init`, it creates the session's relay
+  object (the same name the relay route uses) without waiting for it, placed
+  from both ends' signal sockets (each one's ingress and netcheck), else at
+  the sender's `locationHint`. A later join finds the object made and placed,
+  so a fallback to the relay no longer pays for creation and a cold start.
+  Since the object stays where it is first created, this placement is the
+  session's; the join's own placement applies only when the prewarm did not
+  happen (the kill switch, a `webrtc-*` session, a failed prewarm). Nothing on
+  the wire changes: no frame, header or status is new, old and new clients
+  join and talk exactly as before, and an older Worker's relay object that
+  answers the prewarm with `426` is created all the same. A prewarmed object
+  holds no socket and no storage, so it is evicted soon after if nobody joins.
 
 ### When no path works
 
