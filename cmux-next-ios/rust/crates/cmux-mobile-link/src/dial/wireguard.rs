@@ -2292,6 +2292,7 @@ pub(super) fn dial_wireguard<'a>(
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
+        let tunnel_keys = super::TunnelKeys { dialer: b64(&public_key), answerer: b64(&peer_key) };
         let spec = TunnelSpec {
             session_id,
             peer_device: mac,
@@ -2369,6 +2370,7 @@ pub(super) fn dial_wireguard<'a>(
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
+            tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
@@ -2450,6 +2452,7 @@ impl Dialer for WireGuardDialer {
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();
+            let tunnel_keys = super::TunnelKeys { dialer: b64(&peer_key), answerer: b64(&own_public) };
             let spec = TunnelSpec {
                 session_id: &first.session_id,
                 peer_device: &first.from,
@@ -2559,6 +2562,7 @@ impl Dialer for WireGuardDialer {
             });
             let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
+                tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
