@@ -5014,3 +5014,8 @@ find their key in R2. On a hit nothing else in the job runs: the Mac jobs that u
 first themselves (`Restore the web bundles from R2`), and R2 already holds the key, so neither the artifact nor
 the publish is needed. A miss builds, caches and publishes as before; the lookup is continue-on-error, so a failed
 R2 read is a miss.
+
+Setup Bun, the private bun and Setup Node run only on a miss, after both lookups: the source key is python3
+alone (the bun pin is read from webviews/package.json, node's from its default), and only the build uses them.
+In the 24 h to 2026-11-24T10Z the 1,698 web bundles jobs that built nothing still spent about 55 s each in
+those three steps (timing feed, cmux-next.yml, Setup Node 28-32 s and Setup Bun 23-26 s on average).
