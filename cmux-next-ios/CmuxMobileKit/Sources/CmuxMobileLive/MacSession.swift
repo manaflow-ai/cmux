@@ -50,6 +50,8 @@ final class MacSession {
     var offlineTask: Task<Void, Never>?
     /// Shows the header's "Offline" once the link has been down for the quiet bound.
     var quietStatusTask: Task<Void, Never>?
+    /// Looks again when a redial reaches ``LiveCoordinator/macStallAfter`` (cmux#52200).
+    var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
     var daemonError: String?

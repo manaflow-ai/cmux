@@ -11,6 +11,23 @@ export const FIELD_GROWTH_EVENT = "acpmux-field-growth";
 /// before the frame lays out, as an edit's does.
 export const TILE_SHAPE_EVENT = "acpmux-tile-shape";
 
+/// Fields whose edit waits for their own ResizeObserver to start the growth (fieldGrowth.ts, the
+/// deferred path since #48134). In that frame's observer round the dock may be told first, with the
+/// field already at its natural height: what moves with the field leaves that change to the growth
+/// event, which comes in the same round, instead of moving on a curve of its own (a 5 px lead).
+const pendingGrowth = new Set<Element>();
+
+export function markGrowthPending(field: Element, pending: boolean): void {
+  if (pending) pendingGrowth.add(field);
+  else pendingGrowth.delete(field);
+}
+
+/// Whether a field inside `root` has an edit whose growth has yet to start.
+export function growthPendingIn(root: Element): boolean {
+  for (const field of pendingGrowth) if (root.contains(field)) return true;
+  return false;
+}
+
 export type FieldGrowthDetail = {
   /// The height the field lands on (px); its drawn height minus this is what the stack has yet to grow.
   to: number;

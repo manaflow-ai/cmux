@@ -1013,15 +1013,21 @@ struct HomeTile: View, Identifiable {
     let open: () -> Void
     let menu: AnyView?
 
-    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
-    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
+    /// The bubble's height as laid out (one or two lines; the typing dots).
+    @State private var bubbleHeight: CGFloat = 0
     private var showsBubble: Bool { working || bubble != nil }
+    /// How far the bubble's bottom tucks over the avatar's top edge, as in
+    /// Messages. Only this much: a bubble that reached down over the avatar's
+    /// letters, or up over the row above, read as overlapping labels (iOS
+    /// release bar read-back: "Home offline: no overlapping labels").
+    static let bubbleTuck: CGFloat = 6
 
     var body: some View {
         Button(action: open) {
             tile
                 .frame(maxWidth: .infinity)
-                .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
+                // The bubble's room above the avatar is the tile's own, so it never reaches the row above.
+                .padding(.top, 14 + (showsBubble ? max(0, bubbleHeight - Self.bubbleTuck) : 0))
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -1041,28 +1047,42 @@ struct HomeTile: View, Identifiable {
         return Text("\(name), pinned")
     }
 
+    /// The typing or preview bubble over the avatar's top-leading corner, its
+    /// bottom `bubbleTuck` below the avatar's top. An overlay: it moves
+    /// nothing; the tile's top padding makes its room.
+    @ViewBuilder private var bubbleView: some View {
+        Group {
+            if working {
+                TypingBubble()
+                    .offset(x: -14)
+                    .transition(Self.bubbleTransition)
+            } else if let bubble {
+                Text(bubble)
+                    .font(.caption2)
+                    // A glance, not the message: it stays a small bubble at accessibility sizes too.
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                    .lineLimit(2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 100, alignment: .leading)
+                    .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
+                    // Up to 100 pt wide, though the overlay offers the avatar's 72.
+                    .frame(width: 100, alignment: .leading)
+                    .offset(x: -24)
+                    .transition(Self.bubbleTransition)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bubbleHeight = $0 }
+        .alignmentGuide(.top) { $0[.bottom] - Self.bubbleTuck }
+    }
+
+    private static let bubbleTransition: AnyTransition = .scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity)
+
     private var tile: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                ChiefAvatar(text: avatar, size: 72)
-                if working {
-                    TypingBubble()
-                        .offset(x: -14, y: -18)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                } else if let bubble {
-                    Text(bubble)
-                        .font(.caption2)
-                        // A glance, not the message: it stays a small bubble at accessibility sizes too.
-                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                        .lineLimit(2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: 100, alignment: .leading)
-                        .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
-                        .offset(x: -24, y: -26)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                }
-            }
+            ChiefAvatar(text: avatar, size: 72)
+                .overlay(alignment: .topLeading) { bubbleView }
             HStack(spacing: 4) {
                 if unread {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)

@@ -72,10 +72,13 @@ INTERACTIONS = {
     "agent_activity": ("agent-activity-groups", "the agent activity list", ("webviews/src/agent-activity/*",)),
     "markdown_viewer": ("markdown-viewer-stress", "scroll a big markdown file", ("webviews/src/markdown-viewer/*",)),
 }
-# Each bench's web-ui-suite.ts timeout, seconds: the order (cheapest first) and the budget check before a start.
-TIMEOUT_S = {"agent-activity-groups": 30, "edit-turns-stream": 30, "transcript-view-rows": 30, "chat-open": 105,
-             "thread-rail-jump": 90, "all-chats-list": 90, "tool-call-burst": 120, "transcript-scroll-frame": 240,
-             "chat-switch": 255, "transcript-replay": 300, "settled-page": 600, "sidebar-chats-fling": 600,
+# Each bench's timeout here, seconds, passed to web-ui-suite.ts as --timeout-s: the order (cheapest first) and the
+# budget check before a start. The cmux-linux runner is two to three times slower than the perf runner the suite's own
+# timeouts fit (thread-rail-jump and all-chats-list timed out at 90 s and transcript-replay at 300 s on every nightly
+# from 2026-11-22; on a lane VM they take 51, 59 and 145 s), so these are about twice the suite's.
+TIMEOUT_S = {"agent-activity-groups": 30, "edit-turns-stream": 30, "transcript-view-rows": 30, "chat-open": 200,
+             "thread-rail-jump": 240, "all-chats-list": 240, "tool-call-burst": 240, "transcript-scroll-frame": 240,
+             "chat-switch": 450, "transcript-replay": 600, "settled-page": 600, "sidebar-chats-fling": 600,
              "chat-fast-scroll": 900, "markdown-viewer-stress": 900, "composer-typing": 1500}
 TOUCHED_KEEP = 8  # files named per touched interaction
 
@@ -163,7 +166,8 @@ def run(planned: dict, webviews: str, out_dir: str, budget_s: float = WALL_BUDGE
         report = os.path.join(os.path.abspath(out_dir), f"{bench}.json")
         t0 = clock()
         print(f"nightly-interaction-latency: {key} ({bench})", flush=True)
-        p = runner(["bun", "bench/web-ui-suite.ts", "--only", bench, "--out", report], cwd=webviews)
+        p = runner(["bun", "bench/web-ui-suite.ts", "--only", bench, "--timeout-s", str(TIMEOUT_S.get(bench, 600)),
+                    "--out", report], cwd=webviews)
         seconds = round(clock() - t0, 1)
         try:
             with open(report) as f:
