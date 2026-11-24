@@ -2336,13 +2336,13 @@ pub(super) fn dial_wireguard<'a>(
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
             stream: Box::new(stream),
+            hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
             peer: tunnel.peer,
             guard: Box::new(guard),
             lane,
             media,
             webrtc_media,
-            hold: None,
             liveness,
         })
     })
