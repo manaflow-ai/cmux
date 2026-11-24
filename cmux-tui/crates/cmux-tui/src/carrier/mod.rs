@@ -47,6 +47,12 @@
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
 //!   for the machine owner's grant (`vmk: "owner"`); its refusal is
 //!   `error_code` `service_refused`.
+//! - While the machine is paused, the session sends nothing until the
+//!   caller does: an idle session (nothing sent for 10 s,
+//!   `CMUX_CARRIER_IDLE_LOOK_MS` overrides it) reads the machine's state with
+//!   the read that wakes nothing before each heartbeat or redial, and holds
+//!   both while it reads `paused` or `pausing`. The caller's next byte goes
+//!   out as before and wakes the machine ([`sleep_gate`]).
 //! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 //!   6 service_refused, 64 bad usage.
 //!
@@ -146,6 +152,7 @@ mod serve;
 mod serve_machine;
 mod serve_policy;
 mod serve_quiet;
+mod sleep_gate;
 mod source;
 mod ssh;
 mod state_root;
