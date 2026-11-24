@@ -204,7 +204,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.waitForSelector(".acpmux-running-tray__tail a");
       const fit = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
-        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
+        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail-foot :is(a, button)")].map(
           (control) => {
             const box = control.getBoundingClientRect();
             return { left: box.left - tail.left, right: tail.right - box.right };
@@ -406,8 +406,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.click(command);
       await settle(page);
       expect(await opened()).toEqual([]);
-      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
-      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal");
+      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal");
       expect(await opened()).toEqual(["command:w/1"]);
     } finally {
       await page.close();

@@ -73,7 +73,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
           }));
           expect(card.title).toBe("Run the panel tests");
           expect(card.open).toBe("true");
-          expect(card.command).toContain("cd webviews && bun test test/background-tasks-open.test.tsx");
+          expect(card.command).toContain("bun test test/background-tasks-open.test.tsx");
           expect(card.output).toContain("41 pass");
           expect(await heads(page)).toEqual([{ text: "Running1", open: "true" }]);
           expect(errors).toEqual([]);
