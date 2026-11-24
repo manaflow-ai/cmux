@@ -8,8 +8,8 @@
 //! Two carriers: a session summary's `composerStatus` ([`composer_status`], from the summary's
 //! own fields, [`SessionFacts::from_summary`]), and `_acpmux/peer_state_changed`'s `status`
 //! ([`machine_link_item`]), the machine-link item of a peer session's machine. The pane-local
-//! kinds (`agentService`, `restoringSessions`, `sendsHeld`) are facts only the pane has; they
-//! are named here so one table names every kind and its words.
+//! kinds (`agentService`, `restoringSessions`, `sendsHeld`, `hostFailure`) are facts only the
+//! pane has; they are named here so one table names every kind and its words.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -62,11 +62,14 @@ pub enum StatusKind {
     RestoringSessions,
     /// Pane-local, never sent by acpmux: the pane holds sends it could not deliver yet.
     SendsHeld,
+    /// Pane-local, never sent by acpmux: the pane could not get its agent service, and asking
+    /// again on its own cannot change that (the host failure card's Retry and Details).
+    HostFailure,
 }
 
 impl StatusKind {
     /// Every kind, in the order of the enum: a renderer's table test walks it.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::MachineLink,
         Self::RateLimited,
         Self::Stuck,
@@ -75,6 +78,7 @@ impl StatusKind {
         Self::AgentService,
         Self::RestoringSessions,
         Self::SendsHeld,
+        Self::HostFailure,
     ];
 
     /// Its wire word.
@@ -88,6 +92,7 @@ impl StatusKind {
             Self::AgentService => "agentService",
             Self::RestoringSessions => "restoringSessions",
             Self::SendsHeld => "sendsHeld",
+            Self::HostFailure => "hostFailure",
         }
     }
 
@@ -103,12 +108,16 @@ impl StatusKind {
             Self::AgentService => "status.agentService",
             Self::RestoringSessions => "status.restoringSessions",
             Self::SendsHeld => "status.sendsHeld",
+            Self::HostFailure => "status.hostFailure",
         }
     }
 
     /// Whether acpmux emits it itself (the rest are the pane's own).
     pub fn emitted_by_daemon(self) -> bool {
-        !matches!(self, Self::AgentService | Self::RestoringSessions | Self::SendsHeld)
+        !matches!(
+            self,
+            Self::AgentService | Self::RestoringSessions | Self::SendsHeld | Self::HostFailure
+        )
     }
 }
 
@@ -124,11 +133,23 @@ pub enum StatusAction {
     SignIn,
     /// Update the machine.
     Update,
+    /// Pane-local: ask the agent service for the chat again now.
+    Retry,
+    /// Pane-local: stop the other build's agent service that holds this app's socket, so this
+    /// app's own starts.
+    RestartService,
 }
 
 impl StatusAction {
     /// Every action, in the order of the enum.
-    pub const ALL: [Self; 4] = [Self::Reconnect, Self::ResumeQueue, Self::SignIn, Self::Update];
+    pub const ALL: [Self; 6] = [
+        Self::Reconnect,
+        Self::ResumeQueue,
+        Self::SignIn,
+        Self::Update,
+        Self::Retry,
+        Self::RestartService,
+    ];
 }
 
 /// One entry of the dot's rundown.
