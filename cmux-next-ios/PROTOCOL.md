@@ -494,6 +494,7 @@ most 16 KiB (readers still accept 256 KiB from older peers).
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+| 5 `deflated data` | parked writes only, negotiated below. Original payload length (u32 BE) and one raw DEFLATE stream |
 
 A channel whose owner does not read it may hold the link reader for at
 most 3 s; then that channel is closed `overflow` on both sides and the rest
@@ -517,6 +518,49 @@ sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
 and the app's heartbeat probes a link with no traffic (only pings and pongs)
 on its 2.5 s foreground or 10 s background beat. No interval is longer than
 before.
+
+### Parked link (added 2026-11-16; backward compatible)
+
+When the app leaves the screen with a live WireGuard link, the phone asks
+the Mac to hold the link while iOS suspends it, so returning skips the
+full dial. It opens the service `_link.park` with `{"hold_ms": N}`. A Mac
+that knows parking answers `close` with code `parked` (a control frame) and
+holds for N ms, at most 10 minutes. An older Mac answers `unknown_service`,
+and the phone redials on return as before. While parked:
+
+- Neither side sends a link keepalive or closes the link for silence.
+- The tunnel is held (`cmux-wg` `WgNet::hold`): no TCP keepalive probe,
+  each link connection waits for the hold plus 30 s instead of its user
+  timeout, and no WireGuard keepalive (persistent or passive) goes out. The
+  Mac sends a suspended phone nothing at all.
+- The Mac writes only control frames. Channel data waits in each channel's
+  queue (up to its 256 KiB, then its writer waits, as on a slow link).
+- The app's heartbeat, foreground and presence probes are suspended: a
+  ping ends the park.
+
+A phone that can read type 5 adds `"encoding":"deflate-v1"` to its
+park request. For that park the Mac can encode each held data frame
+independently if it shrinks. Its original length (at most 16 KiB) counts
+towards the same queue limit. The phone restores each frame in channel
+order, including its original boundary. Other frames use their usual
+encoding. A Mac that predates the encoding ignores the argument, and a
+phone that omits it receives ordinary data.
+
+The park ends on the Mac at the phone's first ping, channel data or new
+channel (other than `_link.park`): a phone that sends a request (a
+notification action run in the background) is awake and waits for the
+answer. The phone parks no link a call is using, and a request it runs in
+the background resumes its link for the request, then parks it again. On
+the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
+(less a 30 s margin, on the clock that runs while the device sleeps), the
+phone moves the tunnel onto a fresh socket, as for a network change, and
+probes once with a 1.5 s timeout. The first explicit probe starts on the
+ordered stream even when liveness datagrams are available, so its ping
+follows the park request and releases queued output on the Mac. The Mac
+queues its pong before releasing the writers. If the probe fails, the phone redials. If
+the hold passes with nothing heard, the Mac closes the link (`park
+expired`). A WebRTC link is never parked: ICE consent ends a silent data
+channel after 30 s whatever the link does.
 
 ### Lanes (added with the input lane; backward compatible)
 

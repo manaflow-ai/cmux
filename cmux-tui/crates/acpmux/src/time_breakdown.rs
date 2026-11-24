@@ -53,6 +53,10 @@ pub struct TimeSpan {
     pub turn_seq: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn
+    /// by its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
     pub category: String,
     pub start_at: u64,
     pub end_at: u64,
@@ -85,6 +89,9 @@ struct Segment {
 struct TurnState {
     seq: u64,
     id: Option<String>,
+    /// A turn saved before spans named their prompt has none.
+    #[serde(default)]
+    prompt_id: Option<String>,
     start_at: u64,
     last_at: u64,
     phase: Category,
@@ -98,10 +105,11 @@ struct TurnState {
 }
 
 impl TurnState {
-    fn new(seq: u64, id: Option<String>, at: u64) -> Self {
+    fn new(seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) -> Self {
         Self {
             seq,
             id,
+            prompt_id,
             start_at: at,
             last_at: at,
             phase: Category::Model,
@@ -257,23 +265,28 @@ impl Reducer {
                 self.start_turn(
                     turn_seq(&record.msg).unwrap_or(record.seq),
                     turn_id(&record.msg),
+                    prompt_id(&record.msg),
                     at,
                 );
             }
             "turn_started" => {
                 let seq = turn_seq(&record.msg).unwrap_or(record.seq);
                 let id = turn_id(&record.msg);
+                let prompt = prompt_id(&record.msg);
                 if self.turn.as_ref().is_some_and(|turn| {
                     turn.end_marker || (turn.id.is_some() && id.is_some() && turn.id != id)
                 }) {
-                    self.start_turn(seq, id, at);
+                    self.start_turn(seq, id, prompt, at);
                 } else if let Some(turn) = self.turn.as_mut() {
                     turn.seq = seq;
                     if id.is_some() {
                         turn.id = id;
                     }
+                    if prompt.is_some() {
+                        turn.prompt_id = prompt;
+                    }
                 } else {
-                    self.start_turn(seq, id, at);
+                    self.start_turn(seq, id, prompt, at);
                 }
             }
             "tool_call" => {
@@ -398,12 +411,12 @@ impl Reducer {
         }
     }
 
-    fn start_turn(&mut self, seq: u64, id: Option<String>, at: u64) {
+    fn start_turn(&mut self, seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) {
         if let Some(mut turn) = self.turn.take() {
             turn.advance(at);
             self.finish(turn, None);
         }
-        self.turn = Some(TurnState::new(seq, id, at));
+        self.turn = Some(TurnState::new(seq, id, prompt_id, at));
     }
 
     fn ensure_turn(&mut self, record: &EventRecord) {
@@ -411,6 +424,7 @@ impl Reducer {
             self.start_turn(
                 turn_seq(&record.msg).unwrap_or(record.seq),
                 turn_id(&record.msg),
+                prompt_id(&record.msg),
                 record.at,
             );
         }
@@ -425,6 +439,7 @@ impl Reducer {
             self.spans.push(TimeSpan {
                 turn_seq: turn.seq,
                 turn_id: turn.id.clone(),
+                prompt_id: turn.prompt_id.clone(),
                 category: segment.category.id().to_owned(),
                 start_at: segment.start_at,
                 end_at: segment.end_at,
@@ -467,6 +482,7 @@ impl Reducer {
                 spans.push(TimeSpan {
                     turn_seq: turn.seq,
                     turn_id: turn.id.clone(),
+                    prompt_id: turn.prompt_id.clone(),
                     category: segment.category.id().to_owned(),
                     start_at: segment.start_at,
                     end_at: segment.end_at,
@@ -511,6 +527,10 @@ fn turn_seq(msg: &Value) -> Option<u64> {
 
 fn turn_id(msg: &Value) -> Option<String> {
     value(msg, "turnId").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn prompt_id(msg: &Value) -> Option<String> {
+    value(msg, "promptId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
 fn tool_id(msg: &Value) -> Option<String> {
