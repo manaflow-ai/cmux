@@ -88,7 +88,11 @@ def counts(sock: str) -> dict:
             "hibernated_workspaces": status.get("hibernated_workspaces"), "workspace_pages": status.get("workspace_pages"),
             "hibernated_pages": len(sleep.get("hibernated") or []), "frozen_pages": len(sleep.get("frozen") or []),
             "chat_pages": len(sleep.get("chat_pages") or []), "snapshots": sleep.get("snapshots"),
-            "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {})}
+            "snapshot_mb": round((sleep.get("snapshot_bytes") or 0) / 1048576, 1), "exemptions": len(sleep.get("exemptions") or {}),
+            # The pictures live on disk; this is what is still in RAM (writes in flight).
+            "snapshot_memory_mb": round((sleep.get("snapshot_memory_bytes") or 0) / 1048576, 1),
+            # Why a hibernated page has no last frame: dropped by the snapshot store's budget, or never kept one (by cause).
+            "snapshot_evicted": sleep.get("snapshot_evicted"), "snapshot_missing": sleep.get("snapshot_missing")}
 
 
 def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: float, report: dict) -> dict:
@@ -115,6 +119,131 @@ def settled(pid: int, bundle: str, sock: str, label: str, limit_s: float, want=N
         wait_stable(read, f"the app before {label}", timeout=limit_s, interval=0.5, reads=7)
     except StateWaitTimeout as error:
         print(f"   {error}; measuring anyway", file=sys.stderr)
+
+
+RENDERER_RSS: dict = {}
+
+
+def renderer_footprints(pid: int, bundle: str, step: str = "") -> list[float]:
+    """Every Chromium renderer's footprint now (MB), largest first: no window, one read per process. Its resident
+    sizes at the same read go to RENDERER_RSS[step]."""
+    rows = bm.sample(pid, bundle, "chat-heap", 0)["processes"]
+    RENDERER_RSS[step] = sorted((r["rss_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
+    return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
+
+
+def wait_collector_quiet(app: bm.App, quiet_s: float = 80, bound_s: float = 300) -> dict:
+    """Waits until the cmux page collector saw no page close for `quiet_s`, so "full" is the steady state.
+
+    Hidden chats are still released through the settle, and the collector's quiet check runs 60 s after the
+    newest close (`CEFPageRendererGC.quietDelay`): a window that starts 45 s after the build measured the renderer
+    before that check (hq#21221: `quiet_checks 1` only after the window, 113 MB of garbage in the number).
+    An app without the readout (`page_gc` in `debug.cef_pages`) waits nothing."""
+    started = time.monotonic()
+    closes, since, stats = None, started, None
+    while time.monotonic() - started < bound_s:
+        stats = (app.call("debug.cef_pages", timeout=30) or {}).get("page_gc")
+        if not isinstance(stats, dict):
+            break
+        if stats.get("closes") != closes:
+            closes, since = stats.get("closes"), time.monotonic()
+        elif time.monotonic() - since >= quiet_s:
+            break
+        time.sleep(10)  # test script: the collector's own timers run, nothing to wake on
+    found = {"waited_s": round(time.monotonic() - started), "page_gc": stats}
+    print(f"INFTABS-QUIET {json.dumps(found)}", flush=True)
+    return found
+
+
+def chat_heap(app: bm.App, pid: int, bundle: str, label: str, away: str | None = None, back: str | None = None) -> list[dict]:
+    """What the renderer of cmux's own pages holds in JS, and what a full collection and then a purge give back.
+
+    One cmux page per renderer (cmux pages share one renderer per site, so every page of it answers for the whole
+    isolate): its heap (`Runtime.getHeapUsage`: V8 used/total, Blink's Oilpan, backing stores) and its DOM counters
+    (`Memory.getDOMCounters`: documents counts detached ones not yet collected), then `HeapProfiler.collectGarbage`
+    and the same reads, then a critical `Memory.simulatePressureNotification` (PartitionAlloc discards its free
+    pages) and the same reads, with every renderer's footprint at each step. Read after the measured window: it
+    collects and purges, so it runs where no number after it is a memory number of this phase.
+    Settles whether a hibernated chat's memory is still reachable (used stays high, or documents stay above the
+    live pages) or garbage the renderer keeps mapped (used drops, footprint does not).
+    With `away` (a workspace that shows no cmux page), it then goes there for 20 s and reads again (step `away`),
+    then back to `back`: on the Linux stand-in (webviews/bench/chat-pages-memory.bench.ts PURGE_EXPERIMENT=1) the
+    garbage 30 closed chats left (blink_gc 85 -> 16 MB, malloc 95 -> 77 MB) went back only once the renderer had
+    no visible page; a collection and a critical notice with one shown gave back nothing."""
+    listed = app.call("debug.cef_pages", timeout=30) or {}
+    print(f"INFTABS-CHATHEAP label={label} page_gc={json.dumps(listed.get('page_gc'))}", flush=True)
+    pages = listed.get("pages")
+    if not isinstance(pages, list):
+        print(f"INFTABS-CHATHEAP label={label} error=no-debug.cef_pages", flush=True)
+        return []
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    by_renderer: dict = {}
+    for page in own:
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        by_renderer.setdefault(clients[0] if clients else ("page", page["browser"]), []).append(page)
+
+    def call(browser, method: str, params: dict | None = None, timeout: float = 30) -> dict:
+        reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=timeout)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return {"error": str(reply.get("error") or "no reply")[:120]}
+        try:
+            return json.loads(reply["result"]) or {}
+        except ValueError as error:
+            return {"error": str(error)[:120]}
+
+    def read(browser) -> dict:
+        heap, dom = call(browser, "Runtime.getHeapUsage"), call(browser, "Memory.getDOMCounters")
+        mb = lambda key: round(heap[key] / bm.MB, 1) if isinstance(heap.get(key), (int, float)) else None  # noqa: E731
+        return {"used_mb": mb("usedSize"), "total_mb": mb("totalSize"), "embedder_mb": mb("embedderHeapUsedSize"),
+                "backing_mb": mb("backingStorageSize"), "documents": dom.get("documents"), "nodes": dom.get("nodes"),
+                "listeners": dom.get("jsEventListeners"), "error": heap.get("error") or dom.get("error")}
+
+    rows = []
+    for renderer, members in by_renderer.items():
+        browser = min(p["browser"] for p in members)
+        row = {"renderer": renderer, "pages": len(members), "hidden": sum(1 for p in members if p.get("hidden")),
+               "paths": sorted({str(p.get("path") or "/") for p in members}), "before": read(browser)}
+        rows.append((browser, row))
+    steps = {"before": renderer_footprints(pid, bundle, "before")}
+    for browser, row in rows:
+        call(browser, "HeapProfiler.collectGarbage", timeout=60)
+    # sleep-ok: no signal says a collection's freed pages went back to the OS; the read after it is the result
+    time.sleep(2)
+    steps["gc"] = renderer_footprints(pid, bundle, "gc")
+    for browser, row in rows:
+        row["gc"] = read(browser)
+    if rows:
+        call(rows[0][0], "Memory.simulatePressureNotification", {"level": "critical"})  # reaches every process
+    # sleep-ok: no signal says a pressure notice's discards landed; the read after it is the result
+    time.sleep(3)
+    steps["purge"] = renderer_footprints(pid, bundle, "purge")
+    for browser, row in rows:
+        row["purge"] = read(browser)
+    order = ["before", "gc", "purge"]
+    if away and rows:
+        app.action("goToWorkspace", workspace=away)
+        # sleep-ok: the 20 s with no page shown is the experiment (the renderer lets its free pages go, on Linux)
+        time.sleep(20)
+        steps["away"] = renderer_footprints(pid, bundle, "away")
+        shown = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+        hidden = {p.get("browser"): bool(p.get("hidden")) for p in shown if isinstance(p, dict)}
+        for browser, row in rows:
+            row["away"] = {**read(browser), "hidden_pages": sum(1 for p in by_renderer[row["renderer"]] if hidden.get(p["browser"]))}
+        order.append("away")
+        if back:
+            app.action("goToWorkspace", workspace=back)
+    out = []
+    for browser, row in rows:
+        fields = " ".join(f"{step}_{key}={value}" for step in order
+                          for key, value in row[step].items() if value is not None)
+        print(f"INFTABS-CHATHEAP label={label} renderer={row['renderer']} browser={browser} pages={row['pages']} "
+              f"hidden={row['hidden']} paths={','.join(row['paths'])} {fields}", flush=True)
+        out.append(row)
+    print(f"INFTABS-CHATHEAP label={label} renderer_footprints_mb "
+          + " ".join(f"{step}={json.dumps(values[:4])}" for step, values in steps.items()), flush=True)
+    print(f"INFTABS-CHATHEAP label={label} renderer_rss_mb "
+          + " ".join(f"{step}={json.dumps(RENDERER_RSS.get(step, [])[:4])}" for step in steps), flush=True)
+    return out
 
 
 def new_workspace(app: bm.App) -> str | None:
@@ -280,7 +409,9 @@ def summarize(args, report: dict, made: list[dict]) -> dict:
         "renderer_mb_per_tab": round((renderer(full).get("rss_mb", 0) - renderer(empty).get("rss_mb", 0)) / max(1, pages), 4),
         "hibernated_pages": full["app_counts"]["hibernated_pages"], "hibernated_workspaces": full["app_counts"]["hibernated_workspaces"],
         "live_terminals": full["app_counts"]["live_terminals"], "chat_pages": full["app_counts"]["chat_pages"],
-        "snapshot_mb": full["app_counts"]["snapshot_mb"],
+        "snapshot_mb": full["app_counts"]["snapshot_mb"], "snapshots": full["app_counts"]["snapshots"],
+        "snapshot_memory_mb": full["app_counts"]["snapshot_memory_mb"],
+        "snapshot_evicted": full["app_counts"]["snapshot_evicted"], "snapshot_missing": full["app_counts"]["snapshot_missing"],
         "switches": len(rows), "switches_hibernated": len(woken),
         "switch_picture_p50_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.5),
         "switch_picture_p95_ms": bw.percentile([r.get("picture_ms") for r in woken], 0.95),
@@ -376,6 +507,7 @@ def run(argv: list[str]) -> int:
         settled(pid, bundle, sock, "the empty sample", max(120.0, 2 * args.settle))
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
         app_memory(pid, "empty", args, report)
+        report["chat_heap_empty"] = chat_heap(app, pid, bundle, "empty")  # after the window: the empty app's own floor
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -422,6 +554,7 @@ def run(argv: list[str]) -> int:
             done = set(sleep.get("hibernated") or []) | set((sleep.get("exemptions") or {}).keys())
             return tabs <= done and (bw.surfaces(sock).get("hibernated_workspaces") or 0) >= want_workspaces
         settled(pid, bundle, sock, "the full sample", max(120.0, 2 * args.settle), want=all_asleep)
+        report["collector_quiet"] = wait_collector_quiet(app)
         # Who runs in the idle window (the app's wakeup ledger, its threads' CPU, Chromium's pump counters, live
         # pages, a stack sample after it), and where the biggest kinds keep their memory: the numbers a fix starts from.
         attribution = bm.Attribution(app, pid, bundle, kinds=("app", "cef-gpu"))
@@ -439,6 +572,10 @@ def run(argv: list[str]) -> int:
         kinds_table(report["phases"]["empty"], full)
         report["full_renderers"] = renderers(app, pid, bundle, full)
         bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
+        # After full's window and its vmmap, before the switches: what the chat renderer still holds, and what a
+        # collection and a purge give back (the switches after it start from a collected renderer).
+        away = next((entry["workspace"] for entry in made if entry["kind"] == "terminal"), None)
+        report["chat_heap_full"] = chat_heap(app, pid, bundle, "full", away=away, back=front)
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
