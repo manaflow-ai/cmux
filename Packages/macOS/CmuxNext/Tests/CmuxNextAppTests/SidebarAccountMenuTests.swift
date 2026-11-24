@@ -3,10 +3,10 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import Testing
 
-/// The account menu at the sidebar's bottom left (PRIORITIES 1.14): signed in, who it is (a row
-/// that opens Accounts…), then every team the account may work in, the active one checked; Sign
-/// Out at the end. Leo, 2026-11-09: "i guess is team? it's kinda hard to realize tho" and, of the
-/// greyed email, "but does this not mean it's already connected?"
+/// The account menu at the sidebar's bottom left (PRIORITIES 1.14), laid out as the Codex app's (Lawrence,
+/// 2026-11-23): signed in, who it is leads, a row whose chevron opens every team the account may work in (the
+/// active one checked) and Accounts…; Sign Out at the end. Leo, 2026-11-09: "i guess is team? it's kinda hard to
+/// realize tho" and, of the greyed email, "but does this not mean it's already connected?"
 @MainActor
 struct SidebarAccountMenuTests {
     static func registry() -> ActionRegistry {
@@ -24,7 +24,7 @@ struct SidebarAccountMenuTests {
         return registry
     }
 
-    @Test func signedInTheTeamsFollowWhoItIsWithTheActiveOneChecked() throws {
+    @Test func signedInTheTeamsAreWhoItIsSubmenuWithTheActiveOneChecked() throws {
         let menu = NSMenu()
         let account = try #require(SidebarAccount(name: "Ada Lovelace", email: "ada@example.com", team: "cmux"))
         SidebarAccount.addRows(to: menu, account: account, registry: Self.registry())
@@ -32,21 +32,23 @@ struct SidebarAccountMenuTests {
         let person = try #require(menu.items.first)
         #expect(person.identifier?.rawValue == "profileMenu.person")
         #expect(person.title == "Ada Lovelace")
-        // Who it is is a normal row that opens Accounts…, never a greyed header.
-        #expect(person.isEnabled && person.action != nil)
-        #expect(person.representedObject as? String == "accounts.show")
+        if #available(macOS 14.4, *) { #expect(person.subtitle == "ada@example.com") }
+        // Who it is is a normal row with a chevron, never a greyed header.
+        #expect(person.isEnabled)
+        let submenu = try #require(person.submenu, "who it is opens no submenu")
+        #expect(!menu.items.contains { $0.identifier?.rawValue == "profileMenu.team" }, "a team is a top-level row")
 
-        let teams = menu.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
+        let teams = submenu.items.filter { $0.identifier?.rawValue == "profileMenu.team" }
         #expect(teams.map(\.title) == ["cmux", "leo@example.com's Team", "Personal"])
         // Exactly one row carries the checkmark: the active team.
         #expect(teams.filter { $0.state == .on }.map(\.title) == ["cmux"])
-        #expect(menu.items.filter { $0.state == .on }.count == 1)
+        #expect(submenu.items.filter { $0.state == .on }.count == 1)
         // The person's own team is a normal, selectable row like the others.
         let personal = try #require(teams.last)
         #expect(personal.isEnabled && personal.action != nil && personal.image != nil)
-        if #available(macOS 14.4, *) {
-            #expect(teams.map(\.subtitle) == ["Team · Team plan", "Team", "ada@example.com"])
-        }
+        // One line each: every row there is a team.
+        if #available(macOS 14.4, *) { #expect(teams.allSatisfy { $0.subtitle == nil }) }
+        #expect(submenu.items.last?.representedObject as? String == "accounts.show")
         #expect(menu.items.last?.representedObject as? String == "palette.auth.signOut")
     }
 

@@ -1372,6 +1372,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PLACE_CHAT,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
             ];
@@ -2861,6 +2862,14 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Where a new Auto chat runs, from this machine's budget: the same clients as
+        // `_acpmux/place` (its reason names this machine's numbers).
+        method::MUX_PLACE_CHAT if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_chat answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        method::MUX_PLACE_CHAT => Ok(super::place::place_chat(&params).await),
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),
