@@ -2804,10 +2804,11 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
       cancel-in-progress: true
-    runs-on: ${{ needs.app-compile-placement.outputs.gateway_runner }}
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-556
+    runs-on: cmux-linux
     permissions:
       contents: read  # the sparse checkout of the fleet compile reader
-    timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
+    timeout-minutes: 45  # up to 40 min reading the tip check's verdict
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
@@ -2827,6 +2828,7 @@ jobs:
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
           MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail
@@ -2840,26 +2842,21 @@ jobs:
             echo "::error title=Build fleet compile: no verdict::$summary"
             exit 1
           }
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            no_verdict "$client is not installed on runner $RUNNER_NAME"
-            exit 1  # no_verdict exits already; this keeps the guard's shape visible
-          fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-511
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --wait 2400 --no-record 300)" || word=none
           fi
-          status=0 how="Debug, swift.org toolchain"
+          status=0 how="the tip check's SwiftPM Release (-Onone) compile of this head"
           case "$word" in
-            pass) how="the tip check's SwiftPM Release (-Onone) compile of this head; not compiled again here" ;;
+            pass) ;;
             fail) status=1 ;;
-            *) "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$? ;;
+            *) status=69 ;;
           esac
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs on the base push after the merge." ;;
-            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above (or, read from the tip check, in cmux-next/compile's log)." ;;
-            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
+            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in the tip check's log (cmux-next/compile, linked above)." ;;
+            *) no_verdict "the tip check gave no verdict in time: $word" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
