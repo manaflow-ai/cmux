@@ -953,7 +953,16 @@ impl UltraUnderlay {
         }
         let Some(parity) = parse_parity(datagram) else { return };
         UltraCounters::add(&self.counters.parity_received, 1);
-        crate::dlog!("parity RX len={} code={:?}", datagram.len(), parity.code);
+        crate::dlog!(
+            "parity RX len={} code={:?} first_low={} members={} j={} parities={} origin={:?}",
+            datagram.len(),
+            parity.code,
+            parity.first_low,
+            parity.members,
+            parity.j,
+            parity.parities,
+            origin
+        );
         // Kept datagrams start with the first trusted parity; that group is
         // not rebuilt.
         self.decoding = true;
@@ -999,7 +1008,10 @@ impl UltraUnderlay {
             self.received.rebuild_rs(&parsed)
         };
         crate::dlog!(
-            "rs outcome {}",
+            "rs outcome key_first={} members={} sib={} {}",
+            key.1,
+            key.2,
+            siblings.len(),
             match &outcome {
                 Rebuild::DoneAll(_) => "DoneAll",
                 Rebuild::Done(_) => "Done",
@@ -1155,6 +1167,13 @@ impl Underlay for UltraUnderlay {
             if datagram.first() == Some(&TAG) {
                 // Parity from an origin WireGuard never authenticated is
                 // dropped unread and uncopied.
+                if !self.trusts(received.origin) {
+                    crate::dlog!(
+                        "parity UNTRUSTED origin={:?} trusted={:?}",
+                        received.origin,
+                        self.trusted
+                    );
+                }
                 if self.trusts(received.origin) {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
@@ -1176,6 +1195,13 @@ impl Underlay for UltraUnderlay {
     fn authenticated(&mut self, origin: Origin) {
         let staged = self.staged.take();
         if let Some((index, counter)) = staged {
+            crate::dlog!(
+                "dg auth counter={} rebuilt={} decoding={} origin={:?}",
+                counter,
+                self.staged_rebuilt,
+                self.decoding,
+                origin
+            );
             self.meter.observe(index, counter, self.staged_rebuilt);
         }
         if let Some((index, counter)) = staged
