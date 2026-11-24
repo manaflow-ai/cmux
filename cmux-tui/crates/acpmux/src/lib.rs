@@ -238,6 +238,8 @@ pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+// A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
