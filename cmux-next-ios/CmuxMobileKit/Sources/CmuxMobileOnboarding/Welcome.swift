@@ -216,8 +216,8 @@ public struct WelcomeView: View {
             WelcomeHeroBloom(t: heroT).opacity(fade)
         case .morph:
             WelcomeHeroMorph(t: heroT).opacity(fade)
-        case .glide:
-            WelcomeHeroMorph(t: heroT, centered: true).opacity(fade)
+        case .glide, .glide450, .glide600, .glide900:
+            WelcomeHeroMorph(t: heroT, variant: hero).opacity(fade)
         case .decode:
             WelcomeHeroDecode(t: heroT).opacity(fade)
         case .shimmer:

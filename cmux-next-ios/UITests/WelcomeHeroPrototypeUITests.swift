@@ -5,7 +5,7 @@ import XCTest
 /// wordmark, and leaves the sign-in rows in place; a pinned launch hides the
 /// picker. Goes away with the prototype once a direction is picked.
 final class WelcomeHeroPrototypeUITests: XCTestCase {
-    private let directions = ["lockup", "site", "bloom", "morph", "glide", "decode", "shimmer", "raster", "draft", "keys", "circuit", "tube"]
+    private let directions = ["lockup", "site", "bloom", "morph", "glide", "decode", "shimmer", "raster", "draft", "keys", "circuit", "tube", "glide450", "glide600", "glide900"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -41,21 +41,25 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
     }
 
-    /// Glide (Morph, centered) plays its reveal on a pinned launch in light
-    /// and in dark: the word types out centered, then slides right as the
-    /// cursor flies home. The recording shows both; the stills are settled.
+    /// Glide at each opening-blink speed (300, 450, 600 and 900 ms per blink)
+    /// plays its whole reveal on a pinned launch, in light then in dark: the
+    /// cursor blinks in the middle, the word types out centered, then slides
+    /// right as the cursor flies home. The step's recording is the evidence
+    /// for the speeds; each launch waits the same time, so the clips line up.
     @MainActor
-    func testGlideRevealsInLightAndDark() throws {
+    func testGlideRevealsAtEveryBlinkSpeedInLightAndDark() throws {
         for dark in [false, true] {
-            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "glide"] + appearance(dark))
-            XCTAssertTrue(element(app, id: "welcome.wordmark.glide").waitForExistence(timeout: 20))
-            XCTAssertFalse(app.buttons["welcome.hero.morph"].exists, "a pinned launch must not show the picker")
-            // The whole reveal, for the recording.
-            _ = app.staticTexts["__never__"].waitForExistence(timeout: 3)
-            XCTAssertTrue(element(app, label: "Your Macs, in your pocket").exists, "glide: tagline missing")
-            XCTAssertTrue(app.buttons["Continue with Google"].exists)
-            capture("glide-\(dark ? "dark" : "light")")
-            app.terminate()
+            for name in ["glide", "glide450", "glide600", "glide900"] {
+                let app = launch(arguments: ["-cmux-mobile-welcome-hero", name] + appearance(dark))
+                XCTAssertTrue(element(app, id: "welcome.wordmark.\(name)").waitForExistence(timeout: 20), "\(name): wordmark missing")
+                XCTAssertFalse(app.buttons["welcome.hero.morph"].exists, "a pinned launch must not show the picker")
+                // The slowest reveal is 2.6 s; every launch waits the same.
+                _ = app.staticTexts["__never__"].waitForExistence(timeout: 3.5)
+                XCTAssertTrue(element(app, label: "Your Macs, in your pocket").exists, "\(name): tagline missing")
+                XCTAssertTrue(app.buttons["Continue with Google"].exists)
+                capture("\(name)-\(dark ? "dark" : "light")")
+                app.terminate()
+            }
         }
     }
 

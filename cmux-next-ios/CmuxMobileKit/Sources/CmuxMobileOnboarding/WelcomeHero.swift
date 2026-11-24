@@ -46,6 +46,10 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
     /// cursor bends into the chevron and flies to its left, the word slides
     /// right, so the lockup lands centered.
     case glide
+    /// Glide with a slower opening blink: 450, 600 and 900 ms per blink
+    /// (Glide's is 300 ms), for comparing speeds; the rest of the reveal is
+    /// the same, later by the extra time.
+    case glide450, glide600, glide900
 
     var id: Int { rawValue }
 
@@ -64,14 +68,39 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         case .circuit: "Circuit"
         case .tube: "Tube"
         case .glide: "Glide"
+        case .glide450: "Glide450"
+        case .glide600: "Glide600"
+        case .glide900: "Glide900"
         }
     }
 
-    /// The picker's two rows: round 4's Geist directions (Glide beside the
-    /// Morph it varies), then Shimmer and round 3's drawn marks.
+    /// What the picker shows.
+    var label: String {
+        switch self {
+        case .glide450: "Glide 450"
+        case .glide600: "Glide 600"
+        case .glide900: "Glide 900"
+        default: name
+        }
+    }
+
+    /// One opening cursor blink in Morph and Glide (on, then off), in seconds.
+    var blinkCycle: Double {
+        switch self {
+        case .glide450: 0.45
+        case .glide600: 0.6
+        case .glide900: 0.9
+        default: 0.3
+        }
+    }
+
+    /// The picker's rows: round 4's Geist directions (Glide beside the Morph
+    /// it varies), Shimmer and round 3's drawn marks, then Glide's slower
+    /// opening blinks.
     static let pickerRows: [[WelcomeHeroVariant]] = [
         [.lockup, .site, .bloom, .morph, .glide, .decode],
         [.shimmer, .raster, .draft, .keys, .circuit, .tube],
+        [.glide450, .glide600, .glide900],
     ]
 
     /// The variants the picker offers (today's design is in the report, not the pill).
@@ -92,7 +121,7 @@ enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
         case .shimmer: 1.4
         case .morph: 1.5
         case .site: 1.6
-        case .glide: 1.75
+        case .glide, .glide450, .glide600, .glide900: 1.75 + OpeningBlink(cycle: blinkCycle).delay
         }
     }
 
@@ -570,23 +599,44 @@ struct WelcomeHeroBloom: View {
 
 // MARK: Morph and Glide
 
+/// The cursor's opening blink in Morph and Glide: it appears at 0.04 s, is on
+/// for 60% of `cycle` and off for 40%, then holds on for a beat (11/30 of the
+/// cycle) before the first letter. At Glide's 300 ms: off from 0.22 to 0.34 s,
+/// typing from 0.45 s.
+private struct OpeningBlink: Sendable {
+    var cycle: Double
+
+    var onAt: Double { 0.04 }
+    var offAt: Double { onAt + 0.6 * cycle }
+    var backAt: Double { offAt + 0.4 * cycle }
+    var typeStart: Double { backAt + cycle * 11 / 30 }
+    /// How much later than the 300 ms blink typing (and all that follows) starts.
+    var delay: Double { typeStart - OpeningBlink(cycle: 0.3).typeStart }
+
+    func isOff(_ t: Double) -> Bool { t >= offAt && t < backAt }
+}
+
 /// A block cursor in the chevron's gradient blinks, types "cmux" in Geist
 /// SemiBold, blinks once more, then bends into the chevron as it flies back
 /// to the front of the word: one shape, never a swap.
 ///
-/// `centered` is Glide: the typed line (letters and cursor) stays centered
-/// as it grows, so a lone cursor blinks in the middle and the word types out
-/// from there; then, while the cursor flies to the left of the word, the
-/// word slides right on the same curve, and the lockup lands centered.
+/// Glide (and its slower-blink variants) is Morph centered: the typed line
+/// (letters and cursor) stays centered as it grows, so a lone cursor blinks
+/// in the middle and the word types out from there; then, while the cursor
+/// flies to the left of the word, the word slides right on the same curve,
+/// and the lockup lands centered.
 struct WelcomeHeroMorph: View {
     var t: Double
-    var centered = false
+    var variant: WelcomeHeroVariant = .morph
 
     private static let word = GlyphOutline.make("cmux", font: Geist.semibold.ctFont(size: 100), tracking: -2.5)
 
     var body: some View {
         let word = Self.word
-        let centered = centered
+        let centered = variant != .morph
+        let opening = OpeningBlink(cycle: variant.blinkCycle)
+        // Everything after the opening blink runs this much later than at 300 ms.
+        let later = opening.delay
         let xh = word.xHeight
         let chevronHeight = xh * 1.42
         let chevronWidth = chevronHeight * Chevron.aspect
@@ -600,8 +650,7 @@ struct WelcomeHeroMorph: View {
         let height = chevronHeight
         // Glide flies home over a little longer: two shapes move at once.
         let flight = centered ? 0.5 : 0.42
-        let name = centered ? WelcomeHeroVariant.glide.name : WelcomeHeroVariant.morph.name
-        HeroStack(t: t, taglineAt: centered ? 1.45 : 1.3, spacing: 22, name: name) {
+        HeroStack(t: t, taglineAt: (centered ? 1.45 : 1.3) + later, spacing: 22, name: variant.name) {
             Canvas { context, size in
                 typealias E = IntroEase
                 let scale = size.width / width
@@ -612,14 +661,14 @@ struct WelcomeHeroMorph: View {
 
                 // Typing: one letter per 0.1 s; the cursor steps after each,
                 // measured from the word's left edge.
-                let typedAt = word.glyphs.indices.map { 0.45 + 0.1 * Double($0) }
+                let typedAt = word.glyphs.indices.map { opening.typeStart + 0.1 * Double($0) }
                 let step = xh * 0.1
                 var cursorOffset: CGFloat = 0
                 for (glyph, at) in zip(word.glyphs, typedAt) {
                     let p = CGFloat(E.outQuint(E.seg(t, at, at + 0.08)))
                     cursorOffset += (glyph.x + glyph.advance + step - cursorOffset) * p
                 }
-                let m = E.inOut(E.seg(t, 1.0, 1.0 + flight))
+                let m = E.inOut(E.seg(t, 1.0 + later, 1.0 + later + flight))
 
                 // Where the word is typed: at its lockup place (Morph), or with
                 // the typed line's ink (first letter to the cursor's right edge)
@@ -632,8 +681,9 @@ struct WelcomeHeroMorph: View {
 
                 // The cursor, drawn first: on its way home it passes behind
                 // the letters, which stay crisp over it.
-                let blink = (0.22..<0.34).contains(t) || (0.86..<0.98).contains(t)
-                if t >= 0.04, !blink {
+                // Off: the opening blink, and one quick blink once the word is typed.
+                let blink = opening.isOff(t) || ((0.86 + later)..<(0.98 + later)).contains(t)
+                if t >= opening.onAt, !blink {
                     // A block a little taller than the x-height, where typing left it.
                     let block = CGRect(x: typingWordX + cursorOffset, y: baseline + xh * 0.1 - blockHeight,
                                        width: blockWidth, height: blockHeight)
@@ -1230,6 +1280,9 @@ struct WelcomeHeroPicker: View {
                 .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(Text(verbatim: "Replay"))
             }
+            HStack(spacing: 2) {
+                ForEach(WelcomeHeroVariant.pickerRows[2]) { item($0) }
+            }
         }
         .padding(4)
         .background(Color(red: 10 / 255, green: 10 / 255, blue: 10 / 255).opacity(0.82),
@@ -1247,7 +1300,7 @@ struct WelcomeHeroPicker: View {
             selection = variant
             UserDefaults.standard.set(variant.rawValue, forKey: WelcomeHeroVariant.storeKey)
         } label: {
-            Text(verbatim: variant.name)
+            Text(verbatim: variant.label)
                 .font(.system(size: 12))
                 .foregroundStyle(.white.opacity(selection == variant ? 1 : 0.55))
                 .padding(.horizontal, 8)
