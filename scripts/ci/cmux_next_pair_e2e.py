@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
-"""cmux-next-ios-sim.sh pair-e2e: the iPhone pairs with a Mac by the Mac's QR code, end to end.
+"""cmux-next-ios-sim.sh pair-e2e: the iPhone pairs with its tagged Mac end to end.
 
   cmux_next_pair_e2e.py --mac-app APP --ios-app APP --sims SET --udid UDID --bundle-id ID \
       --work DIR --out DIR --summary FILE
 
-The tagged DEBUG cmux NEXT app runs as the e2e rig's Mac does (cmux-next-ios/verify/e2e/mac.py):
-its own settings file with iPhone connections on, the DEBUG dev account of CmuxAuthRuntime (a
-0600 file, never printed), its own machine id, and NO pairing seed, so only the pairing code's
-single-use token can approve the phone. The page's link (`cmux.mobilePairing.status` `qr.url`)
-is opened on the simulator iPhone, signed in to the same account, as the Camera opens a scanned
-code; the step passes when the Mac logs `phone <id8> paired from this Mac's pairing code`.
-
-Screens: the Mac's Mobile Pairing page on a ref that shows no code (a code's image carries its
-token, so on a ref with codes the page is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
-the camera off (needs `axe`). On a ref without the feature the Mac shows no code: the pairing is
-skipped, the run passes, and the Devices screen is the "before"; on a ref with it, no code fails.
+The tagged DEBUG Mac and simulator iPhone start signed in to the same account. With discovery
+enabled, the Mac first holds the phone's pairing request unanswered. Its normal same-tag DEBUG
+pairing policy then admits the phone. The phone's readiness receipt must identify this Mac as
+linked, and the Mac's Settings > Accounts must list the very same phone paired and connected.
 Then the upload leg (on a ref whose app has UploadProbe): a sparse file of about 150 MB, past the
 old 100 MiB cap, with marked pages at its start, middle and end, is streamed by the app's own
 `LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
@@ -25,6 +18,9 @@ the phone opens the Mac's terminal, and ten atomic saves alternating two termina
 timed from the save to the phone's `terminal theme of ... background #hex` log line (with the Mac's
 hand-off to hostd and hostd's publish as hops); then a refused value and a half-written file must leave
 the phone's background as it was while the Mac's notice names the file.
+After pairing and the other legs, the rig verifies the Mac's standing consent is off and quits
+the tagged app. The iPhone taps Share for that Mac. The daemon's admission audit, a decoded
+phone frame showing InputProbe, and the probe's mouse events are separate required receipts.
 With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
 the paired phone, copies its history, sends a fresh challenge, reads the
 assistant reply, and taps an injected notification. That injection proves
@@ -57,20 +53,21 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
+import build_names  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
+from cmux_next_pair_share_host import TaggedShareHost  # noqa: E402
+from cmux_next_pair_share_phone import PairInputProbe, PairSharePhone  # noqa: E402
 
-PAGE = "cmux.mobile-pairing"
+sys.path.insert(0, os.path.join(ROOT, "cmux-next-ios/scripts"))
+import review_mac  # noqa: E402
+
 RIG_MAC_NAME = "0 e2e rig Mac"
-PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
-# The phone's two lines on a pairing code (LiveCoordinator+PairInvite.swift): it refused it, or took it.
-CODE_REFUSED = re.compile(r"pairing code for a space this account is not in")
-CODE_TAKEN = re.compile(r"pairing code for (?!a space this account is not in)")
 # The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
 UPLOAD_BYTES = (150 << 20) + 12_345
 UPLOAD_NAME = "cmux-upload-probe.bin"
@@ -79,15 +76,6 @@ UPLOAD_NAME = "cmux-upload-probe.bin"
 def redact(text):
     """A pairing code's token (a link's `t=`, a `pairToken`) never reaches a log or the artifact."""
     return re.sub(r'((?<!\w)t=|pair_?token"?\s*[:=]\s*"?)[A-Za-z0-9_-]+', r"\1<redacted>", text, flags=re.I)
-
-
-def shows_a_code():
-    """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
-    code is the expected "before"; on one with it, no code is a failure."""
-    sources = ("Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobilePairingPageProvider.swift",
-               "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")  # before the move
-    paths = [os.path.join(ROOT, src) for src in sources]
-    return any(os.path.exists(path) and 'reply["qr"]' in open(path).read() for path in paths)
 
 
 def has_upload_probe():
@@ -114,11 +102,24 @@ def sha256(path):
     return total, digest.hexdigest()
 
 
-def takes_pair_url_env():
-    """Whether this ref's phone app (DEBUG) takes a pairing code from CMUX_MOBILE_PAIR_URL at launch: a
-    simulator asks "Open in cmux?" for `simctl openurl` (steps d7afa734, c8c0dec1), which nothing answers."""
-    src = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RootView.swift")
-    return os.path.exists(src) and '"CMUX_MOBILE_PAIR_URL"' in open(src).read()
+def phone_receipt_ids(path, nonce, mac_id, *, linked):
+    """This launch's signed-in phone, focused on this Mac; optionally require its live paired link."""
+    try:
+        with open(path) as f:
+            receipt = json.load(f)
+    except (OSError, ValueError):
+        return set()
+    if receipt.get("nonce") != nonce or receipt.get("signed_in") is not True:
+        return set()
+    if not any(row.get("id") == mac_id and (not linked or row.get("linked") is True)
+               for row in receipt.get("paired_macs", [])):
+        return set()
+    return {value.lower() for value in receipt.get("phone_device_ids", []) if value}
+
+
+def connected_phone(card, ids):
+    return any(row.get("id", "").lower() in ids and row.get("paired") is True and row.get("connected") is True
+               for row in card.get("phones", []))
 
 
 def signin_session():
@@ -283,25 +284,55 @@ def wait_for(fn, seconds, every=1.0):
         time.sleep(every)
 
 
+class ShareChecks:
+    steps = ("iPhone tapped Share on the rig Mac",
+             "Mac admitted the iPhone approval with the app closed and standing consent off",
+             "iPhone received a frame from the rig Mac",
+             "iPhone click landed on the rig Mac")
+
+    def __init__(self, note):
+        self.note = note
+        self.count = 0
+        self.incomplete = "pairing or rig setup did not finish"
+
+    @property
+    def passed(self):
+        return self.count == len(self.steps)
+
+    def pass_step(self):
+        self.note(f"- PASS {self.steps[self.count]}")
+        self.count += 1
+
+    def finish(self):
+        for i, step in enumerate(self.steps[self.count:]):
+            reason = self.incomplete if i == 0 else "preceding share check did not pass"
+            self.note(f"- FAIL {step} ({reason})")
+
+
 def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
-    proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
-    proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
-    cloud_ok = proof is None
-    screens = os.path.join(a.out, "screens")
-    os.makedirs(screens, exist_ok=True)
 
     def note(line):
         print(line, flush=True)
         with open(a.summary, "a") as f:
             f.write(line + "\n")
 
-    # Read before anything is written, so nothing it decides leaves state behind.
-    expects_code = shows_a_code()
-    note(f"- this ref's pairing page {'shows' if expects_code else 'shows no'} pairing codes")
+    share = ShareChecks(note)
+    try:
+        return run_pair(a, note, share)
+    finally:
+        share.finish()
+
+
+def run_pair(a, note, share):
+    proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
+    proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
+    cloud_ok = proof is None
+    screens = os.path.join(a.out, "screens")
+    os.makedirs(screens, exist_ok=True)
 
     # ---- the Mac app ------------------------------------------------------
     mac_bundle, tag, ls_env = step_tag(a.mac_app)
@@ -322,6 +353,11 @@ def main():
     # would give it (LSEnvironment) plus the rig's settings. An empty seed trusts no phone.
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
     env.update(ls_env)
+    env.pop("ACPMUX_SOCKET", None)
+    # The Mac's ShareHostDevice finds the daemon channel from its build identity
+    # and the account home, independently of HOME or ACPMUX_HOME.
+    env["ACPMUX_HOME"] = build_names.names(mac_bundle, tag, pwd.getpwuid(os.getuid()).pw_dir)["acpmux_home"]
+    env["CMUX_NEXT_ENROLL_ON_SIGN_IN"] = "1"
     env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_AUTH_CREDENTIALS_FILE=creds, CMUX_NEXT_IPHONE_PAIRING_SEED="",
                CMUX_NEXT_MOBILE_MACHINE_ID=machine_id(mac_bundle), CMUX_NEXT_NO_ACTIVATE="1",
                # The name phones list this Mac by (DEBUG override): the dev account lists 100+ Macs
@@ -333,52 +369,12 @@ def main():
     themes_dir = os.path.join(rig, "themes")
 
     def rpc(method, params=None, timeout=30):
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-                conn.settimeout(timeout)
-                conn.connect(sock)
-                conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-                buf = b""
-                while not buf.endswith(b"\n"):
-                    chunk = conn.recv(1 << 20)
-                    if not chunk:
-                        break
-                    buf += chunk
-            reply = json.loads(buf)
-            if not reply.get("ok"):
-                return {"error": reply.get("error")}
-            return reply["result"] if isinstance(reply.get("result"), dict) else {"result": reply.get("result")}
-        except (OSError, ValueError) as error:
-            return {"error": str(error)}
-
-    last = {}
+        return review_mac.rpc(sock, method, params, timeout)
 
     def status():
-        """The Mobile Pairing page's status (opening the page while it has none)."""
-        r = rpc("debug.page", {"page": PAGE, "action": "call", "op": "cmux.mobilePairing.status"})
-        if "no live page" in str(r.get("error", "")):
-            rpc("action.run", {"action": "palette.mobileConnect", "focus": True})
-            return {}
-        value = r.get("value") if isinstance(r.get("value"), dict) else {}
-        if value and value.get("state") != last.get("state"):
-            print(f"Mac pairing page: {value.get('state')} {value.get('failure') or ''}", flush=True)
-        if value:
-            last.clear()
-            last.update(value)
-        return value
+        return review_mac.status(sock)
 
-    def mac_shot(name):
-        """The Mac page as rendered, only on a ref that never shows a code: a code's image carries a
-        live token (text redaction can't reach it, and a code may render between a status read and
-        a snapshot), so there the page's QR elements are only counted, never saved."""
-        if expects_code:
-            shown = rpc("debug.page", {"page": PAGE, "action": "query", "selector": "img.pairing-qr"})
-            count = len(shown.get("elements") or []) if isinstance(shown, dict) else 0
-            return f"no snapshot on a ref that shows a code ({count or 'no'} QR element on the page)"
-        r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(screens, f"{name}.png")})
-        return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
-
-    simctl = ["xcrun", "simctl", "--set", a.sims]
+    simctl = ["xcrun", "simctl"] + (["--set", a.sims] if a.sims else [])
     if "password" in account:
         phone_env = dict(os.environ, SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL=email,
                          SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=account["password"])
@@ -388,9 +384,12 @@ def main():
 
     def phone_launch():
         """cmux on iPhone on Settings > Devices, signed in to the dev account (DEBUG launch environment)."""
-        subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
+        nonce = secrets.token_hex(16)
+        subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True, timeout=60)
         subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
-                       env=phone_env, check=True, capture_output=True)
+                       env=dict(phone_env, SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE=nonce),
+                       check=True, capture_output=True, timeout=60)
+        return nonce
 
     def phone_shot(name):
         subprocess.run(simctl + ["io", a.udid, "screenshot", os.path.join(screens, f"{name}.png")], capture_output=True)
@@ -421,20 +420,23 @@ def main():
             except OSError:
                 pass
 
-    teardown = TagTeardown(a.mac_app)
+    host = TaggedShareHost(a.mac_app, env)
+    teardown = TagTeardown(a.mac_app, acpmux_home=env["ACPMUX_HOME"])
     teardown.install()
-    streams, app, paired, url, uploaded, theme_ok = [], None, None, None, not probe, True
+    streams, app, paired, uploaded, theme_ok = [], None, False, not probe, True
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
+    quit_for_share = False
     try:
         note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
         # The Mac's look comes from a theme file the theme-file leg saves over (theme A at launch).
-        settings = {"mobile": {"allowIPhoneConnections": True}, "appearance": {"themeFile": THEME_FILE_NAME}}
+        settings = {"mobile": {"allowIPhoneConnections": True}, "appearance": {"themeFile": THEME_FILE_NAME},
+                    "macScreen": {"shareWithoutAsking": False}}
         os.makedirs(themes_dir, mode=0o700, exist_ok=True)
         write_theme_file(themes_dir, theme_file_text(THEME_FILE_LOOKS[0]))
         if probe:
@@ -456,9 +458,20 @@ def main():
                                     pwd.getpwuid(os.getuid()).pw_dir)
             write_mac_session(store, account["refresh_token"])
             note("- account: the step's agent session (cmux-ci run --sign-in agent), on the Mac and the phone")
-        app_out = Stream([exe], os.path.join(a.out, "mac-app.log"), env=env)
-        app = app_out.proc
-        streams.append(app_out)
+
+        def start_mac(launch_env, suffix=""):
+            nonlocal app
+            app_out = Stream([exe], os.path.join(a.out, f"mac-app{suffix}.log"), env=launch_env)
+            streams.append(app_out)
+            app = app_out.proc
+            predicate = (f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next" '
+                         'AND category BEGINSWITH "app.iphone"')
+            log = Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact", "--predicate", predicate],
+                         os.path.join(a.out, f"mac-pairing{suffix}.log"))
+            streams.append(log)
+            return log
+
+        mac_log = start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else env)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
             try:  # evidence only: a failure here never replaces the error below
@@ -476,31 +489,15 @@ def main():
             # Evidence only (the pairing page's own wait judges the run): a Keychain write would empty the file.
             refreshed = wait_for(lambda: mac_session_refreshed(store), 30, every=2)
             note(f"- Mac session: {'an access token from the step session in its token store file' if refreshed else 'no access token in its token store file in 30 s'}")
-        pairing_logs = f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next" AND category BEGINSWITH "app.iphone"'
-        streams.append(mac_log := Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact",
-                                          "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
-        # Signed in, hostd online, iPhone connections on: the page shows the code. A page still
-        # without one at 60 s is sampled once (where the app waits), then the wait goes on.
-        deadline = time.monotonic() + (300 if expects_code else 60)
-        qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {})
-        if not qr and expects_code:
-            try:  # evidence only: a failure here never replaces the run's own verdict
-                why = preparing_evidence(app, a.out, deadline)
-            except Exception as error:  # noqa: BLE001
-                why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
-            try:
-                note(f"- Mac pairing page: still {last.get('state') or 'without a status'} at "
-                     f"{time.monotonic() - t0:.0f} s; {why}")
-            except OSError:
-                pass
-            # The same 300 s deadline as one wait: the evidence's own time is not added to it, and
-            # a page read after the deadline never counts.
-            left = deadline - time.monotonic()
-            qr = (wait_for(lambda: status().get("qr"), left, every=2) or {}) if left > 0 else {}
-        url = qr.get("url")
-        note(f"- Mac pairing page: state {last.get('state')}, Mac {last.get('macName')!r}, "
-             f"{'code ' + redact(url) if url else 'NO pairing code (FAIL: this ref shows one)' if expects_code else 'NO pairing code (a ref without it: pairing skipped)'} "
-             f"in {time.monotonic() - t0:.0f} s; {mac_shot('mac-pairing')}")
+        deadline = time.monotonic() + 300
+        mac_id = wait_for(lambda: status().get("device_id"), 60, every=2)
+        if not mac_id:
+            why = preparing_evidence(app, a.out, deadline)
+            note(f"- Mac has no registered iPhone host id after 60 s; {why}")
+            mac_id = wait_for(lambda: status().get("device_id"), max(0, deadline - time.monotonic()), every=2)
+        if not mac_id:
+            raise SystemExit("FAIL pairing: the Mac never registered its iPhone host")
+        phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
@@ -518,91 +515,103 @@ def main():
         streams.append(phone_log := Stream(
             simctl + ["spawn", a.udid, "log", "stream", "--level", "info", "--style", "compact",
                       "--predicate", 'subsystem == "dev.cmux.mobile"'], os.path.join(a.out, "phone-pairing.log")))
+        receipt = os.path.join(data, "Library/Application Support/cmux-dogfood/readiness.json")
         asked_from = time.monotonic()
-        phone_launch()
+        nonce = phone_launch()
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
-            ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
-        phone_settled()  # the Devices list loads from the service after live data starts
+            ids = wait_for(lambda: phone_receipt_ids(receipt, nonce, mac_id, linked=False), 60)
+            ask_ok = discovery_ask(mac_log, phone_log, asked_from, ids, status, rpc, note)
+        phone_settled()
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
 
-        if url:
-            t1 = time.monotonic()
-            opened_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 1))
-            # The phone dialed this Mac at its first launch, before it had the code; its auth waits on
-            # the Mac's Allow, and the code's token goes out only in an auth's challenge reply
-            # (LinkPairing). So the app is started again with the code, and the Mac answers the
-            # earlier ask with it. A simulator asks "Open in cmux?" for `simctl openurl` (steps
-            # d7afa734, c8c0dec1: nothing answered it), so a ref whose DEBUG app takes the code from
-            # its launch environment gets it there (in the environment only, never in argv or a log).
-            subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True, timeout=60)
-            if takes_pair_url_env():
-                try:  # the environment holds the code: an error is raised with neither it nor argv
-                    started = subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
-                                             env=dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_PAIR_URL=url),
-                                             capture_output=True, text=True, timeout=60)
-                except (OSError, subprocess.TimeoutExpired) as error:
-                    raise SystemExit(f"simctl launch with the code failed ({type(error).__name__})") from None
-                if started.returncode != 0:
-                    raise SystemExit(f"simctl launch with the code failed ({started.returncode}): "
-                                     f"{redact(started.stderr.strip())[-400:]}")
-            else:
-                # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
-                try:  # a TimeoutExpired names its argv, the link with its token: never raised with it
-                    opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True, timeout=60)
-                except (OSError, subprocess.TimeoutExpired) as error:
-                    raise SystemExit(f"simctl openurl failed ({type(error).__name__})") from None
-                if opened.returncode != 0:  # the error names the link: redacted, never raised with it
-                    raise SystemExit(f"simctl openurl failed ({opened.returncode}): {redact(opened.stderr.strip())[-400:]}")
-            paired = mac_log.wait(PAIRED, 180)
-            took = time.monotonic() - t1
-            if not paired:  # the stream may have missed it: the store keeps info lines a while
-                paired = PAIRED.search(subprocess.run(["/usr/bin/log", "show", "--info", "--start", opened_at, "--style",
-                                                       "compact", "--predicate", pairing_logs],
-                                                      capture_output=True, text=True).stdout)
-            connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 60, every=2)
-            # LiveCoordinator+PairInvite.swift logs "pairing code for <mac>" when it takes the code and
-            # "pairing code for a space this account is not in" when it refuses it (the phone lists no such
-            # Mac: another account, or another build space); only the first is taking it.
-            refused_code = phone_log.wait(CODE_REFUSED, 0)
-            took_code = phone_log.wait(CODE_TAKEN, 0)
-            code_verdict = ("refused the code: it lists no Mac of it (another account or build space)" if refused_code
-                            else "took the code" if took_code else "never logged taking the code")
-            note(f"- pairing: {'PAIRED, phone ' + paired.group(1) if paired else 'NOT paired'} "
-                 f"({took:.0f} s after the link opened, no Allow prompt, no seed; the phone "
-                 f"{code_verdict}); Mac lists "
-                 f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
-                 f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
-            phone_launch()
-            phone_log.wait(re.compile(r"live data on"), 60)
-            phone_settled()  # the Devices list loads from the service after live data starts
-            note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if paired:
-                try:
-                    theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
-                                              rpc, screens, themes_dir, support, a.out, note)
-                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
-                    theme_ok = False
-                    note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
-            if paired and probe:
-                # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
-                # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
-                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
-                note(f"- upload: {line}")
-            if discovery and paired:  # last: it quits and restarts the Mac
-                app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
-                                                    phone_shot, note)
+        if discovery:
+            # The first launch specifically asked the Mac to wait for Allow. Start its ordinary
+            # tagged build to pair, before any screen-sharing action, then redial from the phone.
+            app.terminate()
+            try:
+                app.wait(30)
+            except subprocess.TimeoutExpired:
+                app.kill()
+                app.wait(15)
+            mac_log = start_mac(env, "-pair")
+            if not wait_for(lambda: status().get("device_id") == mac_id, 120):
+                raise SystemExit("FAIL pairing: the restarted Mac did not register the same device id")
+            nonce = phone_launch()
+
+        ids = wait_for(lambda: phone_receipt_ids(receipt, nonce, mac_id, linked=True), 180)
+        paired = bool(ids and wait_for(lambda: connected_phone(status(), ids), 60))
+        note(f"- {'PASS' if paired else 'FAIL'} pairing: phone reports linked to the rig Mac: {bool(ids)}; "
+             f"Mac lists that phone paired and connected: {paired}; phone {phone_shot('phone-paired')}")
+        if not paired:
+            share.incomplete = "this iPhone did not pair and connect to the rig Mac"
+        if paired:
+            try:
+                theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
+                                          rpc, screens, themes_dir, support, a.out, note)
+            except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                theme_ok = False
+                note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
+        if paired and probe:
+            uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
+            note(f"- upload: {line}")
+        if discovery and paired:
+            app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, ids, phone_log, streams,
+                                                phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
         if proof is not None:
             if not paired:
-                raise SystemExit("Cloud UI proof requires the real QR pairing to succeed")
+                raise SystemExit("Cloud UI proof requires the phone to pair and connect")
             run_cloud_leg(proof, root=ROOT, mac_env=env, email=email, rpc=rpc, phone_log=phone_log,
                           simctl=simctl, udid=a.udid, bundle=a.bundle_id, phone_env=phone_env,
-                          rig_name=last.get("macName") or RIG_MAC_NAME, work=a.work, out=a.out,
+                          rig_name=RIG_MAC_NAME, work=a.work, out=a.out,
                           shot=phone_shot, note=note)
             cloud_ok = True
+
+        if paired:
+            try:
+                target = host.prepare()
+                setting = rpc("settings.get", {"path": "macScreen.shareWithoutAsking"})
+                if setting.get("value") is not False:
+                    raise RuntimeError("the Mac did not report Share This Mac Without Asking off")
+                with PairInputProbe(rig) as probe_input:
+                    share_env = dict(phone_env, SIMCTL_CHILD_CMUX_PAIR_E2E_SHARE_RECEIPT="1")
+                    phone = PairSharePhone(simctl, a.udid, a.bundle_id, share_env,
+                                           os.path.join(rig, "share-screens"), probe_input.ocr)
+                    # Quit the exact tagged GUI before the phone opens Screen Sharing. From
+                    # this point until the click receipt the host-side checks are read-only.
+                    quit_for_share = True
+                    rpc("action.run", {"action": "quitKeepSessions"})
+                    app.wait(timeout=30)
+                    cursor = host.detached_baseline()
+                    phone.launch()
+                    before_tap = time.monotonic()
+                    phone.request_share(target["deviceName"], target["deviceId"])
+                    share.pass_step()
+                    signed = phone_log.wait_at(re.compile(r"pair-e2e signed Share nonce digest ([0-9a-f]{64})"),
+                                               30, since=before_tap)
+                    if not signed:
+                        raise RuntimeError("the simulator did not report signing this Share request")
+                    host.admission(cursor, signed[1].group(1))
+                    share.pass_step()
+                    phone.wait_frame(timeout=60)
+                    share.pass_step()
+                    probe_input.verify_click(phone.tap_center())
+                    share.pass_step()
+            except RuntimeError as error:
+                # Host and phone adapters give fixed diagnostics, never command output or account data.
+                share.incomplete = str(error)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                share.incomplete = f"share fixture failed ({type(error).__name__})"
     finally:
+        if quit_for_share and app.poll() is not None:
+            # Restore the original app solely to run its ordinary sign-out after the proof.
+            try:
+                start_mac(env, "-signout")
+                wait_for(lambda: "error" not in rpc("debug.focus", timeout=2), 45)
+            except (OSError, subprocess.SubprocessError) as error:
+                note(f"- sign-out relaunch failed ({type(error).__name__})")
         if app and app.poll() is None:
             # The app signs itself out first, so it deletes its own tokens wherever its store keeps them
             # (the data-protection Keychain, which `security` can't reach, or its file fallback).
@@ -619,24 +628,26 @@ def main():
         try:
             for s in streams:
                 s.stop()
-            collect(support, a.out, note)
-            teardown.end()
-            shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
+            try:
+                collect(support, a.out, note)
+            finally:
+                try:
+                    host.leave()
+                finally:
+                    teardown.end()
+                    shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
             forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
         if proof is not None:
             # The public archive is an allowlist in Cloud mode. Raw screenshots,
             # pairing/app logs and failure captures remain unavailable to upload.
             allowlist_public_cloud_artifact(a.out)
-    if not url and not expects_code and proof is None:
-        return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok and share.passed else 1
 
 
-ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
@@ -836,29 +847,31 @@ def log_time(line):
     return time.mktime(time.strptime(m.group(1).split(".")[0], "%Y-%m-%d %H:%M:%S")) + float("0." + m.group(1).split(".")[1]) if m else None
 
 
-def discovery_ask(mac_log, phone_log, since, status, rpc, note):
-    """The phone, signed in and never paired, opened while the Mac runs: hostd sends its pair request
-    and the Mac shows it (the Allow prompt, the page's waiting row) within seconds. Only the person
-    answers it (debug.dialog refuses a press on it); the run pairs with the code after."""
-    hit = mac_log.wait_at(ASKS, 60, since=since)
+def discovery_ask(mac_log, phone_log, since, ids, status, rpc, note):
+    """Observe the unanswered Allow request from this launch's simulator phone."""
+    if not ids:
+        note("- discovery, Allow request: FAIL; no phone identity for this Mac in this launch's receipt")
+        return False
+    prefixes = "|".join(re.escape(device_id[:8]) for device_id in ids)
+    ask = re.compile(rf"phone ({prefixes}) asks to pair:", re.I)
+    hit = mac_log.wait_at(ask, 60, since=since)
     live = phone_log.wait_at(re.compile(r"live data on"), 0, since=since)
     m = hit[1] if hit else None
     # From the logged times, not when `log stream` delivered the lines (it lags by tens of seconds).
     asked_at = log_time(m.string) if m else None
     live_at = log_time(live[1].string) if live else None
     took = asked_at - live_at if asked_at is not None and live_at is not None else None
-    pending = (status().get("host") or {}).get("pending") or []
-    dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
-    press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
-    # The prompt answers only to the person: a scripted press that is not refused is a failure.
-    refused = not dialogs or bool(press.get("error"))
-    ok = took is not None and took <= 15 and bool(pending) and refused
-    note(f"- discovery, Allow request: {'phone ' + m.group(1) + ' asked (' + m.group(2) + ')' if m else 'NO request'}"
-         f"{f' {took:.1f} s after the phone went live (logged times)' if took is not None else ' (no logged time)' if m else ' in 60 s'}; the page lists "
-         f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
-         f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
-         f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
-         f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s of the phone going live, a waiting row and a refused scripted Allow)'}")
+    pending = {row.get("id", "").lower() for row in status().get("pending", [])} & ids
+    our_request = bool(m and any(device_id.startswith(m.group(1).lower()) for device_id in pending))
+    dialogs = [dialog for dialog in rpc("debug.dialog").get("dialogs", [])
+               if dialog.get("identifier") == review_mac.PAIR_DIALOG]
+    # Preserve the discovery leg's check that the debugger cannot press a real Allow.
+    refused = not dialogs or bool(rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}).get("error"))
+    ok = took is not None and 0 <= took <= 15 and our_request and refused
+    scripted = ("refused" if refused else "accepted") if dialogs else "no on-screen dialog"
+    note(f"- discovery, Allow request: {'PASS' if ok else 'FAIL'}; simulator phone waiting on the Mac: "
+         f"{our_request}; time from live data to request: {f'{took:.1f} s' if took is not None else 'unknown'}; "
+         f"scripted Allow: {scripted}")
     return ok
 
 
@@ -871,7 +884,7 @@ def host_state_directory(support):
     return found[0] if found else None
 
 
-def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
+def discovery_restart(app, exe, env, out, support, status, ids, phone_log, streams, phone_shot, note):
     """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
     read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
     itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
@@ -892,7 +905,7 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
     t = time.monotonic()
     restarted = Stream([exe], os.path.join(out, "mac-app-restart.log"), env=env)
     streams.append(restarted)
-    connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 120, every=1)
+    connected = wait_for(lambda: connected_phone(status(), ids), 120, every=1)
     took = time.monotonic() - t
     refused = len([l for l in phone_log.lines if LINK_REFUSED.search(l)]) - refused_before
     aside = os.path.exists(planted + ".superseded") and not os.path.exists(planted)
@@ -990,7 +1003,8 @@ def _forget_tag_files(app, bundle, tag, ls_env):
     slug = re.sub(r"[^a-z0-9]+", "-", bundle[len("com.cmuxterm.app.debug."):].lower()).strip("-")
     safe = re.sub(r"[^A-Za-z0-9.-]", "_", bundle)  # CrashReportWriter.safe
     homes = {os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir}
-    dirs, files = [], [f"/tmp/cmux-reload-{tag}.log", f"/tmp/cmux-debug-{tag}.sock", f"/tmp/cmux-debug-{tag}.log",
+    tag_acpmux_home = build_names.names(bundle, tag, pwd.getpwuid(os.getuid()).pw_dir)["acpmux_home"]
+    dirs, files = [tag_acpmux_home], [f"/tmp/cmux-reload-{tag}.log", f"/tmp/cmux-debug-{tag}.sock", f"/tmp/cmux-debug-{tag}.log",
                        f"/tmp/cmux-next-irx-journal-{tag}.jsonl", f"/tmp/cmux-dev-{slug}-last-socket-path"]
     sock = ls_env.get("CMUX_SOCKET_PATH", "")
     if tag in os.path.basename(sock):

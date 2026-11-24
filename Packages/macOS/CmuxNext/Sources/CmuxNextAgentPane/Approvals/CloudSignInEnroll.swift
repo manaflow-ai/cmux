@@ -45,7 +45,13 @@ public final class CloudSignInEnroll {
     }
 
     /// Follows the signed-in person for the app's life (its owner, the app's services, lives as long).
-    public func follow() {
+    public func follow(nonactivating: Bool = false) {
+        // A tagged DEBUG rig can exercise normal sign-in enrollment without taking focus.
+        #if DEBUG
+        if nonactivating && ProcessInfo.processInfo.environment["CMUX_NEXT_ENROLL_ON_SIGN_IN"] != "1" { return }
+        #else
+        if nonactivating { return }
+        #endif
         guard following == nil else { return }
         let person = person
         // task-owner: the follow, for the app's life (the owner never goes before the app ends).

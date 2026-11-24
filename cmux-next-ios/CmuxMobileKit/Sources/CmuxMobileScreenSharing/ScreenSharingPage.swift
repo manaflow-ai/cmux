@@ -230,7 +230,17 @@ struct ScreenSharingMacRow: View {
                 Button("Share \(mac.name)", systemImage: "rectangle.on.rectangle") { share() }
             }
         }
-        .accessibilityIdentifier("screenSharing.mac.\(mac.name)")
+        .accessibilityIdentifier(rowIdentifier)
+    }
+
+    private var rowIdentifier: String {
+        #if DEBUG
+        // A staging account can have several Macs with the same display name.
+        if ProcessInfo.processInfo.environment["CMUX_PAIR_E2E_SHARE_RECEIPT"] == "1" {
+            return "screenSharing.device.\(mac.id)"
+        }
+        #endif
+        return "screenSharing.mac.\(mac.name)"
     }
 
     private var status: String {

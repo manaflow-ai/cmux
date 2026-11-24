@@ -2,8 +2,8 @@ name: cmux NEXT pair-e2e on an ephemeral macOS VM (staging agent account)
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('pair-e2e {0}', inputs.ref) || format('pair-e2e {0}', github.ref_name) }}
 
 # The real-link pair-e2e (scripts/ci/cmux-next-ios-sim.sh pair-e2e: a tagged DEBUG cmux NEXT Mac app and
-# the Demo iPhone app on a simulator, paired by the Mac's QR code over the real Cloud path, then the upload
-# and discovery legs, scripts/ci/cmux_next_pair_e2e.py) on an ephemeral macOS VM, for a ref no host with
+# the Demo iPhone app on a simulator, paired over the real Cloud path, then upload, discovery and
+# the phone's Share and click with the Mac app closed, scripts/ci/cmux_next_pair_e2e.py) on an ephemeral macOS VM, for a ref no host with
 # the agent account can run it for. Both apps sign in as the staging agent test account: the
 # CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD pair in cmux-next-vm-image-dev, the pair cloud-rd-link-readback.yml
 # and cloud-chat-proof.yml's staging job read. Staging is the development Stack project, the one the DEBUG
@@ -147,6 +147,10 @@ jobs:
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           export HOME="$RUNNER_TEMP/pair-home"
           bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
+
+      - name: Check pairing and share receipt matching
+        if: ${{ !cancelled() }}
+        run: python3 -m unittest discover -s tests -p 'test_pair_e2e_*.py'
 
       - name: Summarize
         if: always()

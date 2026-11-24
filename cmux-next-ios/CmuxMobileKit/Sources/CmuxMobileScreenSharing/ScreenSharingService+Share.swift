@@ -2,6 +2,10 @@
 public import CmuxDeviceHub
 import CmuxMobileLinkFFI
 public import Foundation
+#if DEBUG
+import CryptoKit
+import OSLog
+#endif
 
 /// Share <Mac> from the iPhone (cmuxterm-hq#18912, cut 1). Leo, 2026-11-22: "well im not at the
 /// computer right now unless screen sharing between ios and mac works then i can click". The design:
@@ -56,6 +60,15 @@ extension ScreenSharingService {
                 let signature = try await Task.detached { try sign(identity, canonical) }.value
                 let approval = try shareApprovalSigned(draft: draft, signature: signature, signingKey: identity.signingKey)
                 try Task.checkCancellation()
+                #if DEBUG
+                // The pair rig matches the daemon's decision to this exact signed tap.
+                // Only the digest of the single-use nonce goes into the simulator log.
+                if ProcessInfo.processInfo.environment["CMUX_PAIR_E2E_SHARE_RECEIPT"] == "1" {
+                    let digest = SHA256.hash(data: Data(draft.nonce.utf8)).map { String(format: "%02x", $0) }.joined()
+                    Logger(subsystem: "dev.cmux.mobile", category: "screen-sharing")
+                        .info("pair-e2e signed Share nonce digest \(digest, privacy: .public)")
+                }
+                #endif
                 try await carrier(approval, mac, hub)
                 try await Task.sleep(for: deadline)
                 self?.shareFailed(mac.id, String(localized: "\(mac.name) didn't turn on sharing. Check that cmux is open on it and signed in to your account."))

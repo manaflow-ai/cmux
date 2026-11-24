@@ -131,17 +131,10 @@
 #           tree; baseline mode selects its original-view adapter.
 #           bench/ retains each log, console output and result bundle.
 #   pair-e2e
-#           build, plus a tagged DEBUG cmux NEXT Mac app built here
-#           (reload.sh), and pairing by its QR code end to end
-#           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
-#           the iPhone, pairs it with no Allow prompt and no test seed. Screens
-#           of the Mac page (never while it shows a code: its image carries
-#           the token), the phone's Settings > Devices (a base ref gives
-#           the "before") and its scanner with the camera off; the Mac's
-#           pairing log, hostd's log and paired-devices.json, keys redacted.
-#           Then the upload leg: the phone streams a sparse ~150 MB file (past
-#           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
-#           stored file's size and SHA-256 must match (UploadProbe.swift).
+#           Build a tagged DEBUG Mac app and simulator iPhone in the same build
+#           space. Check pairing on both devices, upload, and reconnection. Then
+#           quit the Mac app with standing consent off and have the phone tap
+#           Share. Require Mac admission, a decoded frame, and a click on the Mac.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -242,6 +235,7 @@
 #           The artifact (evidence.zip) holds CmuxMobileApp-Dev-device-unsigned.app.zip,
 #           try.json (commit, bundle id, build seconds) and SUMMARY.md.
 #
+# Pair-e2e makes a unique default-set iPhone for AXe and deletes it by UDID.
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
 # deletes the set when it ends. Every simulator comes from sim_create, which a
@@ -564,6 +558,7 @@ export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
 # pinned xcodegen's temp dir and, once made, the simulator device set.
 xcodegen_dir=""
 sims=""
+pair_udid=""
 perf_udid=""
 cleanup() {
   local result=$?
@@ -577,6 +572,10 @@ cleanup() {
     xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
   done
+  if [[ -n "${pair_udid:-}" ]]; then
+    xcrun simctl shutdown "$pair_udid" >/dev/null 2>&1 || true
+    xcrun simctl delete "$pair_udid" >/dev/null 2>&1 || result=1
+  fi
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
@@ -755,14 +754,22 @@ if [[ "$mode" != release-build && "$mode" != try ]]; then
   echo "cmux-next-ios-sim.sh: simulator device type: $device_name ($device_type)${sim_device:+, from device=$sim_device}"
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
   # cannot succeed fails the step in seconds, not after the build.
-  sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
   sim_name=cmux-next-ios-sim
+  if [[ "$mode" == pair-e2e ]]; then
+    # AXe uses the default device set. Target this run's phone by UDID.
+    sim_name="pair-e2e-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+    axe_bin_dir="$(scripts/install-axe-ci.sh)"
+    export PATH="$axe_bin_dir:$PATH"
+  else
+    sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
+  fi
   if [[ "$mode" == screen-proof ]]; then
     sim_name="screen-proof-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
   fi
   udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
+  if [[ "$mode" == pair-e2e ]]; then pair_udid="$udid"; fi
 fi
-simctl() { xcrun simctl --set "$sims" "$@"; }
+simctl() { xcrun simctl ${sims:+--set "$sims"} "$@"; }
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -860,11 +867,10 @@ if [[ "$mode" == pair-e2e ]]; then
   # A tag of this run only for the Mac app built below: its own bundle id, socket, settings and state.
   # A tagged dev Mac's hostd registers in the build space dev:<tag> (CMUX_BUILD_SPACE, #43648), and a
   # phone lists only the Macs of its own space: the plain Demo build (no CMUX_MOBILE_DEV_TAG) is in the
-  # default space, lists 0 Macs, refuses the Mac's code ("pairing code for a space this account is not
-  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag (not its bundle id, which
-  # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
+  # default space and cannot discover the rig. Tag both the build space and the app
+  # bundle so the Mac's same-tag DEBUG pairing policy recognizes the phone.
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
-  build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+  build_settings+=("CMUX_MOBILE_TAG=.$mac_tag" "CMUX_MOBILE_DEV_TAG=.$mac_tag")
 fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
@@ -1056,7 +1062,7 @@ fi
 # The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
 # for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
 if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
-  "${CMUX_CI_SIMSLIM}" --set "$sims" measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
+  "${CMUX_CI_SIMSLIM}" ${sims:+--set "$sims"} measure "$udid" --json >"$out/simulator-memory.json" 2>/dev/null; then
   note "- simulator memory at launch: $(tr -d '\n' <"$out/simulator-memory.json" | head -c 300)"
 else
   rm -f "$out/simulator-memory.json"
@@ -2132,7 +2138,7 @@ if [[ "$mode" == screen-proof ]]; then
   exit 0
 fi
 
-# --- Pairing by QR code ----------------------------------------------------
+# --- Pairing and zero-touch sharing ---------------------------------------
 if [[ "$mode" == pair-e2e ]]; then
   t0=$SECONDS
   # mac_tag: this run's own tag, set before the phone build (the phone shares its build space).
