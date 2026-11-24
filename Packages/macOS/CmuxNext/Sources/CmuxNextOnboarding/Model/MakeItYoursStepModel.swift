@@ -162,9 +162,10 @@ public final class MakeItYoursStepModel {
             loaded = true
             return
         }
-        // The step shown again in the same window keeps its first baseline: Skip still puts back what was set before.
+        // Refresh the visible picks whenever the step appears again. Keep the first baseline so Skip
+        // still puts back what was set when this window first opened.
+        choices = source.currentChoices()
         if opened == nil {
-            choices = source.currentChoices()
             opened = choices
             introWalk = source.introWalk()
             source.markOpened()
