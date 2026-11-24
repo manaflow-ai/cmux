@@ -45,6 +45,21 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
 
+static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+
+/// Keep the `clientInfo` of this MCP server's `initialize`: one client per server process
+/// (moved from `sender_harness.rs`, which reads it as [`mcp_client`]).
+pub fn note_mcp_client(params: &Value) {
+    if let Some(info) = params.get("clientInfo").filter(|i| i.is_object()) {
+        let _ = MCP_CLIENT.set(info.clone());
+    }
+}
+
+/// The `clientInfo` [`note_mcp_client`] kept, if any.
+pub fn mcp_client() -> Option<&'static Value> {
+    MCP_CLIENT.get()
+}
+
 /// A server env key: `1` when the harness already has the server's instructions in its system
 /// prompt (a Claude Code chat acpmux starts, `agent_tools::AgentTools::instructions_in_prompt`).
 /// `initialize` then gives none, so the chat never reads them twice: Claude Code puts MCP
@@ -254,7 +269,7 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             && message.get("method").and_then(Value::as_str) == Some("initialize")
         {
             // One client per server process (the daemon's gateway notes none).
-            crate::sender_harness::note_mcp_client(message.get("params").unwrap_or(&Value::Null));
+            note_mcp_client(message.get("params").unwrap_or(&Value::Null));
         }
         match answer(&servers, &message) {
             Answer::None => {}

@@ -511,7 +511,10 @@ jobs:
     needs: [test]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 15
+    # 30, not 15: on a slow runner the history fetch below alone took 11.5 min (job 138185910029, a Freestyle
+    # runner; 34 s on the owned pool), the job was cancelled at 15 before any deploy step ran, and a cancelled
+    # deploy-staging counts as a red staging deploy in the production promote's soak window (prod-promote.ts G1).
+    timeout-minutes: 30
     environment: cmux-next-staging
     concurrency:
       group: cmux-next-deploy-staging
@@ -669,7 +672,8 @@ jobs:
     needs: [deploy-staging]
     if: needs.deploy-staging.result == 'success' && needs.deploy-staging.outputs.deployed == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 15
+    # 30, not 15: the history fetch below took 6 to 8 min on a slow runner (jobs in runs 45306859441, 45310842160).
+    timeout-minutes: 30
     environment: cmux-next-staging
     permissions:
       contents: read
@@ -847,7 +851,8 @@ jobs:
   deploy-development:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 15
+    # 30, not 15: the same history fetch as deploy-staging, which took 11.5 min on a slow runner.
+    timeout-minutes: 30
     environment: cmux-next-development
     concurrency:
       group: cmux-next-deploy-development
