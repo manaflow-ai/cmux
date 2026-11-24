@@ -83,6 +83,35 @@ export function resolveUiSide(
       : "below";
 }
 
+/** A right-click menu keeps a corner at the pointer wherever the whole menu fits. When neither
+ * side fits, the menu can cross the pointer so every row that fits in the window stays visible. */
+export function resolvePointerMenuPosition(
+  point: { x: number; y: number },
+  size: UiOverlaySize,
+  viewport: UiViewport,
+  margin = 4,
+  direction: "ltr" | "rtl" = "ltr",
+): UiOverlayPosition {
+  // Give up the edge inset before making a menu scroll.
+  const insetX = Math.min(margin, Math.max(0, (viewport.width - size.width) / 2));
+  const insetY = Math.min(margin, Math.max(0, (viewport.height - size.height) / 2));
+  const side = resolveUiSide({ top: point.y, bottom: point.y }, size.height, viewport.height, {
+    gap: 0,
+    margin: insetY,
+  });
+  const right = viewport.width - insetX - point.x;
+  const left = point.x - insetX;
+  const opensLeft = direction === "rtl" ? left >= size.width || left >= right : right < size.width && left > right;
+  const x = opensLeft ? point.x - size.width : point.x;
+  const y = side === "above" ? point.y - size.height : point.y;
+  return {
+    left: Math.max(insetX, Math.min(x, viewport.width - insetX - size.width)),
+    top: Math.max(insetY, Math.min(y, viewport.height - insetY - size.height)),
+    side,
+    maxHeight: viewport.height - 2 * insetY,
+  };
+}
+
 /**
  * Resolve an overlay in viewport coordinates. Both inputs are DOM rects, so a
  * page zoom or a device scale factor cannot introduce a second coordinate
@@ -146,9 +175,11 @@ function visibleBox(overlay: HTMLElement): UiAnchorBox {
   return box;
 }
 
-function scaleFor(container: HTMLElement | null): { x: number; y: number } {
-  if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) return { x: 1, y: 1 };
-  const rect = container.getBoundingClientRect();
+export function scaleFor(
+  container: HTMLElement | null,
+  rect = container?.getBoundingClientRect(),
+): { x: number; y: number } {
+  if (!container || !rect || container.offsetWidth === 0 || container.offsetHeight === 0) return { x: 1, y: 1 };
   return {
     x: rect.width / container.offsetWidth || 1,
     y: rect.height / container.offsetHeight || 1,

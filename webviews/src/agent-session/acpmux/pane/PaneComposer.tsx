@@ -28,7 +28,7 @@ import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
-import type { BrowseRequest } from "../AddProjectPanel";
+import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
@@ -45,7 +45,8 @@ import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
-import { cloudStartFolder, cloudPickExtras, composerCloudStartFolder } from "../cloudRun";
+import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
+import { cloneRepository } from "../startFolderModel";
 import { repickCloudChat, type RepickMachine } from "../cloudRepick";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
@@ -269,6 +270,14 @@ export type PaneComposerDeps = {
   commandState: (fresh: boolean) => Parameters<typeof cmuxCommandRefusal>[2];
   harnessSwitch: HarnessSwitch;
   projectDraft: string | undefined;
+  cloudSourceWaiting: boolean;
+  setCloudSourceWaiting(waiting: boolean): void;
+  cloudSourcePick(cwd: string | undefined): string | undefined;
+  checkedOutGitHub: { cwd: string; name: string } | undefined;
+  cloningGitHub: string | undefined;
+  clearProject(): void;
+  openEmptyProject: (() => void) | undefined;
+  pickSourceProject(cwd: string, peer?: string): Promise<void>;
   cloudPicked: boolean;
   cloudWakeChat: string | undefined;
   cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -492,6 +501,14 @@ export function drawPaneComposer({
   commandState,
   harnessSwitch,
   projectDraft,
+  cloudSourceWaiting,
+  setCloudSourceWaiting,
+  cloudSourcePick,
+  checkedOutGitHub,
+  cloningGitHub,
+  clearProject,
+  openEmptyProject,
+  pickSourceProject,
   cloudPicked,
   cloudWakeChat,
   cloudRecovery,
@@ -969,20 +986,17 @@ export function drawPaneComposer({
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
-              if (authBlock) return false;
+              if (authBlock || cloningGitHub) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
               if (cloudPicked) {
-                // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
-                // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
+                if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
-                const folder =
-                  once ??
-                  (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
+                const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 const held = heldPick(composerSnapshot);
@@ -1402,7 +1416,7 @@ export function drawPaneComposer({
                   : undefined)
             }
             queueImage={readQueuedImage}
-            onProject={chooseProject}
+            onProject={pickSourceProject}
             // A machine with no folder known here: the new chat starts there, in its default folder.
             onComputer={(computer) => {
               // Switching away from an explicitly selected Cloud machine must not leave a stale
@@ -1419,6 +1433,15 @@ export function drawPaneComposer({
             // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
             // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
             onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
+            onCloneRepository={
+              freshChat && !quick && !remoteChat ? (url) => cloneRepository(callNative, url) : undefined
+            }
+            onNewProject={openEmptyProject}
+            noProject={projectDraft === ""}
+            sourceRepository={checkedOutGitHub}
+            onCloudFolderWaiting={setCloudSourceWaiting}
+            cloningRepository={cloningGitHub}
+            onNoProject={freshChat ? clearProject : undefined}
             // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
             // there is none), then the chat's worktree of it.
             {...(freshChat && !quick
@@ -1454,11 +1477,6 @@ export function drawPaneComposer({
                   extraFolders: {
                     draft: extraFolderDraft,
                     onChange: setExtraFolderDraft,
-                    ...(remoteChat
-                      ? {}
-                      : {
-                          onBrowse: () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd),
-                        }),
                   },
                 }
               : {})}
@@ -1536,7 +1554,13 @@ export function drawPaneComposer({
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
             // A new chat on another machine holds Send while its agent is not set up there.
-            blockSend={blockSend || cloudSendHeld || machineCheck.blocked}
+            blockSend={
+              blockSend ||
+              cloudSendHeld ||
+              Boolean(cloningGitHub) ||
+              (cloudPicked && cloudSourceWaiting) ||
+              machineCheck.blocked
+            }
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
