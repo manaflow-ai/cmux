@@ -125,11 +125,11 @@ enum ScreenshotHandlers {
         }
     }
 
-    /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run,
-    /// masked for any other (``ActionInvocation/isPersonsOwnRun``).
+    /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run or in
+    /// a side copy (``SideCopyCapture``), masked for any other (``ActionInvocation/isPersonsOwnRun``).
     static func shown(_ window: NSWindow, crop view: NSView?, for invocation: ActionInvocation, services: AppServices) async throws -> Capture {
         let shot: (image: CGImage, masked: Int?, areas: [ScreenshotMask.Area]?)
-        if !invocation.isPersonsOwnRun {
+        if !invocation.isPersonsOwnRun && SideCopyCapture.unmasked(signedIn: services.cloud.isSignedIn) == nil {
             let result = try await AppWindowImage.maskedCapture(window)
             shot = (result.image, result.masked, result.areas)
         } else {
@@ -182,7 +182,7 @@ enum ScreenshotHandlers {
         // task-owner: the action run; a capturing caller awaits it through the registry.
         let task: ActionResultWork = Task { @MainActor in
             do {
-                return .success(try await deliver(try await capture(), output: output, copies: byPerson))
+                return .success(try await deliver(try await capture(), output: output, copies: byPerson, unmasked: byPerson ? nil : SideCopyCapture.unmasked(signedIn: services.cloud.isSignedIn)))
             } catch let failure as ActionWorkFailure {
                 return .failure(failure)
             } catch let failure as WindowScreenshotFailure {
@@ -203,13 +203,13 @@ enum ScreenshotHandlers {
         }
     }
 
-    /// Encodes and writes `capture` where `output` says.
-    private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool) async throws -> [String: ActionResultValue] {
+    /// Encodes and writes `capture` where `output` says; a side copy's script run says it is `unmasked`.
+    private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool, unmasked: String?) async throws -> [String: ActionResultValue] {
         let image = capture.image
         let encoded = await encode(image)
         guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
         guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
-        var result = capture.fields
+        var result = capture.fields.merging(unmasked.map { ["unmasked": .string($0)] } ?? [:]) { $1 }
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
