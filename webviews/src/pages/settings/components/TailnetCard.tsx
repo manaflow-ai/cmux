@@ -9,7 +9,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
-import { useStore } from "../context";
+import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
+import { useSettingsState, useRowState, useStore } from "../context";
+import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
 import { t } from "../strings";
 import { TAILNET_SETTLE_WAITS_MS, tailnetSettling, tailnetView, tailnetWaits, type TailnetView } from "../tailnet";
@@ -132,6 +134,8 @@ export function TailnetRows({
 
 export function TailnetCard() {
   const store = useStore();
+  const settings = useSettingsState();
+  const enabled = useRowState("tailnet.join.enabled").value === true;
   const client = useQueryClient();
   const query = useQuery(tailnetQuery(store));
   const [busy, setBusy] = useState(false);
@@ -158,7 +162,7 @@ export function TailnetCard() {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [waits, client]);
-  if (!view) return null;
+  if (!view && !enabled) return null;
   const step = async (verb: TailnetVerb) => {
     setBusy(true);
     setFailed(false);
@@ -187,11 +191,205 @@ export function TailnetCard() {
     }
   };
   return (
-    <section className="group" data-card="tailnet" data-tailnet-state={view.kind}>
-      <h3 className="group-title">{t("settingsPage.tailnet.title")}</h3>
+    <>
+      {view && (
+        <section className="group" data-card="tailnet" data-tailnet-state={view.kind}>
+          <h3 className="group-title">{t("settingsPage.tailnet.title")}</h3>
+          <div className="rows">
+            <TailnetRows view={view} busy={busy} failed={failed} onStep={(verb) => void step(verb)} />
+          </div>
+        </section>
+      )}
+      {enabled && <TailnetVMCard machines={settings.host?.machines ?? []} />}
+    </>
+  );
+}
+
+function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: string }> }) {
+  const store = useStore();
+  const loginServer = String(useRowState("tailnet.join.loginServer").value ?? "");
+  const hostname = String(useRowState("tailnet.join.hostname").value ?? "");
+  const tags =
+    (useRowState("tailnet.join.tags").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
+  const ssh = useRowState("tailnet.join.ssh").value === true;
+  const ephemeral = useRowState("tailnet.join.ephemeral").value === true;
+  const servePorts =
+    (useRowState("tailnet.join.servePorts").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<TailnetVMReply | null>(null);
+  const [vm, setVM] = useState("");
+  const leave = async () => {
+    if (!selected?.vm) return;
+    const reply = await store.leaveTailnetVM(selected.vm);
+    if (reply.ok) setSelected(null);
+  };
+  return (
+    <section className="group" data-card="tailnet-cloud">
+      <h3 className="group-title">{t("settingsPage.tailnet.cloudTitle")}</h3>
       <div className="rows">
-        <TailnetRows view={view} busy={busy} failed={failed} onStep={(verb) => void step(verb)} />
+        <div className="row">
+          <div className="row-label">
+            <div className="row-title">{selected?.node?.dnsName ?? t("settingsPage.tailnet.cloudTitle")}</div>
+            <div className="row-help">{selected ? tailnetFacts(selected) : t("settingsPage.tailnet.cloudHelp")}</div>
+          </div>
+          <div className="accounts-buttons">
+            {selected ? (
+              <Button className="button" data-tailnet-vm-leave="" onClick={() => void leave()}>
+                {t("settingsPage.tailnet.leave")}
+              </Button>
+            ) : (
+              <Button className="button" data-tailnet-vm-join="" onClick={() => setOpen(true)}>
+                {t("settingsPage.tailnet.join")}
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
+      {open && (
+        <TailnetJoinDialog
+          machines={machines}
+          vm={vm}
+          setVM={setVM}
+          options={{ loginServer, hostname, tags, ssh, ephemeral, servePorts }}
+          onClose={() => setOpen(false)}
+          onJoined={(reply) => {
+            setSelected(reply);
+            setOpen(false);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+function tailnetFacts(reply: TailnetVMReply): string {
+  const node = reply.node;
+  if (!node) return reply.error ?? "";
+  const facts = [
+    node.online === false ? t("settingsPage.tailnet.offline") : t("settingsPage.tailnet.online"),
+    node.ips?.length ? `${t("settingsPage.tailnet.ips")}: ${node.ips.join(", ")}` : "",
+    node.tags?.length ? `${t("settingsPage.tailnet.tags")}: ${node.tags.join(", ")}` : "",
+  ].filter(Boolean);
+  return facts.join(" · ");
+}
+
+function TailnetJoinDialog({
+  machines,
+  vm,
+  setVM,
+  options,
+  onClose,
+  onJoined,
+}: {
+  machines: Array<{ id: string; title: string }>;
+  vm: string;
+  setVM: (value: string) => void;
+  options: {
+    loginServer: string;
+    hostname: string;
+    tags: string[];
+    ssh: boolean;
+    ephemeral: boolean;
+    servePorts: string[];
+  };
+  onClose: () => void;
+  onJoined: (reply: TailnetVMReply) => void;
+}) {
+  const store = useStore();
+  const [key, setKey] = useState("");
+  const [oauth, setOAuth] = useState(false);
+  const [switchTailnet, setSwitchTailnet] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (!vm.trim() || !key || busy) return;
+    setBusy(true);
+    setError(null);
+    const reply = await store.joinTailnetVM({ vm: vm.trim(), key, oauth, ...options, switch: switchTailnet });
+    setBusy(false);
+    if (reply.ok) {
+      setKey("");
+      onJoined(reply);
+    } else {
+      const detail =
+        reply.errorCode === "missing_vm"
+          ? t("settingsPage.tailnet.missingMachine")
+          : reply.errorCode === "missing_key"
+            ? t("settingsPage.tailnet.missingCredential")
+            : (reply.error ?? t("settingsPage.tailnet.unknownError"));
+      setError(detail);
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      label={t("settingsPage.tailnet.join")}
+      className="tailnet-join-sheet"
+    >
+      <form
+        className="accounts-form tailnet-join-content"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <DialogTitle>{t("settingsPage.tailnet.join")}</DialogTitle>
+        <DialogDescription>{t("settingsPage.tailnet.cloudHelp")}</DialogDescription>
+        <label>
+          {t("settingsPage.tailnet.machine")}
+          <input
+            list="tailnet-machines"
+            value={vm}
+            onChange={(event) => setVM(event.target.value)}
+            autoComplete="off"
+          />
+          <datalist id="tailnet-machines">
+            {machines.map((machine) => (
+              <option key={machine.id} value={machine.id}>
+                {machine.title}
+              </option>
+            ))}
+          </datalist>
+        </label>
+        <label>
+          {t("settingsPage.tailnet.credential")}
+          <input
+            type="password"
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <div className="row-help">{t("settingsPage.tailnet.keyHelp")}</div>
+        <label>
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />{" "}
+          {t("settingsPage.tailnet.oauthMode")}
+        </label>
+        <label>
+          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />{" "}
+          {t("settingsPage.tailnet.switch")}
+        </label>
+        {error && (
+          <div className="row-help" role="alert">
+            {t("settingsPage.tailnet.joinError", error)}
+          </div>
+        )}
+        {error?.includes("another tailnet") && <div className="row-help">{t("settingsPage.tailnet.switchHelp")}</div>}
+        <div className="accounts-buttons">
+          <Button type="button" className="button" onClick={onClose}>
+            {t("settingsPage.cancel")}
+          </Button>
+          <Button type="submit" className="button" disabled={busy || !vm.trim() || !key}>
+            {busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

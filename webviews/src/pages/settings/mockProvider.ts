@@ -655,6 +655,20 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
+      "cmux.settings.tailnet.joinVM": (params) => {
+        const vm = String((params as { vm?: unknown }).vm ?? "");
+        this.tailnetSteps.push(`joinVM:${vm}`);
+        return {
+          ok: true,
+          vm,
+          node: { dnsName: `${vm}.ts.net`, ips: ["100.64.0.7"], tags: ["tag:cmux"], online: true },
+        };
+      },
+      "cmux.settings.tailnet.leaveVM": (params) => {
+        const vm = String((params as { vm?: unknown }).vm ?? "");
+        this.tailnetSteps.push(`leaveVM:${vm}`);
+        return { ok: true, vm };
+      },
       "cmux.settings.customize.run": (params) => {
         const verb = String((params as { verb?: unknown }).verb ?? "");
         if (verb === "status") return { try_on: this.tryOn };
@@ -1051,6 +1065,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
       "cmux.settings.tailnet.logout",
+      "cmux.settings.tailnet.joinVM",
+      "cmux.settings.tailnet.leaveVM",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.agentTools.state",

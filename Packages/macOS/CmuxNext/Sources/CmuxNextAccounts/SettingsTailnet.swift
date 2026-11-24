@@ -21,7 +21,7 @@ public final class SettingsTailnet: PageProvider {
     /// The bundled `cmux` CLI. Join keys are supplied as stdin to this process and are never put in argv.
     private let cli: @MainActor () async -> URL?
 
-    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, cli: @escaping @MainActor () async -> URL? = { nil }) {
+    public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, cli: @escaping @MainActor () async -> URL?) {
         self.environment = environment
         self.cli = cli
     }
@@ -42,14 +42,19 @@ public final class SettingsTailnet: PageProvider {
     }
 
     private func runVM(verb: String, params: JSONValue) async throws -> JSONValue {
-        guard let binary = await cli(), let vm = params["vm"]?.stringValue, !vm.isEmpty else {
-            return ["ok": .bool(false), "error": .string("Choose a Cloud machine first.")]
+        guard let vm = params["vm"]?.stringValue, !vm.isEmpty else {
+            return ["ok": .bool(false), "errorCode": .string("missing_vm")]
         }
-        var arguments = ["vm", "tailnet", verb == "joinVM" ? "join" : "leave", vm]
+        guard let binary = await cli() else {
+            return ["ok": .bool(false), "errorCode": .string("cli_unavailable")]
+        }
+        // Ask the bundled CLI for its machine-readable envelope. The global flag is safe for both
+        // join and leave, and keeps the page from parsing human-facing progress text.
+        var arguments = ["--json", "vm", "tailnet", verb == "joinVM" ? "join" : "leave", vm]
         var stdin: Data?
         if verb == "joinVM" {
             guard let key = params["key"]?.stringValue, !key.isEmpty else {
-                return ["ok": .bool(false), "error": .string("Enter a Tailscale auth key to join this machine.")]
+                return ["ok": .bool(false), "errorCode": .string("missing_key")]
             }
             stdin = Data(key.utf8)
             arguments += ["--key-stdin"]
