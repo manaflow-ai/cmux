@@ -380,7 +380,10 @@ async fn run_check(
         }
         Check::Toml { file } => {
             let text = std::fs::read_to_string(file).ok()?;
-            let err = text.parse::<toml::Table>().err().map(|e| e.message().to_owned());
+            let err = text.parse::<toml::Table>().err().map(|e| {
+                let m = e.to_string();
+                if m.trim().is_empty() { "TOML parse error".to_owned() } else { m }
+            });
             (Ran { text: err.unwrap_or_default(), slow: false }, check.clone())
         }
     };

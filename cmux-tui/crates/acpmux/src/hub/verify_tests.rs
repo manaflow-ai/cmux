@@ -98,7 +98,7 @@ async fn run_checks_flag_breakage_and_pass_good_files() {
     let cases = [
         (Check::Json { file: write("a.json", "{\"a\":") }, true),
         (Check::Json { file: write("b.json", "{\"a\":1}") }, false),
-        (Check::Toml { file: write("a.toml", "a = ") }, true),
+        (Check::Toml { file: write("a.toml", "a = [1,\n[b\n") }, true),
         (Check::Bash { file: write("a.sh", "if then\n") }, true),
         (Check::Bash { file: write("b.sh", "echo ok\n") }, false),
         (Check::Python { file: write("a.py", "def (:\n") }, true),
