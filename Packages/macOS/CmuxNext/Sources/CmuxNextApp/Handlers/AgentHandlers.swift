@@ -373,7 +373,7 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu, the pane's "…": a tab here
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu: a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {
