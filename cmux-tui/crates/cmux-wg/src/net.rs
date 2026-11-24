@@ -421,14 +421,13 @@ struct Driver {
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
     /// When this side last sent a handshake initiation of its own (see
-    /// [`INITIATION_PENDING`]).
+    /// [`initiation_pending`]).
     initiated_at: Option<Instant>,
     scratch: Vec<u8>,
 }
 
 /// After this side sent a handshake initiation, a segment queued with no
-/// session does not start another one for this long: boringtun's own
-/// REKEY_TIMEOUT, after which its timer resends. Both sides of a fresh
+/// session does not start another one for this long. Both sides of a fresh
 /// tunnel initiate at once; each answers the other's initiation, which
 /// clears boringtun's "in progress" mark, and a fresh initiation sent then
 /// replaces the one whose response is already on its way, so that response
@@ -440,7 +439,16 @@ struct Driver {
 /// Only that case changes: a lost initiation with no crossing one leaves
 /// boringtun's handshake in progress, which already refuses a second
 /// initiation until the retry (`tests/crossed_initiation.rs`).
-const INITIATION_PENDING: Duration = Duration::from_secs(5);
+///
+/// The hold lasts until this side's own answer is overdue: max(250 ms,
+/// 2 x smoothed RTT), the wait [`crate::handshake_retry`] gives an
+/// initiation, not boringtun's fixed 5 s. A fixed 5 s held a failover's
+/// new path behind an initiation the watchdog had sent on the dead one.
+/// A rebind clears it: an initiation on the old underlay has no answer
+/// coming.
+fn initiation_pending(srtt: Option<Duration>) -> Duration {
+    crate::handshake_retry::first_wait(srtt)
+}
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -743,14 +751,16 @@ impl Driver {
         // Starting again after replying to a crossed initiation would make
         // boringtun discard the state for our own outstanding initiation.
         self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
-        // Nor does a side start again within INITIATION_PENDING of its own
-        // last initiation: duplicated copies of a crossed initiation would
+        // Nor does a side start again before its own last initiation's
+        // answer is overdue (`initiation_pending`): duplicated copies of a crossed initiation would
         // otherwise restart both ends until REKEY_TIMEOUT.
         let no_session = self.tunn.time_since_last_handshake().is_none();
         if no_session
             && self.pacer.has_queued()
             && self.wait_for_handshake_until.is_none()
-            && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
+            && self
+                .initiated_at
+                .is_none_or(|at| now.duration_since(at) >= initiation_pending(self.pacer.srtt()))
         {
             self.initiate_handshake();
         }
@@ -875,6 +885,8 @@ impl Driver {
                     }
                     Rebind::Keep | Rebind::PeerMoved => {}
                 }
+                // An initiation sent on the old underlay has no answer coming.
+                self.initiated_at = None;
                 // A held peer is suspended: a send now would wake it (or be
                 // lost), so this side's own move waits for the release.
                 if self.stack.hold().is_some() && !moved_peer {
