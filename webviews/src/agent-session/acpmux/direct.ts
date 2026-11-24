@@ -608,6 +608,25 @@ export function indexedPromptPlaceholders(
   }
   return out;
 }
+/// `rows` in their order with each of `placeholders` (indexed prompts the held records lack) before the first row
+/// ordered after its sequence (`order`, the record that made the row: `OrderedRows.orderOf`). O(rows + placeholders
+/// log placeholders); the held rows never move against each other.
+export function withPlaceholders(
+  rows: readonly AcpmuxRow[],
+  placeholders: readonly AcpmuxRow[],
+  order: (row: AcpmuxRow) => number,
+): AcpmuxRow[] {
+  const pending = [...placeholders].sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity));
+  const out: AcpmuxRow[] = [];
+  let next = 0;
+  for (const row of rows) {
+    const at = order(row);
+    while (next < pending.length && (pending[next]!.seq ?? Infinity) < at) out.push(pending[next++]!);
+    out.push(row);
+  }
+  while (next < pending.length) out.push(pending[next++]!);
+  return out;
+}
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
@@ -7731,8 +7750,13 @@ export class AcpmuxDirectClient {
       return false;
     const held = page.filter((event) => event.seq >= seq).sort((a, b) => a.seq - b.seq);
     if (held[0]?.seq !== seq || !startsTurn(held[0]!)) return false;
-    // The page ends at a turn's start, so a read forward folds on from between two turns.
-    const end = newerCut(held, 1, () => Infinity);
+    // The page ends at its last turn start, so a read forward folds on from between two turns. The window
+    // keeps every whole turn the page brought: cut at the first turn start after the target, it held the
+    // target's turn alone, so a short turn left the view at the held rows' end, that read as following
+    // the latest row, and the pane read the chat's newest page in place of the window (`returnToLatest`):
+    // the jump drew its prompt, then went to the chat's end (bench/thread-rail-jump.bench.ts, unloaded).
+    let end = -1;
+    for (let at = newerCut(held, 1, () => Infinity); at > 0; at = newerCut(held, at + 1, () => Infinity)) end = at;
     const window = end > 0 ? held.slice(0, end) : held;
     const after = window.at(-1)!.seq;
     if (after >= first) return false;
@@ -11038,14 +11062,15 @@ export class AcpmuxDirectClient {
     const placeholders = this.indexedPlaceholders;
     const actualIds = placeholders?.size ? new Set(actualRows.map((row) => row.id)) : undefined;
     const indexedRows = actualIds ? [...placeholders.values()].filter((row) => !actualIds.has(row.id)) : [];
-    // Indexed placeholders carry only prompt text, but sorting them by their sequence keeps every
-    // prompt at its final rail slot while a sparse target page is being filled in.
+    // Indexed placeholders carry only prompt text; each goes in at its sequence, so every prompt keeps its
+    // final rail slot while a sparse target page is being filled in. The held rows stay in their own order
+    // (`OrderedRows`): most of them carry no `seq` (a reply, a call), and a sort on `seq` put every one of
+    // them after every footer and placeholder, hundreds of footers in a run at one place.
     const publishedRows =
       indexedRows.length === 0
         ? actualRows
-        : [...actualRows, ...indexedRows].sort(
-            (left, right) =>
-              (left.seq ?? Number.POSITIVE_INFINITY) - (right.seq ?? Number.POSITIVE_INFINITY) || left.at - right.at,
+        : withPlaceholders(actualRows, indexedRows, (row) =>
+            fromStore ? (row.seq ?? Number.POSITIVE_INFINITY) : this.rows.orderOf(row.id),
           );
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
@@ -15235,6 +15260,11 @@ export class AcpmuxDirectClient {
   perf(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/perf", params);
   }
+  /// This machine's load and swap verdict (`_acpmux/host_overload`, host_overload.rs): acpmux reads
+  /// the host and applies the thresholds; the pane only draws it (OverloadNotice.tsx).
+  hostOverload(): Promise<unknown> {
+    return this.request("_acpmux/host_overload", {});
+  }
   /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
   /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer
   /// checks the agent a new chat there will start with (machineHarnesses.ts); a refusal or a timeout
@@ -16099,8 +16129,10 @@ export class AcpmuxDirectClient {
       );
       older = [...page, ...older];
       const next = Number(result?.before);
-      // A cursor moves back, or the transcript is done.
-      before = Number.isFinite(next) && next > 0 && next < before ? next : 0;
+      // A cursor moves back, or the transcript is done; a chat resumed under a new agent session
+      // goes on at the end of the transcript it continued (acpmux hub/native_history_chain.rs).
+      const olderTranscript = result?.olderTranscript !== undefined && result?.olderTranscript !== null;
+      before = Number.isFinite(next) && next > 0 && (next < before || olderTranscript) ? next : 0;
       mark = typeof result?.mark === "string" ? result.mark : undefined;
       if (older.some(startsTurn)) break;
     }
