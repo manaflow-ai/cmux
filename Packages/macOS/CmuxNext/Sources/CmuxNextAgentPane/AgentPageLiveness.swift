@@ -122,7 +122,7 @@ public struct AgentPageCensus: Equatable, Sendable {
 
     /// Pages with no tab that their engine still draws. A spare, a returning New Tab page and a kept closed chat
     /// may draw while they wait, each bounded by its owner (one spare per app, ``AgentPaneSpareReturns/limit``, two
-    /// kept pages for 30 s); cmux#43784 makes a parked one report hidden once it drew. A standalone page shows in
+    /// kept pages for 30 s); a parked one reports hidden once it drew (cmux#43784, `PageWebView+AwayDrawing`). A standalone page shows in
     /// its caller's panel and is not counted.
     public var visibleTabless: Int { pages.count(where: { $0.role != .tab && $0.role != .standalone && $0.visible }) }
 
