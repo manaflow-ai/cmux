@@ -10,6 +10,7 @@ import importlib.util
 import contextlib
 import io
 from pathlib import Path
+import subprocess
 import tempfile
 from unittest import mock
 import unittest
@@ -113,6 +114,36 @@ class FlagLinterScopeTests(unittest.TestCase):
             len(grep_calls), 2,
             f"expected one batched search, got {len(grep_calls)} git grep calls",
         )
+
+    def test_one_search_still_finds_each_keys_files(self):
+        """The batched search must still give both checks every file a key is in.
+
+        A count of searches alone passes a lint that finds no usage at all.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            for rel, text in {
+                "web/a.ts": "isEnabled('two-files-release')\n",
+                "web/b.ts": "isEnabled('two-files-release')\n",
+                "Sources/Old.swift": 'let key = "gone-release"\n',
+            }.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            retired = root / "retired.txt"
+            retired.write_text("# retired keys\ngone-release\n")
+            flags = [{"key": "two-files-release", "source": "Example.swift", "owner": "o",
+                      "reviewBy": "2030-01-01", "hasDefault": True, "lines": None}]
+            with mock.patch.object(self.linter, "REPO", root), \
+                 mock.patch.object(self.linter, "RETIRED", retired), \
+                 mock.patch.object(self.linter, "parse_web_registry", return_value=flags), \
+                 mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.linter.main([]), 1)
+        self.assertEqual(sorted(self.linter.errors), [
+            "'two-files-release' evaluated in multiple web files: ['web/a.ts', 'web/b.ts']",
+            "retired flag key 'gone-release' still referenced in Sources/Old.swift",
+        ])
 
     def test_prose_flag_references_are_not_declarations(self):
         """Discovery and parsing must agree on what a declaration is.
