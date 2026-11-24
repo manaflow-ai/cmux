@@ -17,6 +17,9 @@ pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit", "approve"];
 
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `git comments send --threads` and `git comments resolve --reopen`.
+    "threads",
+    "reopen",
     // `app publish --include-dirty`: without this it would swallow a following `--json`.
     "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
