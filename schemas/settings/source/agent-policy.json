@@ -379,6 +379,7 @@
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
         "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.iconSet",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -730,6 +731,7 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.statusPlacement",
         "sidebar.workspaceRow.lines",
         "sidebar.workspaceRow.linesByKind",
         "sidebar.workspaceRow.linesByAgent",
@@ -1593,6 +1595,13 @@
       "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
       "keys": [
         "agents.promptCache"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether acpmux edits Claude Code's own config to add its inbox relay: a person's agent config changes only when the person says so, and an agent must not decide which of its messages Claude Code runs.",
+      "keys": [
+        "agents.claudeCodeInboxRelay"
       ]
     },
     {
