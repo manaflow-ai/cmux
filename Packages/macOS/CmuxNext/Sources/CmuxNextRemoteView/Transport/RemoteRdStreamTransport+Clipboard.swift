@@ -1,6 +1,6 @@
 public import Foundation
 
-extension RemoteRdHello {
+nonisolated extension RemoteRdHello {
     /// The rd cap for clipboard text sync (host and viewer apply each other's text while the
     /// viewer holds control).
     public static let clipboardTextCap = "clipboard.text"

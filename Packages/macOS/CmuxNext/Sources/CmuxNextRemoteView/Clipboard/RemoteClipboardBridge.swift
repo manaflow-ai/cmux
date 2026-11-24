@@ -114,7 +114,7 @@ public final class RemoteClipboardBridge {
     }
 
     private func arm() {
-        timer.schedule(after: Self.interval) { [weak self] in
+        timer.schedule(after: Self.interval) { @MainActor [weak self] in
             guard let self, running else { return }
             checkNow()
             arm()
