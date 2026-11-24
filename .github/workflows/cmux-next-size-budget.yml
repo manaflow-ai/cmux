@@ -45,7 +45,7 @@ jobs:
     name: cmux-next size budget (plan)
     # An edit that adds, changes or removes no `size:` line changes nothing measured.
     if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -54,12 +54,28 @@ jobs:
       web: ${{ steps.plan.outputs.web }}
       base: ${{ steps.plan.outputs.base }}
     steps:
+      # Blobless and sparse to the paths web-bundle-key.py reads (the same list web-base uses): the
+      # plan reads git objects and the web inputs only, and a full checkout of both commits was most
+      # of its minute and a half.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The pull request's merge commit and its first parent (the base).
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /schemas/
+            /scripts/
+            /web/data/
+            /examples/
+            /config/
+            /clients/ts/
+            /Resources/markdown-viewer/
+            /release-notes/next/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
 
       - name: The base, and whether a web input changed
         id: plan
@@ -73,7 +89,12 @@ jobs:
             exit 0
           fi
           echo "tool=true" >> "$GITHUB_OUTPUT"
-          git worktree add -f -f --detach "$RUNNER_TEMP/base" HEAD^1
+          # The base's web inputs only, as in the main checkout (a full second tree was the other half).
+          git worktree add --no-checkout -f -f --detach "$RUNNER_TEMP/base" HEAD^1
+          git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone \
+            /webviews/ /schemas/ /scripts/ /web/data/ /examples/ /config/ /clients/ts/ \
+            /Resources/markdown-viewer/ /release-notes/next/ '/Packages/macOS/CmuxNext/Sources/**/*.xcstrings'
+          git -C "$RUNNER_TEMP/base" checkout -q HEAD
           mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
           if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
             echo "web=false" >> "$GITHUB_OUTPUT"
@@ -86,7 +107,7 @@ jobs:
     name: cmux-next size budget (web, base)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -164,7 +185,7 @@ jobs:
     name: cmux-next size budget (web, head)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -219,17 +240,21 @@ jobs:
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      # The checker reads the two commits through git only (ls-tree, show, log; the web counts arrive
+      # as files in RUNNER_TEMP), so no working tree beyond its own folder is written.
       - name: Checkout
         if: ${{ needs.plan.outputs.tool == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+          sparse-checkout: |
+            scripts/cmux-next
 
       - name: Check the size budget
         env:

@@ -63,7 +63,6 @@ SINGLE_SIZE: dict[str, int] = {
     "automation-bench.yml": 0,
     "backend.yml": 0,
     "ci-artifact-canary.yml": 0,
-    "ci-artifact-transport.yml": 0,
     "ci-compile-attribution.yml": 0,
     "ci-guards.yml": 0,
     "ci-health-report.yml": 0,
@@ -72,7 +71,6 @@ SINGLE_SIZE: dict[str, int] = {
     "ci.yml": 0,
     "cloud-capture-provision.yml": 0,
     "cloud-devbox-image-rebake.yml": 0,
-    "cloud-image-staleness.yml": 0,
     "cloud-vm-canary.yml": 0,
     "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,
@@ -87,7 +85,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-batch.yml": 0,
     "cmux-next-crash-class.yml": 0,
     "cmux-next-dev-daily-dispatch.yml": 0,
-    "cmux-next-docs-shortcuts.yml": 0,
     "cmux-next-fast-gates.yml": 0,
     "cmux-next-frame-pacing.yml": 0,
     "cmux-next-guards.yml": 0,
@@ -103,7 +100,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-web-bundles.yml": 0,
     "cmux-next-web.yml": 0,
     "cmux-next.yml": 0,
-    "cmux-tui-nightly.yml": 0,
     "cmux-tui-release-cut.yml": 0,
     "cmux-tui-release-delivery.yml": 0,
     "cmux-tui-release.yml": 0,
@@ -151,15 +147,11 @@ SINGLE_SIZE: dict[str, int] = {
     "required-checks-drift.yml": 0,
     "resolve-dispatch-ref.yml": 0,
     "risk-tier-tests.yml": 0,
-    "sdk-bootstrap-crates.yml": 0,
-    "sdk-bootstrap-npm.yml": 0,
-    "sdk-bootstrap-pypi.yml": 0,
     "sdk-publish-crates.yml": 0,
     "sdk-publish-go.yml": 0,
     "sdk-publish-java.yml": 0,
     "sdk-publish-npm.yml": 0,
     "sdk-publish-python.yml": 0,
-    "sdk-release-cut.yml": 0,
     "signing-keychain-macos.yml": 0,
     "stable-next.yml": 0,
     "terminal-hang-diagnostics.yml": 0,
@@ -199,13 +191,11 @@ FIXED_PAIR: dict[str, int] = {
     "cmux-vm-cloud.yml": 0,
     "cmux-vm.yml": 0,
     "coderouter-ci.yml": 0,
-    "iroh-relay-minter.yml": 0,
     "iroh-v2.yml": 0,
     "nightly-next-launch-smoke.yml": 0,
     "presence.yml": 0,
     "remote-daemon.yml": 0,
     "rust-workspaces.yml": 0,
-    "sdk-bootstrap-crates.yml": 0,
     "sdk-publish-crates.yml": 0,
     "sdk-publish-go.yml": 0,
     "sdk-publish-java.yml": 0,
@@ -302,7 +292,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
@@ -313,7 +303,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:

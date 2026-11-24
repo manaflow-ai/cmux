@@ -120,7 +120,7 @@ jobs:
   build:
     if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next' && !inputs.pr && !inputs.ref)
     name: build the web bundles for this source key
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -135,7 +135,66 @@ jobs:
       key: ${{ steps.key.outputs.key }}
       published: ${{ steps.key.outputs.published }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A push builds from the source key's inputs alone: a blobless, sparse checkout of the dirs they live in
+      # (about 270 MB of the tree's 1.3 GB), then the next step adds whatever else web-bundle-key.py --inputs
+      # names. The whole tree took 118 s p50 and 234 s p90 (2026-11-23, 740 push runs, 3,037 of this job's
+      # 7,857 runner-min that day). A PR layer applies a diff across any path, so it keeps the full tree, as
+      # does every run with vars.NEXT_WEB_BUNDLE_SPARSE set to 0. The cmux-tui protocol specs are not key inputs,
+      # but webviews' postinstall (gen-strings.mjs) generates TypeScript from acpmux-protocol.json, so bun install
+      # fails without them.
+      - name: Check out the source key's dirs
+        if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/*/
+            /webviews/
+            /scripts/
+            /schemas/
+            /web/data/
+            /config/
+            /clients/
+            /examples/
+            /Resources/markdown-viewer/
+            /release-notes/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /cmux-tui/crates/*/spec/
+      # Every input the key hashes, followed until none is left out (an input outside the dirs above can import
+      # another). source_key skips a file the worktree lacks, so a missing input would publish under a key no app
+      # asks for: a run with one still left out fails here instead.
+      - name: Add the rest of the source key's inputs
+        if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
+        run: |
+          set -euo pipefail
+          # Done when a pass names the inputs the pass before it did (a newly added file can import more) and
+          # every one is in the worktree.
+          before=""
+          for pass in 1 2 3 4 5 6; do
+            mapfile -t inputs < <(python3 scripts/cmux-next/web-bundle-key.py . --inputs 2>/dev/null)
+            # A pathspec as a sparse pattern; an import named without its suffix also takes its suffixed files.
+            printf '%s\n' "${inputs[@]}" | python3 -c 'import sys
+          for line in sys.stdin:
+              p = line.strip().removeprefix(":(glob)")
+              if p:
+                  print("/" + p)
+                  if not any(c in p for c in "*?["):
+                      print("/" + p + ".*")' | git sparse-checkout add --stdin
+            missing="$(git ls-files -t -- "${inputs[@]}" | grep -c '^S ' || true)"
+            now="$(printf '%s\n' "${inputs[@]}")"
+            echo "pass $pass: ${#inputs[@]} inputs, $missing still outside the checkout"
+            [ "$missing" = 0 ] && [ "$now" = "$before" ] && exit 0
+            before="$now"
+          done
+          echo "::error::the sparse checkout still lacks source key inputs; set vars.NEXT_WEB_BUNDLE_SPARSE=0 for the full tree"
+          git ls-files -t -- "${inputs[@]}" | grep '^S ' | head -20
+          exit 1
+      - name: Check out the whole tree
+        if: ${{ inputs.pr || inputs.ref || format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) == '0' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       # A PR layer merges the PR head onto base, so it needs their history (no blobs): feat-cmux-next's alone,
@@ -361,7 +420,7 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ !inputs.pr && !inputs.ref && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       # Only the scripts and the two files this job reads: the whole tree (57k files) took about

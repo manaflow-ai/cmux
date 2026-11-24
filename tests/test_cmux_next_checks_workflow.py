@@ -1366,6 +1366,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
+    def test_a_pull_request_canary_compiles_its_pinned_head_in_debug(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
+        step = next(s for s in job["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
+        self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
+        self.assertIn('compile-check --ref "$REF" --app', step["run"])
+
 
 def kill_group(pid: int) -> None:
     # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
@@ -1571,7 +1578,7 @@ def can_run_on_owned_runner(job: dict) -> bool:
     for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
         runs_on = unwrap_fork_pool_reads(runs_on)
         # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
-        runs_on = runs_on.replace("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", "")
+        runs_on = runs_on.replace("'ubuntu-24.04'", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
         if "vars." in runs_on or "outputs.mini_runner" in runs_on:
@@ -2948,8 +2955,8 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
     """The checks job and the path router run on cmux-linux for every own-branch run, on every attempt.
 
     No placement job picks their runner (cmuxterm-hq decisions/junctions.md: one label for every own-branch Linux job,
-    the pickers deleted). A fork's run takes GitHub-hosted Ubuntu, a fork pull request vars.CI_FORK_LINUX_RUNNER
-    (GitHub-hosted Ubuntu while it is unset).
+    the pickers deleted). A fork's run and a fork pull request take
+    GitHub-hosted Ubuntu.
     """
 
     def context(self, **extra) -> dict:
@@ -2962,7 +2969,7 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
         for name in (JOB, "path_route"):
             runs_on = one_runs_on(jobs[name])
             with self.subTest(job=name):
-                self.assertNotIn("vars.", runs_on.replace("vars.CI_FORK_LINUX_RUNNER", ""))
+                self.assertNotIn("vars.", runs_on)
                 self.assertNotIn("needs.", runs_on)
                 for attempt in (1, 2, 3):
                     self.assertEqual(evaluate(runs_on, self.context(**{"github.run_attempt": attempt})), "cmux-linux")
@@ -2971,8 +2978,6 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
                                  "ubuntu-24.04")
                 fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
                 self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
-                self.assertEqual(evaluate(runs_on, {**fork_pr, "vars.CI_FORK_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}),
-                                 "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
 
 
@@ -3877,7 +3882,14 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+        self.assertNotIn("--release", args)
         self.assertIn("Build fleet app compile: pass", summary)
+
+    def test_the_native_pr_app_job_always_runs_debug_instead_of_reading_release(self):
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertNotIn("fleet_compile_result.py", step["run"])
+        self.assertNotIn("tip check's SwiftPM Release", step["run"])
+        self.assertIn("compile-check --ref \"$REF\" --app --timeout 1200 --queue-timeout 300", step["run"])
 
     def test_a_fleet_compile_failure_is_the_prs_red(self):
         result, output, _, _ = self.run_check(1)

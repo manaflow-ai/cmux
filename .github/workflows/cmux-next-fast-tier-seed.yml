@@ -40,7 +40,7 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Is a fast-tier seed due
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -146,6 +146,55 @@ jobs:
           set -euo pipefail
           bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
+
+  # The .deb files .github/actions/playwright-apt-cache restores, one key per week and engine set, in R2 instead
+  # of the GitHub store (one 1,020 MB copy there on 2026-11-24, a tenth of its 10 GB cap). Downloaded in a bare
+  # ubuntu:24.04 container, so the archive holds everything a runner image might lack and nothing older: the
+  # GitHub copy grew by carrying each week's leftovers into the next. A week's key R2 already has costs one
+  # HEAD request per push.
+  playwright-apt:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed Playwright's apt packages
+    concurrency:
+      group: cmux-next-playwright-apt-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/playwright-apt-deps.sh
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+          sparse-checkout-cone-mode: false
+
+      - name: Save this week's Playwright apt packages
+        # A failed seed is only a miss for the readers (they download from the mirror); it never reds this workflow.
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          week="$(date -u +%G-%V)"
+          # The engine sets the callers pass as `engines`.
+          for engines in chromium chromium-webkit; do
+            key="playwright-apt-$week-$engines"
+            if curl -fsI --max-time 30 "$CI_CACHE_R2_PUBLIC_URL/v1/$RUNNER_OS-$RUNNER_ARCH/objects/$key.tar.zst" >/dev/null; then
+              echo "$key is in R2"
+              continue
+            fi
+            dir="$RUNNER_TEMP/playwright-apt-$engines"
+            scripts/ci/playwright-apt-deps.sh seed "$engines" "$dir"
+            scripts/ci/r2-cache.sh save "$dir" "$key"
+            rm -rf "$dir"
+          done
 
   seed:
     needs: due
