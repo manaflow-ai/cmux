@@ -120,22 +120,27 @@ final class KeyboardInjectBenchUITests: XCTestCase {
     @MainActor func testSettleChat() throws { try run(Self.chat, mode: nil, rounds: 20) }
     @MainActor func testSettleTerminal() throws { try run(Self.terminal, mode: nil, rounds: 20) }
 
-    @MainActor func testSettleChatWithoutSampler() throws { try run(Self.chat, mode: nil, rounds: 20, sampleStacks: false) }
-    @MainActor func testSettleTerminalWithoutSampler() throws { try run(Self.terminal, mode: nil, rounds: 20, sampleStacks: false) }
+    @MainActor func testSettleChatWithoutSampler() throws { try run(Self.chat, mode: nil, rounds: 20, sampler: .off) }
+    @MainActor func testSettleTerminalWithoutSampler() throws { try run(Self.terminal, mode: nil, rounds: 20, sampler: .off) }
+
+    @MainActor func testSettleChatAttribution() throws { try run(Self.chat, mode: nil, rounds: 20, sampler: .touch) }
+    @MainActor func testSettleTerminalAttribution() throws { try run(Self.terminal, mode: nil, rounds: 20, sampler: .touch) }
+
+    private enum Sampler { case off, hitch, touch }
 
     @MainActor
-    private func run(_ surface: Surface, mode injected: String?, rounds: Int, sampleStacks: Bool = true) throws {
+    private func run(_ surface: Surface, mode injected: String?, rounds: Int, sampler: Sampler = .hitch) throws {
         let mode = injected ?? "settle"
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += Self.base + surface.arguments + (injected.map { ["-cmux-mobile-kbd-inject", $0] } ?? [])
-        if injected == nil && sampleStacks {
-            // Settle runs also carry the input latency trace: every main-thread
-            // iteration of 4 ms and more with its stacks, sampled every 4 ms to
-            // 200 ms, so a show's busy ticks from tap to first keyboard frame
-            // come with what ran in them (Documents/input-latency.jsonl).
+        let traceInput = injected == nil && sampler != .off
+        if traceInput {
+            // The baseline samples long main-loop iterations. The attribution pair
+            // samples only around physical taps, at a finer cadence.
             app.launchArguments.append("-cmux-mobile-input-latency")
+            if sampler == .touch { app.launchArguments.append("-cmux-mobile-input-touch-stacks") }
             app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY_MAX_STACKS"] = "50"
             app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY_MAX_FRAMES"] = "128"
         }
@@ -152,7 +157,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
             let bar = app.navigationBars.firstMatch
             XCTFail("\(name): no \(surface.name) composer before round 1; on \(bar.exists ? bar.identifier : "no navigation bar"), keyboard \(keyboardUp(app) ? "up" : "down")\n\(app.debugDescription)")
             attachScreen(app, "\(name)-setup")
-            attachTrace(name, path)
+            attachTrace(name, path, traceInput: traceInput)
             return
         }
         settle()
@@ -191,7 +196,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         mark(name, "end.end.0")
         settle(0.5)
         log("kbm-notes \(name) \(notes.isEmpty ? "-" : notes.joined(separator: "; "))")
-        attachTrace(name, path)
+        attachTrace(name, path, traceInput: traceInput)
     }
 
     /// The field exists, prepared where the surface needs it, the keyboard down.
@@ -250,7 +255,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         log(String(format: "kbm-mark %.6f %@ %@", CACurrentMediaTime(), name, label))
     }
 
-    private func attachTrace(_ name: String, _ path: String?) {
+    private func attachTrace(_ name: String, _ path: String?, traceInput: Bool) {
         let marks = XCTAttachment(string: logged.joined(separator: "\n") + "\n")
         marks.name = "kbm-marks-\(name).txt"
         marks.lifetime = .keepAlways
@@ -264,6 +269,7 @@ final class KeyboardInjectBenchUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         // The input latency trace sits beside the pin trace (settle runs only).
+        guard traceInput else { return }
         let latency = (path as NSString).deletingLastPathComponent + "/input-latency.jsonl"
         if let lines = try? String(contentsOfFile: latency, encoding: .utf8) {
             let hitches = XCTAttachment(string: lines)

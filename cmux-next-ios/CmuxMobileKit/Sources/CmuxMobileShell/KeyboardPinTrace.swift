@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileDesign
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import GameController
@@ -184,6 +185,7 @@ public final class KeyboardPinTrace: NSObject {
             // Where and on what: a step that lost the keyboard says what the touch hit.
             self.write(String(format: "t=%.4f ev=touchBegan x=%.1f y=%.1f view=%@", CACurrentMediaTime() - self.start,
                               point?.x ?? -1, point?.y ?? -1, view.map { KeyboardInputInjector.name($0) } ?? "-"))
+            if InputLatencyTrace.samplesTouches { InputLatencyTrace.shared?.sampleTouch() }
             self.injector?.touchBegan(view: view)
         }
         marker.onRelease = { [weak self] released in
