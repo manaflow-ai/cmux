@@ -1317,16 +1317,27 @@ def check_live_resize(tab, pane):
     if rec.get("error"):
         row(False, "live_resize.switch.pixels", {"bug": 21, "error": rec["error"]})
     else:
+        def shown():  # the window's shown workspace (debug.focus), so the row names where each switch went
+            w = ((rpc("debug.focus") or {}).get("windows") or [{}])[0]
+            return {"workspace": w.get("workspace"), "name": w.get("workspace_name")}
+
+        home_of_page = shown()
         made = action("workspace.newAtBottom")
         wait(lambda: page_eval("document.visibilityState", tab).get("value") == "hidden", 5, 0.05)
+        away = shown()
         time.sleep(1.5)  # test harness: the other workspace shows for a while
         a = time.monotonic()
-        back = action("workspace.selectFirst")
+        # A launch that comes up on Home puts the page in Home's workspace, which the sidebar does not list: there
+        # workspace.selectFirst/selectLast both pick the new workspace and the page never shows again (other-Mac runs
+        # 2026-11-24: 10 of 10 failing switch rows launched on Home, 4 of 4 passing ones on a sidebar workspace).
+        on_home = home_of_page.get("name") == "Home"
+        back = action("home.show" if on_home else "workspace.selectFirst")
         if page_eval("document.visibilityState", tab).get("value") == "hidden":
             wait(lambda: page_eval("document.visibilityState", tab).get("value") == "visible", 1.0, 0.05)
-        if page_eval("document.visibilityState", tab).get("value") == "hidden":
+        if not on_home and page_eval("document.visibilityState", tab).get("value") == "hidden":
             back = action("workspace.selectLast")
         b = time.monotonic()
+        returned = shown()
         time.sleep(1.5)  # test harness: frames after the switch back
         read = pixel_stop(rec)
         v = pixel_verdict(rec, [(a, b)], frame[0] - 10, 1.4)
@@ -1334,9 +1345,13 @@ def check_live_resize(tab, pane):
         # Only frames after the switch back count: before it the other workspace shows (no page in the row).
         late = [k for ms, k in v.get("timeline", []) if ms >= (b - a) * 1000 + 50]
         blank_after = sum(1 for k in late if k == "blank")
-        RAW["live_resize_switch"] = {"verdict": v, "read": read, "new": made, "back": back}
-        row(after == token and blank_after == 0 and not v.get("error"), "live_resize.switch.pixels",
-            {"bug": 21, "same_document": after == token, "blank_frames_after_switch": blank_after,
+        RAW["live_resize_switch"] = {"verdict": v, "read": read, "new": made, "back": back, "page_workspace": home_of_page,
+                                     "away": away, "returned": returned}
+        came_back = returned.get("workspace") == home_of_page.get("workspace")
+        row(after == token and blank_after == 0 and came_back and not v.get("error"), "live_resize.switch.pixels",
+            {"bug": 21, "page_workspace": home_of_page, "away": away, "returned": returned, "came_back": came_back,
+             "switch_back": "home.show" if on_home else "workspace.selectFirst",
+             "same_document": after == token, "blank_frames_after_switch": blank_after,
              "frames_after_switch": len(late), "classes_after_switch": {k: late.count(k) for k in set(late)},
              "error": v.get("error"),
              "pass_if": "the page's document survives (no reload) and no blank frame after the switch back"})
