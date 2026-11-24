@@ -4980,10 +4980,22 @@ jobs:
           # Only the script, into its own folder (as cmux-next-guards.yml's tooling-tests-base-red does).
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59

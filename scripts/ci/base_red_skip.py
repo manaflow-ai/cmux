@@ -38,7 +38,8 @@ usage:
   base_red_skip.py decide --workflow FILE --job NAME [--base feat-cmux-next] [--events push] [--dispatch-title PREFIX] [--runs 6]
       [--max-age-hours 12]
       [--audit-percent 10] -> `base_red=true|false` and `base_run=<url>` lines on stdout (for $GITHUB_OUTPUT)
-Environment: GITHUB_REPOSITORY, GH_TOKEN (actions: read), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME.
+Environment: GITHUB_REPOSITORY, GH_TOKEN (actions: read), GH_TOKEN_FALLBACK (optional, actions: read: read with it
+once GH_TOKEN is refused with a 403 or 429), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME.
 """
 from __future__ import annotations
 
@@ -59,16 +60,43 @@ DEADLINE_S = 40.0
 DECIDED = {"success": False, "failure": True}
 
 
+class Refused(RuntimeError):
+    """A 403 or 429: this token's quota (or its rights) refused the read; another token may still be let in."""
+
+
 def get_json(path: str, token: str, deadline: deadline_http.Deadline):
     req = urllib.request.Request(f"{API}{path}", headers={
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    status, body, _ = deadline_http.request(req, deadline=deadline)
+    status, body, headers = deadline_http.request(req, deadline=deadline)
+    if status in (403, 429):
+        left = headers.get("x-ratelimit-remaining") if headers is not None else None
+        raise Refused(f"GET {path}: HTTP {status}" + (f" (rate limit left: {left})" if left is not None else ""))
     if status != 200:
         raise RuntimeError(f"GET {path}: HTTP {status}")
     return json.loads(body)
+
+
+def token_reader(tokens: list[str], deadline: deadline_http.Deadline, get=get_json):
+    """A read that moves to the next token when one is refused (403/429), and keeps it for the reads after.
+
+    The workflow's GITHUB_TOKEN shares one hourly quota with every job of the repository: on 2026-11-24 18-19Z it
+    answered 403 to 4 of 6 generated-files decides, so each ran the 20-60 min job the base already had red. The
+    jobs pass a GitHub App token as GH_TOKEN_FALLBACK, which has its own quota."""
+    state = {"at": 0}
+
+    def read(path: str):
+        errors = []
+        while state["at"] < len(tokens):
+            try:
+                return get(path, tokens[state["at"]], deadline)
+            except Refused as err:
+                errors.append(str(err))
+                state["at"] += 1
+        raise RuntimeError("; ".join(errors) or "no token to read the base with")
+    return read
 
 
 def base_verdict(repo: str, workflow: str, job: str, base: str, runs: int, read, max_age_hours: float = 12.0,
@@ -128,10 +156,11 @@ def decide(args, env=os.environ, read=None, now=None) -> list[str]:
     if env.get("GITHUB_EVENT_NAME") != "pull_request":
         return ["base_red=false"]
     repo = env.get("GITHUB_REPOSITORY", "")
-    token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
+    tokens = [t for t in (env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", env.get("GH_TOKEN_FALLBACK") or "")
+              if t]
+    tokens = list(dict.fromkeys(tokens)) or [""]
     if read is None:
-        deadline = deadline_http.Deadline(DEADLINE_S)
-        read = lambda path: get_json(path, token, deadline)  # noqa: E731
+        read = token_reader(tokens, deadline_http.Deadline(DEADLINE_S))
     try:
         red, url = base_verdict(repo, args.workflow, job, args.base, args.runs, read,
                                 getattr(args, "max_age_hours", 12.0), now, events_of(args),
