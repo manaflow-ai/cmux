@@ -32,15 +32,16 @@ final class RotateBenchUITests: XCTestCase {
         var name: String
         var arguments: [String]
         /// The element a tap focuses (the keyboard rounds).
-        var field: (XCUIApplication) -> XCUIElement
+        var field: @MainActor (XCUIApplication) -> XCUIElement
         /// Hides the keyboard.
-        var hide: (XCUIApplication) -> Void
+        var hide: @MainActor (XCUIApplication) -> Void
         /// Ready to turn (load started, demo attached).
-        var ready: (XCUIApplication) -> Void = { _ in }
+        var ready: @MainActor (XCUIApplication) -> Void = { _ in }
     }
 
     private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace", "-cmux-mobile-input-latency"]
 
+    @MainActor
     private static func terminalHide(_ app: XCUIApplication) {
         let key = app.buttons["terminal.key.keyboard"]
         if key.exists { key.tap() }
