@@ -2,17 +2,16 @@
 // Where a subagent's own pane says whose subagent it is (Leo, 2026-11-22: "it is prob ok to somehow
 // denote the \"subagent of\"... at the top i feel like"), beside a normal chat's header at the same
 // width, so the two layouts match (Leo, 2026-11-22: "we should align things better").
-// - `summary-slot` (picked): the subagent's name in the title, "Subagent of <chat>" in the line a
-//   chat's rolling summary takes (ChatSummaryLine). Both headers have the same two lines, so the
-//   pane is as tall as the chat's and nothing below it moves when the pane learns it is a subagent's.
-// - `breadcrumb`: "<chat> › <subagent>" in the title row, no second line. It is one line shorter than
-//   a chat with a summary, so the transcript starts higher than the chat's beside it (not picked).
-// - `title-badge`: a "Subagent" badge before the name, the chat's name only in the tooltip. Same
-//   height as `breadcrumb`, and the chat it came from is hidden (not picked).
+// - `summary-slot` (picked): the subagent's name in the title, "Subagent of <chat>" muted beside it
+//   where a chat's rolling summary used to go (.acpmux-subagent-of). A chat's header is its name
+//   alone (#53564), so both are one line, as tall, and nothing below moves.
+// - `breadcrumb`: "<chat> › <subagent>" as the title. Same height, but the chat's name crowds the
+//   subagent's out first at narrow widths (not picked).
+// - `title-badge`: a "Subagent" badge before the name, the chat's name only in the tooltip, so the
+//   chat it came from is hidden (not picked).
 // Synthetic data.
 import type { ReactNode } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
-import { ChatSummaryLine } from "../header/ChatSummaryLine";
 import { ThreadTitle } from "../header/ThreadTitle";
 
 type Look = "summary-slot" | "breadcrumb" | "title-badge";
@@ -20,7 +19,6 @@ type Props = { look: Look };
 
 const CHAT = "Release prep";
 const AGENT = "Diff review";
-const SUMMARY = { text: "Changelog and version bump are in.", next: "Read the diff against main" };
 
 function Header({ children, pane }: { children: ReactNode; pane: string }) {
   return (
@@ -37,13 +35,12 @@ function SubagentHeaderOfGallery({ look }: Props) {
     <div className="acpmux-shell" style={{ display: "flex", flexDirection: "column" }}>
       <Header pane="chat">
         <ThreadTitle title={CHAT} onRename={() => undefined} />
-        <ChatSummaryLine summary={SUMMARY} />
       </Header>
       <Header pane="subagent">
         {look === "summary-slot" && (
           <>
             <ThreadTitle title={AGENT} />
-            <ChatSummaryLine summary={{ text: `Subagent of ${CHAT}` }} />
+            <span className="acpmux-subagent-of" data-subagent-of="">{`Subagent of ${CHAT}`}</span>
           </>
         )}
         {look === "breadcrumb" && <ThreadTitle title={`${CHAT} › ${AGENT}`} />}
@@ -70,9 +67,9 @@ function SubagentHeaderOfGallery({ look }: Props) {
 }
 
 const NOTES: Record<Look, string> = {
-  "summary-slot": "Picked: the chat's two lines, the second saying whose subagent it is; same height as the chat's.",
-  breadcrumb: "Not picked: one line, shorter than a chat with a summary, so the transcript starts higher.",
-  "title-badge": "Not picked: one line like breadcrumb, and the chat it came from is only in a tooltip.",
+  "summary-slot": "Picked: the subagent's name with whose subagent it is muted beside it; same height as the chat's.",
+  breadcrumb: "Not picked: the chat's name in the title crowds the subagent's out first at narrow widths.",
+  "title-badge": "Not picked: the chat it came from is only in a tooltip.",
 };
 
 const height = (ctx: { document: Document }, pane: string) =>

@@ -71,7 +71,6 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderSt
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
-import { type ChatSummary, ChatSummaryLine } from "../header/ChatSummaryLine";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
 import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
@@ -341,9 +340,9 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
-    /// What the header's two lines say: the chat's title and summary, or a subagent's own pane's
+    /// What the header says: the chat's title, or a subagent's own pane's
     /// title and "Subagent of <chat>" (subagents/subagentPanes.ts `paneHeading`).
-    heading: { title: string; summary?: ChatSummary | null; renamable: boolean };
+    heading: { title: string; of?: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -1284,8 +1283,15 @@ export function drawPaneBody({
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={heading.summary} />
+                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
+                              A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
+                              somehow denote the \"subagent of\"... at the top i feel like"). */}
+                        {heading.of && (
+                          <span className="acpmux-subagent-of" data-subagent-of="">
+                            {heading.of}
+                          </span>
+                        )}
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1311,13 +1317,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={heading.summary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{

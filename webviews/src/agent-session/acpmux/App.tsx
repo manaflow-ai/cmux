@@ -731,6 +731,7 @@ import { reply as questionReply, replyParams, selection } from "./question/model
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
+import { useHostOverload } from "./OverloadNotice";
 import { drawPaneBody } from "./pane/PaneBody";
 import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 
@@ -1226,6 +1227,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
+  const readOverload = useCallback(
+    () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
+    [],
+  );
+  const hostOverload = useHostOverload(readOverload);
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
@@ -4966,7 +4973,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
-  // A subagent's own pane heads with the subagent and whose it is, in the chat's two lines
+  // A subagent's own pane heads with the subagent and whose it is, in the chat's one line
   // (paneHeading), from the frame it is known to be a subagent's pane (`requestedSubagent`, at the
   // handshake), so the header never changes height when the subagent's rows come in.
   const ofName = shownAgent?.parent
@@ -4976,7 +4983,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ownSubagentPane && (subagentView ?? requestedSubagent) !== undefined
       ? { title: shownSubagentTitle ?? t("tray.kind.subagent"), of: `${t("subagents.of")} ${ofName}` }
       : undefined,
-    { title: chatName, summary: snapshot.summary?.rollingSummary },
+    { title: chatName },
   );
   const shownFacts = useMemo(
     () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
@@ -9731,6 +9738,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const composer = drawPaneComposer({
     markDockEdge,
+    hostOverload,
     readOnlySubagent,
     subagentRelay,
     subagentDraftKey,

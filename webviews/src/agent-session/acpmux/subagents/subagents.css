@@ -2744,8 +2744,9 @@ button.cv-subagent > :last-child {
      colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
      words under a spread icon blur out, and it follows any theme. */
   background: var(--ds-surface-inset);
+  /* glass-raw-blur-allow: an 8 px soften under the hat's fanned faces so the header's words blur out, a backing inside the hat's glass, not a glass surface */
   -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px); /* glass-raw-blur-allow: the same soften, unprefixed */
 }
 
 /* ---------- The count's characters (HatCount.tsx, hatCount.experiment.ts) ----------
