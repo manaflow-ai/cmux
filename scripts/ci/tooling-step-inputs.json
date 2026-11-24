@@ -29,6 +29,15 @@
         ],
         "why": "run-all.sh runs every scripts/measure/tests/*.test.sh and *.test.py by a loop variable; no-unattended-prompts reads every tracked file under scripts/ and .github/",
         "traced": true
+      },
+      "tt-web-lint-prepush": {
+        "inputs": [
+          "scripts/web-lint.sh",
+          "scripts/web_lint_prepush.py",
+          "tests/test_web_lint_prepush.py"
+        ],
+        "why": "the tests build throwaway repositories with stand-in packages; web_lint_prepush.py lists the tracked files of that throwaway repository, not of this checkout",
+        "traced": true
       }
     }
   }
