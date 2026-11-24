@@ -152,7 +152,8 @@ export async function handle(request, env, deps = {}) {
   // To the VM's router: the request URL's host is the Host it routes by (a Workers VPC binding sends it as Host).
   const forward = (body) =>
     env.VM.fetch(new Request(`http://${url.hostname}${path}${url.search}`, body === undefined ? request : new Request(request, { body })))
-  if (OPEN.some((open) => open(svc, request.method, path))) return forward()
+  // An open path is a plain request: one asking to upgrade (a WebSocket) needs a credential like any other.
+  if (!request.headers.has("upgrade") && OPEN.some((open) => open(svc, request.method, path))) return forward()
   const credential = await credentialOf(request, svc, path)
   if (!credential.token) return deny(401, "a cmux account credential is required")
   const ctx = {
