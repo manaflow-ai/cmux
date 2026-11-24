@@ -474,6 +474,21 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* A failed renewal: one warning line under the plan, Manage Billing beside it. */
+.cloud-past-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.cloud-past-due-text {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--cloud-warn);
+}
+
 .cloud-mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;

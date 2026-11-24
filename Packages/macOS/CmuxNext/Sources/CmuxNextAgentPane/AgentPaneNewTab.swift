@@ -89,6 +89,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
+    /// true: the page's chats start on another machine (it opened beside an SSH or Cloud machine's tab, whose daemon
+    /// is not this Mac's: ``warmedOnThisMac(_:)``); nil: on this Mac. On the first frame, before the page's own
+    /// connection says so: a send that names `@computer-use` decides on that machine, never on this Mac's Computer Use
+    /// Setup (review round 3 of #48024).
+    public var startsRemote: Bool?
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
@@ -210,6 +215,7 @@ extension AgentPaneNewTab {
             // Another machine's page lists its own chats, never the ones this Mac's pages share
             // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
             page.privateChatLists = true
+            page.startsRemote = true
         }
         return page
     }

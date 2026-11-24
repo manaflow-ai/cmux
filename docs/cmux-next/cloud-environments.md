@@ -126,6 +126,15 @@ socket's `auth.status` has `backend` and `backend_label` (the same line); the CL
 
 The cmux-next iPhone app takes the same choice as `CMUX_NEXT_CLOUD_BACKEND` at launch (DEBUG
 builds only) and keeps it for later launches; an empty value clears it. Settings > Developer shows
-it as "Cloud backend". `cmux-next-ios/scripts/review.sh --backend <origin|tag-stack|dev>` sets both
-for a tag and prints a `Backend:` line with what the Mac app reports; with `tag-stack`, the phone's
-readiness receipt must also name the stack's mobile Worker (`api_base_url`).
+it as "Cloud backend". `cmux-next-ios/scripts/review.sh` sets both for a tag and prints a `Backend:`
+line with what the Mac app reports:
+- **With no `--backend` (the default)**, it runs `cloud-dev-stack.sh up --tag <tag>` beside the fleet
+  builds and points both apps at the tag's stack. The Mac gets the tailnet origin, the phone the
+  public one when the stack has a slot. An `up` that fails falls back to the shared dev Workers, with
+  the reason on the `Backend:` line.
+- `--backend dev` keeps the shared dev Workers and touches no stack.
+- `--backend tag-stack` takes the stack as it is, with no `up`.
+- `--backend <origin>` takes any allowed origin.
+
+With a tag stack, the phone's readiness receipt must also name the stack's mobile Worker
+(`api_base_url`).
