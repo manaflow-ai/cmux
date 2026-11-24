@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 /// The manifest's schema.
 pub const SCHEMA: &str = "cmux.session-pack.v1";
 
+/// Which lines this build marks as turn starts: 1 is acpmux's records of a kind in
+/// [`Params::marks`] and a Claude Code transcript's prompts. A manifest written before
+/// transcripts had turns has no `turnRule`, which reads as 0 (acpmux's records only).
+pub const TURN_RULE: u32 = 1;
+
 /// How a log was cut and compressed. Two packs of the same log with the same `Params` hold the
 /// same chunks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,7 +67,8 @@ pub struct Segment {
     pub sealed: bool,
     /// The size of its chunk files.
     pub stored: u64,
-    /// The numbers of its lines that start a turn.
+    /// The numbers of its lines that start a turn: an acpmux record of a kind in
+    /// [`Params::marks`], or a Claude Code transcript's prompt.
     pub marks: Vec<u64>,
 }
 
@@ -95,6 +101,9 @@ pub struct Manifest {
     pub final_newline: bool,
     /// How it was packed.
     pub params: Params,
+    /// The [`TURN_RULE`] its segments' marks were found by (0 when the manifest predates it).
+    #[serde(default)]
+    pub turn_rule: u32,
     /// Its segments, in order.
     pub segments: Vec<Segment>,
 }
