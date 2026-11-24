@@ -118,12 +118,24 @@ struct Mac {
 
 impl Mac {
     async fn start() -> Self {
+        Self::start_with(false).await
+    }
+
+    /// `with_turn`: the Mac takes its own TURN allocation too, so it offers a relayed address.
+    async fn start_with(with_turn: bool) -> Self {
+        let turn = TestTurn::start().await;
         let signaling = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
         let mac = SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id)
             .await
             .expect("Mac signaling");
-        let mac_options = DialOptions { include_loopback: true, timeout: WAIT, ..DialOptions::default() };
+        let mac_ice = if with_turn { vec![turn.udp_only()] } else { Vec::new() };
+        let mac_options = DialOptions {
+            include_loopback: true,
+            timeout: WAIT,
+            ice_servers: mac_ice,
+            ..DialOptions::default()
+        };
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 let events = SessionEvents {
@@ -141,7 +153,6 @@ impl Mac {
                 });
             }
         });
-        let turn = TestTurn::start().await;
         let lan = Arc::new(LanHost::start(LanIdentity::generate(), 0, None, true).await.expect("LAN mesh"));
         let phone_lan = LanIdentity::generate();
         let reply = lan
@@ -229,13 +240,96 @@ async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option
     };
     let attempt = async {
         let phone_id = uuid::Uuid::new_v4().to_string();
+        // The redial: TURN allocates beside the signaling reconnect (`signaling_connected`).
+        let reconnect = SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id);
+        let (phone, connected) = dial::connect_after(
+            reconnect,
+            &mac.mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        )
+        .await
+        .map_err(|error| eprintln!("COLDDIALERR {error:?}"))
+        .ok()?;
+        Some(Up { connected, _signaling: Some(phone) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
+/// MEASUREMENT ONLY. `relayed-seq`: the redial before #52992: reconnect signaling, then dial
+/// (`dial::connect`), so TURN allocates after the reconnect.
+async fn dial_relayed_seq_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option<Up> {
+    let options = DialOptions {
+        include_loopback: true,
+        relay_only: true,
+        ice_servers: vec![radio.turn.clone()],
+        timeout: WAIT,
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    };
+    let attempt = async {
+        let phone_id = uuid::Uuid::new_v4().to_string();
         let phone =
             SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id).await.ok()?;
         timeline.mark("signaling_connected");
         let connected =
             dial::connect(&phone, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
                 .await
+                .map_err(|error| eprintln!("SEQDIALERR {error:?}"))
                 .ok()?;
+        Some(Up { connected, _signaling: Some(phone) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
+/// The warm-socket dial: signaling is already connected on this radio (the app's pool keeps it
+/// for a returning user), so the dial starts at the offer, on the pool's `dial::connect`.
+async fn dial_warm_on(mac: &Mac, radio: &Radio, warm: SignalingClient, timeline: Timeline) -> Option<Up> {
+    let options = DialOptions {
+        include_loopback: true,
+        relay_only: true,
+        ice_servers: vec![radio.turn.clone()],
+        timeout: WAIT,
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    };
+    timeline.mark("signaling_connected");
+    let attempt = async {
+        let connected =
+            dial::connect(&warm, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .map_err(|error| eprintln!("WARMDIALERR {error:?}"))
+                .ok()?;
+        Some(Up { connected, _signaling: Some(warm) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
+/// The `mac-relay-blocked` dial: not relay only, but every plain UDP datagram the phone's
+/// WireGuard sends is lost (the Mac's relayed address and host are unreachable by plain UDP),
+/// so the link runs through the phone's own TURN relay to the Mac's relayed address.
+async fn dial_blocked_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option<Up> {
+    let options = DialOptions {
+        include_loopback: true,
+        drop_outbound_udp: true,
+        ice_servers: vec![radio.turn.clone()],
+        timeout: WAIT,
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    };
+    let attempt = async {
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let reconnect = SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id);
+        let (phone, connected) = dial::connect_after(
+            reconnect,
+            &mac.mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        )
+        .await
+        .ok()?;
         Some(Up { connected, _signaling: Some(phone) })
     };
     timeout(WAIT, attempt).await.ok().flatten()
@@ -440,11 +534,24 @@ async fn dial_named(mac: &Mac, radio: &Radio, lan_addr: Option<SocketAddr>) -> O
 /// `path` `relayed` is today's app (relayed only); `lan` races the direct dial against it.
 async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u64, seed: u64) {
     let trace = Trace::new();
-    let mac = Mac::start().await;
+    let mac = Mac::start_with(path == "mac-relay-blocked").await;
     let wifi = Radio::start(&mac, profile, seed, &trace).await;
     let cellular = Radio::start(&mac, cell, seed, &trace).await;
     let tag = |leg: &str| format!("{path}:{}:{leg}", cell.name);
     let lan_on = |radio: &Radio| (path == "lan").then(|| radio.udp.addr());
+    // `relayed-warm`: the cellular radio's signaling socket is up before the Wi-Fi drops.
+    let warm = if path == "relayed-warm" {
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        match SignalingClient::connect(&cellular.signaling_url, "user:alice", "team", &phone_id).await {
+            Ok(client) => Some(client),
+            Err(_) => {
+                emit(profile, &tag("warm_signaling"), "switch_ms", None, run, seed);
+                return;
+            }
+        }
+    } else {
+        None
+    };
     let Some((up, _)) = dial_named(&mac, &wifi, lan_on(&wifi)).await else {
         emit(profile, &tag("wifi_up"), "switch_ms", None, run, seed);
         return;
@@ -459,10 +566,20 @@ async fn roundtrip(profile: &LinkProfile, cell: &LinkProfile, path: &str, run: u
     wifi.leave();
     // The relayed dial's stages, timed from the drop.
     let stages = Timeline::starting_at(dropped.into_std());
-    let relayed = dial_relayed_on(&mac, &cellular, stages.clone());
-    let on_cell = match lan_on(&wifi) {
-        Some(addr) => first_up_named(dial_lan(&mac, addr), relayed).await,
-        None => relayed.await.map(|up| (up, "relayed")),
+    let on_cell = match (lan_on(&wifi), warm) {
+        (_, Some(warm)) => {
+            dial_warm_on(&mac, &cellular, warm, stages.clone()).await.map(|up| (up, "relayed"))
+        }
+        (Some(addr), None) => {
+            first_up_named(dial_lan(&mac, addr), dial_relayed_on(&mac, &cellular, stages.clone())).await
+        }
+        (None, None) if path == "relayed-seq" => {
+            dial_relayed_seq_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed"))
+        }
+        (None, None) if path == "mac-relay-blocked" => {
+            dial_blocked_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed"))
+        }
+        (None, None) => dial_relayed_on(&mac, &cellular, stages.clone()).await.map(|up| (up, "relayed")),
     };
     let (value, won) = match &on_cell {
         Some((again, won)) => (first_echo(&again.connected.link, dropped).await, *won),

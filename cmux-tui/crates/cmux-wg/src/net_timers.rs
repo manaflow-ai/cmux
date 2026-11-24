@@ -82,6 +82,13 @@ impl Driver {
         if let TunnResult::WriteToNetwork(packet) =
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
+            if super::dbg_on() {
+                eprintln!(
+                    "WGDBG {:.1} side={} init sent",
+                    super::dbg_t(),
+                    if self.config.endpoint.is_some() { "phone" } else { "mac" }
+                );
+            }
             self.underlay.send(packet);
             self.schedule.on_activity(Instant::now());
         }
