@@ -64,6 +64,28 @@ pub(crate) fn ancestor_check(path: &Path) {
 
 pub(crate) fn sync(path: &Path) {
     note(path, Kind::Sync);
+    let slow =
+        SLOW_SYNCS.lock().unwrap().iter().find(|(root, _)| path.starts_with(root)).map(|s| s.1);
+    if let Some(by) = slow {
+        std::thread::sleep(by);
+    }
+}
+
+static SLOW_SYNCS: Mutex<Vec<(PathBuf, std::time::Duration)>> = Mutex::new(Vec::new());
+
+/// Every sync of a file under `root` takes `by` longer (a slow disk), until the guard drops.
+pub(crate) fn slow_syncs(root: &Path, by: std::time::Duration) -> SlowSyncGuard {
+    SLOW_SYNCS.lock().unwrap().push((root.to_path_buf(), by));
+    SlowSyncGuard(root.to_path_buf())
+}
+
+#[must_use = "the disk is fast again when the guard drops"]
+pub(crate) struct SlowSyncGuard(PathBuf);
+
+impl Drop for SlowSyncGuard {
+    fn drop(&mut self) {
+        SLOW_SYNCS.lock().unwrap().retain(|(root, _)| root != &self.0);
+    }
 }
 
 thread_local! {

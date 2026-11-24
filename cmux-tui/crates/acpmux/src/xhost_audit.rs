@@ -26,7 +26,7 @@ pub const FILE: &str = "cross-host-audit.jsonl";
 const CAP: u64 = 4 << 20;
 
 /// The log's previous copy, beside it.
-fn previous(path: &std::path::Path) -> PathBuf {
+pub(crate) fn previous(path: &std::path::Path) -> PathBuf {
     path.with_extension("jsonl.1")
 }
 
@@ -65,7 +65,7 @@ fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
 /// [`append_to`], moving the log to [`previous`] first when it is past `cap` bytes, as
 /// `daemon/log_cap.rs` does `daemon.log`: the home keeps at most two logs' worth (it grew by
 /// 2 MB in 10 days on a lane, and nothing cut it).
-fn append_capped(path: &std::path::Path, line: &Value, cap: u64) -> anyhow::Result<()> {
+pub(crate) fn append_capped(path: &std::path::Path, line: &Value, cap: u64) -> anyhow::Result<()> {
     // One writer at a time: two that both found it past the cap would each move it aside, the
     // second over the first's copy.
     static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
