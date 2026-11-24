@@ -45,7 +45,7 @@ extension WindowManager {
     /// Windows whose membership did not change keep their state untouched.
     func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = [], gesture: Bool = false) {
         let value = registry.value
-        for window in value.openWindows where controller(for: window.id) == nil {
+        for window in value.openWindows where controller(for: window.id) == nil && !deferredWindows.contains(window.id) {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred, gesture: gesture)
@@ -136,7 +136,7 @@ extension WindowManager {
             DebugWorkspaceSwitch.began(timed)
         }
         if origin == .anywhere, !value.isGuest(workspaceID, in: state.id), let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
-           let target = controller(for: owner) {
+           let target = liveController(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
@@ -147,12 +147,12 @@ extension WindowManager {
         let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
-        if !registry.value.isGuest(workspaceID, in: state.id), let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+        if !registry.value.isGuest(workspaceID, in: state.id), let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = liveController(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
             if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
         }
-        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+        liveController(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own

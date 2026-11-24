@@ -262,6 +262,27 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+/// Where a move's begin token is kept, in its bundle folder.
+const BEGIN_TOKEN_FILE: &str = "begin-token";
+
+/// A client's begin token: 1 to 128 of `[A-Za-z0-9_-]`.
+fn is_begin_token(token: &str) -> bool {
+    (1..=128).contains(&token.len())
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The begin token the client that began move `transfer_id` gave, if it gave one: a
+/// `transfer.moving` refusal hands it back, so that client alone can tell the move is its own.
+pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
+    if !names_a_move(transfer_id) {
+        return None;
+    }
+    let dir = inside(&transfers_dir(), transfer_id).ok()?;
+    let token = std::fs::read_to_string(dir.join(BEGIN_TOKEN_FILE)).ok()?;
+    let token = token.trim();
+    is_begin_token(token).then(|| token.to_owned())
+}
+
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -364,8 +385,16 @@ impl Hub {
                 };
                 // `afterTurnTimeoutMs`: the mover's `--timeout`, never past `AFTER_TURN_WAIT`.
                 let turn_wait = after_turn.then(|| after_turn_wait(params));
-                let cut = (cut, turn_wait);
-                self.transfer_begin(&session, cut, socket, ssh, host, hub, gates, precopy).await
+                // The client's own mark for this begin, handed back by a `transfer.moving`
+                // refusal of the move it began (`begin_token`).
+                let token = params.get("beginToken").and_then(Value::as_str);
+                if token.is_some_and(|t| !is_begin_token(t)) {
+                    return Err(RpcError::invalid_params(
+                        "transfer: `beginToken` must be 1 to 128 of [A-Za-z0-9_-]",
+                    ));
+                }
+                let to = (socket, ssh, host, hub);
+                self.transfer_begin(&session, (cut, turn_wait), to, gates, token, precopy).await
             }
             "hub" => self.transfer_hub(params).await,
             "prepare" => {
@@ -449,11 +478,9 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         (cut, after_turn): (TurnCut, Option<std::time::Duration>),
-        to: Option<&str>,
-        to_ssh: Option<&str>,
-        to_host: Option<&str>,
-        to_hub: Option<&str>,
+        (to, to_ssh, to_host, to_hub): (Option<&str>, Option<&str>, Option<&str>, Option<&str>),
         gates_receiver: bool,
+        begin_token: Option<&str>,
         precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
@@ -547,7 +574,11 @@ impl Hub {
                     lease.as_secs()
                 ),
             );
-            return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
+            let mut data = json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"});
+            if let Some(token) = moving_begin_token(&other) {
+                data.set("beginToken", json!(token));
+            }
+            return Err(e.with_data(data));
         };
         // The move fence is the freeze boundary. It is taken only after an optional
         // `--after-turn` wait and before cancelling a running turn or exporting its bundle.
@@ -762,6 +793,12 @@ impl Hub {
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);
         }
+        // Beside the bundle, which a restart keeps while the log says the move runs
+        // (`queue_restore.rs`), and written only once the move is begun: a client that lost
+        // this answer ends only a move whose begin is done.
+        if let Some(token) = begin_token {
+            let _ = crate::home_fs::write(dir.join(BEGIN_TOKEN_FILE), token);
+        }
         if let Some(prefix) = &prefix {
             let _ = crate::home_fs::write(dir.join("prepared"), &prefix.prepare_id);
         }
@@ -789,6 +826,13 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        // The agent program its harness runs here: a receiver with no harness of that name
+        // checks `--as` against it and names its own one for the same agent (`transfer_in.rs`).
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness).or(meta.family);
+        if let Some(family) = family {
+            answer.set("harnessFamily", json!(family));
         }
         if let Some(p) = prefix {
             let named =

@@ -405,3 +405,7 @@ pub(crate) fn worker_error(status: u16, body: Option<&Value>) -> Failure {
         |name: &str| error.and_then(|e| e.get(name)).and_then(Value::as_str).map(str::to_owned);
     Failure::http(status, text("code"), text("message"))
 }
+
+#[cfg(test)]
+#[path = "http_seeded_tests.rs"]
+mod seeded_tests;
