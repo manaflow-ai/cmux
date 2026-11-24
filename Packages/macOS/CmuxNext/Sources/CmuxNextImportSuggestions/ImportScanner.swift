@@ -68,10 +68,11 @@ public nonisolated struct ImportScanner: Sendable {
         return candidates.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.compactMap { _, browser in
             guard !shouldStop() else { return nil }
             // Another app's container: even a look there can ask the person for "data from other
-            // apps", so a registry folder in one is never checked (Safari's is its own grant).
+            // apps", so a registry folder in one is never checked (Safari's is its own grant, except in a
+            // `cmux app try` copy, a new identity each try: ``OtherAppContainers``).
             let folders = (browser.dataDirectories.isEmpty ? [browser.dataDirectory] : browser.dataDirectories)
                 .map { environment.homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
-                .filter { browser.family == .safari || !Self.isContainer($0) }
+                .filter { (browser.family == .safari && OtherAppContainers.mayRead) || !Self.isContainer($0) }
             guard let directory = folders.first(where: exists) ?? folders.first else { return nil }
             // Two registry rows on one folder (Zen and Zen Twilight) count once.
             guard seenFolders.insert(directory.standardizedFileURL.path).inserted else { return nil }
