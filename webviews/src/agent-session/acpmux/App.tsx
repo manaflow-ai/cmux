@@ -239,7 +239,6 @@ import {
   AUTO_LOOK,
   autoTargets,
   decideAuto,
-  keepCloudLanding,
   landingMove,
   takeCloudLanding,
   whenSendRefused,
@@ -666,6 +665,7 @@ import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
+import { watchLaunchInputEcho } from "./launchInputEcho";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
@@ -729,6 +729,7 @@ import { reply as questionReply, replyParams, selection } from "./question/model
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
+import { useHostOverload } from "./OverloadNotice";
 import { drawPaneBody } from "./pane/PaneBody";
 import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 
@@ -1224,6 +1225,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
+  const readOverload = useCallback(
+    () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
+    [],
+  );
+  const hostOverload = useHostOverload(readOverload);
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
@@ -4325,6 +4332,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const autoOffered = cloudOfferable && !onOtherMachinePage;
   const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
   const pickAuto = (on: boolean) => {
+    setAutoArrival(undefined);
     autoDecided.current = undefined;
     setAutoPick({ page: newTabGeneration, on });
     // Off by another row's pick: that row remembers its own place after this.
@@ -4345,12 +4353,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   /// Where Auto put this page's chat, said on the arrival line (AutoArrival): `deciding` while the
   /// daemon has not answered. Kept for the page it was decided on.
-  const [autoArrival, setAutoArrival] = useState<{ page: number; landing: AutoLanding | "deciding" }>();
+  const [autoArrival, setAutoArrival] = useState<{
+    page: number;
+    session?: string;
+    landing: AutoLanding | "deciding";
+  }>();
+  const [autoCloudStartKey, setAutoCloudStartKey] = useState<string>();
   /// The decided send waiting for its mode (cloud or this Mac's), then sent once (the effect below).
   const autoSend = useRef<{ page: number; went: AutoLanding["went"] } | undefined>(undefined);
   /// The page whose next Send Auto has decided, for that one send: a send that does not go, or
   /// another Where pick, clears it, and the next Send asks the daemon again.
-  const autoDecided = useRef<number | undefined>(undefined);
+  const autoDecided = useRef<{ page: number; landing?: AutoLanding } | undefined>(undefined);
   const autoSignedIn = useCloudSignedIn();
   const sandboxModeRows = {
     mode: sandbox.mode,
@@ -4359,6 +4372,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
       // Another Where pick: an Auto decision made before it is not this send's.
+      setAutoArrival(undefined);
       autoDecided.current = undefined;
       const place = placeOfRunMode(mode);
       if (place) rememberNewChatPlace(place);
@@ -4562,7 +4576,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = true;
     runHereSend.current = true;
     // The person's Run on This Mac answers Auto for this send: it goes here, nothing asks the daemon.
-    autoDecided.current = newTabGeneration;
+    autoDecided.current = { page: newTabGeneration };
     sandbox.setMode("persistent");
   };
   /// The folder the latest Cloud send named (the card's "Start without a folder", or its project): Retry
@@ -4794,21 +4808,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [sandbox.mode, autoArrival, newTabGeneration]);
   /// Asks the daemon where an Auto chat runs, says it, and sends there. Never an error: no daemon,
   /// no Cloud or a failure runs the chat here, and the line says why.
-  const decideAutoSend = (text: string) => {
+  const decideAutoSend = () => {
     const page = newTabGeneration;
-    autoDecided.current = page;
+    const decision = { page };
+    autoDecided.current = decision;
     setAutoArrival({ page, landing: "deciding" });
     void decideAuto(
       directClient.current?.placeChat,
       autoTargets({ cloudOffered, ...(autoSignedIn !== undefined ? { signedIn: autoSignedIn } : {}) }),
     ).then((landing) => {
       // The person picked another Where while the daemon answered: this decision is not theirs.
-      if (autoDecided.current !== page) return setAutoArrival(undefined);
+      if (autoDecided.current !== decision) return;
+      autoDecided.current = { page, landing };
       setAutoArrival({ page, landing });
       autoSend.current = { page, went: landing.went };
       if (landing.went === "cloud") {
-        // The Cloud chat opens in its own tab: it says the landing there (takeCloudLanding).
-        keepCloudLanding(landing, text);
         // Auto's choice, not the person's: Cloud is not remembered as their pick.
         if (sandbox.mode !== "cloud") applyRunMode("cloud");
         else setAutoArrival({ page, landing });
@@ -4824,22 +4838,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
     picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
-    holds: (text: string): boolean => {
-      if (autoPicked && autoDecided.current !== newTabGeneration) {
-        decideAutoSend(text);
+    holds: (): boolean => {
+      if (autoPicked && autoDecided.current?.page !== newTabGeneration) {
+        decideAutoSend();
         return true;
       }
       return autoPicked && autoSend.current !== undefined;
+    },
+    cloudStart: () => {
+      const decision = autoDecided.current;
+      return autoPicked && decision?.page === newTabGeneration && decision.landing?.went === "cloud"
+        ? { autoLanding: decision.landing }
+        : {};
     },
     once:
       <A extends unknown[], R>(send: (...args: A) => R) =>
       (...args: A): R => {
         const page = newTabGeneration;
-        const decided = autoPicked && autoDecided.current === page && autoSend.current === undefined;
+        const decision = autoDecided.current;
+        const decided = autoPicked && decision?.page === page && autoSend.current === undefined;
         const sent = send(...args);
         if (decided)
           whenSendRefused(sent as unknown as boolean | Promise<unknown>, () => {
-            if (autoDecided.current === page) autoDecided.current = undefined;
+            if (autoDecided.current === decision) autoDecided.current = undefined;
           });
         return sent;
       },
@@ -5582,6 +5603,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
   }, []);
+  // Rows in the strict viewport advance the daemon's persisted seen cursor. The client keeps this
+  // callback cheap by reducing the rows to one highest event sequence and sending only forward.
+  const seenRows = useCallback(
+    (rows: readonly AcpmuxRow[]) => {
+      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows);
+    },
+    [shownSessionId],
+  );
   // A return (a chat picked, its tab or window shown again; Leo, 2026-11-15, of the terminal's
   // "157 new messages" rule: "we needto properly do somthing like this in the gui somehow") with
   // something new to read lands at the line, not the latest: the view opens where the new part
@@ -6793,6 +6822,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A chat's first paint, unless its saved copy drew first and started it: what moves from here is the
     // launch's settle, reported once (launchSettle.ts). Not a New Tab page's.
     if (first && newTab === undefined) watchLaunchSettle(callNative);
+    // From the same paint, the person's first key into the composer (launchInputEcho.ts).
+    if (first && newTab === undefined) watchLaunchInputEcho(callNative);
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
@@ -7416,6 +7447,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setMachineName,
       setLocalMachineName,
       setCloudMachineID,
+      setAutoCloudStartKey,
       cloudMachineIDRef,
       setCloudRepositoryAvailable,
       setCloudChatIdentity,
@@ -7757,22 +7789,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [moves],
   );
   // Auto's arrival line, for the page it was decided on; its move only while the chat offers it.
-  const autoArrivalShown = autoArrival?.page === newTabGeneration ? autoArrival.landing : undefined;
+  const autoArrivalShown =
+    autoArrival?.page === newTabGeneration && (!autoArrival.session || autoArrival.session === snapshot.sessionId)
+      ? autoArrival.landing
+      : undefined;
   const autoArrivalMove =
     autoArrivalShown !== undefined &&
     autoArrivalShown !== "deciding" &&
     offloads.includes(landingMove(autoArrivalShown));
-  // A Cloud chat Auto put there says so once, on the page its first prompt opened (keepCloudLanding).
-  const firstPrompt = useMemo(() => {
-    for (const row of snapshot.rows) if (row.kind === "user") return row.text;
-    return undefined;
-  }, [snapshot.rows]);
   useEffect(() => {
-    if (snapshot.summary?.hostKind !== "cloud" || !firstPrompt) return;
-    const landing = takeCloudLanding(firstPrompt);
-    if (landing) setAutoArrival({ page: newTabGeneration, landing });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per first prompt
-  }, [firstPrompt, snapshot.summary?.hostKind]);
+    if (cloudRouteHostKind !== "cloud" || !snapshot.sessionId) return;
+    const landing = takeCloudLanding(autoCloudStartKey);
+    if (landing) setAutoArrival({ page: newTabGeneration, session: snapshot.sessionId, landing });
+  }, [autoCloudStartKey, cloudRouteHostKind, newTabGeneration, snapshot.sessionId]);
   // Why each offered move would refuse now: the picker greys its row and says it.
   const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
   const toggleSideTabs = () =>
@@ -9238,6 +9267,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   promptAuthor={directClient.current?.presence.selfId}
                                                                   onJumpToSince={jumpToSince}
+                                                                  onSeenRows={childRows ? undefined : seenRows}
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                   coldOpen={
                                                                     !childRows && opened.cold ? opened.open : undefined
@@ -9710,6 +9740,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const composer = drawPaneComposer({
     markDockEdge,
+    hostOverload,
     readOnlySubagent,
     subagentRelay,
     subagentDraftKey,
