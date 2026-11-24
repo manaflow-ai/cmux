@@ -16,7 +16,9 @@ the app's own theme file watcher applies it, with no relaunch and no settings wr
   2. every `theme` key read before (`settings.get`: the effective settings, theme file applied)
   3. the case's files written: `theme` as the theme file, `agent_pane_css` as DIR/agent-pane/theme.css
      (`:root { --token: value; }`, the chat stylesheet the app pushes to open chats on save), `files` as is
-  4. every `theme` key read until it equals the case's value (15 s), then the after/ shots
+  4. every `theme` key read until it equals the case's value (15 s), then the after/ shots. A value is any JSON
+     (string, number, boolean, object); numbers match by value, booleans only booleans. A key passes only when its
+     before value differs, so a case sets a value off the default (e.g. `"appearance.metrics.spacingScale": 1.5`)
   5. `expect_color`: the shots before and after are probed for that color (each channel within `tolerance`,
      default 24); the case passes the probe when the before shot has fewer than `min_pixels` (default 400) and an
      after shot at least that many. This is how a value no socket method reads (a CSS token) is read back.
@@ -272,6 +274,20 @@ def run_steps(sock: str, steps: list) -> list:
     return done
 
 
+def same(a, b) -> bool:
+    """A setting's read value against the wanted one: strings, CSS tokens, nested JSON, and numbers by value
+    (12 and 12.0 match), but a boolean matches only a boolean (Python's True == 1 does not count)."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) < 1e-9
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
 def read_key(sock: str, key: str):
     reply = rpc(sock, "settings.get", {"path": key}, timeout=10)
     return reply.get("value") if "error" not in reply else {"error": reply.get("error")}
@@ -305,10 +321,11 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
     result["written"] = written
     started = time.monotonic()
     for key, row in result["readback"].items():
-        after = wait_for(lambda: (lambda v: v if v == row["want"] else None)(read_key(sock, key)), 15)
-        row["after"] = after if after is not None else read_key(sock, key)
-        row["ok"] = row["after"] == row["want"] and row["before"] != row["want"]
-        row["applied_ms"] = round((time.monotonic() - started) * 1000) if row["after"] == row["want"] else None
+        # A wanted false or 0 is falsy, so the poll returns the match as a one-item list.
+        wait_for(lambda: [v] if same(v := read_key(sock, key), row["want"]) else None, 15)
+        row["after"] = read_key(sock, key)
+        row["ok"] = same(row["after"], row["want"]) and not same(row["before"], row["want"])
+        row["applied_ms"] = round((time.monotonic() - started) * 1000) if same(row["after"], row["want"]) else None
     time.sleep(float(case.get("settle", 2)))
     probe = case.get("expect_color")
     if probe:
