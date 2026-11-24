@@ -345,7 +345,6 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextKeys",
-        "CmuxNextLaunchImages",
         "CmuxNextLayout",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
@@ -1675,18 +1674,6 @@
       ],
       "packages": [],
       "reads": []
-    },
-    "CmuxNextLaunchImages": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages",
-      "targets": [
-        "CCmuxAppFFI",
-        "CmuxNextCompat",
-        "CmuxNextControl",
-        "CmuxNextDesign",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
     },
     "CmuxNextLayout": {
       "kind": "regular",

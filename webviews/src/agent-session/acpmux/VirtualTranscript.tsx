@@ -236,8 +236,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -1743,6 +1743,27 @@ function TranscriptView({
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
       if (!(target instanceof HTMLElement)) return;
+      if (detail.outside) {
+        // A send cleared a tall prompt. Under the transaction, sent from the latest row, its collapse
+        // is part of the send's one motion: the send's hold opens now (its rows come a moment later,
+        // `sendMoves` renews it), the field stays drawn at its height while held, and then shrinks on
+        // the rows' clock, landing as they land. Leo, 2026-11-22: "when i send it collapses the compser
+        // then sends it to you... but i think we should be able to calculate it out to be like one
+        // smooth motion." Otherwise the field lands at once, as before.
+        const rows = thread.current;
+        if (
+          !rows ||
+          !transactionOn(rows) ||
+          !followingRef.current ||
+          jumpTarget.current !== undefined ||
+          !(foldMs(rows) > 0)
+        )
+          return;
+        const tx = threadTransaction(rows);
+        tx.expect("send");
+        tx.ride(detail.animation);
+        detail.outside.claim();
+      }
       growth = { field: target, to: detail.to };
       // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
       queueMicrotask(() => {
