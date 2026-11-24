@@ -27,7 +27,16 @@ final class WorkspacePaneShapeView: NSView {
     private(set) var images: [String: CGImage] = [:]
 
     func setImage(_ image: CGImage?, for tab: String) {
+        guard images[tab] != nil || image != nil else { return }
         images[tab] = image
+        needsDisplay = true
+    }
+
+    /// Drops pictures of tabs the miniature no longer shows (the card is reused across workspaces).
+    func pruneImages(keeping tabs: [String]) {
+        let kept = images.filter { tabs.contains($0.key) }
+        guard kept.count != images.count else { return }
+        images = kept
         needsDisplay = true
     }
 
@@ -138,9 +147,9 @@ final class WorkspacePaneShapeView: NSView {
         paragraph.lineBreakMode = titleLines > 1 ? .byWordWrapping : .byTruncatingTail
         (caption.title as NSString).draw(with: titleRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                                          attributes: [.font: titleFont, .foregroundColor: Palette.textPrimary, .paragraphStyle: paragraph])
-        if let state = caption.state {
+        if let state = caption.state, titleRect.maxY + stateHeight <= area.maxY + 2 {
             paragraph.lineBreakMode = .byTruncatingTail
-            (state as NSString).draw(with: CGRect(x: area.minX, y: min(titleRect.maxY, area.maxY - stateHeight), width: area.width, height: stateHeight),
+            (state as NSString).draw(with: CGRect(x: area.minX, y: titleRect.maxY, width: area.width, height: stateHeight),
                                      options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                                      attributes: [.font: stateFont, .foregroundColor: Palette.textSecondary, .paragraphStyle: paragraph])
         }

@@ -243,7 +243,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
             for tab in tabs {
                 let image = await source(tab, CGSize(width: side, height: side))
                 guard !Task.isCancelled, let body else { return }
-                if let image { body.paneShape.setImage(image, for: tab) }
+                body.paneShape.setImage(image, for: tab)
             }
         }
     }
@@ -297,6 +297,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func requestDetails(for ws: WorkspaceID) { detailsRequested = Self.targetID(ws) }
 
     func hoverCardDeactivated(_ id: HoverTargetID) {
+        paneImageTask?.cancel()
         if detailsRequested == id { detailsRequested = nil }
         resources.close()
         body?.resetResourceHistory()
@@ -892,6 +893,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         guard paneShape.shape != shape else { return }
         contentChanged()
         paneShape.shape = shape
+        paneShape.pruneImages(keeping: paneShape.tabIDs)
     }
 
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
