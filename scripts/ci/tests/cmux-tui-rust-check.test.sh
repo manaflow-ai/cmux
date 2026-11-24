@@ -78,6 +78,15 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing -p cmux-terminal-client -p cmux-encode --locked --profile ci --no-tests=fail$' "$TMP/calls" || fail "terminal: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | clippy | --doc|--workspace' "$TMP/calls" || fail "terminal mode ran more than the terminal crates: $(cat "$TMP/calls")"
 [[ ! -e "$TMP/go-calls" ]] || fail "terminal mode set up Go (its crates do not build cmux-tailnet)"
+# The fleet step runs the script by a relative path from the repo root
+# (`bash scripts/ci/cmux-tui-rust-check.sh`): it finds install-nextest.sh after
+# its cd into cmux-tui (cmux#50150: "cd: scripts/ci: No such file or directory").
+mkdir -p "$TMP/work/scripts/ci"
+cp "$ROOT/scripts/ci/cmux-tui-rust-check.sh" "$ROOT/scripts/ci/install-nextest.sh" "$TMP/work/scripts/ci/"
+rm -f "$TMP/calls"
+out=$( (cd "$TMP/work" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k /bin/bash scripts/ci/cmux-tui-rust-check.sh terminal) 2>&1) || fail "terminal mode by a relative path: $out"
+grep -q 'nextest run -p ghostty-vt ' "$TMP/calls" || fail "relative path: nextest did not run: $out"
+rm -rf "$TMP/work/scripts"
 rm -f "$TMP/calls"
 ARGS=(terminal 'tmux_conformance')
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "terminal mode with a filter refused"
