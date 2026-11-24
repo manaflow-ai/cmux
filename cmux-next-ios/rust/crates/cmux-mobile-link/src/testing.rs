@@ -37,6 +37,8 @@ pub struct FakeOptions {
     pub strip_wg_version: bool,
     /// What `GET /v1/ice` returns besides Cloudflare STUN (a [`TestTurn`]).
     pub ice_servers: Vec<crate::api::IceServer>,
+    /// Additive hop/1 entries returned as `hopServers` by `GET /v1/ice`.
+    pub hop_servers: Vec<crate::api::HopServer>,
     /// `GET /v1/ice` answers after this long (a slow Worker or TURN API).
     pub ice_delay: std::time::Duration,
     /// The STUN server `GET /v1/ice` names instead of Cloudflare's
@@ -379,7 +381,21 @@ async fn answer_http(
         servers.extend(ice.iter().map(|server| {
             json!({"urls": server.urls, "username": server.username, "credential": server.credential})
         }));
-        ("200 OK", json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()}))
+        let hop_servers: Vec<Value> = options
+            .hop_servers
+            .iter()
+            .filter_map(|hop| {
+                let url = hop.url.as_ref()?;
+                let ticket =
+                    hop.ticket.clone().unwrap_or_else(|| format!("dev-{}", uuid::Uuid::new_v4().simple()));
+                Some(json!({"kind": hop.kind.as_deref().unwrap_or("hop"), "url": url, "ticket": ticket}))
+            })
+            .collect();
+        let mut reply = json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()});
+        if !hop_servers.is_empty() {
+            reply["hopServers"] = Value::Array(hop_servers);
+        }
+        ("200 OK", reply)
     } else if line.starts_with("POST /v1/devices") {
         ("200 OK", json!({"device": body}))
     } else {

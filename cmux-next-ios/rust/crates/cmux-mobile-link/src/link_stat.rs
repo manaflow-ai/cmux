@@ -92,6 +92,28 @@ impl RttSummary {
     }
 }
 
+/// Counters from the hop/1 leg, included only while the selected path is hop.
+/// Values are bounded before they enter a link-stat frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HopStats {
+    pub srtt_ms: u64,
+    pub loss_permille: u16,
+    pub resent: u64,
+    pub repaired: u64,
+}
+
+impl HopStats {
+    fn bounded(self) -> Self {
+        Self {
+            srtt_ms: self.srtt_ms.min(u64::from(MAX_MS)),
+            loss_permille: self.loss_permille.min(1_000),
+            resent: self.resent.min(100_000),
+            repaired: self.repaired.min(100_000),
+        }
+    }
+}
+
 /// One `link_stat` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +132,8 @@ pub struct LinkStat {
     pub marks: BTreeMap<&'static str, u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt: Option<RttSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hop: Option<HopStats>,
     /// Pings sent since the last stat.
     pub pings: u32,
     /// Pings lost since the last stat (sent, never answered, no longer waiting).
@@ -238,6 +262,7 @@ impl Reporter {
             setup_ms,
             marks,
             rtt: RttSummary::of(&pings.samples),
+            hop: None,
             pings: clamp(sent),
             lost: clamp(lost),
             switches: self.switches.min(10_000),
@@ -253,8 +278,13 @@ impl Reporter {
 
 /// Send `stat` on the current signaling socket. `false` when that socket's Worker refused stats
 /// (no more go out), or there is none.
-async fn send(signaling: &SignalingSource, stat: &LinkStat) -> bool {
-    let Some(client) = signaling().await else { return true };
+async fn send(signaling: &SignalingSource, session_id: &str, mut stat: LinkStat) -> bool {
+    if stat.path == LinkPath::Hop.as_str() {
+        stat.hop = crate::dial::wireguard::hop_stats(session_id, true).map(HopStats::bounded);
+    }
+    let Some(client) = signaling().await else {
+        return true;
+    };
     if !client.sends_link_stats() {
         return false;
     }
@@ -270,6 +300,7 @@ pub fn spawn(
     transport: TransportKind,
     mut path: watch::Receiver<LinkPath>,
     timeline: Timeline,
+    session_id: String,
     signaling: SignalingSource,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -292,7 +323,7 @@ pub fn spawn(
                 cellular(),
             );
             if let Some(stat) = stat
-                && !send(&signaling, &stat).await
+                && !send(&signaling, &session_id, stat).await
             {
                 return;
             }
@@ -327,7 +358,7 @@ pub fn spawn(
                 cellular(),
             );
             let Some(stat) = stat else { return };
-            if !send(&signaling, &stat).await || reason == Reason::End {
+            if !send(&signaling, &session_id, stat).await || reason == Reason::End {
                 return;
             }
         }
@@ -424,7 +455,8 @@ mod tests {
             reporter.path_changed(LinkPath::TurnTls, up);
         }
         let huge = pings(u64::MAX, 0, 0, &vec![u32::MAX; PingStats::MAX_SAMPLES]);
-        let stat = reporter
+        reporter.path_changed(LinkPath::Hop, up);
+        let mut stat = reporter
             .build(
                 Reason::End,
                 up + Duration::from_secs(10 * 365 * 86_400),
@@ -434,6 +466,10 @@ mod tests {
                 true,
             )
             .unwrap();
+        stat.hop = Some(
+            HopStats { srtt_ms: u64::MAX, loss_permille: u16::MAX, resent: u64::MAX, repaired: u64::MAX }
+                .bounded(),
+        );
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
         assert_eq!(stat.marks.len(), MARKS.len());
