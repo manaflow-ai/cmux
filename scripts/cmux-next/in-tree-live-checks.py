@@ -538,9 +538,19 @@ def probe_colors(path):
 
 
 def main_window_id(pid):
+    """The app's main window: the on-screen window of the pid whose size is the main window's (debug.layers), else the
+    largest titled one. The largest window of the pid alone picked a headless Chromium page window (white) once the main
+    window was made smaller than it."""
     listed = cua("list_windows", {})
     wins = [w for w in (listed.get("windows") or []) if w.get("pid") == pid and w.get("bounds")]
-    wins.sort(key=lambda w: -w["bounds"]["width"] * w["bounds"]["height"])
+    frame = main_layers().get("frame")
+    if frame:
+        sized = [w for w in wins if abs(w["bounds"]["width"] - frame[2]) <= 2 and abs(w["bounds"]["height"] - frame[3]) <= 2
+                 and w.get("is_on_screen", True)]
+        if sized:
+            sized.sort(key=lambda w: (not w.get("title"), w["window_id"]))
+            return sized[0]["window_id"]
+    wins.sort(key=lambda w: (not w.get("title"), -w["bounds"]["width"] * w["bounds"]["height"]))
     return wins[0]["window_id"] if wins else None
 
 
@@ -815,9 +825,9 @@ def band_rows(path, columns):
         top = bottom = None
         for y in range(height):
             r, g, b = rows[y][3 * x], rows[y][3 * x + 1], rows[y][3 * x + 2]
-            if top is None and r > 200 and g < 90 and b > 200:
+            if top is None and r > 180 and b > 180 and r - g > 70 and b - g > 70:  # magenta
                 top = y
-            if r < 90 and g > 200 and b > 200:
+            if g > 180 and b > 180 and g - r > 70 and b - r > 70:  # cyan, as the window server's colour space shows it
                 bottom = y
         out.append((top, bottom))
     return width, height, out
@@ -1183,6 +1193,8 @@ class MotionCapture:
 
     def _capture(self):
         while self.running:
+            if self.count % 8 == 0:
+                self.window = main_window_id(self.pid) or self.window
             with self.lock:
                 self.count += 1
                 path = os.path.join(self.folder, f"cap-{self.count:04d}.png")
@@ -1222,7 +1234,7 @@ def top_band_ok(rows, width, sx, sy, window, view):
         y0, y1 = max(0, int((top - 24) * sy)), min(len(rows), int((top + 24) * sy))
         for yy in range(y0, y1):
             r, g, b = rows[yy][3 * col], rows[yy][3 * col + 1], rows[yy][3 * col + 2]
-            if r > 200 and g < 90 and b > 200:
+            if r > 180 and b > 180 and r - g > 70 and b - g > 70:
                 first = round(yy / sy, 1)
                 break
         found.append(first)
