@@ -407,7 +407,6 @@ final class CEFPaneHost {
         // page keeps its store and navigation guard.
         tab.machineStore = opener?.machineStore
         tab.navigationGuard = opener?.navigationGuard ?? .none
-        tab.allowsAppScripts = opener?.allowsAppScripts ?? true
         // Opened in an agent's window: the opener's pane window is its home (`returnHome` when shown).
         tab.homeHost = opener?.homeHost
         tab.isCreationPending = true

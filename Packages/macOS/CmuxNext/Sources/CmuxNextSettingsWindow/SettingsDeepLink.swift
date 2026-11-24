@@ -73,7 +73,7 @@ public struct SettingsDeepLink: Equatable, Sendable {
 
     /// The localized Cloud model destination shared with the web Settings page.
     public static var cloudModelsTitle: String {
-        String(localized: "settingsWindow.cloud.models.title", defaultValue: "Cloud models", bundle: .module)
+        String(localized: "settingsWindow.cloud.models.title", defaultValue: "Cloud models", bundle: .localizedModule)
     }
 
     private static func text(_ value: ActionValue?) -> String? {

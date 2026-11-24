@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextTestSupport
@@ -30,6 +31,33 @@ struct ChatMachineSignInBindingTests {
 
         let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.boundMachine(ofTab: "tab-1") == "vm-1", "the restored tab is still bound")
+    }
+
+    @Test func settingsApprovalOnlyForwardsItsCallbackWhileCurrent() throws {
+        let defaults = Self.defaults()
+        let machines = MachineRegistry(local: DaemonService())
+        let machine = CloudTestLink.session(id: "vm-1", name: "Approval")
+        machines.add(machine)
+        machine.daemon.store.noteHandshake(DaemonIdentity(capabilities: [DaemonCapability.loopbackForward.rawValue],
+                                                         generation: "callback-test"))
+        let service = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
+        let page = NSObject()
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser))
+        let callback = try #require(URL(string: "http://localhost:8100/callback?code=test"))
+        let wrongPort = try #require(URL(string: "http://localhost:8101/callback"))
+        let wrongPath = try #require(URL(string: "http://localhost:8100/other"))
+        var current = true
+        service.expectCallbackPage(page, machine: "vm-1", port: 8100) { current }
+        service.adoptPage(page, key: tab.id)
+        #expect(service.storePlan(for: tab, url: callback) == .derived)
+        #expect(service.storePlan(for: tab, url: wrongPort) == .blank)
+        #expect(service.storePlan(for: tab, url: wrongPath) == .blank)
+
+        current = false
+        #expect(service.storePlan(for: tab, url: callback) == .blank)
+        let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
+        #expect(relaunched.boundMachine(ofTab: tab.id) == "vm-1")
+        #expect(relaunched.storePlan(for: tab, url: callback) == .blank)
     }
 
     @Test func pastTheLimitOnlyClosedTabsLoseTheirBinding() {

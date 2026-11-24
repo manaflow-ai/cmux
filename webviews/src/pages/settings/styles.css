@@ -3168,7 +3168,7 @@ button.menu-disclosure {
   /* Set by eye from the concentric point (Lucas): 11 px from the top, 16 px from the right. */
   inset-block-start: calc(var(--models-dialog-close-inset) - 9px);
   inset-inline-end: calc(var(--models-dialog-close-inset) - 4px);
-  border-radius: 50%;
+  border-radius: 50%; /* radius-allow: circular dialog close control */ /* concentric-allow: reviewed optical inset from the dialog corner */
 }
 
 .models-dialog .models-footer-buttons {

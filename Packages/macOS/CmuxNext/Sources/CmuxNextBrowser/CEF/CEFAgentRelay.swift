@@ -150,7 +150,6 @@ public final class CEFAgentRelay {
 
     func browserAttached() {
         resumeWaiters(true)
-        guard tab?.allowsAppScripts == true else { return }
         // From fork API 29 the runtime installs the document scripts for every browser in the
         // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
         if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {

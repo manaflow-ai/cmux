@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
@@ -14,6 +15,7 @@ import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
@@ -163,9 +165,8 @@ struct PageFactory {
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
     /// serves `settings.*`), `cmux.app.` to the native ops.
-    func settingsPage(route: String?) -> SettingsSignInPane? {
+    func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
-        let signInPane = SettingsSignInPane(services: services)
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
@@ -214,17 +215,10 @@ struct PageFactory {
             },
             closeSignInPage: { owner in returnFromModelSignIn.removeValue(forKey: owner)?() }
         )
-        models.cloudClaudeLogin = { [weak services, weak signInPane] preferred in
-            guard let services else { return .connectable }
-            return SettingsCloudClaudeLogin(services: services, signInPane: signInPane).state(preferred: preferred)
-        }
-        models.prepareCloudClaudeLogin = { [weak services, weak signInPane] in
-            guard let services else { throw PageError.closed }
-            return try await SettingsCloudClaudeLogin(services: services, signInPane: signInPane).prepare()
-        }
-        models.observeCloudClaudeAccount { [weak services] in
-            services.flatMap { SettingsCloudClaudeLogin.account(in: $0) }
-        }
+        services.settingsClaudeLogin(beside: { [weak native] in native?.anchor() }) { owner, back in
+            returnFromModelSignIn.removeValue(forKey: owner)?()
+            returnFromModelSignIn[owner] = back
+        }.install(on: models)
         models.onConnections = { [weak services] in
             services?.cloud.setup.connectionsChanged()
             services?.cloud.agentCredentials.credentialConnectionsChanged()
@@ -353,7 +347,7 @@ struct PageFactory {
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: PageGestureActionProvider(page: .settings, wrapping: native, backs: provider.personBacksGesture, refusal: JoinConsentStrings.personOnly)),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
-                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
+                      PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: services.agentHarnesses.chiefBackendPage),
                       PageRoute(prefix: WorktreeSetupPageRoute.prefix, provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: ExtensionSettingsPageRoute.prefix, provider: ExtensionSettingsPageRoute { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
@@ -396,14 +390,20 @@ struct PageFactory {
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                            surface: .settings, dynamicResources: dynamicResources) else { return nil }
         native.anchor = { [weak page] in page }
-        signInPane.install(page)
-        page.onOpenExternal = { [weak signInPane] url in signInPane?.openExternal(url) }
+        page.onOpenExternal = { [weak services, weak page] url in
+            guard let page else { return }
+            if SettingsModelKeyPages.contains(url), let services {
+                _ = services.linkOpener.openSignInPage(url, beside: page)
+            } else {
+                LinkRouter.shared.open(url, otherTarget: LinkRouter.isOtherTarget(page.externalLinkModifiers), from: page)
+            }
+        }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
         page.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }
-        return signInPane
+        return page
     }
 
     /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops

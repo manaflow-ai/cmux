@@ -33,7 +33,7 @@ extension CEFTab {
 
     /// The load stopped: reads the committed web document's icon list when Chromium reported none for it.
     func readDocumentFaviconIfUnreported() {
-        guard allowsAppScripts, !faviconReported, documentFaviconRead == nil, !committedIsErrorPage, let page = committedURL,
+        guard !faviconReported, documentFaviconRead == nil, !committedIsErrorPage, let page = committedURL,
               let scheme = page.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
         documentFaviconRead = Task { [weak self] in
             let value = try? await self?.evaluate(Self.documentFaviconScript, world: .isolated, gesture: .cmux)

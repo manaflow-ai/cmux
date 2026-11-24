@@ -219,3 +219,17 @@ final class AgentHarnessCenter {
             ?? (error as? ActionFailure)?.message ?? error.localizedDescription
     }
 }
+
+nonisolated enum AgentHarnessFailure: Error, Equatable {
+    /// No local acpmux (a mock agent host, or no binary).
+    case noDaemon
+    /// The daemon predates the harness operations.
+    case unsupported
+
+    var message: String {
+        switch self {
+        case .noDaemon: AgentHarnessStrings.noDaemon
+        case .unsupported: AgentHarnessStrings.unsupported
+        }
+    }
+}

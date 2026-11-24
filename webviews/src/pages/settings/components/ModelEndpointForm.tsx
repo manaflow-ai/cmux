@@ -14,7 +14,6 @@ import { ConnectionError, ConnectionFooter, ConnectionRegion, SecretField, valid
 import { modelEndpointBackend } from "./modelConnections";
 
 const MAX_MODELS = 100;
-const focusModelId = (input: HTMLInputElement | null) => input?.focus();
 const azureChatRoute = /\/chat\/completions\/*$/i;
 const requestRoute = /\/(?:chat\/completions|completions|responses)\/*$/i;
 const cloudflareModel = /^[^@/][^/]*\/[^/]+(?:\/[^/]+)*$/;
@@ -356,7 +355,6 @@ export function ModelEndpointForm({
                 <Input
                   className="field"
                   type="text"
-                  ref={manualRequired ? undefined : focusModelId}
                   value={manual}
                   placeholder={cloudflare ? "vendor/model" : undefined}
                   disabled={busy}

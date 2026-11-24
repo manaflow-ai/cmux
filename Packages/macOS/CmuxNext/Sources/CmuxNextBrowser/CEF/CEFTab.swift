@@ -26,7 +26,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
-    @ObservationIgnored var allowsAppScripts = true
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
@@ -394,7 +393,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// waits on one pushed event that can be lost (#33940: 1 in 43 restores never got Chromium's first contentful paint
     /// event, and the keys waited the whole 2 s bound). A blank target or an error page needs no paint.
     func askPaintIfLoaded() {
-        guard allowsAppScripts, !hasDocument, documentLoaded, !documentPainted, !blankIsDocument, !committedIsErrorPage, paintAsk == nil else { return }
+        guard !hasDocument, documentLoaded, !documentPainted, !blankIsDocument, !committedIsErrorPage, paintAsk == nil else { return }
         paintAsk = Task { [weak self] in
             guard let self else { return }
             let painted = await paintQuery(self)

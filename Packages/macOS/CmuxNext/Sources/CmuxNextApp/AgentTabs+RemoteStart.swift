@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextCompat
 import CmuxNextTabs
 import CmuxNextDaemon
 import Foundation
@@ -142,7 +143,7 @@ extension AgentTabStore {
             if error.code == AgentRemoteStartRefusal.connectionKeyRefusedCode,
                let provider = error.details?["provider"]?.stringValue {
                 let text = String(format: String(localized: "cloud.modelConnection.keyRefused",
-                    defaultValue: "Your %@ key was refused. Replace it in Settings > Models.", bundle: .module), provider)
+                    defaultValue: "Your %@ key was refused. Replace it in Settings > Models.", bundle: .module.inAppLanguage), provider)
                 showCredentialNotice(text, tab: key, machine: machine, harness: harness)
                 throw AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.connectionKeyRefusedCode,
                                               machine: machineName ?? machine, detail: text)
@@ -162,69 +163,37 @@ extension AgentTabStore {
                                 ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
                                 reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async {
-        guard let cloudCredentials else { return }
-        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-        let status = try? await client.credentialStatus(ownerLink: ownerLink)
-        await client.close()
-        guard let status, let connection = status.connection else {
-            await cloudCredentials.restoreTrackedConnection(chat: tab, machine: machine)
-            return
-        }
-        let replace = CloudAgentCredentialRefresher.machineReplace(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
-        do {
-            let credential = try await cloudCredentials.credential(forConnection: connection, model: status.model, harness: status.harness)
-            guard await replace(credential) == .delivered else { return }
+        await cloudCredentials?.restoreModelConnection(chat: tab, machine: machine, surface: surface, ownerLink: ownerLink,
+                                                       reconnect: reconnect, endpoint: endpoint, onDelivered: {
             existingView(tab, machine: machine)?.clearModelConnectionNotice()
-            trackModelConnection(credential, tab: tab, machine: machine, surface: surface, harness: status.harness,
-                                 ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
-        } catch let failure as CloudAgentCredentials.Failure {
-            if let ids = await cloudCredentials.readCredentialConnections?(), !ids.contains(connection) {
-                _ = await replace(nil)
-            }
-            showCredentialNotice(credentialRefusal(failure, harness: status.harness), tab: tab, machine: machine, harness: status.harness)
-        } catch {}
+        }, onRefusal: { [weak self] failure, harness in
+            guard let self else { return }
+            showCredentialNotice(credentialRefusal(failure, harness: harness), tab: tab, machine: machine, harness: harness)
+        })
     }
 
     private func trackModelConnection(_ credential: CloudAgentCredential, tab: String, machine: String, surface: UInt64,
                                       harness: String?, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                       reconnect: AgentSessionAttachClient.Reconnect?,
                                       endpoint: @escaping AgentSessionAttachClient.EndpointProvider) {
-        cloudCredentials?.started(chat: tab, machine: machine, on: credential, onReauth: { [weak self] in
+        cloudCredentials?.trackModelConnection(credential, chat: tab, machine: machine, surface: surface, ownerLink: ownerLink,
+                                               reconnect: reconnect, endpoint: endpoint) { [weak self] in
             guard let self else { return }
-            let text = self.credentialRefusal(.refused(reason: "chatgpt.reauth_required"), harness: harness)
-            self.showCredentialNotice(text, tab: tab, machine: machine, harness: harness)
-        }, replace: CloudAgentCredentialRefresher.machineReplace(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint),
-           push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint))
+            let text = credentialRefusal(.refused(reason: "chatgpt.reauth_required"), harness: harness)
+            showCredentialNotice(text, tab: tab, machine: machine, harness: harness)
+        }
     }
 
     func showCredentialNotice(_ title: String, tab: String, machine: String, harness: String?) {
         let family = harness ?? "codex"
         existingView(tab, machine: machine)?.showModelConnectionNotice(title,
-            button: String(localized: "cloud.modelConnection.settings", defaultValue: "Settings", bundle: .module)) { [weak self] in
+            button: String(localized: "cloud.modelConnection.settings", defaultValue: "Settings", bundle: .module.inAppLanguage)) { [weak self] in
                 self?.cloudCredentials?.setup?.openConnectionSettings?(family)
             }
     }
 
     func credentialRefusal(_ failure: CloudAgentCredentials.Failure, harness: String?) -> String {
-        guard case .refused(let reason) = failure else {
-            return String(localized: "cloud.modelConnection.unavailable", defaultValue: "The connection is temporarily unavailable.", bundle: .module)
-        }
-        switch reason {
-        case "connections.disabled", "connections.not_cloud":
-            return String(localized: "cloud.modelConnection.disabled", defaultValue: "This connection is turned off for Cloud chats.", bundle: .module)
-        case "connections.model_unavailable":
-            return String(localized: "cloud.modelConnection.modelUnavailable", defaultValue: "This connection cannot use this model. Choose another model or connection.", bundle: .module)
-        case "chatgpt.network", "subscription.network":
-            return String(localized: "cloud.modelConnection.offline", defaultValue: "This connection is offline. Try again when you are connected.", bundle: .module)
-        case "chatgpt.keychain_locked", "subscription.keychain_locked":
-            let provider = ["codex": "ChatGPT", "grok": "SuperGrok", "github-copilot": "GitHub Copilot", "opencode": "Kimi Code"][harness ?? "codex"] ?? "ChatGPT"
-            return String(format: String(localized: "cloud.modelConnection.keychainLocked", defaultValue: "Unlock your Mac's keychain to use %@.", bundle: .module), provider)
-        default:
-            if failure.requiresSignIn || reason == "connections.expired" {
-                return String(localized: "cloud.modelConnection.expired", defaultValue: "This connection has expired. Reconnect it in Settings > Models.", bundle: .module)
-            }
-            return String(localized: "cloud.modelConnection.unavailable", defaultValue: "The connection is temporarily unavailable.", bundle: .module)
-        }
+        failure.modelConnectionNotice(harness: harness, bundle: .module.inAppLanguage)
     }
 
 }

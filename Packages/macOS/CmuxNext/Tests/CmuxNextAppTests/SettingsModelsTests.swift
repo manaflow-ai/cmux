@@ -211,13 +211,14 @@ import Testing
             case "start": return Data(#"{"loginId":"cloud-id","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
             default: return Data(#"{"signedIn":true}"#.utf8)
             }
-        }, openCallback: { url, owner in
+        }, openCallback: { url, owner, current in
+            #expect(current())
             opened.urls.append(url)
             presented.append(owner)
             return true
         })
         let other = SettingsModels.CloudClaudeMachine(id: "other", request: { _, _ in throw NoAnswer() },
-                                                      openCallback: { _, _ in false })
+                                                      openCallback: { _, _, _ in false })
         var ready = false
         models.cloudClaudeLogin = { preferred in
             guard ready else { return .connectable }

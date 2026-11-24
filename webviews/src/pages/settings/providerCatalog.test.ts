@@ -31,7 +31,7 @@ test("the Settings browser admits exactly the catalog's key pages", async () => 
     ]),
   );
   const policyFile = new URL(
-    "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/SettingsModelKeyPages.swift",
+    "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsModelKeyPages.swift",
     import.meta.url,
   );
   const swift = await Bun.file(policyFile).text();

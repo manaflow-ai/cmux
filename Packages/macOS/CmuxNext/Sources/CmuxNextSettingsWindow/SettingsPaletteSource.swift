@@ -1,9 +1,8 @@
 import CmuxNextActions
-import CmuxNextDesign
-import CmuxNextPalette
-import CmuxNextSettings
-import CmuxNextSettingsWindow
-import Foundation
+package import CmuxNextDesign
+package import CmuxNextPalette
+package import CmuxNextSettings
+package import Foundation
 import os
 
 /// Every palette-exposed schema setting as a palette row (R93): the one
@@ -14,12 +13,12 @@ import os
 /// write goes through `SettingsController.setSetting` (the managed guard
 /// and the schema check).
 @MainActor
-final class SettingsPaletteSource: PaletteSettingsSource {
+package final class SettingsPaletteSource: PaletteSettingsSource {
     private let settings: SettingsController
     /// The theme colors of the window the palette serves (its theme scope).
     private let themeColors: @MainActor () -> [ThemeRGB]
     /// Every Ghostty theme and its swatch strip, for theme settings (R98).
-    private let themes: ThemeCatalog?
+    private let themes: (any SettingsPaletteThemes)?
     private let openSetting: @MainActor (String) -> Void
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
@@ -30,7 +29,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
 
-    init(settings: SettingsController, themes: ThemeCatalog? = nil, openSetting: @escaping @MainActor (String) -> Void = { _ in },
+    package init(settings: SettingsController, themes: (any SettingsPaletteThemes)? = nil, openSetting: @escaping @MainActor (String) -> Void = { _ in },
          themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
         self.themes = themes
@@ -54,12 +53,12 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// The rows last built and their inputs: an open with the same inputs lists them again.
     private var built: (inputs: RowsInputs, rows: [PaletteSettingRow])?
     /// Times the rows were built (the reuse tests).
-    private(set) var rowBuilds = 0
+    package private(set) var rowBuilds = 0
 
     /// Every palette setting's row with its whole value list (formatted numbers and durations, the
     /// theme and font lists): about 8 ms of the main thread, read after each Cmd-Shift-P's first
     /// frame. Built again only when an input changed, not on every open.
-    var rows: [PaletteSettingRow] {
+    package var rows: [PaletteSettingRow] {
         let colors = themeColors()
         let developerTools = DevTools.isEnabled
         let inputs = RowsInputs(loads: settings.appliedCount, pending: pendingRevision, colors: colors, themes: themes?.revision,
@@ -76,7 +75,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         return rows
     }
 
-    var navigationItems: [PaletteItem] {
+    package var navigationItems: [PaletteItem] {
         let key = "card.cloudModels"
         let title = SettingsDeepLink.cloudModelsTitle
         var item = PaletteItem(
@@ -89,11 +88,11 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         return [item]
     }
 
-    func observeChanges(_ onChange: @escaping @MainActor () -> Void) {
+    package func observeChanges(_ onChange: @escaping @MainActor () -> Void) {
         self.onChange = onChange
     }
 
-    func preview(row: String, option: String?) {
+    package func preview(row: String, option: String?) {
         guard let descriptor = descriptor(row) else { return }
         guard let option else {
             settings.endPreview()
@@ -102,7 +101,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         settings.preview(descriptor, Self.value(option))
     }
 
-    func commit(row: String, option: String) {
+    package func commit(row: String, option: String) {
         guard let descriptor = descriptor(row) else { return }
         let value: JSONValue? = switch option {
         case "on": .bool(true)
@@ -112,7 +111,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         commitValue(descriptor, value)
     }
 
-    func commit(row: String, text: String) {
+    package func commit(row: String, text: String) {
         guard let descriptor = descriptor(row), let value = descriptor.value(typed: text) else { return }
         commitValue(descriptor, value)
     }
@@ -177,7 +176,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         case .color:
             PaletteSettingCustomInput(placeholder: "#RRGGBB") { descriptor.value(typed: $0) != nil }
         case .number(let number), .choiceOrNumber(_, let number):
-            PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
+            PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted()) - \(number.range.upperBound.formatted())") {
                 descriptor.value(typed: $0) != nil
             }
         case .choiceOrURL:
@@ -211,7 +210,15 @@ final class SettingsPaletteSource: PaletteSettingsSource {
 
     /// A color setting's swatches from `tokens`: the foreground, the
     /// background, then ANSI 0 to 15.
-    static func themeColors(_ tokens: ThemeTokens) -> [ThemeRGB] {
+    package static func themeColors(_ tokens: ThemeTokens) -> [ThemeRGB] {
         [tokens.textPrimary, tokens.windowBackground] + tokens.ansi
     }
+}
+
+/// Theme names and swatches supplied by the app's theme catalog.
+@MainActor
+package protocol SettingsPaletteThemes: AnyObject {
+    var names: [String] { get }
+    var revision: Int { get }
+    func swatches(for name: String) -> [ThemeRGB]
 }

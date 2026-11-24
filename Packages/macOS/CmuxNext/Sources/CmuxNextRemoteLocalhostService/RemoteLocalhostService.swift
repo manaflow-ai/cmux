@@ -38,8 +38,9 @@ public final class RemoteLocalhostService {
         debugSocket = nil
         #endif
         for entry in defaults.stringArray(forKey: Self.boundDefaultsKey) ?? [] {
-            let parts = entry.split(separator: "\t", maxSplits: 1).map(String.init)
-            guard parts.count == 2, boundTabs.updateValue(parts[1], forKey: parts[0]) == nil else { continue }
+            let parts = entry.split(separator: "\t", maxSplits: 2).map(String.init)
+            guard parts.count >= 2, boundTabs[parts[0]] == nil else { continue }
+            boundTabs[parts[0]] = SignInBinding(machine: parts[1], callback: parts.count == 3 ? .restored : nil)
             boundOrder.append(parts[0])
         }
     }
@@ -66,7 +67,7 @@ public final class RemoteLocalhostService {
     /// machine through this Mac's tunnel.
     public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil,
                       known: (daemon: DaemonService, workspace: String?)? = nil) -> RemoteLocalhostRoute {
-        if let machine = boundTabs[tab.id] { return boundRoute(machine, engine: engine) }
+        if let binding = boundTabs[tab.id] { return boundRoute(binding.machine, engine: engine) }
         let daemon = known?.daemon ?? machines.daemon(forTab: tab)
         if let machine = Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) {
             let name = machines.cloudMachineBadge(machine: machine) ?? machine
@@ -129,7 +130,7 @@ public final class RemoteLocalhostService {
         // A tab bound to a chat's machine (``expectPage(_:machine:)``) reaches that machine, whichever holds it.
         let daemon: DaemonService
         if let bound = boundTabs[tab.id] {
-            guard let found = machines.daemon(machine: bound) else { return nil }
+            guard let found = machines.daemon(machine: bound.machine) else { return nil }
             daemon = found
         } else {
             daemon = machines.daemon(forTab: tab)
@@ -137,13 +138,6 @@ public final class RemoteLocalhostService {
         // An Open Desktop page has no route into its Cloud machine here: a blank page, never this Mac.
         guard Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) == nil else { return nil }
         return await derivedConfiguration(configuration, daemon: daemon, name: name)
-    }
-
-    /// Gives an embedded chat-machine callback page the same derived store as a workspace tab.
-    package func chatMachineCallbackConfiguration(_ base: BrowserTabConfiguration, daemon: DaemonService) async -> BrowserTabConfiguration? {
-        guard !daemon.isLocal, machines.daemon(machine: daemon.machineID) === daemon,
-              case .machine(let name) = route(daemon: daemon, workspace: nil, engine: .cef) else { return nil }
-        return await derivedConfiguration(base, daemon: daemon, name: name)
     }
 
     private func derivedConfiguration(_ base: BrowserTabConfiguration, daemon: DaemonService, name: String) async -> BrowserTabConfiguration? {
@@ -169,16 +163,42 @@ public final class RemoteLocalhostService {
     /// and any other page may not navigate to loopback.
     public func storePlan(for tab: TabModel, url: URL?) -> RemoteLocalhostStorePlan {
         let route = route(for: tab, engine: .cef, url: url)
-        if boundTabs[tab.id] != nil, case .thisMacInstead = route {
-            return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .blank : .profile(.noLoopback)
+        if let binding = boundTabs[tab.id] {
+            if let url, LoopbackHost(url: url)?.isLoopback == true, let callback = binding.callback, !callback.allows(url) {
+                return .blank
+            }
+            if case .thisMacInstead = route {
+                return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .blank : .profile(.noLoopback)
+            }
         }
         return RemoteLocalhostStorePlan.plan(route: route, url: url)
     }
 
     // MARK: Chat machine tabs
 
+    private struct SignInBinding {
+        enum Callback {
+            case active(port: UInt16, current: @MainActor () -> Bool)
+            case restored
+
+            func allows(_ url: URL) -> Bool {
+                guard case .active(let port, let current) = self else { return false }
+                return url.scheme == "http" && url.host == "localhost" && url.port == Int(port)
+                    && url.path == "/callback" && url.user == nil && url.password == nil && current()
+            }
+        }
+
+        let machine: String
+        let callback: Callback?
+
+        init(machine: String, callback: Callback? = nil) {
+            self.machine = machine
+            self.callback = callback
+        }
+    }
+
     /// Pages made for a chat's machine (``expectPage(_:machine:)``) that no tab holds yet.
-    private var expectedPages: [ObjectIdentifier: (machine: String, until: ContinuousClock.Instant)] = [:]
+    private var expectedPages: [ObjectIdentifier: (binding: SignInBinding, until: ContinuousClock.Instant)] = [:]
     /// Tabs whose localhost is a chat's machine, by tab id, whatever machine's tree holds them:
     /// a Cloud chat's sign-in page (Claude's automatic page, AgentPaneSignInPage.swift), whose
     /// approve redirects to `http://localhost:<port>/callback` on the chat's machine. Kept in
@@ -186,7 +206,7 @@ public final class RemoteLocalhostService {
     /// bound after a relaunch: with its machine gone or remote localhost off, its loopback page
     /// stays blank, never this Mac's localhost. A live tab is never unbound: past
     /// ``boundLimit`` only the bindings of closed tabs are dropped.
-    private var boundTabs: [String: String] = [:]
+    private var boundTabs: [String: SignInBinding] = [:]
     private var boundOrder: [String] = []
     private let defaults: UserDefaults
     public static let boundDefaultsKey = "cmux.next.browser.chatMachineTabs"
@@ -197,9 +217,18 @@ public final class RemoteLocalhostService {
     /// (``adoptPage(_:key:)``) routes its loopback pages there, through that machine's
     /// `loopback-forward-v1`, so the person's own store keeps every other page.
     public func expectPage(_ page: AnyObject, machine: String) {
+        expectPage(page, binding: SignInBinding(machine: machine))
+    }
+
+    /// A Settings approval can reach only its active machine's callback.
+    package func expectCallbackPage(_ page: AnyObject, machine: String, port: UInt16, current: @escaping @MainActor () -> Bool) {
+        expectPage(page, binding: SignInBinding(machine: machine, callback: .active(port: port, current: current)))
+    }
+
+    private func expectPage(_ page: AnyObject, binding: SignInBinding) {
         let now = ContinuousClock.now
         expectedPages = expectedPages.filter { $0.value.until > now }
-        expectedPages[ObjectIdentifier(page)] = (machine, now + .seconds(60))
+        expectedPages[ObjectIdentifier(page)] = (binding, now + .seconds(60))
     }
 
     /// A page installed for tab `key`: the tab takes the machine a page made for it was expected
@@ -207,22 +236,25 @@ public final class RemoteLocalhostService {
     public func adoptPage(_ page: AnyObject, key: String) {
         guard !expectedPages.isEmpty, let expected = expectedPages.removeValue(forKey: ObjectIdentifier(page)),
               expected.until > .now else { return }
-        bind(key, machine: expected.machine)
+        bind(key, binding: expected.binding)
     }
 
     /// The machine tab `id` is bound to (``adoptPage(_:key:)``), if any.
-    public func boundMachine(ofTab id: String) -> String? { boundTabs[id] }
+    public func boundMachine(ofTab id: String) -> String? { boundTabs[id]?.machine }
 
     /// Tab `key` takes daemon `machine`'s localhost, kept across relaunches.
-    func bind(_ key: String, machine: String) {
-        if boundTabs.updateValue(machine, forKey: key) == nil { boundOrder.append(key) }
+    private func bind(_ key: String, binding: SignInBinding) {
+        if boundTabs.updateValue(binding, forKey: key) == nil { boundOrder.append(key) }
         if boundOrder.count > Self.boundLimit {
             // Only closed tabs' bindings go (a tab not on any machine now); a live tab keeps its own.
             let gone = Set(boundOrder.filter { tab(id: $0) == nil }.prefix(boundOrder.count - Self.boundLimit))
             boundOrder.removeAll { gone.contains($0) }
             for id in gone { boundTabs.removeValue(forKey: id) }
         }
-        defaults.set(boundOrder.compactMap { id in boundTabs[id].map { id + "\t" + $0 } }, forKey: Self.boundDefaultsKey)
+        // Restored Settings approval tabs stay bound but their live callback expires with the app.
+        defaults.set(boundOrder.compactMap { id in
+            boundTabs[id].map { id + "\t" + $0.machine + ($0.callback == nil ? "" : "\tcallback") }
+        }, forKey: Self.boundDefaultsKey)
     }
 
     /// The route of a tab bound to daemon `machine`: that machine's, as for a tab of its own tree
@@ -393,7 +425,7 @@ public final class RemoteLocalhostService {
             "recent": .array(proxy.recentEvents.map(JSONValue.string)),
             "plans": .object(plans.mapValues(JSONValue.string)),
             // Tabs bound to a chat's machine (a Cloud chat's sign-in page): tab id to that machine's name.
-            "bound": .object(boundTabs.mapValues { id in .string(machines.daemon(machine: id).map(machineName(of:)) ?? id) }),
+            "bound": .object(boundTabs.mapValues { binding in .string(machines.daemon(machine: binding.machine).map(machineName(of:)) ?? binding.machine) }),
         ])
     }
 

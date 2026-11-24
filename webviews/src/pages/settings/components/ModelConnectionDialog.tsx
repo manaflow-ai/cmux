@@ -3,6 +3,7 @@ import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
 import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { focusRoute } from "../../../ui/focusRoute";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { userMessage } from "../../shared/userMessage";
 import { useStore } from "../context";
@@ -67,7 +68,7 @@ export function ModelConnectionDialog({
   const heading = useRef<HTMLDivElement>(null);
   const focusHeading = useCallback((node: HTMLDivElement | null) => {
     heading.current = node;
-    node?.focus({ preventScroll: true });
+    focusRoute(node, "system", "Focus the current model connection dialog heading", { preventScroll: true });
   }, []);
   const connection = rowAction?.connection;
   const directClaude = provider?.kind === "claude-login" || (provider?.id === "claude-login" && !target);

@@ -509,7 +509,7 @@ public final class SettingsModels {
     }
 
     func openSignIn(_ url: URL, owner: String) async throws {
-        // The pane beside Settings when it can open; the default browser otherwise, so a sign-in never dead-ends.
+        // Live Settings uses the app browser; other hosts can supply their own opener.
         if let presentSignInPage, await presentSignInPage(url, owner) {
             return
         }

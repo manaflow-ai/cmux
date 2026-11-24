@@ -65,7 +65,7 @@ extension CEFTab {
     /// Chromium's page background and the host view. `keepsColorWithoutAnswer`:
     /// an answer that is no color leaves the color read before.
     func samplePageBackdrop(script: String = CEFTab.pageBackdropScript, keepsColorWithoutAnswer: Bool = false) {
-        guard allowsAppScripts, pastFirstRealPage, browserID != nil, !isClosed else { return }
+        guard pastFirstRealPage, browserID != nil, !isClosed else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
             guard let value = try? await self?.evaluate(script, world: .page, gesture: .cmux) else { return }

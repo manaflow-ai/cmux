@@ -1,0 +1,155 @@
+package import CmuxNextCloud
+package import CmuxNextDaemon
+package import CmuxNextPages
+import Foundation
+
+/// Selects and prepares the owner's Cloud machine for the Settings sign-in.
+@MainActor
+package struct SettingsCloudClaudeLogin {
+    private let host: SettingsCloudClaudeLoginHost
+
+    package init(host: SettingsCloudClaudeLoginHost) { self.host = host }
+
+    package struct Candidate {
+        let record: CloudMachine
+        let status: CloudMachine.Status
+        let linked: Bool
+        let supportsLogin: Bool
+
+        package init(record: CloudMachine, status: CloudMachine.Status, linked: Bool, supportsLogin: Bool) {
+            self.record = record
+            self.status = status
+            self.linked = linked
+            self.supportsLogin = supportsLogin
+        }
+    }
+
+    package enum MachineChoice: Equatable {
+        case ready(String)
+        case link(String)
+        case create
+    }
+
+    package static func pickMachine(_ candidates: [Candidate], owner: String?, personal: Bool,
+                            preferred: String? = nil) -> MachineChoice {
+        let owned = candidates.filter { candidate in
+            let record = candidate.record
+            if personal { return CloudTransferRules.isOwner(record, user: owner) }
+            // A record with no creator id may be the person's own: the link's owner answer decides after it connects.
+            return CloudCallerOwnership(creator: record.createdBy, caller: owner) != .team
+        }.sorted { $0.record.id < $1.record.id }
+        let linked = owned.filter { $0.status == .running && $0.linked && $0.supportsLogin }
+        if let ready = linked.first(where: { $0.record.id == preferred }) ?? linked.first {
+            return .ready(ready.record.id)
+        }
+        // Paused, offline, or linked on an older daemon: connecting resumes it and waits out its update.
+        if let offline = owned.first(where: {
+            [.paused, .running, .starting, .provisioning, .unknown].contains($0.status)
+        }) {
+            return .link(offline.record.id)
+        }
+        // Only teammates' machines (or none): the person gets their own.
+        return .create
+    }
+
+    package func install(on models: SettingsModels) {
+        models.cloudClaudeLogin = { preferred in state(preferred: preferred) }
+        models.prepareCloudClaudeLogin = { try await prepare() }
+        models.observeCloudClaudeAccount { host.account() }
+    }
+
+    private func state(preferred: String?) -> SettingsModels.CloudClaudeLogin {
+        guard let account = host.account(), host.hasLoadedMachines(),
+              case .ready(let id) = choice(preferred: preferred), let session = host.machine(id) else {
+            return .connectable
+        }
+        return .ready(machine(session, account: account))
+    }
+
+    private func prepare() async throws -> SettingsModels.CloudClaudeMachine? {
+        guard let account = host.account() else { throw CancellationError() }
+        let check: @MainActor () throws -> Void = {
+            try Task.checkCancellation()
+            guard host.account() == account else { throw CancellationError() }
+        }
+        do {
+            try check()
+            if !host.hasLoadedMachines() || choice() == .create {
+                guard await host.refreshMachines() else { throw Self.startFailure }
+                try check()
+            }
+            guard host.hasLoadedMachines() else { throw Self.startFailure }
+
+            let session: SettingsCloudClaudeMachineLink
+            switch choice() {
+            case .ready(let id), .link(let id):
+                guard let existing = host.machine(id) else { throw Self.startFailure }
+                session = existing
+            case .create:
+                guard let created = try await host.createMachine(check) else { return nil }
+                session = created
+            }
+
+            try await session.connect(check)
+            let owner = await session.ownerLink()
+            try check()
+            guard session.linkHeld() else { throw Self.startFailure }
+            guard owner != nil else {
+                throw PageError(code: "cmux.models.shared_machine", message: "Cloud machine is shared")
+            }
+            guard session.supportsLogin() else {
+                throw PageError(code: "cmux.models.unsupported", message: "Cloud machine does not support Settings sign-in")
+            }
+            return machine(session, account: account)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try check()
+            throw (error as? PageError) ?? Self.startFailure
+        }
+    }
+
+    package static var startFailure: PageError {
+        PageError(code: "cmux.models.machine_start_failed", message: "Cloud machine start failed")
+    }
+
+    private func choice(preferred: String? = nil) -> MachineChoice {
+        Self.pickMachine(host.machineIDs().compactMap { host.machine($0)?.candidate },
+                         owner: host.caller(), personal: host.personal(), preferred: preferred)
+    }
+
+    private func machine(_ session: SettingsCloudClaudeMachineLink, account: [String?]) -> SettingsModels.CloudClaudeMachine {
+        let id = session.candidate.record.id
+        let scope: @MainActor @Sendable () -> Bool = {
+            host.account() == account && host.machineIDs().contains(id)
+        }
+        let liveOwner = session.ownerLink
+        let endpoint = session.endpoint
+        let owner: AgentSessionAttachClient.OwnerLink = {
+            guard !Task.isCancelled, let link = await liveOwner(), await scope() else { return nil }
+            return link
+        }
+        return .init(id: id, name: session.candidate.record.title, request: { op, fields in
+            try Task.checkCancellation()
+            guard scope() else { throw CancellationError() }
+            let link = await owner()
+            try Task.checkCancellation()
+            guard scope() else { throw CancellationError() }
+            guard link != nil else { return Data(#"{"refused":{"reason":"shared_machine"}}"#.utf8) }
+            let client = AgentSessionAttachClient(surface: 0, endpoint: endpoint)
+            let reply: Data
+            do {
+                reply = try await client.settingsClaudeLogin(op, fields, ownerLink: owner)
+            } catch {
+                await client.close()
+                throw error
+            }
+            await client.close()
+            guard scope() else { throw CancellationError() }
+            return reply
+        }, openCallback: { url, owner, current in
+            guard !Task.isCancelled, scope(), current() else { return false }
+            return await session.openCallback(url, owner, { scope() && current() })
+        })
+    }
+}

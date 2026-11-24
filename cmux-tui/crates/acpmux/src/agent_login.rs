@@ -89,6 +89,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
+mod cursor_keychain;
 pub mod github;
 mod hot;
 pub mod parse;
@@ -804,63 +805,7 @@ fn stored_sign_in(agent: Agent, store: &Path, home: &Path, refresh: bool) -> boo
             && cfg!(target_os = "macos")
             && (signed_in_at(agent, &home.join(".cursor"))
                 || (dirs::home_dir().as_deref() == Some(home)
-                    && cursor_login_keychain_item_exists(refresh))))
-}
-
-/// Cursor CLI uses the login Keychain on macOS. Query item metadata without requesting the token.
-fn cursor_login_keychain_item_exists(refresh: bool) -> bool {
-    static CACHE: CursorProbeCache = CursorProbeCache(StdMutex::new(None));
-    CACHE.check(refresh, std::time::Instant::now, || {
-        probe_status(
-            std::process::Command::new("/usr/bin/security").args([
-                "find-generic-password",
-                "-s",
-                "cursor-access-token",
-                "-a",
-                "cursor-user",
-            ]),
-            Duration::from_secs(1),
-        )
-    })
-}
-
-struct CursorProbeCache(StdMutex<Option<(std::time::Instant, bool)>>);
-
-impl CursorProbeCache {
-    fn check(
-        &self,
-        refresh: bool,
-        now: impl Fn() -> std::time::Instant,
-        probe: impl FnOnce() -> bool,
-    ) -> bool {
-        // The probe runs on a blocking worker. Hold the cache lock so concurrent reads share it.
-        let mut cached = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((checked, present)) = *cached
-            && !refresh
-            && now().saturating_duration_since(checked) < Duration::from_secs(30)
-        {
-            return present;
-        }
-        let present = probe();
-        *cached = Some((now(), present));
-        present
-    }
-}
-
-fn probe_status(command: &mut std::process::Command, limit: Duration) -> bool {
-    use wait_timeout::ChildExt;
-
-    let Ok(mut child) =
-        command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
-    else {
-        return false;
-    };
-    if let Ok(Some(status)) = child.wait_timeout(limit) {
-        return status.success();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-    false
+                    && cursor_keychain::cursor_login_keychain_item_exists(refresh))))
 }
 
 /// A code or key fit for a CLI's stdin: one line of printable ASCII.

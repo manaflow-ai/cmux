@@ -72,7 +72,7 @@ extension CEFTab {
     /// navigation in between leaves the next document to its own events.
     func documentDidPaint() {
         guard pastFirstRealPage, !documentSettled else { return }
-        guard allowsAppScripts, browserID != nil, !isClosed else { return documentDidSettle() }
+        guard browserID != nil, !isClosed else { return documentDidSettle() }
         let document = pageBackdropDocument
         guard pageBackdropReading != document else {
             // Load end or stop during the in-flight read: the page may have set its background since that read left,

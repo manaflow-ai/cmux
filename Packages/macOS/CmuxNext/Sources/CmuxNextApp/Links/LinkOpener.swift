@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAppCore
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -225,7 +226,9 @@ final class LinkOpener {
     /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
     /// `revealing` (a terminal program's link, ``LinkRouter/openProgramLink``): a `background` tab still shows where it lands, selected in the pane on the right or made in its new split, and the keyboard stays in `source`. `shownHere` (a sign-in page, ``openSignInPage(_:beside:)``): a tab that lands in `source`'s own pane is selected and focused there, never hidden, and `shownHere` hears its surface.
     @discardableResult
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false, revealing: Bool = false, shownHere: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false, revealing: Bool = false,
+                 adopting page: (any BrowserTab)? = nil, profile: String? = nil,
+                 prepare: (@MainActor () -> Bool)? = nil, shownHere: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
@@ -244,7 +247,9 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        return open(from: from, background: background, kind: .browser, split: background && !revealing ? nil : browserSplit(url, returningTo: from, keepsFocus: background)) { [weak self, weak from] pane, placed in
+        let split = page == nil && (!background || revealing) ? browserSplit(url, returningTo: from, keepsFocus: background) : nil
+        return open(from: from, background: background, kind: .browser, split: split) { [weak self, weak from] pane, placed in
+            guard prepare?() != false else { page?.close(); return false }
             let here = pane === from && placed == nil, quiet = background && !(here && shownHere != nil)
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
@@ -259,12 +264,33 @@ final class LinkOpener {
                     placed?(surface)
                 }
             }
-            return pane.newBrowserTab(url: url, background: quiet || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
+            let opened = pane.newBrowserTab(url: page == nil ? url : nil, engine: page?.engineKind.rawValue, adopting: page,
+                                           background: quiet || placed != nil, profile: profile, opener: opener,
+                                           placementOwner: placed != nil, then: then)
+            if !opened { page?.close() }
+            return opened
         }
     }
 
     /// A provider's sign-in page (Settings > Accounts, onboarding) beside the pane showing `view` and its code (none: the front window's focused pane), as a program's link opens; where nothing beside it takes the page, selected in that pane with the keyboard, so the copied code pastes. The answer, once the sign-in ended, selects the code's tab again while that page is still the one shown there.
-    func openSignInPage(_ url: URL, beside view: NSView?) -> @MainActor () -> Void { let source = view.flatMap { self.source(containing: $0) } ?? services?.windows.active?.focusedPane, shown = source?.selectedTab?.id; var page: SurfaceID?; openWeb(url, from: source, background: true, revealing: true) { page = $0 }; return { [weak source] in if let source, let page, let shown, source.selectedTab?.surface == page { source.select(StripTabID(shown)) } } }
+    func openSignInPage(_ url: URL, beside view: NSView?) -> @MainActor () -> Void {
+        let source = view.flatMap { self.source(containing: $0) } ?? services?.windows.active?.focusedPane
+        return openSignInPage(url, from: source) ?? {}
+    }
+
+    /// The same placement for a sign-in page with a machine-specific callback route.
+    func openSignInPage(_ url: URL, from source: PaneController?, adopting page: (any BrowserTab)? = nil,
+                        profile: String? = nil, prepare: (@MainActor () -> Bool)? = nil) -> (@MainActor () -> Void)? {
+        let shown = source?.selectedTab?.id
+        var selectedPage: SurfaceID?
+        guard openWeb(url, from: source, background: true, revealing: true, adopting: page, profile: profile, prepare: prepare,
+                      shownHere: { selectedPage = $0 }) else { return nil }
+        return { [weak source] in
+            if let source, let selectedPage, let shown, source.selectedTab?.surface == selectedPage {
+                source.select(StripTabID(shown))
+            }
+        }
+    }
 
     /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room. `keepsFocus`: the new split's tab takes no focus (a terminal program's background link).
     func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil, keepsFocus: Bool = false) -> SplitMake {

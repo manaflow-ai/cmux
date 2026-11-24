@@ -23,42 +23,53 @@ enum ChatMachineSignInTab {
         let services = pane.services
         guard let (tab, _) = services.locateTab(key, onMachine: pane.daemon.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
-        return opener(for: url, daemon: daemon, from: pane)
-    }
-
-    static func isAvailable(on daemon: DaemonService, services: AppServices) -> Bool {
-        guard case .machine = services.remoteLocalhost.route(daemon: daemon, workspace: nil, engine: .cef) else { return false }
-        return services.cache.browserTabs.cefUnavailable() == nil
-    }
-
-    /// Opens the chat-machine browser in a workspace tab.
-    static func opener(for url: URL, daemon: DaemonService, from pane: PaneController) -> (@MainActor () -> Bool)? {
-        let services = pane.services
         guard isAvailable(on: daemon, services: services) else { return nil }
-        let machine = daemon.machineID
         return { [weak pane] in
             guard pane != nil else { return false }
             // task-owner: one page made and one tab asked for; ends once the tab is asked for.
             Task { @MainActor [weak pane] in
-                guard let source = pane else { return }
-                // The page is made in the store the new tab gets: the profile a new browser tab
-                // in this workspace takes (its own, the room's or `default`), or the incognito one
-                // in an incognito window. The tab is asked for with that same profile, so the
-                // adopted page never crosses profiles.
-                let browserTabs = services.cache.browserTabs
-                let incognito = browserTabs.isIncognitoPane(source.pane)
-                let wire = incognito ? nil : browserTabs.resolveProfile(source.pane, nil)
-                let profile = incognito ? services.windows.incognitoProfile() : services.browserProfiles.book.engineProfile(for: wire)
-                let configuration = BrowserTabConfiguration(profile: profile, initialURL: url, navigationGuard: .noLoopback)
-                guard let page = try? await services.cache.makeCEFTab(configuration) else { return }
-                guard let pane else { return page.close() }
-                services.remoteLocalhost.expectPage(page, machine: machine)
-                services.linkOpener.open(from: pane, kind: .browser) { target, placed in
-                    target.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page,
-                                         background: placed != nil, profile: wire, placementOwner: placed != nil, then: placed)
-                }
+                guard let pane else { return }
+                _ = await open(url, daemon: daemon, from: pane, checking: { true })
             }
             return true
+        }
+    }
+
+    private static func isAvailable(on daemon: DaemonService, services: AppServices) -> Bool {
+        guard case .machine = services.remoteLocalhost.route(daemon: daemon, workspace: nil, engine: .cef) else { return false }
+        return services.cache.browserTabs.cefUnavailable() == nil
+    }
+
+    /// Opens the approval page using the chat machine's existing browser placement and callback route.
+    static func open(_ url: URL, daemon: DaemonService, from source: PaneController,
+                     callbackPort: UInt16? = nil, checking current: @escaping @MainActor () -> Bool,
+                     onOpened: (@MainActor (@escaping @MainActor () -> Void) -> Void)? = nil) async -> Bool {
+        let services = source.services
+        guard current(), isAvailable(on: daemon, services: services) else { return false }
+        // An adopted tab stays in the profile it was created in.
+        let browserTabs = services.cache.browserTabs
+        let incognito = browserTabs.isIncognitoPane(source.pane)
+        let wire = incognito ? nil : browserTabs.resolveProfile(source.pane, nil)
+        let profile = incognito ? services.windows.incognitoProfile() : services.browserProfiles.book.engineProfile(for: wire)
+        let configuration = BrowserTabConfiguration(profile: profile, initialURL: url, navigationGuard: .noLoopback)
+        guard let page = try? await services.cache.makeCEFTab(configuration) else { return false }
+        guard !Task.isCancelled, current() else { page.close(); return false }
+        if let callbackPort {
+            let back = services.linkOpener.openSignInPage(url, from: source, adopting: page, profile: wire, prepare: {
+                guard current() else { return false }
+                services.remoteLocalhost.expectCallbackPage(page, machine: daemon.machineID, port: callbackPort, current: current)
+                return true
+            })
+            guard let back else { page.close(); return false }
+            onOpened?(back)
+            return true
+        }
+        return services.linkOpener.open(from: source, kind: .browser) { target, placed in
+            services.remoteLocalhost.expectPage(page, machine: daemon.machineID)
+            let made = target.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page,
+                                            background: placed != nil, profile: wire, placementOwner: placed != nil, then: placed)
+            if !made { page.close() }
+            return made
         }
     }
 }

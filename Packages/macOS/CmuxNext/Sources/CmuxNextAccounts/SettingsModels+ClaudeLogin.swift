@@ -18,11 +18,13 @@ extension SettingsModels {
         public let id: String
         let name: String?
         let request: @MainActor (String, [String: String]) async throws -> Data
-        let openCallback: @MainActor (URL, String) async -> Bool
+        /// True while this approval remains the current sign-in attempt.
+        public typealias CallbackScope = @MainActor @Sendable () -> Bool
+        let openCallback: @MainActor (URL, String, @escaping CallbackScope) async -> Bool
 
         /// Bind requests and browser approval to the same machine.
         public init(id: String, name: String? = nil, request: @escaping @MainActor (String, [String: String]) async throws -> Data,
-                    openCallback: @escaping @MainActor (URL, String) async -> Bool) {
+                    openCallback: @escaping @MainActor (URL, String, @escaping CallbackScope) async -> Bool) {
             self.id = id
             self.name = name
             self.request = request
@@ -182,7 +184,12 @@ extension SettingsModels {
                         throw PageError.unavailable("Claude sign-in callback is unavailable")
                     }
                     if let machine {
-                        guard await machine.openCallback(link, browserOwner) else { throw PageError.unavailable("Cloud browser callback is unavailable") }
+                        let current: CloudClaudeMachine.CallbackScope = { [weak self] in
+                            self?.claudeLoginAttempts[target]?.id == id && self?.claudeLogins[target]?.phase == "approving"
+                        }
+                        guard await machine.openCallback(link, browserOwner, current) else {
+                            throw PageError.unavailable("Cloud browser callback is unavailable")
+                        }
                     } else {
                         try await openSignIn(link, owner: browserOwner)
                     }

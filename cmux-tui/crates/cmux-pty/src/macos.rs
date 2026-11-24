@@ -102,19 +102,15 @@ fn mark_listed_descriptors_close_on_exec(
 }
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
-    let (master, slave) = open_files(size)?;
-    let master = MacOsMasterPty { file: master, took_writer: Cell::new(false), eof_on_drop: true };
-    Ok((Box::new(master), Slave(slave)))
-}
-
-pub(crate) fn open_files(size: PtySize) -> anyhow::Result<(File, File)> {
     let master = open_pty_master()?;
     retry_pty_control(master.as_raw_fd(), libc::grantpt).context("failed to grant PTY slave")?;
     retry_pty_control(master.as_raw_fd(), libc::unlockpt).context("failed to unlock PTY slave")?;
     let slave_name = pty_slave_name(master.as_raw_fd())?;
     let slave = open_pty_slave(&slave_name)?;
     set_window_size(&slave, size)?;
-    Ok((master, slave))
+
+    let master = MacOsMasterPty { file: master, took_writer: Cell::new(false), eof_on_drop: true };
+    Ok((Box::new(master), Slave(slave)))
 }
 
 /// Wrap an inherited PTY master whose session another process started.

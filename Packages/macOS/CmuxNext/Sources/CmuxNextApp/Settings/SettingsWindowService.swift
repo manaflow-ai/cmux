@@ -38,13 +38,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
-    private var settingsPane: SettingsSignInPane?
-    private weak var activeSignInPane: SettingsSignInPane?
-
-    func claimSignInPane(_ pane: SettingsSignInPane) {
-        if activeSignInPane !== pane { activeSignInPane?.close(restoreFocus: false) }
-        activeSignInPane = pane
-    }
+    private var webPage: PageWebView?
     /// Customize Menu… opens so far (``showMenus(_:)``).
     private var menusOpens = 0
     /// The route the next page view opens on.
@@ -166,13 +160,13 @@ final class SettingsWindowService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let route = pendingRoute
         pendingRoute = nil
-        if let settingsPane, settingsPane.superview == nil {
-            if let route, let page = settingsPane.settingsPage, page.route != route { page.open(route: route) }
-            return settingsPane
+        if let webPage, webPage.superview == nil {
+            if let route, webPage.route != route { webPage.open(route: route) }
+            return webPage
         }
-        guard let pane = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
-        if settingsPane == nil { settingsPane = pane }
-        return pane
+        guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
+        if webPage == nil { webPage = page }
+        return page
     }
 
     func tabClosed(_ key: String) {

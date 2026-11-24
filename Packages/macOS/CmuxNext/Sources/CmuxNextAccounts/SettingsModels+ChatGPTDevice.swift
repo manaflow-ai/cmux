@@ -38,14 +38,14 @@ enum ChatGPTDeviceState: Equatable {
         }
     }
 
-    case idle, starting, waiting(Challenge), cancelling, connected(String), failed(String)
+    case idle, starting, showingChallenge(Challenge), cancelling, connected(String), failed(String)
     case wrongAccount(actual: String, expected: String)
 
     var pageState: JSONValue {
         switch self {
         case .idle: ["phase": "idle"]
         case .starting: ["phase": "starting"]
-        case .waiting(let challenge):
+        case .showingChallenge(let challenge):
             ["phase": "waiting", "userCode": .string(challenge.code), "expiresAt": JSONValue(challenge.expiresAt),
              "verificationURL": .string(challenge.pageURL)]
         case .cancelling: ["phase": "cancelling"]
@@ -81,7 +81,7 @@ extension SettingsModels {
         case .starting:
             // The begin reply may still be in flight. Its task cancels as soon as it has the ID.
             chatgptDevice = .cancelling
-        case .waiting(let challenge):
+        case .showingChallenge(let challenge):
             guard let environment = chatgptDeviceEnvironment else { return }
             dismissSignInPage?("device:\(chatgptDeviceRunID)")
             chatgptDevice = .cancelling
@@ -145,22 +145,22 @@ extension SettingsModels {
                   provider.admits(url) else {
                 throw PageError.invalidParams("invalid device challenge")
             }
-            let waiting = ChatGPTDeviceState.waiting(.init(attempt: attempt, code: code, url: url, expiresAt: expiresAt))
-            shown = waiting
-            chatgptDevice = waiting
+            let presented = ChatGPTDeviceState.showingChallenge(.init(attempt: attempt, code: code, url: url, expiresAt: expiresAt))
+            shown = presented
+            chatgptDevice = presented
             if openBrowser, Double(expiresAt) > Date.now.timeIntervalSince1970 {
                 try await openSignIn(url, owner: browserOwner)
             }
             // wakeup-allow: waits are daemon long polls bounded by the device attempt's expiry.
             for _ in 0...([.grok, .kimi].contains(provider) ? Self.chatgptRounds * 2 : Self.chatgptRounds) {
-                guard chatgptDeviceRunID == runID, chatgptDevice == waiting else { return }
+                guard chatgptDeviceRunID == runID, chatgptDevice == presented else { return }
                 let reply = try await callChatGPTDevice(environment, provider.wait, ["attempt": attempt])
-                guard chatgptDeviceRunID == runID, chatgptDevice == waiting else { return }
+                guard chatgptDeviceRunID == runID, chatgptDevice == presented else { return }
                 switch reply["status"]?.stringValue {
                 case "pending": continue
                 case "done":
                     await refresh()
-                    if chatgptDeviceRunID == runID, chatgptDevice == waiting {
+                    if chatgptDeviceRunID == runID, chatgptDevice == presented {
                         chatgptDevice = (reply["connection_id"]?.stringValue ?? reply["connection"]?["id"]?.stringValue).map(ChatGPTDeviceState.connected) ?? .idle
                     }
                 case "cancelled": chatgptDevice = .idle
@@ -175,7 +175,7 @@ extension SettingsModels {
                 return
             }
             _ = try await callChatGPTDevice(environment, provider.cancel, ["attempt": attempt])
-            if chatgptDeviceRunID == runID, chatgptDevice == waiting { chatgptDevice = .failed("expired_token") }
+            if chatgptDeviceRunID == runID, chatgptDevice == presented { chatgptDevice = .failed("expired_token") }
         } catch {
             // Once the code was shown, the Cancel gesture owns its final state.
             guard chatgptDeviceRunID == runID else { return }
