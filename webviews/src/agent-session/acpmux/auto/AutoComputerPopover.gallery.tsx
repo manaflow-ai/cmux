@@ -6,7 +6,7 @@
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { AutoComputerRows } from "./AutoComputerRows";
-import { NOW, STATES, type StateName } from "./AutoComputer.fixtures";
+import { STATES, type StateName } from "./AutoComputer.fixtures";
 
 type Props = { state: StateName };
 
@@ -59,7 +59,7 @@ export default componentEntry<Props>({
   height: 360,
   anchors: [{ selector: ".auto-computer-popover" }],
   variants: {
-    cloudAuto: {
+    "cloud-auto": {
       note: "In Cloud, Auto size and sleep: the size appears because there is a cloud computer; Why is one sentence.",
       props: { state: "cloudAwake" },
     },
@@ -67,11 +67,11 @@ export default componentEntry<Props>({
       note: "Size pinned and Keep awake 4 h: a pin mark on each pinned row; the button itself is unchanged.",
       props: { state: "sizePinned" },
     },
-    onThisMac: {
+    "on-this-mac": {
       note: "Only on This Mac: no size yet, because there is no cloud computer.",
       props: { state: "local" },
     },
-    slotsFull: {
+    "slots-full": {
       note: "Slots full: the Why row explains it.",
       props: { state: "slotsFull" },
     },

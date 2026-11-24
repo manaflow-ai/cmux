@@ -83,8 +83,8 @@
   color: var(--agent-text);
 }
 .acpmux-computer-row {
-  display: grid;
-  grid-template-columns: 52px auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   column-gap: var(--ds-space-2, 8px);
   row-gap: var(--ds-space-1, 4px);
@@ -94,6 +94,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  width: 52px;
   color: var(--agent-muted);
 }
 .acpmux-computer-row-choices {
@@ -102,11 +103,11 @@
   gap: var(--ds-space-1, 4px);
 }
 .acpmux-computer-row-note {
-  grid-column: 3;
+  flex: 1 1 auto;
   min-width: 0;
   color: var(--agent-muted);
 }
-.acpmux-computer-row-label + .acpmux-computer-row-note { grid-column: 2 / -1; color: var(--agent-text); }
+.acpmux-computer-row-label + .acpmux-computer-row-note { flex: 1 1 0; color: var(--agent-text); }
 .acpmux-computer-choice[data-on="true"] {
   background: color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
@@ -163,8 +164,8 @@
   padding: 0 var(--ds-space-3, 12px);
   border: 0;
   border-radius: var(--ds-radius-control, 8px);
-  background: var(--agent-text);
-  color: var(--agent-bg, #000);
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
   font: inherit;
   cursor: default;
 }

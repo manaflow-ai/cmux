@@ -33,6 +33,7 @@ export function CreateAgentCard({
         <textarea
           className="acpmux-create-task"
           rows={2}
+          aria-label={t("computer.create.prompt")}
           value={task}
           placeholder={t("computer.create.placeholder")}
           onChange={(event) => onTask(event.currentTarget.value)}

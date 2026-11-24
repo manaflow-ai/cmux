@@ -32,12 +32,10 @@ export function AutoStatusLine({
   if (!line) return null;
   const chip = look === "chip";
   return (
-    <div
+    <output
       className="acpmux-computer-status"
       data-look={look}
       data-phase={status.phase}
-      role="status"
-      aria-live="polite"
       title={chip ? line.text : undefined}
     >
       <span className="acpmux-computer-status-text">{chip ? statusChipText(line) : line.text}</span>
@@ -52,6 +50,6 @@ export function AutoStatusLine({
           {action.label}
         </button>
       ))}
-    </div>
+    </output>
   );
 }
