@@ -654,14 +654,16 @@ impl Drive for Live {
     }
 
     fn show(&mut self, cloud: Cloud, reason: Option<&str>) {
-        let mut show = json!({"show": {"cloud": cloud, "session": self.session}});
+        let mut show = serde_json::Map::new();
+        show.insert("cloud".to_owned(), json!(cloud));
+        show.insert("session".to_owned(), json!(self.session));
         if let Some(reason) = reason {
-            show["show"]["reason"] = json!(reason);
+            show.insert("reason".to_owned(), json!(reason));
         }
         if let Some(machine) = &self.machine {
-            show["show"]["machine"] = json!(machine);
+            show.insert("machine".to_owned(), json!(machine));
         }
-        println!("{show}");
+        println!("{}", json!({"show": show}));
     }
 
     fn log(&mut self, line: &str) {
