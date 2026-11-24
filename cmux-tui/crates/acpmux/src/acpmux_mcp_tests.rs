@@ -90,6 +90,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "watch_add",
             "watch_ls",
             "watch_rm",
+            "race_start",
+            "race_show",
             "send_status",
             "machine_read",
             "machine_edit",
