@@ -23,7 +23,6 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTerminal
-import CmuxNextSignposts
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os
@@ -57,8 +56,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let mainWork: MainWorkScheduler
     private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
-    /// The `switch.wake` signpost on system and display wakes (idle ledger: wake-display-to-interactive).
-    private let wakeFrameProbe = WakeFrameProbe()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?

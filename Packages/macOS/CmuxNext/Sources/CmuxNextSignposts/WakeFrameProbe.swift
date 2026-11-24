@@ -10,9 +10,7 @@ public final class WakeFrameProbe {
     /// Starts observing; keep the probe alive for the app's life.
     public init() {
         let center = NSWorkspace.shared.notificationCenter
-        observers = [
-            MainActorObservation(NSWorkspace.didWakeNotification, center: center) { WakeFrameSignpost().begin(source: .system) },
-            MainActorObservation(NSWorkspace.screensDidWakeNotification, center: center) { WakeFrameSignpost().begin(source: .display) },
-        ]
+        let sources: [(Notification.Name, WakeFrameSignpost.Source)] = [(NSWorkspace.didWakeNotification, .system), (NSWorkspace.screensDidWakeNotification, .display)]
+        observers = sources.map { name, source in MainActorObservation(name, center: center) { WakeFrameSignpost().begin(source: source) } }
     }
 }
