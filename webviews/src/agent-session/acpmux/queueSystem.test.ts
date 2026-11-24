@@ -4,6 +4,7 @@
 import { expect, test } from "bun:test";
 import { mergeQueue, systemKindOf, withSystem } from "./direct/queue";
 import { ownQueue, systemQueue } from "./conversation/queuedMessages";
+import { agentSideRows } from "./session-info/agentSide";
 
 const surge = "Held during a message surge: 10 message(s) in 8 thread(s) need you";
 
@@ -45,4 +46,23 @@ test("a row the person edited is theirs again", () => {
   const queue = mergeQueue(had, [{ promptId: "d", prompt: "my words", origin: "person" }], undefined, new Set(["d"]));
   expect(queue[0]?.system).toBeUndefined();
   expect(ownQueue(queue).length).toBe(1);
+});
+
+const tr = (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key);
+
+test("Session Info lists the held surge, then acpmux's prompts, and never the person's or a resume's agent id", () => {
+  // Leo, 2026-11-24, of the held bar over the composer: "it's also not useful to show this to the user".
+  const raw = 'Your subagent "Cap" (agent id af0cbece62b15d0e1) failed (529). Resume it';
+  const queue = [
+    { id: "d", prompt: surge, system: "surge_digest" },
+    { id: "r", prompt: raw, retry: { name: "Cap", agentId: "af0cbece62b15d0e1", error: "529" } },
+    { id: "p", prompt: "mine" },
+  ];
+  const rows = agentSideRows(tr as never, { held: 35, needYou: 3, seq: 1 }, queue);
+  expect(rows.map((row) => row.id)).toEqual(["held", "queued:d", "queued:r"]);
+  expect(rows[0]?.trailing).toBe('surge.held {"n":35}');
+  expect(rows[0]?.detail).toBe('surge.needYou {"n":3}');
+  expect(rows[2]?.title).toBe("composer.queuedSubagentRetry Cap");
+  expect(rows[2]?.help).not.toContain("agent id");
+  expect(agentSideRows(tr as never, { held: 0, needYou: 0, seq: 1 }, [{ id: "p", prompt: "mine" }])).toEqual([]);
 });

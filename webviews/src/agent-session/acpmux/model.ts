@@ -1323,8 +1323,8 @@ export type AcpmuxSnapshot = {
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
-  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
-  /// row for it (SurgeHoldRow.tsx).
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
+  /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
     sessionId: string;

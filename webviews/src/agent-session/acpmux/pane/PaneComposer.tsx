@@ -11,7 +11,6 @@ import type { useBackgroundNotice } from "../conversation/backgroundNotice";
 import type { useStopThroughReconnect } from "../stopThroughReconnect";
 import type { clientWaiter } from "../lostPrompt";
 import type { DefaultComposerChips } from "./ComposerChips";
-import type { InboxMessage } from "../conversation/inboxNotice";
 import { ShareNudge } from "../share/ShareNudge";
 import { chatOnThisMac, chatPlace } from "../chatMachine";
 import { thisMacName, type ConnectKind, type OffloadKind } from "../environments";
@@ -23,7 +22,6 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
-import { SurgeHoldRow } from "../SurgeHoldRow";
 import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
@@ -112,10 +110,6 @@ import type { FileSearchSource } from "../fileSearchModel";
 import type { ComposerPlusExtension, CaptureMode } from "../composerPlusRegistry";
 import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-
-/// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
-const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
-const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 
 /// A worktree start that failed, and where (App.tsx `worktreeError`).
 type WorktreeError = {
@@ -818,17 +812,6 @@ export function drawPaneComposer({
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
               step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
-        {/* The chat's held surge, one row however many messages its inbox holds (SurgeHoldRow.tsx). */}
-        {!showNewTab && snapshot.sessionId && (
-          <SurgeHoldRow
-            key={`surge:${snapshot.sessionId}`}
-            surge={snapshot.surge}
-            sessionId={snapshot.sessionId}
-            listThreads={listSurgeThreads}
-            readThread={readInboxThread}
-            onOpenSender={openSenderChat}
-          />
-        )}
         {!goalAtFoot && goalNode}
         {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
