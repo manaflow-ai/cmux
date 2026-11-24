@@ -1,5 +1,5 @@
 import type { AcpmuxBackgroundTurn, AcpmuxRow } from "../model";
-import { rowFrameKey } from "../model";
+import { rowFrameKey, SINCE_DIVIDER } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/backgroundTurns";
 import { isVisiblyEmptyMessage } from "../conversation/visibleMessage";
 import {
@@ -49,6 +49,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// that made it: a reply the person left mid-stream goes on past where they left (`placeAfter`).
   private readonly lastWrite = new Map<string, number>();
   private readonly local = new Set<string>();
+  /// Where each row the pane made before any record of it (a prompt it sent) sorted when it was made:
+  /// the place the person sent it at. A steer keeps it once its record comes (`keepSentPlace`), also
+  /// when a rebuild makes its row again from that record. Kept past the row's delete for that rebuild;
+  /// one number a prompt sent, gone with the chat (`clear`).
+  private readonly sentPlaces = new Map<string, number>();
   private made = 0;
   /// The sequence number of the event being reduced.
   current: number | undefined;
@@ -312,8 +317,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.putOrder(id, this.current);
         this.latest = Math.max(this.latest, this.current);
       } else {
-        this.putOrder(id, this.latest + 0.5 + (this.made += 1e-6));
+        const place = this.latest + 0.5 + (this.made += 1e-6);
+        this.putOrder(id, place);
         this.local.add(id);
+        if (!this.sentPlaces.has(id)) this.sentPlaces.set(id, place);
       }
     } else if (this.current !== undefined) {
       this.latest = Math.max(this.latest, this.current);
@@ -415,6 +422,28 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (first !== undefined && first <= seq && last > seq) place = Math.min(place, first - 0.25);
     }
     return place;
+  }
+
+  /// The newest event that made or wrote row `id`. Rows made locally by the pane and the divider
+  /// have no event to count as seen.
+  seqOf(id: string): number | undefined {
+    const first = this.order.get(id);
+    if (first === undefined || this.local.has(id) || id === SINCE_DIVIDER) return undefined;
+    return Math.max(Math.floor(first), this.lastWrite.get(id) ?? -1);
+  }
+
+  /// Counts agent turns written after a persisted seen cursor. A still-streaming reply counts as
+  /// one turn so the return marker also covers a turn that has not ended yet.
+  turnsAfter(seq: number): number {
+    let turns = 0;
+    let writing = false;
+    for (const [id, row] of this) {
+      const through = this.seqOf(id);
+      if (through === undefined || through <= seq) continue;
+      if (row.kind === "turnSummary") turns += 1;
+      else if (row.kind === "assistant" || row.kind === "activity") writing = true;
+    }
+    return turns || (writing ? 1 : 0);
   }
 
   /// Sets `row` to sort at `place` (`placeAfter`): "New since you looked" (`SINCE_DIVIDER`), which no
@@ -572,6 +601,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.order.clear();
     this.highestOrder = Number.NEGATIVE_INFINITY;
     this.local.clear();
+    this.sentPlaces.clear();
     this.lastWrite.clear();
     this.frames.clear();
     this.latest = 0;
@@ -773,9 +803,35 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => {
-      const place = this.latest + 0.5 + (index + 1) * 1e-6;
+      const after = this.latest + 0.5 + (index + 1) * 1e-6;
+      // A steer still on its way keeps where it was sent, under the rows drawn then (`sentPlaces`);
+      // a replay of fewer records (a seek back) puts it after them.
+      const sent = this.get(id)?.delivery?.queued === true ? this.sentPlaces.get(id) : undefined;
+      const place = sent !== undefined && sent < after ? sent : after;
       this.putOrder(id, this.withinTurn(id, place));
     });
+  }
+
+  /// A steer's row, now that its record (at the event being reduced) came: it keeps the place the
+  /// person sent it at (`sentPlaces`), so every row that came in after the send stays under it and
+  /// no row above it moves when its record lands (Leo, 2026-11-22: "THEN YOU SENT SHIT THEN MY STEER
+  /// WENT UNDER IT"). The record's own place is where acpmux heard it, after whatever the agent wrote
+  /// meanwhile; sorted there, the steer went down under rows drawn below it at the send. Only within
+  /// the turn it went into: when a turn ended or a prompt opened one between the send and the record,
+  /// the record's place stands. One look over the rows made since the send (a few).
+  keepSentPlace(id: string): void {
+    const row = this.get(id);
+    const sent = this.sentPlaces.get(id);
+    const now = this.order.get(id);
+    if (!row?.steer || sent === undefined || now === undefined || sent >= now) return;
+    for (const between of this.rowsFrom(sent)) {
+      const order = this.order.get(between.id) ?? Infinity;
+      if (order >= now) break;
+      if (between.kind === "turnSummary" || (between.kind === "user" && !between.steer && !between.pending)) return;
+    }
+    this.putOrder(id, this.withinTurn(id, sent));
+    this.ordered = undefined;
+    this.snapshot = undefined;
   }
 
   /// An optimistic row has been accepted by an event: keep its id, but make the event its order.

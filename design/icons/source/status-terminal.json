@@ -337,6 +337,14 @@
    ]
   },
   {
+   "name": "status.question",
+   "meaning": "An agent's question waits for your answer (Needs your input)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M10.36 10.571a1.64 1.64 0 1 1 2.255 1.517c-0.369 0.164 -0.615 0.492 -0.615 0.902v0.246'/><circle cx='12' cy='15.081' r='0.779' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-question' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10.36 10.571a1.64 1.64 0 1 1 2.255 1.517c-0.369 0.164 -0.615 0.492 -0.615 0.902v0.246'/><circle cx='12' cy='15.081' r='0.861' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-question)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "status.info's circle with agent.question's drawn question mark at 82 %. No ring or pulse: the card says it waits in words."
+  },
+  {
    "name": "status.inprogress",
    "meaning": "Task in progress",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M12 8.096a3.904 3.904 0 0 1 0 7.809Z' fill='currentColor' stroke='none'/></svg>",
