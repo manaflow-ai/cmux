@@ -218,6 +218,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "cmux-bounded",
  "cmux-json",
  "cmux-scope",
  "crossterm",
