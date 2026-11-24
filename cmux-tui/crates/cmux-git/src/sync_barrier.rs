@@ -385,10 +385,11 @@ pub fn wait_filled(path: &Path, timeout: Duration) -> io::Result<()> {
                 file.read_to_string(&mut ledger)?;
             }
             let held = ledger_holds(&ledger, &relative, is_dir);
-            if !held && ask {
-                if let Ok(mut want) = open_append(&want_ledger(folder)?) {
-                    let _ = want.write_all(format!("{relative}\n").as_bytes());
-                }
+            if !held
+                && ask
+                && let Ok(mut want) = open_append(&want_ledger(folder)?)
+            {
+                let _ = want.write_all(format!("{relative}\n").as_bytes());
             }
             Ok(held)
         })?;
