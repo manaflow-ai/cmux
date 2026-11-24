@@ -66,6 +66,8 @@ impl Hub {
             self.note_refusal(session, &census);
             return Err(not_idle(session, "process"));
         }
+        // The folder's work leaves this machine before the agent does (`wip_ref.rs`).
+        session.save_wip().await;
         let began = std::time::Instant::now();
         let link_lost = child.host_record().is_some() && !child.is_alive().await;
         drop(child);

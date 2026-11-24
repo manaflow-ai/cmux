@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)  // Core Animation: Apple only
 import CmuxConversationCore
 @testable import CmuxConversationGeometry
 import QuartzCore
@@ -63,3 +64,4 @@ final class ConversationTextEffectKeyframesTests: XCTestCase {
         }
     }
 }
+#endif

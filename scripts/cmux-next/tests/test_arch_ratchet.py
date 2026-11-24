@@ -2323,6 +2323,43 @@ class BatchDeadlockTests(Repo):
         self.assertEqual(out, str(self.PACKAGES + 1))
 
 
+class BloblessCloneTests(Repo):
+    """A wt checkout is a worktree of a blobless mirror, and `cat-file --batch` fetches each blob it lacks by itself:
+    one fetch, one promisor pack in the shared mirror per blob (fs-agent-lane-10, 2026-11-24: `--update --anchor`
+    wrote 1301 packs in an hour). A read fetches what it lacks in one fetch, and raised_by fetches a range once."""
+
+    COMMITS = 6
+
+    def setUp(self):
+        super().setUp()
+        for i in range(self.COMMITS):
+            self.write(f"{SRC}/CmuxNextApp/F{i}.swift", "".join(f"let a{i}_{n} = {n}\n" for n in range(i + 1)))
+            self.commit(f"app {i}")
+        self.head = self.git("rev-parse", "HEAD")
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        self.clone = Path(self.tmp.name) / "blobless"
+        subprocess.run(["git", "clone", "--quiet", "--bare", "--filter=blob:none", f"file://{self.repo}",
+                        str(self.clone)], env=self.env, check=True, capture_output=True)
+
+    def packs(self):
+        return len(list((self.clone / "objects" / "pack").glob("*.pack")))
+
+    def test_a_read_of_many_missing_blobs_writes_one_pack(self):
+        before = self.packs()
+        items = [(self.head, f"{SRC}/CmuxNextApp/F{i}.swift") for i in range(self.COMMITS)]
+        texts = counts.Git(self.clone).read(items)
+        self.assertEqual(texts[items[-1]].count("\n"), self.COMMITS)
+        self.assertEqual(self.packs() - before, 1)
+        self.assertEqual(counts.Git(self.clone).fetch_missing(counts.Git(self.clone).ids([f"{r}:{p}" for r, p in items])), 0)
+
+    def test_raised_by_fetches_a_ranges_blobs_once(self):
+        before = self.packs()
+        found = ratchet.raised_by(self.clone, self.base, self.head, {ratchet.APP_LINES})
+        self.assertEqual(self.packs() - before, 1, "one fetch for the whole range, never one per commit or blob")
+        self.assertEqual(len(found[ratchet.APP_LINES]), self.COMMITS)
+
+
 class MethodTests(unittest.TestCase):
     def test_strip_blanks_comments_and_strings_and_keeps_offsets(self):
         raw = 'let a = "x \\(f("}")) y" // static let shared = Foo()\n/* { */ let b = #"\\("{"#\n'

@@ -109,6 +109,138 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "排隊"}}
       }
     },
+    "settings.palette.moveToFront": {
+      "comment": "A Command Palette row of an order setting (the workspace row's second-line order): moves the named item to the front. %@ is the item's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ to Front"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@を先頭へ移動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل %@ إلى البداية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti %@ na početak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt %@ forrest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nach vorne verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ al principio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer %@ en premier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta %@ all’inizio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទី %@ ទៅខាងមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 맨 앞으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt %@ først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś %@ na początek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover %@ para o início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить %@ в начало"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้าย %@ ไปไว้หน้าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ öğesini başa taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити %@ на початок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển %@ lên đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将%@移到最前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將%@移到最前"
+          }
+        }
+      }
+    },
     "settings.sidebarSection.more": {
       "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
       "extractionState": "manual",
@@ -2247,6 +2379,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "1 小時可讓暫停後的回覆依然便宜，但寫入快取的費用稍高。"
+          }
+        }
+      }
+    },
+    "settings.agents.claudeCodeInboxRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Message Relay to Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة مُرحِّل الرسائل إلى Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj relej poruka u Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj beskedrelæ til Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichten-Relay zu Claude Code hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir relé de mensajes a Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter le relais de messages à Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi relay dei messaggi a Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code にメッセージリレーを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមកម្មវិធីបញ្ជូនសារទៅ Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code에 메시지 릴레이 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til meldingsrelé i Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj przekaźnik wiadomości do Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar retransmissor de mensagens ao Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить ретранслятор сообщений в Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มตัวส่งต่อข้อความให้ Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code'a mesaj aktarıcısı ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати ретранслятор повідомлень до Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm bộ chuyển tiếp tin nhắn vào Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为 Claude Code 添加消息中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為 Claude Code 新增訊息中繼"
+          }
+        }
+      }
+    },
+    "settings.agents.claudeCodeInboxRelay.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يضيف خادمًا صغيرًا إلى إعدادات Claude Code كي تصل رسائل الوكلاء الآخرين دون أن تُحتجز. ينطبق على محادثات Claude Code التي تبدأ بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mali server u postavke Claude Codea kako bi poruke drugih agenata stizale bez zadržavanja. Važi za Claude Code razgovore pokrenute nakon toga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføjer en lille server til Claude Codes indstillinger, så beskeder fra andre agenter kommer frem uden at blive holdt tilbage. Gælder Claude Code-chats, der startes bagefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fügt den Einstellungen von Claude Code einen kleinen Server hinzu, damit Nachrichten anderer Agenten ankommen, ohne zurückgehalten zu werden. Gilt für danach gestartete Claude-Code-Chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añade un pequeño servidor a los ajustes de Claude Code para que los mensajes de otros agentes lleguen sin quedar retenidos. Se aplica a los chats de Claude Code iniciados después."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajoute un petit serveur aux réglages de Claude Code pour que les messages des autres agents arrivent sans être retenus. S'applique aux discussions Claude Code lancées ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiunge un piccolo server alle impostazioni di Claude Code così i messaggi degli altri agenti arrivano senza essere trattenuti. Vale per le chat di Claude Code avviate dopo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code の設定に小さなサーバーを追加し、他のエージェントからのメッセージが保留されずに届くようにします。この後に開始した Claude Code チャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមម៉ាស៊ីនមេតូចមួយទៅការកំណត់របស់ Claude Code ដើម្បីឱ្យសារពីភ្នាក់ងារផ្សេងទៀតមកដល់ដោយមិនត្រូវបានរក្សាទុក។ អនុវត្តចំពោះការជជែក Claude Code ដែលចាប់ផ្ដើមបន្ទាប់ពីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 설정에 작은 서버를 추가해 다른 에이전트의 메시지가 보류되지 않고 도착하게 합니다. 이후에 시작한 Claude Code 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legger til en liten server i Claude Codes innstillinger slik at meldinger fra andre agenter kommer frem uten å bli holdt tilbake. Gjelder Claude Code-chatter som startes etterpå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mały serwer do ustawień Claude Code, aby wiadomości od innych agentów docierały bez wstrzymywania. Dotyczy czatów Claude Code uruchomionych później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adiciona um pequeno servidor às configurações do Claude Code para que mensagens de outros agentes cheguem sem ficar retidas. Vale para chats do Claude Code iniciados depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавляет небольшой сервер в настройки Claude Code, чтобы сообщения от других агентов приходили без задержки. Действует для чатов Claude Code, начатых после этого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มเซิร์ฟเวอร์ขนาดเล็กในการตั้งค่าของ Claude Code เพื่อให้ข้อความจากเอเจนต์อื่นมาถึงโดยไม่ถูกพักไว้ ใช้กับแชต Claude Code ที่เริ่มหลังจากนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ayarlarına küçük bir sunucu ekler; böylece diğer ajanlardan gelen mesajlar bekletilmeden ulaşır. Sonradan başlatılan Claude Code sohbetlerine uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додає невеликий сервер до налаштувань Claude Code, щоб повідомлення від інших агентів надходили без затримання. Діє для чатів Claude Code, розпочатих після цього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm một máy chủ nhỏ vào cài đặt của Claude Code để tin nhắn từ các tác tử khác đến mà không bị giữ lại. Áp dụng cho các cuộc trò chuyện Claude Code bắt đầu sau đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的设置中添加一个小型服务器，使其他智能体的消息不再被搁置。适用于之后开始的 Claude Code 对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的設定中新增一個小型伺服器，讓其他代理的訊息不再被擱置。適用於之後開始的 Claude Code 對話。"
           }
         }
       }
@@ -158000,6 +158394,534 @@
         }
       }
     },
+    "settings.agentPane.display.environmentCard": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environment Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة البيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica okruženja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umgebungskarte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjeta de entorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carte d’environnement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scheda ambiente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境カード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតបរិស្ថាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "환경 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miljøkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta środowiska"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartão de ambiente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка окружения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดสภาพแวดล้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ortam Kartı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка середовища"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ môi trường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "环境卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "環境卡片"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.environmentCard.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A card at the chat's top right with its changes, branch, commit and pull request."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقة أعلى يمين الدردشة تعرض تغييراتها وفرعها والإيداع وطلب السحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica gore desno u razgovoru s njegovim izmjenama, granom, commitom i pull requestom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til højre i chatten med dens ændringer, gren, commit og pull request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Karte oben rechts im Chat mit seinen Änderungen, dem Branch, Commit und Pull Request."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una tarjeta arriba a la derecha del chat con sus cambios, rama, commit y pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une carte en haut à droite de la discussion avec ses modifications, sa branche, le commit et la pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una scheda in alto a destra nella chat con modifiche, branch, commit e pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの右上に、変更・ブランチ・コミット・プルリクエストを示すカードを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កាតនៅខាងស្តាំខាងលើនៃការជជែក ដែលមានការផ្លាស់ប្តូរ មែក ការ commit និង pull request។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 오른쪽 위에 변경 사항, 브랜치, 커밋, 풀 리퀘스트를 보여 주는 카드입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort øverst til høyre i chatten med endringer, gren, commit og pull request."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta w prawym górnym rogu czatu z jego zmianami, gałęzią, commitem i pull requestem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um cartão no canto superior direito do chat com suas alterações, branch, commit e pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карточка в правом верхнем углу чата с его изменениями, веткой, коммитом и пул-реквестом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การ์ดที่มุมขวาบนของแชต แสดงการเปลี่ยนแปลง สาขา การคอมมิต และพูลรีเควสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin sağ üstünde değişiklikleri, dalı, commit ve pull request’i gösteren bir kart."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картка у правому верхньому куті чату з його змінами, гілкою, комітом і пул-реквестом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thẻ ở góc trên bên phải cuộc trò chuyện với các thay đổi, nhánh, commit và pull request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角显示一张卡片，包含更改、分支、提交和拉取请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天右上角顯示一張卡片，包含變更、分支、提交和提取要求。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes Pill"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة التغييرات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændringsmærke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Änderungs-Pille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Píldora de cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastille des modifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pillola delle modifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更ピル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកការផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "변경 사항 알약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringsmerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pílula de alterações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка изменений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değişiklik Hapı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка змін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhãn thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更改胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "變更膠囊"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.changesPill.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pill over the composer with how many files the chat changed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارة فوق مربع الكتابة تعرض عدد الملفات التي غيّرتها الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka iznad polja za pisanje s brojem datoteka koje je razgovor izmijenio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et mærke over skrivefeltet med, hvor mange filer chatten har ændret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Pille über dem Eingabefeld mit der Zahl der Dateien, die der Chat geändert hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una píldora sobre el editor con cuántos archivos cambió el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une pastille au-dessus de la zone de saisie indiquant combien de fichiers la discussion a modifiés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pillola sopra il compositore con quanti file ha modificato la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力欄の上に、チャットが変更したファイル数を示すピルを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកនៅលើប្រអប់សរសេរ ដែលបង្ហាញចំនួនឯកសារដែលការជជែកបានផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력창 위에 채팅이 변경한 파일 수를 보여 주는 알약입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et merke over skrivefeltet med hvor mange filer chatten har endret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pigułka nad polem wpisywania z liczbą plików zmienionych przez czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma pílula acima do editor com quantos arquivos o chat alterou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем ввода с числом файлов, изменённых чатом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายเหนือช่องพิมพ์ แสดงจำนวนไฟล์ที่แชตเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma alanının üstünde sohbetin kaç dosyayı değiştirdiğini gösteren bir hap."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плашка над полем введення з кількістю файлів, які змінив чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một nhãn phía trên ô soạn thảo cho biết cuộc trò chuyện đã thay đổi bao nhiêu tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在输入框上方显示一个胶囊，说明聊天更改了多少个文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在輸入框上方顯示一個膠囊，說明聊天變更了多少個檔案。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.pinnedPlan": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -211550,6 +212472,87 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新增使用者或組織"}}
       }
     },
+    "settings.group.terminalTyping": {
+      "comment": "Settings group: how typing in a terminal behaves",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Typing"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tippen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Saisie"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكتابة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Escritura"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "輸入"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "输入"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kucanje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Indtastning"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Digitazione"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការវាយបញ្ចូល"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skriving"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pisanie"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Digitação"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Ввод"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การพิมพ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yazma"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Введення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nhập liệu"}}
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "comment": "Settings row title: draw typed characters in a remote terminal before the remote echoes them",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Predictive Local Echo"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vorausschauendes lokales Echo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Écho local prédictif"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الصدى المحلي التنبؤي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eco local predictivo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "預測性本機回顯"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "预测性本地回显"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "예측 로컬 에코"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "予測ローカルエコー"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prediktivni lokalni eho"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Forudsigende lokalt ekko"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Eco locale predittivo"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អេកូមូលដ្ឋានព្យាករណ៍"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Prediktivt lokalt ekko"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Predykcyjne lokalne echo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Eco local preditivo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прогнозирующее локальное эхо"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เสียงสะท้อนในเครื่องแบบคาดการณ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tahmine dayalı yerel yankı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прогнозоване локальне відлуння"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiển thị cục bộ dự đoán"}}
+      }
+    },
+    "settings.terminal.predictiveLocalEcho.help": {
+      "comment": "Settings row help for Predictive Local Echo",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeigt Zeichen, die Sie in einem Terminal auf einem anderen Rechner eingeben, bei langsamer Verbindung sofort an, unterstrichen, bis der entfernte Rechner sie bestätigt. Lokale Terminals, Passwortabfragen und Vollbildprogramme werden nie vorhergesagt."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche immédiatement les caractères saisis dans un terminal sur une autre machine lorsque la connexion est lente, soulignés jusqu’à ce que la machine distante les confirme. Les terminaux locaux, les invites de mot de passe et les programmes plein écran ne sont jamais prédits."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض الأحرف التي تكتبها في طرفية على جهاز آخر فورًا عندما يكون الاتصال بطيئًا، مع تسطيرها حتى يؤكدها الجهاز البعيد. لا يتم التنبؤ أبدًا في الطرفيات المحلية ومطالبات كلمة المرور والبرامج بملء الشاشة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra al instante los caracteres que escribes en una terminal de otra máquina cuando la conexión es lenta, subrayados hasta que el equipo remoto los confirma. Nunca se predicen las terminales locales, las solicitudes de contraseña ni los programas a pantalla completa."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線緩慢時，立即顯示你在另一台機器終端機中輸入的字元，並加上底線，直到遠端確認為止。本機終端機、密碼提示和全螢幕程式一律不預測。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接较慢时，立即显示你在另一台机器终端中输入的字符，并加下划线，直到远程端确认为止。本地终端、密码提示和全屏程序从不预测。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결이 느릴 때 다른 컴퓨터의 터미널에 입력한 문자를 바로 표시하고, 원격에서 확인할 때까지 밑줄을 긋습니다. 로컬 터미널, 암호 프롬프트, 전체 화면 프로그램은 예측하지 않습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "回線が遅いとき、別のマシンのターミナルで入力した文字をすぐに表示し、リモートが確認するまで下線を付けます。ローカルのターミナル、パスワード入力、全画面プログラムでは予測しません。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Odmah prikazuje znakove koje kucate u terminalu na drugom računaru kada je veza spora, podvučene dok ih udaljeni računar ne potvrdi. Lokalni terminali, upiti za lozinku i programi preko cijelog ekrana se nikad ne predviđaju."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Viser de tegn, du skriver i en terminal på en anden maskine, med det samme, når forbindelsen er langsom, understreget indtil fjernmaskinen bekræfter dem. Lokale terminaler, adgangskodeprompter og fuldskærmsprogrammer forudsiges aldrig."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra subito i caratteri che digiti in un terminale su un'altra macchina quando il collegamento è lento, sottolineati finché la macchina remota non li conferma. Terminali locali, richieste di password e programmi a schermo intero non vengono mai previsti."}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញតួអក្សរដែលអ្នកវាយក្នុងទែមីណាល់លើម៉ាស៊ីនផ្សេងភ្លាមៗ នៅពេលការតភ្ជាប់យឺត ដោយគូសបន្ទាត់ពីក្រោមរហូតដល់ម៉ាស៊ីនពីចម្ងាយបញ្ជាក់។ ទែមីណាល់មូលដ្ឋាន ប្រអប់សួរពាក្យសម្ងាត់ និងកម្មវិធីពេញអេក្រង់ មិនត្រូវបានព្យាករណ៍ទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Viser tegnene du skriver i en terminal på en annen maskin med en gang når forbindelsen er treg, understreket til den eksterne maskinen bekrefter dem. Lokale terminaler, passordspørsmål og fullskjermprogrammer forutsies aldri."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Od razu pokazuje znaki wpisywane w terminalu na innym komputerze, gdy połączenie jest wolne, podkreślone do czasu potwierdzenia przez zdalny komputer. Lokalne terminale, monity o hasło i programy pełnoekranowe nigdy nie są przewidywane."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra na hora os caracteres que você digita em um terminal em outra máquina quando a conexão está lenta, sublinhados até a máquina remota confirmá-los. Terminais locais, solicitações de senha e programas em tela cheia nunca são previstos."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сразу показывает символы, которые вы вводите в терминале на другом компьютере при медленном соединении, с подчёркиванием, пока удалённая сторона их не подтвердит. Локальные терминалы, запросы пароля и полноэкранные программы никогда не прогнозируются."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงอักขระที่คุณพิมพ์ในเทอร์มินัลบนเครื่องอื่นทันทีเมื่อการเชื่อมต่อช้า โดยขีดเส้นใต้ไว้จนกว่าเครื่องปลายทางจะยืนยัน เทอร์มินัลในเครื่อง ช่องถามรหัสผ่าน และโปรแกรมแบบเต็มหน้าจอจะไม่ถูกคาดการณ์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bağlantı yavaş olduğunda başka bir makinedeki terminale yazdığınız karakterleri hemen gösterir; uzak makine onaylayana kadar altı çizili kalırlar. Yerel terminaller, parola istemleri ve tam ekran programlar asla tahmin edilmez."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Одразу показує символи, які ви вводите в терміналі на іншому комп'ютері при повільному з'єднанні, з підкресленням, доки віддалена сторона їх не підтвердить. Локальні термінали, запити пароля й повноекранні програми ніколи не прогнозуються."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiển thị ngay các ký tự bạn gõ trong terminal trên máy khác khi kết nối chậm, được gạch chân cho đến khi máy từ xa xác nhận. Terminal cục bộ, lời nhắc mật khẩu và chương trình toàn màn hình không bao giờ được dự đoán."}}
+      }
+    },
     "settings.group.terminalCompatibility": {
       "extractionState": "manual",
       "localizations": {
@@ -234554,127 +235557,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+            "value": "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يثبّت تحديثًا تم تنزيله بعد أن يبقى cmux خاملًا للمدة أدناه، ولا يفعل ذلك أبدًا أثناء عمل وكيل أو وجود رسالة لم تُرسل. تستمر الوكلاء في العمل."
+            "value": "يثبّت تحديثًا تم تنزيله ويعيد التشغيل أثناء غيابك: لا إدخال طوال المدة أدناه، أو الشاشة مقفلة. لا يحدث ذلك أبدًا فوق رسالة لم تُرسل. تستمر الوكلاء وأدوارهم في العمل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalira preuzeto ažuriranje kada cmux bude neaktivan tokom vremena ispod, nikad dok agent radi ili poruka nije poslana. Agenti nastavljaju raditi."
+            "value": "Instalira preuzeto ažuriranje i ponovo pokreće dok ste odsutni: bez unosa tokom vremena ispod ili sa zaključanim ekranom. Nikad preko neposlane poruke. Agenti i njihovi potezi nastavljaju raditi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installerer en hentet opdatering, når cmux har været inaktiv i tiden nedenfor, aldrig mens en agent arbejder, eller en besked ikke er sendt. Agenter kører videre."
+            "value": "Installerer en hentet opdatering og genstarter, mens du er væk: intet input i tiden nedenfor, eller skærmen låst. Aldrig hen over en ikke-sendt besked. Agenter og deres ture kører videre."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installiert ein geladenes Update, wenn cmux so lange wie unten angegeben inaktiv war, nie während ein Agent arbeitet oder eine Nachricht nicht gesendet ist. Agenten laufen weiter."
+            "value": "Installiert ein geladenes Update und startet neu, während du weg bist: keine Eingabe für die Zeit unten oder der Bildschirm gesperrt. Nie über einer ungesendeten Nachricht. Agenten und ihre Antworten laufen weiter."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instala una actualización descargada cuando cmux lleva inactivo el tiempo indicado abajo, nunca mientras un agente trabaja o hay un mensaje sin enviar. Los agentes siguen en marcha."
+            "value": "Instala una actualización descargada y reinicia mientras no estás: sin actividad durante el tiempo de abajo, o con la pantalla bloqueada. Nunca sobre un mensaje sin enviar. Los agentes y sus turnos siguen en marcha."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installe une mise à jour téléchargée quand cmux est inactif depuis la durée ci-dessous, jamais pendant qu'un agent travaille ou qu'un message n'est pas envoyé. Les agents continuent de tourner."
+            "value": "Installe une mise à jour téléchargée et redémarre pendant votre absence : aucune saisie pendant la durée ci-dessous, ou l’écran verrouillé. Jamais sur un message non envoyé. Les agents et leurs tours continuent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installa un aggiornamento scaricato dopo che cmux è rimasto inattivo per il tempo indicato sotto, mai mentre un agente lavora o un messaggio non è inviato. Gli agenti continuano a funzionare."
+            "value": "Installa un aggiornamento scaricato e riavvia mentre sei via: nessun input per il tempo indicato sotto, o schermo bloccato. Mai sopra un messaggio non inviato. Gli agenti e i loro turni continuano."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が下の時間だけアイドル状態になると、ダウンロード済みのアップデートをインストールします。エージェントの作業中や未送信のメッセージがあるときは行いません。エージェントは動き続けます。"
+            "value": "離席中にダウンロード済みのアップデートをインストールして再起動します: 下の時間のあいだ入力がないか、画面がロックされているとき。未送信のメッセージがあるときは実行しません。エージェントと実行中のターンはそのまま続きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក បន្ទាប់ពី cmux ទំនេររយៈពេលខាងក្រោម មិនដែលដំឡើងពេលភ្នាក់ងារកំពុងធ្វើការ ឬមានសារមិនទាន់ផ្ញើឡើយ។ ភ្នាក់ងារនៅតែដំណើរការ។"
+            "value": "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក ហើយចាប់ផ្ដើមឡើងវិញ ពេលអ្នកមិននៅ៖ គ្មានការបញ្ចូលក្នុងរយៈពេលខាងក្រោម ឬអេក្រង់ត្រូវបានចាក់សោ។ មិនដែលធ្វើពេលមានសារមិនទាន់ផ្ញើឡើយ។ ភ្នាក់ងារ និងវេនរបស់វានៅតែបន្តដំណើរការ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 아래 시간 동안 유휴 상태이면 다운로드한 업데이트를 설치합니다. 에이전트가 작업 중이거나 보내지 않은 메시지가 있을 때는 설치하지 않습니다. 에이전트는 계속 실행됩니다."
+            "value": "자리를 비운 동안 다운로드한 업데이트를 설치하고 다시 시작합니다: 아래 시간 동안 입력이 없거나 화면이 잠겨 있을 때. 보내지 않은 메시지가 있으면 절대 실행하지 않습니다. 에이전트와 진행 중인 턴은 계속 실행됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installerer en nedlastet oppdatering når cmux har vært inaktiv i tiden nedenfor, aldri mens en agent jobber eller en melding ikke er sendt. Agenter fortsetter å kjøre."
+            "value": "Installerer en nedlastet oppdatering og starter på nytt mens du er borte: ingen inndata i tiden nedenfor, eller skjermen låst. Aldri over en usendt melding. Agenter og turene deres fortsetter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instaluje pobraną aktualizację, gdy cmux jest bezczynny przez czas podany niżej, nigdy gdy agent pracuje lub wiadomość nie została wysłana. Agenci działają dalej."
+            "value": "Instaluje pobraną aktualizację i uruchamia ponownie, gdy jesteś nieobecny: brak aktywności przez czas poniżej lub zablokowany ekran. Nigdy przy niewysłanej wiadomości. Agenci i ich tury działają dalej."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instala uma atualização baixada depois que o cmux fica ocioso pelo tempo abaixo, nunca enquanto um agente trabalha ou há uma mensagem não enviada. Os agentes continuam rodando."
+            "value": "Instala uma atualização baixada e reinicia enquanto você está ausente: sem entrada pelo tempo abaixo, ou com a tela bloqueada. Nunca sobre uma mensagem não enviada. Os agentes e seus turnos continuam rodando."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Устанавливает загруженное обновление, когда cmux бездействует указанное ниже время, но никогда во время работы агента или при неотправленном сообщении. Агенты продолжают работать."
+            "value": "Устанавливает загруженное обновление и перезапускается, пока вас нет: нет ввода в течение времени ниже или экран заблокирован. Никогда поверх неотправленного сообщения. Агенты и их ходы продолжают работать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วเมื่อ cmux ไม่มีการใช้งานตามเวลาด้านล่าง และจะไม่ติดตั้งขณะที่เอเจนต์กำลังทำงานหรือมีข้อความที่ยังไม่ได้ส่ง เอเจนต์ยังคงทำงานต่อ"
+            "value": "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วและรีสตาร์ทขณะที่คุณไม่อยู่: ไม่มีการป้อนข้อมูลตามเวลาด้านล่าง หรือหน้าจอถูกล็อก จะไม่ทำขณะมีข้อความที่ยังไม่ได้ส่ง เอเจนต์และรอบการทำงานของพวกมันยังคงทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux aşağıdaki süre boyunca boşta kaldığında indirilen güncellemeyi yükler; bir ajan çalışırken veya gönderilmemiş bir mesaj varken asla yüklemez. Ajanlar çalışmaya devam eder."
+            "value": "İndirilen bir güncellemeyi siz yokken yükler ve yeniden başlatır: aşağıdaki süre boyunca giriş yoksa veya ekran kilitliyse. Gönderilmemiş bir mesaj varken asla. Ajanlar ve turları çalışmaya devam eder."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Встановлює завантажене оновлення, коли cmux бездіяльний протягом часу нижче, але ніколи під час роботи агента чи з невідправленим повідомленням. Агенти продовжують працювати."
+            "value": "Встановлює завантажене оновлення й перезапускається, поки вас немає: немає введення протягом часу нижче або екран заблоковано. Ніколи поверх ненадісланого повідомлення. Агенти та їхні ходи продовжують працювати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cài bản cập nhật đã tải về sau khi cmux nhàn rỗi trong khoảng thời gian bên dưới, không bao giờ khi một tác nhân đang làm việc hoặc có tin nhắn chưa gửi. Các tác nhân vẫn tiếp tục chạy."
+            "value": "Cài bản cập nhật đã tải về và khởi động lại khi bạn vắng mặt: không có thao tác trong khoảng thời gian bên dưới, hoặc màn hình đã khóa. Không bao giờ khi còn tin nhắn chưa gửi. Các agent và lượt của chúng vẫn tiếp tục chạy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 空闲达到下方时长后安装已下载的更新；代理工作时或有未发送的消息时绝不安装。代理会继续运行。"
+            "value": "在你离开时安装已下载的更新并重新启动：在下方时间内没有输入，或屏幕已锁定。有未发送的消息时绝不执行。代理及其回合会继续运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 閒置達到下方時長後安裝已下載的更新；代理正在工作或有未傳送的訊息時絕不安裝。代理會繼續執行。"
+            "value": "在你離開時安裝已下載的更新並重新啟動：在下方時間內沒有輸入，或螢幕已鎖定。有未傳送的訊息時絕不執行。代理程式及其回合會繼續執行。"
           }
         }
       }
@@ -244960,6 +245963,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.composerButtonsVisible": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Composer Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار أزرار مُنشئ الرسائل دائمًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Uvijek prikaži dugmad sastavljača poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis altid skrivefeltsknapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Composer-Schaltflächen immer anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar siempre los botones del compositor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toujours afficher les boutons du compositeur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sempre i pulsanti del compositore"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンポーザーのボタンを常に表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងអ្នកសរសេរសារជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작성기 버튼 항상 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis alltid knapper i skrivefeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zawsze pokazuj przyciski kompozytora"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sempre mostrar os botões do compositor"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всегда показывать кнопки редактора"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มตัวเขียนข้อความเสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Oluşturucu düğmelerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Завжди показувати кнопки редактора"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Luôn hiển thị các nút trình soạn thảo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "始终显示编辑器按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "永遠顯示編輯器按鈕"}}
+      }
+    },
+    "settings.experiments.composerButtonsVisible.help": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Send, attachment removal, and queued message actions visible in agent chats."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أبقِ الإرسال وإزالة المرفقات وإجراءات الرسائل في قائمة الانتظار ظاهرة في محادثات الوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zadrži slanje, uklanjanje priloga i radnje za poruke u redu vidljivima u razgovorima s agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hold Send, fjernelse af vedhæftede filer og handlinger for køede beskeder synlige i agentchats."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden, das Entfernen von Anhängen und Aktionen für wartende Nachrichten in Agent-Chats sichtbar halten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantén visibles Enviar, quitar adjuntos y las acciones de mensajes en cola en los chats de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gardez visibles l’envoi, la suppression des pièces jointes et les actions des messages en file dans les chats d’agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mantieni visibili l’invio, la rimozione degli allegati e le azioni dei messaggi in coda nelle chat degli agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで、送信、添付ファイルの削除、キュー内メッセージの操作を常に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រក្សាការផ្ញើ ការលុបឯកសារភ្ជាប់ និងសកម្មភាពសារដែលនៅក្នុងជួររង់ចាំឱ្យមើលឃើញក្នុងការជជែកជាមួយភ្នាក់ងារ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅에서 보내기, 첨부 파일 제거 및 대기 중인 메시지 작업을 항상 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hold Send, fjerning av vedlegg og handlinger for meldinger i kø synlige i agentchatter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zachowaj widoczność wysyłania, usuwania załączników i działań dotyczących wiadomości w kolejce na czatach agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mantenha visíveis o envio, a remoção de anexos e as ações de mensagens na fila nos chats de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать отправку, удаление вложений и действия с сообщениями в очереди в чатах агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงการส่ง การลบไฟล์แนบ และการดำเนินการกับข้อความในคิวในแชตของเอเจนต์เสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde Gönder, ek kaldırma ve sıradaki mesaj işlemlerini görünür tut."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишайте видимими надсилання, видалення вкладень і дії з повідомленнями в черзі в чатах агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giữ hiển thị nút Gửi, xóa tệp đính kèm và thao tác với tin nhắn đang chờ trong các cuộc trò chuyện với tác nhân."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在代理聊天中始终显示发送、移除附件和队列消息操作。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在代理聊天中永遠顯示傳送、移除附件和佇列訊息操作。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
@@ -245012,6 +246069,114 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Chú giải công cụ và thẻ khi di chuột có kính rõ hơn, viền sắc hơn và bóng mềm hơn."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "工具提示和悬停卡片的玻璃更清晰，边缘更锐利，阴影更柔和。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
+      }
+    },
+    "settings.experiments.seeThroughDock": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "See-Through Dock"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط سفلي شفاف"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Providni dok"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemsigtig dok"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Durchsichtiges Dock"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dock transparent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Dock trasparente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "透けるドック"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដុកថ្លា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "투명한 도크"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gjennomsiktig dokk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przezroczysty dok"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Dock transparente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Прозрачная панель"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ด็อกแบบโปร่งใส"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Saydam bölme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Прозора панель"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh dock trong suốt"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "透明停靠栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "透明停靠列"}}
+      }
+    },
+    "settings.experiments.seeThroughDock.help": {
+      "comment": "Settings > Experiments: the See-Through Dock taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The conversation stays visible behind the notices and the Needs your input row above the composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تبقى المحادثة مرئية خلف الإشعارات وصف «يحتاج إلى إدخالك» فوق مربع الكتابة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razgovor ostaje vidljiv iza obavještenja i reda „Potreban je vaš unos“ iznad polja za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Samtalen forbliver synlig bag meddelelserne og rækken “Kræver dit input” over skrivefeltet."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Unterhaltung bleibt hinter den Hinweisen und der Zeile „Deine Eingabe ist nötig“ über dem Eingabefeld sichtbar."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conversación sigue visible detrás de los avisos y de la fila «Necesita tu respuesta» sobre el editor."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La conversation reste visible derrière les avis et la ligne « Votre réponse est requise » au-dessus de la zone de saisie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La conversazione resta visibile dietro gli avvisi e la riga «Serve il tuo input» sopra il compositore."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の上にある通知と「入力が必要です」の行の後ろでも会話が見えたままになります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការសន្ទនានៅតែមើលឃើញនៅពីក្រោយសេចក្តីជូនដំណឹង និងជួរ «ត្រូវការការបញ្ចូលរបស់អ្នក» ខាងលើប្រអប់សរសេរ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 위의 알림과 “입력이 필요합니다” 행 뒤에서도 대화가 계속 보입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Samtalen forblir synlig bak varslene og raden «Trenger dine innspill» over skrivefeltet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Rozmowa pozostaje widoczna za powiadomieniami i wierszem „Potrzebna Twoja odpowiedź” nad polem pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conversa continua visível atrás dos avisos e da linha “Precisa da sua resposta” acima do editor."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Разговор остаётся виден за уведомлениями и строкой «Нужен ваш ответ» над полем ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "บทสนทนายังมองเห็นได้อยู่หลังการแจ้งเตือนและแถว “ต้องการข้อมูลจากคุณ” เหนือช่องเขียนข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Konuşma, yazma alanının üstündeki bildirimlerin ve “Girdiniz gerekiyor” satırının arkasında görünür kalır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Розмова залишається видимою за сповіщеннями та рядком «Потрібна ваша відповідь» над полем введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Attachment Type Icons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أيقونات نوع المرفق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ikone vrste priloga"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ikoner for vedhæftningstype"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Symbole für Anhangstyp"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iconos de tipo de adjunto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Icônes de type de pièce jointe"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Icone del tipo di allegato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの種類アイコン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបតំណាងប្រភេទឯកសារភ្ជាប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일 유형 아이콘"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ikoner for vedleggstype"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ikony typu załącznika"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ícones de tipo de anexo"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Значки типа вложения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไอคอนประเภทไฟล์แนบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ek türü simgeleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Значки типу вкладення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Biểu tượng loại tệp đính kèm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件类型图标"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件類型圖示"}}
+      }
+    },
+    "settings.experiments.attachmentTypeIcons.help": {
+      "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أثناء تحميل مرفق، تعرض شريحته أيقونة ملف أو صورة بدلاً من علامة التحميل."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dok se prilog učitava, njegov čip prikazuje ikonu datoteke ili slike umjesto oznake učitavanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mens en vedhæftning indlæses, viser dens chip et fil- eller billedikon i stedet for indlæsningsmærket."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Während ein Anhang lädt, zeigt sein Chip ein Datei- oder Bildsymbol statt der Ladeanzeige."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mientras se carga un adjunto, su chip muestra un icono de archivo o de imagen en lugar del indicador de carga."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pendant le chargement d'une pièce jointe, sa puce affiche une icône de fichier ou d'image au lieu de l'indicateur de chargement."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Durante il caricamento di un allegato, il suo chip mostra un'icona di file o di immagine al posto dell'indicatore di caricamento."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "添付ファイルの読み込み中、チップに読み込みマークの代わりにファイルまたは画像のアイコンを表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពេលឯកសារភ្ជាប់កំពុងផ្ទុក បន្ទះរបស់វាបង្ហាញរូបតំណាងឯកសារ ឬរូបភាព ជំនួសឱ្យសញ្ញាកំពុងផ្ទុក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "첨부 파일을 불러오는 동안 칩에 로딩 표시 대신 파일 또는 이미지 아이콘이 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mens et vedlegg lastes inn, viser brikken et fil- eller bildeikon i stedet for lastemerket."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Podczas wczytywania załącznika jego kafelek pokazuje ikonę pliku lub obrazu zamiast wskaźnika wczytywania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Enquanto um anexo carrega, o chip mostra um ícone de arquivo ou de imagem em vez do indicador de carregamento."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Пока вложение загружается, на его плашке показан значок файла или изображения вместо индикатора загрузки."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ขณะที่ไฟล์แนบกำลังโหลด ชิปจะแสดงไอคอนไฟล์หรือรูปภาพแทนเครื่องหมายกำลังโหลด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ek yüklenirken, çipi yükleme işareti yerine bir dosya veya görsel simgesi gösterir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Поки вкладення завантажується, на його плашці показано значок файлу або зображення замість індикатора завантаження."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong khi tệp đính kèm đang tải, chip của nó hiển thị biểu tượng tệp hoặc hình ảnh thay cho dấu đang tải."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件加载时，其标签显示文件或图片图标，而不是加载标记。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件載入時，其標籤顯示檔案或圖片圖示，而不是載入標記。"}}
       }
     },
     "settings.experiments.agentBadges": {
@@ -259042,6 +260207,2382 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "安靜"
+          }
+        }
+      }
+    },
+    "statusIconSet.badges": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): filled discs with a mark cut out.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badges"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Značke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mærker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plaketten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Insignias"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastilles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Badge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッジ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកសញ្ញា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Merker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plakietki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozetler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бейджі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Huy hiệu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "徽章"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "徽章"
+          }
+        }
+      }
+    },
+    "statusIconSet.bars": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): waving bars while an agent works.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulse Bars"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أشرطة نابضة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsirajuće trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulserende bjælker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsbalken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barras pulsantes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barres pulsées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barre pulsanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パルスバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារលោត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "펄스 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulserende stolper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsujące paski"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barras pulsantes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пульсирующие полосы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบกะพริบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nabız Çubukları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пульсуючі смуги"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh nhịp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "脉冲条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "脈衝條"
+          }
+        }
+      }
+    },
+    "statusIconSet.codex": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): marks like the Codex app's sidebar (a grey spinner, a blue done dot, thin line symbols). Codex is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex-like"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "على طريقة Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kao Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex 風"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដូច Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W stylu Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как в Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบ Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Codex benzeri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як у Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "类似 Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "類似 Codex"
+          }
+        }
+      }
+    },
+    "statusIconSet.current": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): today's marks: working dots, a still dot for blocked, a check for done.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dots (original)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقاط (الحالي)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tačke (trenutno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikker (nuværende)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Punkte (aktuell)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puntos (actual)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Points (actuel)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Punti (attuale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドット（元のデザイン）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំណុច (បច្ចុប្បន្ន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "점 (현재)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikker (nåværende)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kropki (obecne)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pontos (atual)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Точки (текущие)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จุด (ปัจจุบัน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noktalar (geçerli)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Крапки (поточні)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chấm (hiện tại)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圆点（当前）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圓點（目前）"
+          }
+        }
+      }
+    },
+    "statusIconSet.letters": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): single letters P, Q, A in rounded squares.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letters"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أحرف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bogstaver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buchstaben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lettres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lettere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bokstaver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Litery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Буквы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harfler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Літери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chữ cái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "字母"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "字母"
+          }
+        }
+      }
+    },
+    "statusIconSet.pips": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): very small colored dots.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimal Pips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقاط صغيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalne tačke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale prikker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Punkte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puntos mínimos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Points minimaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Punti minimi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミニマルな点"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំណុចតូចៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최소 점"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale prikker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalne kropki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pontos mínimos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальные точки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จุดเล็ก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal Noktalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальні крапки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chấm tối giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "极简圆点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "極簡圓點"
+          }
+        }
+      }
+    },
+    "statusIconSet.rings": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): outlined rings with a small mark inside.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حلقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prstenovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anillos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រង្វង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pierścienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольца"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วงแหวน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Halkalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кільця"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圆环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圓環"
+          }
+        }
+      }
+    },
+    "statusIconSet.shapes": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): pictures: a raised hand, a speech bubble with a question mark, a key.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shapes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أشكال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oblici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Former"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "図形"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도형"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Former"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kształty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фигуры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปทรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şekiller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фігури"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hình dạng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "形状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "形狀"
+          }
+        }
+      }
+    },
+    "statusIconSet.signs": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): warning triangles and a stop octagon, like road signs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إشارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znakovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skilte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schilder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Señales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segnali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標識"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាកសញ្ញាចរាចរណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표지판"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skilt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znaki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sinais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знаки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ป้ายเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İşaretler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знаки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biển báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標誌"
+          }
+        }
+      }
+    },
+    "statusIconSet.still": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): static glyphs that never animate, for the Static status mode.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Static"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثابتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statične"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statiske"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estáticos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statiques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "정적"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statiske"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Statyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estáticos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นิ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статичні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tĩnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "靜態"
+          }
+        }
+      }
+    },
+    "statusIconSet.symbols": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): filled system symbols.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbols"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رموز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simboli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symboler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Símbolos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symboles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simboli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンボル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "និមិត្តសញ្ញា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symboler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbole"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Símbolos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Символы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัญลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Semboller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Символи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ký hiệu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符號"
+          }
+        }
+      }
+    },
+    "statusIconSet.symbolsOutline": {
+      "comment": "Status icon set candidate (Debug menu, Debug Settings): outlined system symbols.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outlined Symbols"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رموز مفرغة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obrisani simboli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konturerede symboler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umrissene Symbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Símbolos con contorno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symboles en contour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simboli con contorno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アウトラインのシンボル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "និមិត្តសញ្ញាបន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "윤곽선 기호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konturerte symboler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbole konturowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Símbolos contornados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контурные символы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัญลักษณ์แบบเส้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çerçeveli Semboller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Контурні символи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ký hiệu viền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "轮廓符号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輪廓符號"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.iconSet": {
+      "comment": "Settings > Appearance > Loading Indicator: the status icon set row (appearance.statusIndicator.iconSet).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Icons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات الحالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikone statusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusikoner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statussymbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos de estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes d’état"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icone di stato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスアイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបតំណាងស្ថានភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusikoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikony stanu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ícones de status"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки состояния"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไอคอนสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum Simgeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки стану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu tượng trạng thái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態圖示"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.iconSet.help": {
+      "comment": "Settings > Appearance > Loading Indicator: help under the Status Icons row.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العلامات التي تُظهر أن الوكيل يعمل أو محظور أو انتهى أو حدث خطأ، في صفوف الشريط الجانبي وعلامات التبويب والشارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznake za agenta koji radi, je blokiran, je završio ili ima grešku na redovima bočne trake, karticama i značkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mærkerne for en agent, der arbejder, er blokeret, er færdig eller har en fejl, på sidepanelets rækker, faner og mærker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Markierungen für einen Agenten, der arbeitet, blockiert ist, fertig ist oder einen Fehler hat, in Seitenleistenzeilen, Tabs und Abzeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las marcas de un agente trabajando, bloqueado, terminado o con error en las filas de la barra lateral, las pestañas y los distintivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les marques d’un agent au travail, bloqué, terminé ou en erreur sur les lignes de la barre latérale, les onglets et les pastilles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I segni per un agente al lavoro, bloccato, completato o in errore nelle righe della barra laterale, nelle schede e nei badge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの行、タブ、バッジに表示する、エージェントの作業中・ブロック中・完了・エラーのマーク。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សញ្ញាសម្រាប់ភ្នាក់ងារកំពុងធ្វើការ ត្រូវបានរារាំង រួចរាល់ និងមានកំហុស នៅលើជួររបារចំហៀង ផ្ទាំង និងស្លាក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 행, 탭, 배지에 표시되는 에이전트의 작업 중, 차단됨, 완료, 오류 표시입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merkene for en agent som arbeider, er blokkert, er ferdig eller har en feil, på sidefeltets rader, faner og merker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznaczenia agenta, który pracuje, jest zablokowany, skończył lub ma błąd, w wierszach paska bocznego, kartach i plakietkach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As marcas de um agente trabalhando, bloqueado, concluído ou com erro nas linhas da barra lateral, nas abas e nos selos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента, который работает, заблокирован, завершил работу или столкнулся с ошибкой, в строках боковой панели, на вкладках и в метках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องหมายสำหรับเอเจนต์ที่กำลังทำงาน ถูกบล็อก เสร็จแล้ว หรือมีข้อผิดพลาด บนแถวของแถบด้านข้าง แท็บ และป้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu satırlarında, sekmelerde ve rozetlerde ajanın çalıştığını, engellendiğini, bittiğini veya hata verdiğini gösteren işaretler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначки агента, який працює, заблокований, завершив роботу або має помилку, у рядках бічної панелі, на вкладках і в значках."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các dấu cho tác tử đang làm việc, bị chặn, đã xong và gặp lỗi trên các hàng thanh bên, thẻ và huy hiệu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏行、标签页和徽章上表示代理工作中、被阻止、已完成和出错的标记。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄列、分頁和徽章上表示代理工作中、被封鎖、已完成和出錯的標記。"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.statusPlacement": {
+      "comment": "Settings > Sidebar > Workspace Rows: where the row's status mark draws (sidebar.workspaceRow.statusPlacement).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع الحالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Položaj statusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusplacering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusposition"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición del estado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position de l’état"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione dello stato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងស្ថានភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statusplassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Położenie stanu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição do status"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Положение состояния"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งสถานะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum Konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування стану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí trạng thái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態位置"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.statusPlacement.help": {
+      "comment": "Settings > Sidebar > Workspace Rows: help under the Status Position row.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the row's status mark draws: at the row's end, or before the name in the icon's place."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان ظهور علامة حالة الصف: في نهاية الصف، أو قبل الاسم مكان الأيقونة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se crta oznaka statusa reda: na kraju reda ili ispred naziva, na mjestu ikone."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor rækkens statusmærke vises: i slutningen af rækken eller før navnet i ikonets plads."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo die Statusmarkierung der Zeile erscheint: am Ende der Zeile oder vor dem Namen an der Stelle des Symbols."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se dibuja la marca de estado de la fila: al final de la fila o antes del nombre, en el lugar del icono."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où s’affiche la marque d’état de la ligne : à la fin de la ligne, ou avant le nom à la place de l’icône."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove appare il segno di stato della riga: alla fine della riga o prima del nome, al posto dell’icona."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行のステータスマークを表示する場所: 行の末尾、またはアイコンの位置で名前の前。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលសញ្ញាស្ថានភាពរបស់ជួរបង្ហាញ៖ នៅចុងជួរ ឬមុនឈ្មោះ ជំនួសរូបតំណាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행의 상태 표시가 나타나는 위치: 행의 끝, 또는 아이콘 자리에서 이름 앞."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor radens statusmerke vises: på slutten av raden, eller foran navnet i ikonets plass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie rysuje się oznaczenie stanu wiersza: na końcu wiersza lub przed nazwą, w miejscu ikony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde a marca de status da linha aparece: no fim da linha ou antes do nome, no lugar do ícone."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где показывается значок состояния строки: в конце строки или перед названием, на месте значка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่เครื่องหมายสถานะของแถวแสดง: ที่ท้ายแถว หรือก่อนชื่อในตำแหน่งของไอคอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satırın durum işaretinin çizildiği yer: satırın sonunda veya simgenin yerinde, adın önünde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де показується позначка стану рядка: у кінці рядка або перед назвою, на місці значка."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi dấu trạng thái của hàng hiển thị: ở cuối hàng, hoặc trước tên tại vị trí của biểu tượng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行状态标记的位置：在行尾，或在名称前图标的位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列狀態標記的位置：在列尾，或在名稱前圖示的位置。"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.statusPlacement.trailing": {
+      "comment": "Settings > Sidebar > Workspace Rows > Status Position: the status mark at the row's end (the default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At the End"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في النهاية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na kraju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I slutningen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Am Ende"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À la fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alla fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅចុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끝에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På slutten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na końcu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fim"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В конце"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่ท้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У кінці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ở cuối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在末尾"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在末尾"
+          }
+        }
+      }
+    },
+    "settings.workspaceRow.statusPlacement.leading": {
+      "comment": "Settings > Sidebar > Workspace Rows > Status Position: the status mark before the workspace's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before the Name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل الاسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispred naziva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Før navnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Namen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes del nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avant le nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima del nome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前の前"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មុនឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 앞"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foran navnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przed nazwą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes do nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед названием"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ก่อนชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adın Önünde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед назвою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trước tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在名称前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在名稱前"
           }
         }
       }
