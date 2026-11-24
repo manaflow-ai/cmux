@@ -800,13 +800,6 @@ impl OutputStore {
         bytes: &[u8],
         history: Option<HistoryRows>,
     ) {
-        if let Some(history) = history
-            && !state.measure_due
-            && history.moved_past_step(state.measured_rows)
-        {
-            state.measure_due = true;
-            self.writer.request_memory_pass();
-        }
         if state.generation != *generation {
             // A new incarnation starts a new stream at offset 0.
             state.generation = generation.clone();
@@ -819,6 +812,13 @@ impl OutputStore {
         }
         if state.ended {
             return;
+        }
+        if let Some(history) = history
+            && !state.measure_due
+            && history.moved_past_step(state.measured_rows)
+        {
+            state.measure_due = true;
+            self.writer.request_memory_pass();
         }
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
@@ -1107,9 +1107,9 @@ impl OutputStore {
         if state.generation.as_ref() != generation || state.next_offset() != covered_through {
             return false;
         }
-        state.tail.clear();
+        state.tail = VecDeque::new();
         state.tail_start = covered_through;
-        state.pending.clear();
+        state.pending = Vec::new();
         state.pending_start = covered_through;
         state.dirty = false;
         state.measure_due = false;
