@@ -42,8 +42,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
         switch event {
         case .open, .close:
             return []
-        case .setQuery(let text):
-            return setQuery(&state, text)
+        case .setQuery(let text, let allowsScopeEntry):
+            return setQuery(&state, text, allowsScopeEntry: allowsScopeEntry)
         case .backspaceOnEmpty:
             guard state.levels[state.levels.count - 1].query.isEmpty else { return [] }
             return pop(&state, to: state.levels.count - 2)
@@ -147,11 +147,11 @@ nonisolated public struct PaletteNavReducer: Sendable {
 
     // MARK: Keys
 
-    private func setQuery(_ state: inout PaletteNavState, _ text: String) -> [PaletteNavEffect] {
+    private func setQuery(_ state: inout PaletteNavState, _ text: String, allowsScopeEntry: Bool) -> [PaletteNavEffect] {
         let top = state.levels.count - 1
         let level = state.levels[top]
         guard level.query != text else { return [] }
-        if config.prefixEntry, level.query.isEmpty, let first = text.first,
+        if allowsScopeEntry, config.prefixEntry, level.query.isEmpty, let first = text.first,
            let child = graph.child(of: level.scope, prefix: first), state.levels.count < config.maxDepth {
             return push(&state, scope: child.id, entry: .prefix(String(first)), query: String(text.dropFirst()))
         }
