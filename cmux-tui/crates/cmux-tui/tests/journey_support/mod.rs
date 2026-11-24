@@ -78,11 +78,8 @@ impl Machine {
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-        std::fs::set_permissions(
-            dir.join("acpmux/config.json"),
-            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
-        )
-        .unwrap();
+        fs::set_permissions(dir.join("acpmux/config.json"), fs::Permissions::from_mode(0o600))
+            .unwrap();
         let machine = Self {
             socket: dir.join("mux.sock"),
             session: format!("cloud-move-journey-{name}"),

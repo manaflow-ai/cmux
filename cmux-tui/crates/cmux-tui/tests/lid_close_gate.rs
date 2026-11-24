@@ -78,6 +78,54 @@ fn machine_pids(home: &Path) -> Vec<libc::pid_t> {
     pids
 }
 
+/// `pid command state wchan` of each of the machine's processes, sorted, for the lid's log.
+fn vm_processes(home: &Path) -> String {
+    let mut rows: Vec<String> = machine_pids(home)
+        .into_iter()
+        .map(|pid| {
+            let read = |f: &str| fs::read_to_string(format!("/proc/{pid}/{f}")).unwrap_or_default();
+            let cmd = read("cmdline").replace('\0', " ");
+            let cmd: String = cmd.split_whitespace().take(3).collect::<Vec<_>>().join(" ");
+            let state = read("stat")
+                .rsplit(')')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("?")
+                .to_owned();
+            format!("{pid} [{cmd}] {state} {}", read("wchan"))
+        })
+        .collect();
+    rows.sort();
+    format!("{} processes: {}", rows.len(), rows.join("; "))
+}
+
+/// The last `lines` lines of each log under `dir` (two levels down).
+fn log_tails(dir: &Path, lines: usize) -> String {
+    let mut out = String::new();
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            files.extend(fs::read_dir(&path).into_iter().flatten().flatten().map(|e| e.path()));
+        } else {
+            files.push(path);
+        }
+    }
+    files.sort();
+    for file in files.iter().filter(|f| f.extension().is_some_and(|e| e == "log")) {
+        let text = fs::read_to_string(file).unwrap_or_default();
+        let all: Vec<&str> = text.lines().collect();
+        out.push_str(&format!("== {} ({} lines)\n", file.display(), all.len()));
+        for line in &all[all.len().saturating_sub(lines)..] {
+            out.push_str(&line.chars().take(400).collect::<String>());
+            out.push('\n');
+        }
+    }
+    out
+}
+
 fn signal(pids: &[libc::pid_t], sig: libc::c_int) {
     for &pid in pids {
         assert!(pid > 1, "refusing to signal pid {pid}");
@@ -231,10 +279,29 @@ fn run_once(n: u64, lid_s: u64) -> Run {
     drop(mac_acpmux);
     let pids = machine_pids(&mac.home());
     assert!(!pids.is_empty(), "no Mac process to stop");
+    // LID_CLOSE_NO_STOP=1: the same run with the lid left open (a control for a failing gate).
+    let stop = std::env::var("LID_CLOSE_NO_STOP").as_deref() != Ok("1");
     let closed_at = now_ms();
-    signal(&pids, libc::SIGSTOP);
+    if stop {
+        signal(&pids, libc::SIGSTOP);
+    }
     let lid = Lid(pids);
-    std::thread::sleep(Duration::from_secs(lid_s));
+    // While it is closed, the VM's processes every 30 s: a line each time one starts, ends or
+    // changes what it waits on, so a run whose work stops says which process stopped and how.
+    let mut seen = String::new();
+    while now_ms() < closed_at + lid_s * 1000 {
+        let now = vm_processes(&vm.home());
+        if now != seen {
+            eprintln!(
+                "lid-close run {n}: at {} s the VM runs {now}",
+                (now_ms() - closed_at) / 1000
+            );
+            seen = now;
+        }
+        std::thread::sleep(Duration::from_millis(
+            (closed_at + lid_s * 1000).saturating_sub(now_ms()).min(30_000),
+        ));
+    }
     let opened_at = now_ms();
     drop(lid);
 
@@ -294,6 +361,9 @@ fn run_once(n: u64, lid_s: u64) -> Run {
         why.push(format!("{covered_s} ticks in a {lid_s} s window"));
     }
     let pass = why.is_empty();
+    if !pass {
+        eprintln!("lid-close run {n}: the VM's logs:\n{}", log_tails(&vm.dir.join("acpmux"), 40));
+    }
     eprintln!(
         "lid-close run {n}: {} covered {covered_s}/{lid_s} s, longest gap {longest_gap_ms} ms{}",
         if pass { "PASS" } else { "FAIL" },
