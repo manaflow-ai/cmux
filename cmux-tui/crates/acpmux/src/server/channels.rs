@@ -311,6 +311,25 @@ async fn open(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value,
     Ok(json!({"channelId": id, "service": service, "peer": name}))
 }
 
+/// How many frames a connection may have waiting before its reader waits for room.
+const QUEUE: usize = 256;
+
+/// The connection's channel worker: `send`, `close` and `connect`, handled one at a time in the
+/// order they came. It ends when the sender is dropped, after the frames already queued.
+pub(super) fn spawn_worker(
+    hub: Arc<Hub>,
+    conn: Arc<Conn>,
+) -> (tokio::sync::mpsc::Sender<(String, Value)>, tokio::task::JoinHandle<()>) {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, Value)>(QUEUE);
+    let owner = conn.clone();
+    let worker = owner.scope.spawn_named("channel frames", async move {
+        while let Some((m, params)) = rx.recv().await {
+            notification(&hub, &conn, &m, &params).await;
+        }
+    });
+    (tx, worker)
+}
+
 /// True for the notifications this file takes from a client or a peer daemon.
 pub(super) fn takes(m: &str) -> bool {
     matches!(m, method::MUX_CHANNEL_SEND | method::MUX_CHANNEL_CLOSE | method::MUX_CHANNEL_CONNECT)
