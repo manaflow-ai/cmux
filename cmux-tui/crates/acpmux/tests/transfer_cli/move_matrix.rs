@@ -385,8 +385,10 @@ async fn cli_move(source: &Daemon, id: &str, destination: &Path) -> Value {
 /// The move as `cmux link agent move` (the app's Move to Cloud and Bring Back pump) makes it,
 /// through each daemon's `agent-transfer-*` verbs, which forward these `_acpmux/transfer_*`
 /// calls to acpmux as a local client (`cmux-tui-core/src/server/agent_transfer.rs`): begin on
-/// the source (`interrupt`), a guarded receive on the target (`control: web`, roots: the
-/// folder, as a Mac taking a chat back), every bundle file read page by page from the source
+/// the source (`interrupt`), a guarded receive on the target as Move to Cloud makes it
+/// (`agent_transfer.rs` `guard_for`: `control: peer`, root `~/work`, the folder under it; the
+/// `web` guard of Bring Back takes no Codex chat and no mode that does not ask), every bundle
+/// file read page by page from the source
 /// and written to the target, finish in the folder, commit on the source. `Err`: the step that
 /// refused and why.
 async fn gui_move(src: &mut Rpc, dst: &mut Rpc, id: &str, folder: &Path) -> Result<Value, String> {
@@ -404,7 +406,7 @@ async fn gui_move(src: &mut Rpc, dst: &mut Rpc, id: &str, folder: &Path) -> Resu
         params
     };
     let moved = async {
-        let guard = json!({"control": "web", "roots": [folder]});
+        let guard = json!({"control": "peer", "roots": [folder.parent().ok_or("a folder with no parent")?]});
         let received = dst
             .try_call("_acpmux/transfer_receive", json!({"manifest": begun, "guard": guard}))
             .await
@@ -489,8 +491,8 @@ async fn codex_store_moves(way: Way) {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let rollout = std::fs::read(&on_source[0]).unwrap();
 
-    // Under the target's HOME: a guarded receive (the app's move) takes only a folder there.
-    let destination = home_of(&format!("{tag}-t")).join("arrived");
+    // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
@@ -498,7 +500,7 @@ async fn codex_store_moves(way: Way) {
             cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
         }
         Way::Gui => {
-            std::fs::create_dir(&destination).unwrap();
+            std::fs::create_dir_all(&destination).unwrap();
             let moved = gui_move(&mut src, &mut dst, id, &destination).await;
             cells.check("moved", moved.is_ok(), format!("{moved:?}"));
         }
@@ -606,8 +608,8 @@ async fn claude_subagent_folds_move(way: Way) {
     std::fs::write(folder.join(format!("{agent_id}.jsonl")), &transcript).unwrap();
     std::fs::write(folder.join(agent_id).join("subagents/agent-a1.jsonl"), &child).unwrap();
 
-    // Under the target's HOME: a guarded receive (the app's move) takes only a folder there.
-    let destination = home_of(&format!("{tag}-t")).join("arrived");
+    // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
     let mut dst = Rpc::connect(&target.socket).await;
     match way {
         Way::Cli => {
@@ -615,7 +617,7 @@ async fn claude_subagent_folds_move(way: Way) {
             cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
         }
         Way::Gui => {
-            std::fs::create_dir(&destination).unwrap();
+            std::fs::create_dir_all(&destination).unwrap();
             let moved = gui_move(&mut src, &mut dst, id, &destination).await;
             cells.check("moved", moved.is_ok(), format!("{moved:?}"));
         }
