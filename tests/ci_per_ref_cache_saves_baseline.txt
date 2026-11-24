@@ -3,8 +3,6 @@
 # only that ref reads again. Shrink this list (limit the save to a feat-cmux-next push); never grow it.
 ci-web.yml: agent-pane-real-acpmux: Save the agent pane green marker
 ci-web.yml: react-apps-check: Save the green marker (cache)
-ci-web.yml: agent-pane-real-acpmux: Save the agent pane green marker
-ci-web.yml: react-apps-check: Save the green marker (cache)
 ci-web.yml: webviews-test-durations: Save the duration manifest
 cmux-next-degenerate-lab.yml: lab: Save tonight's marker
 cmux-next-perf-budgets.yml: blacksmith-mac: Save the warm cache
