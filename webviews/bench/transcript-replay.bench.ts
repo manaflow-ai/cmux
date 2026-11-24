@@ -1108,11 +1108,7 @@ if (import.meta.main) {
               enforce: "pre",
               transform(code: string, id: string) {
                 if (!id.includes("react-dom-client.production")) return;
-                return code.replace(
-                  "function scheduleUpdateOnFiber(root, fiber, lane) {",
-                  `function scheduleUpdateOnFiber(root, fiber, lane) {
-  if ((executionContext & 4) && globalThis.__ssOn) { const m = (globalThis.__ss ??= {}); const k = (fiber.type && (fiber.type.displayName || fiber.type.name)) + " | " + (new Error().stack || "").split("\\n").slice(2, 9).map((l) => l.trim().replace(/https?:[^ )]*\\//, "")).join(" < "); m[k] = (m[k] || 0) + 1; }`,
-                );
+                return require(process.env.TRACE_SS!)(code);
               },
             },
           ]
