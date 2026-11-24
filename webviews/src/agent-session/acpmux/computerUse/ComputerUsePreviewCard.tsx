@@ -24,6 +24,7 @@ import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
 import { AgentCursorArt, PersonPointerArt } from "./cursorArt";
 import { cursorStyle, personPointerStyle } from "./cursorArtModel";
+import { usePaneView } from "../paneViewStore";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
 import "./computerUsePreview.css";
 
@@ -35,6 +36,7 @@ export function ComputerUsePreviewCard({
   onClose(session: string): void;
 }) {
   const t = useT();
+  const view = usePaneView();
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   // Enlarged, for the session it was enlarged for: another session's card starts small.
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
@@ -102,7 +104,7 @@ export function ComputerUsePreviewCard({
         className="acpmux-cu-preview__close"
         aria-label={t("computerUse.preview.close")}
         onClick={() => {
-          closeComputerUsePreview(shown.session);
+          closeComputerUsePreview(shown.session, view);
           onClose(shown.session);
         }}
       >

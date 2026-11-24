@@ -17,6 +17,7 @@
 // it. That model is ported from Petal's telepointers (kiruna-labs/petal @ 7ac436a,
 // web-harness/src/telepointer.ts and telepointerDisplay.ts, Apache-2.0).
 import { useSyncExternalStore } from "react";
+import { usePaneView, viewStore } from "../paneViewStore";
 
 /// The card's room at the chat's right: its 180px, 12px from the pane's edge, a 12px gap to the
 /// column (computerUsePreview.css).
@@ -103,10 +104,10 @@ const sameTelepointer = (a?: ComputerUsePreviewTelepointer, b?: ComputerUsePrevi
 const sameTelepointers = (a?: ComputerUsePreviewTelepointers, b?: ComputerUsePreviewTelepointers) =>
   sameTelepointer(a?.agent, b?.agent) && sameTelepointer(a?.person, b?.person);
 
-let current: ComputerUsePreview | null = null;
-/// The session the person closed here: hidden at once, before the host's push that takes it away.
-let closed: string | undefined;
-const listeners = new Set<() => void>();
+// One card a pane view (paneViewStore.ts); the page itself is the null view.
+const cards = viewStore<ComputerUsePreview | null>(null);
+/// The session the person closed in a view: hidden at once, before the host's push that takes it away.
+const closedBy = viewStore<string | undefined>(undefined);
 
 /// Only an image `data:` URL draws: the page's CSP allows `img-src data:`, and nothing else is
 /// taken from the push.
@@ -132,7 +133,8 @@ export function readComputerUsePreview(value: unknown): ComputerUsePreview | nul
 }
 
 /// Replaces the card from a host push.
-export function setComputerUsePreview(value: unknown): void {
+export function setComputerUsePreview(value: unknown, view: string | null = null): void {
+  const current = cards.get(view);
   const next = readComputerUsePreview(value);
   if (
     next?.session === current?.session &&
@@ -144,19 +146,17 @@ export function setComputerUsePreview(value: unknown): void {
     sameTelepointers(next?.telepointers, current?.telepointers)
   )
     return;
-  current = next;
-  for (const listener of listeners) listener();
+  cards.set(next, view);
 }
 
-export function currentComputerUsePreview(): ComputerUsePreview | null {
-  return current && current.session !== closed ? current : null;
+export function currentComputerUsePreview(view: string | null = null): ComputerUsePreview | null {
+  const current = cards.get(view);
+  return current && current.session !== closedBy.get(view) ? current : null;
 }
 
 /// Hides the card of `session` here at once (the close button); the host's next push agrees.
-export function closeComputerUsePreview(session: string): void {
-  if (closed === session) return;
-  closed = session;
-  for (const listener of listeners) listener();
+export function closeComputerUsePreview(session: string, view: string | null = null): void {
+  closedBy.set(session, view);
 }
 
 /// The app's name the card's label says: trimmed, or none.
@@ -177,13 +177,21 @@ export function useComputerUsePreviewRoom(): boolean {
   return useSyncExternalStore(subscribeRoom, hasRoom, hasRoom);
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 export function useComputerUsePreview(): ComputerUsePreview | null {
-  return useSyncExternalStore(subscribe, currentComputerUsePreview, currentComputerUsePreview);
+  const view = usePaneView();
+  const read = () => currentComputerUsePreview(view);
+  return useSyncExternalStore(
+    (listener) => {
+      const offCard = cards.subscribe(listener, view);
+      const offClosed = closedBy.subscribe(listener, view);
+      return () => {
+        offCard();
+        offClosed();
+      };
+    },
+    read,
+    read,
+  );
 }
 
 declare global {
