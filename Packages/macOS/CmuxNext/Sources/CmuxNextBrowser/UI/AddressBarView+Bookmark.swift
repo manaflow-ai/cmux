@@ -21,7 +21,7 @@ extension AddressBarView {
 
     /// The star view, to anchor the edit bubble from a keyboard or palette
     /// command (nil while hidden).
-    public var bookmarkStarAnchor: NSView? { starButton.isHidden ? nil : starButton }
+    public var bookmarkStarAnchor: NSView? { starButton.isHiddenOrHasHiddenAncestor ? nil : starButton }
 
     /// The star hides while the user types, not on focus (Chromium
     /// `LocationBarView::IsEditingOrEmpty`): a focusing click keeps the

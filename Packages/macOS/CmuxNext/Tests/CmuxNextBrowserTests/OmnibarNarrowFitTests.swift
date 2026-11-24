@@ -52,4 +52,55 @@ struct OmnibarNarrowFitTests {
         defer { window.closeAfterTest() }
         #expect(problems(bar).isEmpty, "at \(width) pt: \(problems(bar))")
     }
+
+    @Test func aWideBarKeepsTheNotSecureLabelAndTheStar() {
+        let (bar, window, _) = bar(width: 840)
+        defer { window.closeAfterTest() }
+        #expect(!bar.chip.collapsesLabel)
+        #expect(!bar.starButton.isHiddenOrHasHiddenAncestor)
+    }
+
+    @Test func aNarrowBarFoldsTheLabelFirstThenTheStar() {
+        let (bar, window, width) = bar(width: 840)
+        defer { window.closeAfterTest() }
+        let labeled = bar.chip.labeledWidth
+        // Room for the icon chip, the star and a short text, not for the label too: the label folds, the star stays.
+        width.constant = OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading + OmnibarNarrowFit.minimumTextWidth
+            + OmnibarStyle.fieldTrailingGap + bar.starButton.fittingSize.width + OmnibarStyle.badgesTrailingInset + 4
+        window.contentView!.layoutSubtreeIfNeeded()
+        #expect(labeled > OmnibarStyle.chipSize + 20, "the insecure page has a label to fold")
+        #expect(bar.chip.collapsesLabel)
+        #expect(!bar.starButton.isHiddenOrHasHiddenAncestor)
+        // Narrower still: the star gives way too.
+        width.constant = 70
+        window.contentView!.layoutSubtreeIfNeeded()
+        #expect(bar.chip.collapsesLabel)
+        #expect(bar.starButton.isHiddenOrHasHiddenAncestor)
+        #expect(bar.bookmarkStarAnchor == nil)
+        // Wide again: both come back.
+        width.constant = 840
+        window.contentView!.layoutSubtreeIfNeeded()
+        #expect(!bar.chip.collapsesLabel)
+        #expect(!bar.starButton.isHiddenOrHasHiddenAncestor)
+        #expect(problems(bar).isEmpty)
+    }
+
+    @Test func theFitRuleFoldsTheLabelBeforeTheBadges() {
+        func fit(_ width: CGFloat) -> OmnibarNarrowFit {
+            OmnibarNarrowFit.resolve(barWidth: width, chipLeading: 2, chipIcon: 24, chipLabeled: 90, textLeading: 5,
+                                     badges: 24, badgesInset: 2, fieldTrailingGap: 5, trailingPadding: 8, minimumText: 40)
+        }
+        // label 2+90+5, badges 5+24+2: text = width - 128.
+        #expect(fit(400) == OmnibarNarrowFit(showsChipLabel: true, showsBadges: true))
+        #expect(fit(168) == OmnibarNarrowFit(showsChipLabel: true, showsBadges: true))
+        #expect(fit(167) == OmnibarNarrowFit(showsChipLabel: false, showsBadges: true))
+        // icon 2+24+5, badges 31: text = width - 62.
+        #expect(fit(102) == OmnibarNarrowFit(showsChipLabel: false, showsBadges: true))
+        #expect(fit(101) == OmnibarNarrowFit(showsChipLabel: false, showsBadges: false))
+        #expect(fit(20) == OmnibarNarrowFit(showsChipLabel: false, showsBadges: false))
+        // No label, no badges: nothing to give way.
+        #expect(OmnibarNarrowFit.resolve(barWidth: 50, chipLeading: 2, chipIcon: 24, chipLabeled: 24, textLeading: 5, badges: 0,
+                                         badgesInset: 2, fieldTrailingGap: 5, trailingPadding: 8, minimumText: 40)
+                == OmnibarNarrowFit(showsChipLabel: true, showsBadges: true))
+    }
 }
