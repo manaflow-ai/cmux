@@ -1326,13 +1326,7 @@ mod lockstep_tests {
             ),
             ("at generation 0", hello(early.clone(), None), Pattern::Ik, AuthKind::Carrier, 0),
             ("on XX", hello(early.clone(), None), Pattern::Xx, AuthKind::Carrier, 1),
-            (
-                "with an invitation",
-                hello(early.clone(), None),
-                Pattern::Ik,
-                AuthKind::Invitation,
-                1,
-            ),
+            ("with an invitation", hello(early, None), Pattern::Ik, AuthKind::Invitation, 1),
             ("not base64", hello(vec!["%%".into()], None), Pattern::Ik, AuthKind::Carrier, 1),
             (
                 "over the cap",
