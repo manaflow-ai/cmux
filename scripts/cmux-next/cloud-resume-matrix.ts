@@ -298,6 +298,28 @@ export function parseServerTiming(header: string | null | undefined): Record<str
   return Object.keys(out).length ? out : undefined;
 }
 
+type RouteAnswer = { status: number; body: any; headers?: Headers };
+type RouteHttp = (method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs: number) => Promise<RouteAnswer>;
+
+/**
+ * The resume arm: POST {platform}/v1/machines/{id}/resume, which answers Server-Timing (cmux-platform ResumeTiming.ts).
+ * Only cmux-platform serves /v1/machines; the API host forwards no such path and answered every run-45389803263
+ * sample with an empty 404. `platform` is client-config's platform_origin. The route serves team-machine records
+ * (POST /v1/machines), keyed by their first vm_ id; a machine made by cloud.machine.create has none, so its
+ * machine.not_found is this arm being unavailable, not a failed wake.
+ */
+export async function resumeRouteCall(platform: string, machine: string, headers: Record<string, string>, call: RouteHttp, timeoutMs = 180_000): Promise<{ serverTiming?: Record<string, number>; serverTimingHeader: string | null }> {
+  const r = await call("POST", `${platform.replace(/\/+$/, "")}/v1/machines/${encodeURIComponent(machine)}/resume`, {}, headers, timeoutMs);
+  const h = r.headers?.get("server-timing") ?? null;
+  const said = JSON.stringify(r.body?.code ? { code: r.body.code, message: r.body.message } : r.body ?? null).slice(0, 300);
+  if (r.status === 404 && r.body?.code === "machine.not_found") {
+    throw new Error(`unavailable here: ${machine} has no team-machine record (made by cloud.machine.create; POST /v1/machines/{id}/resume serves only POST /v1/machines records, and cloud.machine.start answers the same Server-Timing) ${said}`);
+  }
+  if ([400, 404, 405, 501].includes(r.status)) throw new Error(`unavailable here: ${platform} POST /v1/machines/{id}/resume answered HTTP ${r.status} ${said}`);
+  if (r.status < 200 || r.status >= 300) throw new Error(`resume route: HTTP ${r.status} ${said}`);
+  return { serverTiming: parseServerTiming(h), serverTimingHeader: h };
+}
+
 /** The arms in sample i's order: rotated each sample, so no arm always goes first after a pause. */
 export function armOrder(arms: ResumeArm[], i: number): ResumeArm[] {
   const k = i % arms.length;

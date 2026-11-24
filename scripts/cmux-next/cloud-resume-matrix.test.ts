@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderAdapter } from "./resume-slo-provider.ts";
 import { cliExecResult } from "./cloud-journey.ts";
+import * as matrix from "./cloud-resume-matrix.ts";
 import { armOrder, armUnavailable, awaitPaused, lostPromptFacts, RELAY_REGISTERED, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
@@ -302,4 +303,35 @@ test("the table has a pause landed column", () => {
   const md = resumeMarkdown([s]);
   expect(md).toContain("pause landed p50 / p95");
   expect(md).toContain("| 2.50 / 2.50 |");
+});
+
+describe("the resume arm's route (run 45389803263: every resume sample read HTTP 404 {})", () => {
+  const calls: { method: string; url: string; headers: Record<string, string> }[] = [];
+  const answering = (status: number, body: unknown, timing?: string) => async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
+    calls.push({ method, url, headers });
+    return { status, body, headers: new Headers(timing ? { "server-timing": timing } : {}) };
+  };
+  const auth = { authorization: "Bearer t", "x-cmux-team": "team_1" };
+
+  test("goes to the platform origin with the caller's bearer and team, and returns its Server-Timing", async () => {
+    expect(typeof matrix.resumeRouteCall).toBe("function");
+    calls.length = 0;
+    const r = await matrix.resumeRouteCall("https://platform.example/", "vm_1", auth, answering(200, { ok: true }, "provider;dur=12, total;dur=40.4"));
+    expect(calls).toEqual([{ method: "POST", url: "https://platform.example/v1/machines/vm_1/resume", headers: auth }]);
+    expect(r.serverTiming).toEqual({ provider: 12, total: 40 });
+  });
+
+  test("a machine with no team-machine record is the arm unavailable, naming why", async () => {
+    expect(typeof matrix.resumeRouteCall).toBe("function");
+    const e = await matrix.resumeRouteCall("https://platform.example", "vm_1", auth, answering(404, { _tag: "MachineNotFound", code: "machine.not_found", message: "no such machine" })).catch((x: Error) => x);
+    expect(e).toBeInstanceOf(Error);
+    expect(armUnavailable((e as Error).message)).toBe(true);
+    expect((e as Error).message).toContain("no team-machine record");
+  });
+
+  test("a refusal that is not a missing route or record is a failed wake", async () => {
+    expect(typeof matrix.resumeRouteCall).toBe("function");
+    const e = await matrix.resumeRouteCall("https://platform.example", "vm_1", auth, answering(409, { code: "machine.conflict" })).catch((x: Error) => x);
+    expect(armUnavailable((e as Error).message)).toBe(false);
+  });
 });
