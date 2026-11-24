@@ -1639,11 +1639,13 @@ mod redial_tests {
         assert!(held(&turn, 0).await, "{} TURN allocations held after pool teardown", turn.allocations());
     }
 
-    /// Ten replacement attempts share the pool's opening gate. Sampling the
-    /// TURN server while the storm runs shows at most one held allocation.
+    /// A flapping network makes the app redial one link ten times, each
+    /// attempt cancelling the one before (Swift drops the connect future).
+    /// Sampling the TURN server through the storm shows at most one held
+    /// allocation, and none after it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ffi_pool_redial_storm_holds_at_most_one_turn_allocation() {
-        let turn = TestTurn::start().await;
+        let turn = Arc::new(TestTurn::start().await);
         let server = FakeSignaling::start(FakeOptions {
             ice_servers: vec![turn.udp_only()],
             strip_direct_endpoints: true,
@@ -1653,22 +1655,76 @@ mod redial_tests {
         let pool = WarmPool::new();
         let mac_id = uuid::Uuid::new_v4().to_string();
         let _mac = holding_mac(&server, &mac_id).await;
-        let mut attempts = Vec::new();
+        let device_id = uuid::Uuid::new_v4().to_string();
+        let maximum = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sampling = {
+            let turn = Arc::clone(&turn);
+            let maximum = Arc::clone(&maximum);
+            tokio::spawn(async move {
+                loop {
+                    maximum.fetch_max(turn.allocations(), std::sync::atomic::Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+        };
+        let mut previous: Option<tokio::task::JoinHandle<_>> = None;
         for _ in 0..10 {
-            let request = request(&server.base_url, &uuid::Uuid::new_v4().to_string(), &mac_id);
-            attempts.push(tokio::spawn(redial(pool.clone(), request, options(&turn))));
+            if let Some(attempt) = previous.take() {
+                attempt.abort();
+                let _ = attempt.await;
+                assert!(held(&turn, 0).await, "a cancelled redial kept its TURN allocation");
+            }
+            let attempt = tokio::spawn(redial(
+                pool.clone(),
+                request(&server.base_url, &device_id, &mac_id),
+                options(&turn),
+            ));
+            assert!(held(&turn, 1).await, "a redial in the storm never allocated TURN");
+            previous = Some(attempt);
         }
-        let mut maximum = 0;
-        for _ in 0..50 {
-            maximum = maximum.max(turn.allocations());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        for attempt in attempts {
+        if let Some(attempt) = previous.take() {
             attempt.abort();
+            let _ = attempt.await;
         }
         assert!(held(&turn, 0).await, "{} TURN allocations held after storm", turn.allocations());
-        assert!(maximum >= 1, "redial storm never held a TURN allocation");
+        sampling.abort();
+        let maximum = maximum.load(std::sync::atomic::Ordering::Relaxed);
         assert!(maximum <= 1, "redial storm held {maximum} TURN allocations");
+    }
+
+    /// A redial waiting on the Mac does not hold the opening lock: a dial for
+    /// another team opens its socket while the redial is still negotiating.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ffi_pool_redial_lets_another_key_open_mid_dial() {
+        let turn = Arc::new(TestTurn::start().await);
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            strip_direct_endpoints: true,
+            ..FakeOptions::default()
+        })
+        .await;
+        let pool = WarmPool::new();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let _mac = holding_mac(&server, &mac_id).await;
+        let device_id = uuid::Uuid::new_v4().to_string();
+        let dial = tokio::spawn(redial(
+            pool.clone(),
+            request(&server.base_url, &device_id, &mac_id),
+            options(&turn),
+        ));
+        assert!(held(&turn, 1).await, "the redial never allocated TURN");
+        let mut other = request(&server.base_url, &device_id, &mac_id);
+        other.team_id = "other-team".into();
+        let opened = tokio::time::timeout(
+            Duration::from_secs(2),
+            pool.0.open(&key(&other), &other.token, &Timeline::new()),
+        )
+        .await
+        .map(|opened| opened.map(|_| ()));
+        dial.abort();
+        assert!(matches!(opened, Ok(Ok(()))), "another key's socket waited on the redial: {opened:?}");
+        assert!(held(&turn, 0).await, "{} TURN allocations held after drop", turn.allocations());
+        pool.reset().await;
     }
 
     /// A signaling upgrade failure does not leak an early allocation when the
@@ -1793,6 +1849,11 @@ enum Attempt {
 /// upgrade finishes, so the two network handshakes overlap. The socket is
 /// installed as soon as the upgrade completes, retaining the pool's existing
 /// rehome behavior while the transport negotiation runs.
+///
+/// The opening lock is taken before the allocation starts and let go once
+/// the socket is in the pool, as `Warm::open` holds it: a redial waiting on
+/// another's upgrade holds no allocation, and a dial for another key waits
+/// for an upgrade, never for a whole dial.
 async fn redial_after(
     pool: &Arc<Warm>,
     key: &SocketKey,
@@ -1800,7 +1861,7 @@ async fn redial_after(
     options: &DialOptions,
     timeline: &Timeline,
 ) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
-    let _opening = pool.opening.lock().await;
+    let opening = pool.opening.lock().await;
     let opened = Arc::new(tokio::sync::Mutex::new(None));
     let opened_by_signaling = Arc::clone(&opened);
     let pool_for_signaling = Arc::clone(pool);
@@ -1820,6 +1881,7 @@ async fn redial_after(
             .store_opened(&key_for_signaling, client.clone(), &timeline_for_signaling)
             .await;
         *opened_by_signaling.lock().await = Some(socket);
+        drop(opening);
         Ok::<_, cmux_mobile_link::signaling::SignalingError>(client)
     };
     let result = cmux_mobile_link::dial::connect_after(
