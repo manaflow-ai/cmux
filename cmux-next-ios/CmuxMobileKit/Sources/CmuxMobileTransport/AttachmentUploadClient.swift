@@ -57,14 +57,20 @@ public final class AttachmentUploadClient {
     /// to the outbox folder first, so the engine streams a file either way.
     public func start(_ data: Data, name: String, to destination: AttachmentDestination) -> String {
         let id = reserve(name: name, to: destination)
+        fileReady(id, data: data, name: name)
+        return id
+    }
+
+    /// A reserved upload's bytes, held in memory: written to the outbox folder, then sent as
+    /// `name` on the Mac.
+    public func fileReady(_ id: String, data: Data, name: String) {
         do {
             let url = try Self.outboxFile(id: id, name: name)
             try data.write(to: url, options: .atomic)
-            fileReady(id, url: url, ownsFile: true)
+            fileReady(id, url: url, name: name, ownsFile: true)
         } catch {
             engine.cancel(uploadId: id)
         }
-        return id
     }
 
     /// An upload whose file is still being made (a video being compressed):
@@ -79,13 +85,19 @@ public final class AttachmentUploadClient {
         engine.compressProgress(uploadId: id, fraction: fraction)
     }
 
-    public func fileReady(_ id: String, url: URL, ownsFile: Bool = false) {
+    /// The reserved upload's file is ready; `name` (when given) replaces the reserved name on
+    /// the Mac (a re-encode made another kind of file).
+    public func fileReady(_ id: String, url: URL, name: String? = nil, ownsFile: Bool = false) {
         if ownsFile {
             ownedFiles[id] = url
         } else {
             scopes[id] = ScopedFile(url).open()
         }
-        engine.fileReady(uploadId: id, path: url.path)
+        if let name {
+            engine.fileReadyAs(uploadId: id, path: url.path, name: name)
+        } else {
+            engine.fileReady(uploadId: id, path: url.path)
+        }
     }
 
     /// Stops the upload at any stage, at once: nothing waits on the network.
