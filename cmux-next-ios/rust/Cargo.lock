@@ -563,6 +563,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-fault",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
