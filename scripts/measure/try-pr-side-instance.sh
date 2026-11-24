@@ -33,7 +33,7 @@ for pr in "$@"; do
   echo "=== #$pr"
   port=$((20000 + pr % 10000))
   t0=$(now)
-  "$root/scripts/cmux-next/try-pr.sh" "$pr" --from "$app" >"$out/try-$pr.log" 2>&1 &
+  "$root/scripts/cmux-next/try-pr.sh" "$pr" --from "$app" --shown >"$out/try-$pr.log" 2>&1 &
   try=$!
   pid="" loaded="" done_at=""
   for _ in $(seq 1 3000); do

@@ -44,7 +44,7 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let queueTrailCenter: CGFloat = 22
     public static let composerBlockInset: CGFloat = 10
     public static let composerBox: CGFloat = 48
-    public static let composerRadius: CGFloat = 12
+    public static let composerRadius: CGFloat = 16
     public static let composerQuietRowGap: CGFloat = 4
     public static let composerQuietRowHeight: CGFloat = 28
     public static let composerQuietRowText: CGFloat = 14

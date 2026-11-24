@@ -149,10 +149,23 @@ public final class LayoutModel {
     /// Panes that need attention (an unread notification), with the mark
     /// the overlay draws. Set by the App from daemon unread state.
     public var attention: [PaneID: AttentionMark] = [:]
-    /// Panes whose mark the last `attention` change removed because the person
-    /// went into the pane (a click, a key, an open): their ring blinks out, as
-    /// cmux classic's dismiss flash did. Set by the App just before `attention`.
+    /// Panes whose mark went because the person went into the pane (a focus, a click, a key, an open):
+    /// their ring blinks out, as cmux classic's dismiss flash did. A pane stays in it until it rings
+    /// again, so a later pass cannot turn the blink into a fade (``setAttention(_:readByEntry:)``).
     public var attentionReadByEntry: Set<PaneID> = []
+    /// The layout just came on screen (a workspace switch): its rings wait for the frame that shows its content, so no
+    /// ring draws on the overlay before the workspace it belongs to (cmux#46908). The App lets them go after that commit.
+    /// The marks stay meanwhile: a ring read by the switch starts its dismiss blink, which shows once the hold ends.
+    public var holdsAttentionUntilShown = false
+    /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
+    /// when they look at this layout and the policy reads its ring so; true when it did
+    /// (``enterAttention(_:click:)``). Set by the App.
+    @ObservationIgnored public var readsAttentionOnEntry: (PaneID, Bool) -> Bool = { _, _ in false }
+    /// The ring generation of each pane the focus entered (``enterAttention(_:click:)``): its ring stays out
+    /// while the read is on its way, and comes back only with a newer one.
+    @ObservationIgnored var enteredAttention: [PaneID: UInt64] = [:]
+    /// The App's marks as last set (``setAttention(_:readByEntry:)``), before the entered rings are left out.
+    @ObservationIgnored public internal(set) var attentionMarks: [PaneID: AttentionMark] = [:]
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
@@ -374,6 +387,7 @@ public final class LayoutModel {
         lastFocusSource = source
         if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
+        enterAttention(pane)
         // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
         if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
         // A floating pane that gets the focus comes to the front.

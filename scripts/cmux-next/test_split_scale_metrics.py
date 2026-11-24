@@ -254,6 +254,32 @@ class SummaryTests(unittest.TestCase):
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
 
+    def test_an_unsettled_round_is_the_worst_at_least_the_strip(self):
+        # The 01fc64af3 nightly: s9-browser-w1 divider_drag was still painting when its 900 ms strip ended, and the
+        # headline published settled None, so the goal check had no score at all.
+        s = ssm.summarize([{"settled_ms": None}, {"settled_ms": 780}, {"settled_ms": 415}])
+        self.assertEqual(s["unsettled"], 1)
+        self.assertFalse(ssm.verdict(s, 8.33)["pass"])
+        cells = {"s9-browser-w1": {"divider_drag": s}, "s1-empty-w1": {"split_right": self.summary(1427)}}
+        head = ssm.headline(cells, {}, unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"], head["settled_at_least"]), ("s1-empty-w1", 1427, False))
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}}, {}, unsettled_ms=900)
+        self.assertEqual((head["settled_ms"], head["settled_at_least"]), (900, True))
+        failed = ssm.summarize([{"settled_ms": 50}, {"error": "nothing moved after the input"}])
+        head = ssm.headline({"s9-browser-w1": {"divider_drag": s}, "s1-chat-w1": {"bottom_close": failed}}, {},
+                            unsettled_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"]), ("s1-chat-w1", None))
+
+    def test_a_cell_with_no_settled_time_is_a_failed_cell(self):
+        # The b2dab851a nightly: s1-empty-w1 side_open had no settled time and no round error, so the report said
+        # 0 failed cells beside a None headline and the goal check read unknown.
+        cells = {"s1-empty-w1": {"side_open": {"settled_ms": None}, "split_right": self.summary(100)},
+                 "s9-browser-w1": {"divider_drag": ssm.summarize([{"settled_ms": None}, {"settled_ms": 400}])},
+                 "s2-chat-w1": {"split_right": self.summary(140)}}
+        self.assertEqual(ssm.unmeasured(cells, unsettled_ms=900), ["s1-empty-w1"])
+        self.assertEqual(ssm.unmeasured(cells), ["s1-empty-w1", "s9-browser-w1"])
+        self.assertIsNone(ssm.headline(cells, {}, unsettled_ms=900)["settled_ms"])
+
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])
         self.assertFalse(ssm.verdict(self.summary(130))["settled"])
