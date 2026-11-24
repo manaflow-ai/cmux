@@ -67,7 +67,9 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   Colors accept semantic ABI tokens and `#RRGGBB[AA]`, rather than arbitrary CSS.
 
 Input dispatches `tap`, `menu {path:number[]}`, `edit {text}`, `submit {text}`,
-`change {value}` (Toggle and Slider) and `cancel`, using the original node id. A Toggle flip
+`change {value}` (Toggle and Slider) and `cancel {text}`, using the original node id. A TextField keeps
+what the person types as its `text` in the store (`reflectText`), as the app host does, so the app's
+value replaces it only when it differs (a draft cleared after a submit clears the field). A Toggle flip
 shows at once, and the next `value` the app sends wins. A Slider sends a value only when its
 snapped value changes, so values between two snaps are dropped, never delayed; during a drag
 the app's echoes do not move the thumb, and the app's value shows on release. Menu paths retain all indexes, including
@@ -89,9 +91,15 @@ Details, or the disconnected line alone. Reload calls `cmux.apps.panels.reload` 
 from the click (the host accepts it only from a gesture). `SceneMount` reports its drawn height
 with `cmux.apps.panels.layout {mount_id, height}`, once per change.
 
-`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard` or
-`sessionInfoSection`) and resolves the app's implementation as that surface's native host does
-(`AppMountSurface`).
+`cmux.apps.panels.mount` takes `surface` (`pane`, `sidebarSection`, `hoverCard`,
+`sessionInfoSection` or `chatWidget`) and resolves the app's implementation as that surface's
+native host does (`AppMountSurface`).
+
+A chat widget (`cmux.chat.widget/1`) mounts in two steps, both answered by the daemon:
+`cmux.apps.panels.route {key, tool}` names the extension that draws under a finished tool call
+and the context its render gets (`{widget: null}` when none does), and the page mounts that answer
+on the `chatWidget` surface (`chatWidgetClient.ts`, drawn by `ToolWidget.tsx`). The page does no
+matching of its own.
 
 ## Bundle images
 

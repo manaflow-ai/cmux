@@ -8,7 +8,6 @@ final class BookmarkEditModel {
     var title: String
     var folder: String
     let folders: [BookmarkFolderChoice]
-    var colors = BookmarkPageColors()
     @ObservationIgnored var onDone: () -> Void = {}
     @ObservationIgnored var onRemove: () -> Void = {}
     @ObservationIgnored var onMore: () -> Void = {}
@@ -21,7 +20,9 @@ final class BookmarkEditModel {
     }
 }
 
-/// The bubble's form: undesigned, compact, theme colors only.
+/// The bubble's form: undesigned, compact, theme colors only. Its text takes the inks of its host
+/// (``ThemedHostingView``: the foreground and `.cmuxSecondary` are the theme's text fit to the menu glass); the theme's own
+/// text read 4.16:1 on Hot Dog Stand's glass over a black page.
 struct BookmarkEditView: View {
     @Bindable var model: BookmarkEditModel
 
@@ -29,15 +30,14 @@ struct BookmarkEditView: View {
         VStack(alignment: .leading, spacing: Metrics.space4) {
             Text(model.isNew ? BookmarkStrings.added : BookmarkStrings.editTitle)
                 .font(Font(Typography.bodyEmphasized))
-                .foregroundStyle(model.colors.primary)
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
-                    Text(BookmarkStrings.name).foregroundStyle(model.colors.secondary)
+                    Text(BookmarkStrings.name).foregroundStyle(.cmuxSecondary)
                     ThemedField(text: $model.title, focusOnAppear: true, identifier: "cmux.bookmarks.edit.name",
                                 onSubmit: { model.onDone() })
                 }
                 GridRow {
-                    Text(BookmarkStrings.folder).foregroundStyle(model.colors.secondary)
+                    Text(BookmarkStrings.folder).foregroundStyle(.cmuxSecondary)
                     ThemedPicker(selection: $model.folder, choices: model.folders.map {
                         ThemedPicker.Choice(id: $0.id, title: String(repeating: "    ", count: $0.depth) + $0.title)
                     }, identifier: "cmux.bookmarks.edit.folder")

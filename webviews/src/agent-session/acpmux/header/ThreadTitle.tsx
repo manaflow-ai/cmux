@@ -1,4 +1,7 @@
 import { useExperimentSwitch } from "../../../experiments/switches";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
+import { AgentIdentityChip, type FkaTreatment } from "../AgentIdentityChip";
+import { intl } from "../../../ui/intl";
 import { usePaneLanguage, useT } from "../i18n";
 import { GLASS_TOOLBAR_SWITCH } from "./glassToolbar.experiment";
 import { useHeaderState } from "./headerState";
@@ -13,27 +16,57 @@ import { useHeaderState } from "./headerState";
  * off by default) it reads as a window toolbar's title: the chat's workspace, with its chat count
  * under it, while the App has said which workspace that is; the chat's own name is the tooltip.
  * `glass` is the gallery's pick; else the person's switch.
+ *
+ * The chat's identity (Leo, 2026-11-22: "BUT WHO IS MANGO?"): the icon it set (acpmux `icon`) else
+ * its harness's mark before the name, and the newest name it had before a rename as a quiet "fka"
+ * after it (AgentIdentityChip.tsx); the tooltip lists every former name.
  */
-export function ThreadTitle({ title, onRename, glass }: { title: string; onRename?: () => void; glass?: boolean }) {
+export function ThreadTitle({
+  title,
+  onRename,
+  glass,
+  icon,
+  harness,
+  formerNames,
+  fka,
+}: {
+  title: string;
+  onRename?: () => void;
+  glass?: boolean;
+  icon?: HarnessIconSpec;
+  harness?: string;
+  formerNames?: readonly string[];
+  fka?: FkaTreatment;
+}) {
   const t = useT();
   const language = usePaneLanguage();
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
   const { workspace } = useHeaderState();
   if ((glass ?? glassSwitch) && workspace)
     return (
-      <span className="acpmux-thread-title acpmux-glass-title" title={title} onDoubleClick={onRename}>
+      <span className="acpmux-thread-title acpmux-glass-title" onDoubleClick={onRename}>
         <span className="acpmux-glass-title-name">{workspace.title}</span>
         <span className="acpmux-glass-title-detail">
           {t("header.glassChats", {
             n: workspace.chats,
-            count: new Intl.NumberFormat(language).format(workspace.chats),
+            count: intl.NumberFormat(language).format(workspace.chats),
           })}
         </span>
       </span>
     );
   return (
-    <span className="acpmux-thread-title" title={title} onDoubleClick={onRename}>
-      {title}
+    <span className="acpmux-thread-title" onDoubleClick={onRename}>
+      {icon || harness || formerNames?.length ? (
+        <AgentIdentityChip
+          name={title}
+          {...(icon && { icon })}
+          {...(harness && { harness })}
+          {...(formerNames && { formerNames })}
+          {...(fka && { fka })}
+        />
+      ) : (
+        title
+      )}
     </span>
   );
 }

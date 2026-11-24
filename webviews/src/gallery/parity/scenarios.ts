@@ -421,16 +421,6 @@ export const SCENARIOS: readonly Scenario[] = [
     inspect: "A chat with history but no reported counts explains the empty ring on hover.",
   },
   {
-    id: "subagent-nested",
-    group: "Subagents",
-    title: "Subagent with its own child agents",
-    entry: "agent-pane.subagents",
-    source: `${subagents}subagents.gallery.ts`,
-    variant: "child-group",
-    inspect:
-      "Test coverage spawned Unit tests and Integration tests. Their plain list has no broken card rim or empty row gaps.",
-  },
-  {
     id: "stack-materials",
     group: "Composer",
     title: "Stacked surfaces / screenshot reproduction",

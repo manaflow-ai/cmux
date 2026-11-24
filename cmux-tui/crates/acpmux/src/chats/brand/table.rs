@@ -33,6 +33,7 @@ pub(super) const LOOKUP: &[(&str, Option<&str>)] = &[
     ("factory", Some("factory")),
     ("gemini", Some("gemini")),
     ("gemini-cli", Some("gemini")),
+    ("github", Some("github")),
     ("github-copilot", Some("copilot")),
     ("github-copilot-cli", Some("copilot")),
     ("goose", Some("goose")),

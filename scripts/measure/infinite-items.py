@@ -229,8 +229,10 @@ def file_groups(disks):
 
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
+    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
     kinds, name = {}, None
+    prev_end, prev_guard = None, False
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -238,27 +240,30 @@ def smaps_kinds(pid):
                 head = line.split()
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
+                    start, end = (int(x, 16) for x in head[0].split("-"))
+                    anon = ("thread-stack" if prev_guard and prev_end == start else
+                            "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
-                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                    prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
         return {}
-    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
-    time.sleep(seconds)  # the idle window itself: nothing is sent
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
-        if IS_LINUX and "smaps_kb" not in r:
-            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
+        r.setdefault("by_pss", []).append((s.get("pss") or s["rss"], pid))
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         named = r.setdefault("thread_names", {})
         for name, _ in (s.get("tid_wakeups") or {}).values():
@@ -282,6 +287,11 @@ def idle_window(top, seconds, disks):
                 if woke:
                     names[name] = names.get(name, 0) + woke
     for r in roles.values():
+        # The role's median process by PSS, where its memory sits: the first one found is the one-off (a
+        # bootstrap host among a thousand per-tab hosts).
+        by_pss = sorted(r.pop("by_pss"))
+        if IS_LINUX:
+            r["smaps_kb"] = smaps_kinds(by_pss[len(by_pss) // 2][1])
         r["cpu_pct"] = round(100 * r.pop("cpu_s") / seconds, 3)
         r["wakeups_per_s"] = round(r.pop("wakeups") / seconds, 2)
         r["thread_wakeups"] = dict(sorted(r.get("thread_wakeups", {}).items(), key=lambda kv: -kv[1])[:8])
@@ -478,7 +488,10 @@ class Run:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        time.sleep(1)  # bench: let the daemons' own teardown end their children
+        # The daemons' own teardown ends their children: wait (5 s at most) until none of the recorded pids is left.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(os.path.exists(f"/proc/{pid}") for pid in own):
+            time.sleep(0.05)
         for pid in own:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -538,6 +551,9 @@ class Run:
         tree = tui.call("list-workspaces")
         listed = tree.get("workspaces", [])[-n:]
         self.workspaces = [w["id"] for w in listed]
+        # select-workspace takes the index in the session's list (a `workspace` id is ignored by it).
+        first = len(tree.get("workspaces", [])) - len(listed)
+        self.workspace_index = {w: first + i for i, w in enumerate(self.workspaces)}
         self.panes = [w["screens"][0]["panes"][0]["id"] for w in listed]
         self.browser_tabs = []
         for pane in self.panes if self.args.browser_tabs else []:
@@ -658,7 +674,7 @@ class Run:
         for step in range(steps):
             if step < a.switches and self.workspaces:
                 try:
-                    tui.call("select-workspace", workspace=rnd.choice(self.workspaces))
+                    tui.call("select-workspace", index=self.workspace_index[rnd.choice(self.workspaces)])
                 except (OSError, RuntimeError, ValueError) as exc:
                     self.error("select-workspace", exc)
             if step < a.tab_cycles and self.panes:
@@ -702,7 +718,7 @@ class Run:
                     os.kill(pid, signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-            time.sleep(a.sleep)  # bench: the simulated sleep
+            time.sleep(a.sleep)  # sleep-ok: the simulated machine sleep, its length is the scenario
             for pid in pids:
                 try:
                     os.kill(pid, signal.SIGCONT)
@@ -734,9 +750,26 @@ def perf_row(name, value, unit, floor=None):
 CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
-def settle(args):
+def settle(args, top):
     # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
-    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
+    # sleep-ok: the product's own timers have to run out; nothing can make them fire sooner
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs))
+    # Then their work: the trees' processes per role (the hibernated agents gone, the reaped terminals' shells gone)
+    # hold for --settle s. Bounded: past 6x --settle (at least 30 s) the window is sampled as it is, and logged.
+    roles = lambda: sorted((s["role"], s["cmd"]) for s in snapshot(top).values())
+    reads = max(2, int(args.settle / 0.25))
+    bound = max(30.0, 6 * args.settle)
+    deadline, last, same = time.monotonic() + bound, None, 0
+    while True:
+        now = roles()
+        same = same + 1 if now == last else 1
+        last = now
+        if same >= reads:
+            return
+        if time.monotonic() >= deadline:
+            log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
+            return
+        time.sleep(0.25)  # the poll interval of the process trees
 
 
 def run_count(args, count):
@@ -744,7 +777,7 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
-        settle(args)
+        settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
         log(f"N={count} empty {json.dumps(empty['total'])}")
@@ -755,7 +788,7 @@ def run_count(args, count):
                          "working": len(run.working), "drawn": len(run.drawn), "idle": len(run.idle),
                          "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
                          "workspaces": len(run.workspaces)}
-        settle(args)
+        settle(args, run.top)
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
@@ -764,7 +797,7 @@ def run_count(args, count):
             t0 = time.monotonic()
             turns = run.day(number)
             spent = round(time.monotonic() - t0, 1)
-            settle(args)
+            settle(args, run.top)
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)

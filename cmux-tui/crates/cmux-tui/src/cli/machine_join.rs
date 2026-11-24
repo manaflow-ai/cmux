@@ -14,7 +14,7 @@
 //! list; a Windows PC pastes the PowerShell line beside it (`windows.rs`). With a host (`machine add HOST`, `--destination HOST`) the command is
 //! the app's ssh Add Machine card, as before.
 //!
-//! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
+//! The platform origin comes from `--platform` (or `CMUX_PLATFORM_ORIGIN`, alias `CMUX_PLATFORM_URL`) and
 //! defaults to the production platform, where `acpmux host join` and the served
 //! join.sh redeem by default too (Leo, 2026-11-04: "don't stick it into dev. Put
 //! it into prod").
@@ -52,7 +52,6 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
-const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
@@ -83,7 +82,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
-  each takes --platform URL (or CMUX_PLATFORM_URL; default the production platform)
+  each takes --platform URL (or CMUX_PLATFORM_ORIGIN, alias CMUX_PLATFORM_URL; default the production platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
@@ -155,6 +154,11 @@ impl Failure {
 /// `Some(exit code)` when `args` is a verb this module runs.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
+    // `cmux machine revoke --help`: that verb's usage, exit 0 (before, a usage error, exit 2).
+    if let Some(text) = verb_help(&command_args) {
+        println!("{text}");
+        return Some(0);
+    }
     let parsed = parse(&command_args)?;
     let fail = |failure: Failure| {
         super::app::failure(
@@ -175,7 +179,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
             if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::run_app_action_fallback(args)
+                && let Some(code) = super::app_commands::run_app_action_fallback(args)
             {
                 return Some(code);
             }
@@ -210,6 +214,47 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(code) => code,
         Err(failure) => fail(failure),
     })
+}
+
+/// `machine add|revoke|rotate|vault ... --help`: the verb's own lines of [`USAGE`] (the vault's
+/// whole usage for `vault`) and the auth notes every verb shares. `None` without a help flag.
+pub(super) fn verb_help(args: &[String]) -> Option<String> {
+    let [scope, verb, rest @ ..] = args else { return None };
+    let asks =
+        rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"));
+    if scope != "machine"
+        || !asks
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault")
+    {
+        return None;
+    }
+    if verb == "vault" {
+        return Some(vault::USAGE.to_owned());
+    }
+    let own = format!("cmux machine {verb} ");
+    let mut usage = Vec::new();
+    let mut notes = Vec::new();
+    for line in USAGE.lines() {
+        if let Some(form) = line.strip_prefix("usage: ").or_else(|| line.strip_prefix("       ")) {
+            if form.starts_with(&own) || form == own.trim_end() {
+                usage.push(form);
+            }
+        } else if !line.trim_start().starts_with("cmux machine ")
+            || line.trim_start().starts_with(&own)
+        {
+            notes.push(line);
+        }
+    }
+    let mut text = String::new();
+    for (index, form) in usage.iter().enumerate() {
+        text.push_str(if index == 0 { "usage: " } else { "\n       " });
+        text.push_str(form);
+    }
+    for note in notes {
+        text.push('\n');
+        text.push_str(note);
+    }
+    Some(text)
 }
 
 /// What `machine <words>` is: this module's verb, a usage error in one, or
@@ -424,15 +469,17 @@ pub(crate) fn read_credential(
     Ok(Some(credential))
 }
 
-/// `--platform`, else `CMUX_PLATFORM_URL`, else the production platform; https only.
+/// `--platform`, else `CMUX_PLATFORM_ORIGIN` (or its alias `CMUX_PLATFORM_URL`), else the
+/// production platform; https only. acpmux reads the same variables the same way
+/// (`cmux_cloud_client::backend::platform_origin_from`).
 pub(crate) fn platform_origin(
     flag: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
     let raw = flag
         .map(str::to_owned)
-        .or_else(|| env(PLATFORM_ENV))
         .filter(|raw| !raw.trim().is_empty())
+        .or_else(|| cmux_cloud_client::backend::platform_origin_from(env))
         .unwrap_or_else(|| DEFAULT_ORIGIN.to_owned());
     super::cloud_client_session::secure_origin(raw.trim())
         .map_err(|message| message.replace("the cmux API", "the cmux platform"))

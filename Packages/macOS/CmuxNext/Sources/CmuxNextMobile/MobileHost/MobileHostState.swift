@@ -56,7 +56,7 @@ public struct MobileHostState: Sendable, Equatable {
             phones = []
             sessionExposureAvailable = false
             sessionExposureKnown = false
-        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
+        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .pairAnswer, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
         case let .sessionExposureState(available, configured, sessions, blockedSessions):
             sessionExposureAvailable = available
