@@ -687,6 +687,26 @@ pub(crate) fn classify(
     path: Option<&str>,
     identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
 ) -> Census {
+    match unknowns(found, leader, sidecars, path, identity_of).first() {
+        Some(p) => {
+            let first = p.args.split_whitespace().next().unwrap_or_default();
+            let comm = Path::new(first).file_name().map_or(first.into(), |n| n.to_string_lossy());
+            Census::Busy { pid: p.pid, comm: comm.into_owned() }
+        }
+        None => Census::Clear,
+    }
+}
+
+/// Every process of `found` that [`classify`] knows as none of the harness's own: what keeps an
+/// idle harness up, in `found`'s order (`hub/wait_handoff.rs` reads them all).
+#[cfg(unix)]
+pub(crate) fn unknowns<'a>(
+    found: &'a [crate::agent_host::tree::Under],
+    leader: u32,
+    sidecars: &[Sidecar],
+    path: Option<&str>,
+    identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
+) -> Vec<&'a crate::agent_host::tree::Under> {
     use crate::agent_host::tree::Identity;
     let leader_identity = identity_of(leader);
     let launched = leader_identity.as_ref().and_then(|who| launcher(who, path));
@@ -760,14 +780,7 @@ pub(crate) fn classify(
         }
     }
     let known = |pid: &u32| harness.contains(pid) || parts.contains(pid) || allowed.contains(pid);
-    match found.iter().find(|p| !known(&p.pid)) {
-        Some(p) => {
-            let first = p.args.split_whitespace().next().unwrap_or_default();
-            let comm = Path::new(first).file_name().map_or(first.into(), |n| n.to_string_lossy());
-            Census::Busy { pid: p.pid, comm: comm.into_owned() }
-        }
-        None => Census::Clear,
-    }
+    found.iter().filter(|p| !known(&p.pid)).collect()
 }
 
 #[cfg(all(test, unix))]
