@@ -25,6 +25,11 @@ pub struct ScorecardArgs {
     /// At most this many sessions with `--by session` (default 20).
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
+    /// Read a copy of a state directory (its `sessions/`, `journal/` and `config.json`) in this
+    /// process instead of asking the daemon: a baseline from a host whose daemon predates
+    /// `_acpmux/scorecard`. Never the live state directory a daemon writes.
+    #[arg(long, value_name = "DIR")]
+    pub home: Option<std::path::PathBuf>,
 }
 
 const BYS: &[&str] = &["set", "feature", "session"];
@@ -135,10 +140,42 @@ fn text(args: &ScorecardArgs, a: &Value) -> String {
     out
 }
 
+/// The scorecard of a copied state directory, read in this process (`--home`).
+fn offline(home: &std::path::Path, p: &Value) -> Result<Value> {
+    let canon = |d: &std::path::Path| std::fs::canonicalize(d).unwrap_or_else(|_| d.to_owned());
+    if canon(home) == canon(&crate::config::home()) {
+        anyhow::bail!(
+            "--home {}: that is the live state directory; copy it first (cp -a) or ask the daemon (no --home)",
+            home.display()
+        );
+    }
+    let config = crate::config::Config::load_from(&home.join("config.json")).unwrap_or_default();
+    let claude_stdio: std::collections::HashSet<String> = config
+        .harnesses
+        .iter()
+        .filter(|(_, h)| h.kind == crate::config::HarnessKind::ClaudeStdio)
+        .map(|(name, _)| name.clone())
+        .collect();
+    let store = crate::store::open(&config.store, home)?;
+    let options = crate::scorecard::ScorecardOptions::from_params(p, crate::store::now_ms());
+    let card = crate::scorecard::summarize_with(&*store, &options, &|meta| {
+        claude_stdio.contains(&meta.harness) || meta.input_excludes_cache()
+    })?;
+    Ok(crate::scorecard::to_value(&card))
+}
+
 pub async fn run(args: ScorecardArgs, json_out: bool) -> Result<()> {
     let p = params(&args, crate::store::now_ms())?;
-    let client = crate::daemon::connect(true).await?;
-    let answer = client.request(method::MUX_SCORECARD, p).await?;
+    let answer = match args.home.as_deref() {
+        Some(home) => {
+            let (home, p) = (home.to_owned(), p.clone());
+            tokio::task::spawn_blocking(move || offline(&home, &p)).await??
+        }
+        None => {
+            let client = crate::daemon::connect(true).await?;
+            client.request(method::MUX_SCORECARD, p).await?
+        }
+    };
     if json_out {
         print_json(&answer);
     } else {
@@ -158,6 +195,7 @@ mod tests {
             by: "feature".into(),
             steer_window: Some(30),
             limit: 5,
+            home: None,
         };
         let p = params(&args, 10 * 86_400_000).unwrap();
         assert_eq!(p["since"], 8 * 86_400_000u64);
