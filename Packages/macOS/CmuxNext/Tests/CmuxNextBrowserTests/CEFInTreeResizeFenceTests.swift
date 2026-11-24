@@ -13,12 +13,14 @@ import Testing
 @Suite(.serialized, .closesItsWindows) struct CEFInTreeResizeFenceTests {
     final class Fork {
         private(set) var fences = 0
+        private(set) var timeouts: [Int32] = []
         let page = NSView()
         var calls: CEFInTreeCalls {
             CEFInTreeCalls(setInTreeHosting: { [self] _, container in container == nil ? nil : page },
                            contentView: { [self] _ in page },
-                           resizeFence: { [self] _, _, _, done in
+                           resizeFence: { [self] _, _, timeout, done in
                                fences += 1
+                               timeouts.append(timeout)
                                done(true)
                                return true
                            })
@@ -55,13 +57,20 @@ import Testing
         try body()
     }
 
-    @Test func aResizeInsideTheWindowHoldsNoWindowCommit() {
+    /// A resize inside the window (a divider drag, a pane spring) waits for the page's frame at most half a display frame:
+    /// a page that draws in time shows with its pane (other-Mac run on c76917cb: with no wait, 189 of 504 divider-drag
+    /// frames showed the page a frame stale, against 10 of 503 with the wait), and a slow one shows its last frame instead
+    /// of halving the window's rate (the user's heavy page with a wait longer than a frame: about 28 of 60 frames a second).
+    @Test func aResizeInsideTheWindowWaitsAtMostHalfAFrame() throws {
         withInTreeOn {
             let (hosting, _, window) = makeInTree { CEFInTreeHosting(schedule: $0, resizeFences: $1) }
             defer { window.close() }
             // A divider drag frame: the page's view takes a new size, the window keeps its own.
             hosting.pageViewResized()
-            #expect(fork.fences == 0, "a resize inside the window held the window's commit for the page's frame")
+            hosting.pageViewResized()
+            let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
+            #expect(fork.fences == 2, "a divider drag frame showed the pane without waiting for the page's frame")
+            #expect(fork.timeouts.allSatisfy { Double($0) <= refreshMs * 0.5 }, "an in-window resize waited longer than half a frame: \(fork.timeouts)")
         }
     }
 
@@ -69,17 +78,23 @@ import Testing
         withInTreeOn {
             let (hosting, _, window) = makeInTree { CEFInTreeHosting(schedule: $0, resizeFences: $1) }
             defer { window.close() }
-            hosting.pageViewResized()  // the first resize only learns the window's size
+            hosting.pageViewResized()  // the first resize only learns the window's size (an in-window wait)
             window.setContentSize(NSSize(width: 520, height: 360))
             hosting.pageViewResized()
-            #expect(fork.fences == 1, "a window resize showed the window before the page's frame at its size")
+            let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
+            #expect(fork.fences == 2, "a window resize showed the window before the page's frame at its size")
+            #expect(fork.timeouts.last.map { Double($0) >= max(8, refreshMs.rounded(.up)) } == true,
+                    "a window resize waited less than a frame for the page: \(fork.timeouts)")
         }
     }
 
     @Test func aFullScreenTransitionNeverHoldsTheWindowsCommit() {
-        #expect(!CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: true))
-        #expect(CEFInTreeHosting.joinsFence(windowResized: true, fullScreenTransition: false))
-        #expect(!CEFInTreeHosting.joinsFence(windowResized: false, fullScreenTransition: false))
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: true, refreshMs: 8.33) == nil)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: true, refreshMs: 8.33) == nil)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: false, refreshMs: 8.33) == 9)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: false, refreshMs: 16.67) == 17)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 8.33) == 4)
+        #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: false, refreshMs: 16.67) == 8)
     }
 }
 
