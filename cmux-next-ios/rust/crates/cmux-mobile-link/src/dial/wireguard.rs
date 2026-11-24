@@ -2268,6 +2268,7 @@ pub(super) fn dial_wireguard<'a>(
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
         tunnel.session.follow(events.session);
+        options.timeline.mark("tunnel_started");
         let guard = Guard { session: Arc::clone(&tunnel.session) };
         let net = tunnel.session.net()?;
         tunnel.session.start_control(&net).await;
@@ -2303,7 +2304,9 @@ pub(super) fn dial_wireguard<'a>(
         // The Mac listed the lane once its port was bound: it listens.
         let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
+        options.timeline.mark("tcp_connect_start");
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
+        options.timeline.mark("tcp_connected");
         // The input lane: a second TCP stream to the same port, opened
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
