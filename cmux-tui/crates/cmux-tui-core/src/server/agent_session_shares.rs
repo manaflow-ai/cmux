@@ -1337,7 +1337,7 @@ impl LinkShares {
     /// Revokes a share (`guest_id: None`) or kicks one guest of it.
     fn end(&self, directory: Option<&Path>, p: &Named) -> Result<Value, &'static str> {
         let mut schedule_delete = false;
-        let answer = self.with(directory, |shares, _| {
+        let answer = self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
             let room_hears = share.room.is_some() && share.live().is_ok();
             let Some(guest_id) = &p.guest_id else {
@@ -1355,8 +1355,23 @@ impl LinkShares {
                 share.guests.iter_mut().find(|g| &g.guest_id == guest_id).ok_or("share.unknown")?;
             let changed = guest.state != GuestState::Kicked;
             guest.state = GuestState::Kicked;
+            let kicked_account = guest.account.clone();
             if changed && room_hears {
                 share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest_id}));
+            }
+            // A team guest is admitted by membership, so the kick must outlast it: the account
+            // keeps a removed invitation, which the team arm answers with `share.kicked`.
+            if let (Some(account), Some(_)) = (kicked_account, share.team_id.as_ref()) {
+                let role = share.role.unwrap_or(Role::View);
+                match share.invitees.iter_mut().find(|i| i.account == account) {
+                    Some(invitee) => invitee.state = InviteState::Removed,
+                    None => share.invitees.push(Invitee {
+                        account,
+                        role,
+                        invited_at: now,
+                        state: InviteState::Removed,
+                    }),
+                }
             }
             Ok((
                 json!({"share_id": share.share_id, "guest_id": guest_id, "state": guest.state}),

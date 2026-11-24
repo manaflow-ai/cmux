@@ -149,6 +149,8 @@ pub(super) fn invite_chat(
             .iter()
             .filter(|s| s.session == session && s.state == ShareState::Active)
             .filter(|s| !s.invitees.is_empty())
+            // A team share admits by membership, never by a named invitation.
+            .filter(|s| s.team_id.is_none())
             .max_by_key(|s| s.created_at)
             .map(|s| s.share_id.clone());
         let (made, share_id) = match existing {

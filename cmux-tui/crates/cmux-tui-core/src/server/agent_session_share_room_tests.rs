@@ -516,6 +516,36 @@ fn a_team_redeem_carries_the_room_attestation_to_the_daemon() {
 }
 
 #[test]
+fn a_kicked_team_guest_cannot_join_again_by_the_team() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-kick", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share_id = reply["data"]["share_id"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "a1",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    let redeemed = room.frame(conn);
+    assert!(redeemed.get("error").is_none(), "{redeemed}");
+    let guest = state(&mut owner)["guests"][0]["guest_id"].clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share_id, "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    assert_eq!(room.next(conn, "kick")["guest_id"], guest);
+    // Team membership still holds, but the owner's kick sticks: the next join is refused.
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r2", "attempt_id": "a2",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    assert_eq!(room.frame(conn)["error"], "share.kicked");
+}
+
+#[test]
 fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);
