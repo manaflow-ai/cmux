@@ -1367,8 +1367,10 @@ dependencies = [
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-process",
  "libc",
+ "png",
  "serde",
  "serde_json",
 ]
