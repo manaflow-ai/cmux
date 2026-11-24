@@ -953,6 +953,20 @@ class EnsureBun(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("from " + str(self.cache), done.stdout)
 
+    def test_bunx_is_beside_bun_whichever_way_bun_came(self) -> None:
+        # setup-bun gave steps `bunx` too; web's playwright webServer runs `bunx next` (#53426: "bunx: not found").
+        ways = {"path": lambda: fake_bun(self.path_bin / "bun", BUN_VERSION), "download": self.publish, "cache": lambda: None}
+        for way, arrange in ways.items():
+            with self.subTest(way=way):
+                arrange()
+                done = self.run_script()
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(os.readlink(self.bin / "bunx"), "bun")
+                self.assertEqual((self.bin / "bunx").resolve(), (self.bin / "bun").resolve())
+                (self.bin / "bunx").unlink()
+                if way == "path":
+                    (self.path_bin / "bun").unlink()
+
     def test_a_download_that_does_not_match_its_checksum_fails(self) -> None:
         self.publish(corrupt=True)
         done = self.run_script()
