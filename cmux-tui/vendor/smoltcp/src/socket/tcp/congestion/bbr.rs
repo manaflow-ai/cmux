@@ -66,6 +66,11 @@ pub struct Bbr {
     min_rtt_ms: Option<u32>,
     min_rtt_at: Instant,
     rtos: u8,
+    /// The window before an RTO, restored by the next ACK of new data (BBR's
+    /// packet conservation: a go-back-N resend of a whole window after an RTO
+    /// lost more of itself at high loss, and the backed-off RTO outlasted the
+    /// user timeout).
+    saved_cwnd: Option<usize>,
     /// No new data ACKed and no RTO yet, so an MSS learned from the handshake
     /// may still resize the initial window.
     initial: bool,
@@ -88,6 +93,7 @@ impl Bbr {
             min_rtt_ms: None,
             min_rtt_at: Instant::ZERO,
             rtos: 0,
+            saved_cwnd: None,
             initial: true,
         }
     }
@@ -173,6 +179,9 @@ impl Controller for Bbr {
         }
         self.initial = false;
         self.rtos = 0;
+        if let Some(saved) = self.saved_cwnd.take() {
+            self.cwnd = self.cwnd.max(saved);
+        }
         self.update_min_rtt(now, rtt);
 
         let start = match self.round_start {
@@ -211,9 +220,14 @@ impl Controller for Bbr {
         self.initial = false;
         self.rtos = self.rtos.saturating_add(1);
         if self.rtos >= RTO_COLLAPSE {
-            self.cwnd = self.floor().min(4 * self.mss);
+            // The path itself changed: forget the window and the model.
+            self.saved_cwnd = None;
             self.restart();
+        } else {
+            self.saved_cwnd = Some(self.cwnd);
         }
+        // Resend one segment at a time until an ACK of new data comes back.
+        self.cwnd = self.mss;
     }
 
     fn set_mss(&mut self, mss: usize) {
@@ -299,8 +313,12 @@ mod test {
             bbr.window(),
             window
         );
-        // One RTO alone (a tail loss) leaves it too.
+        // One RTO alone (a tail loss) resends one segment, then the next ACK
+        // of new data restores the window.
         bbr.on_rto(now, window);
+        assert_eq!(bbr.window(), MSS);
+        now += Duration::from_millis(50);
+        bbr.on_ack(now, MSS, 0, &rtte(50));
         assert!(bbr.window() >= window * 9 / 10);
     }
 
@@ -311,9 +329,12 @@ mod test {
         drive(&mut bbr, &mut now, 30, 50, 1_250_000, MSS);
         bbr.on_rto(now, bbr.window());
         bbr.on_rto(now, bbr.window());
-        assert_eq!(bbr.window(), 4 * MSS);
+        assert_eq!(bbr.window(), MSS);
         assert!(bbr.startup);
         assert_eq!(bbr.max_bw(), 0);
+        // Nothing to restore: the next ACK grows from one segment in startup.
+        bbr.on_ack(now, MSS, 0, &rtte(50));
+        assert_eq!(bbr.window(), 2 * MSS);
     }
 
     #[test]

@@ -472,7 +472,7 @@ impl Driver {
         let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
         let schedule = TimerSchedule::new(Instant::now(), keepalive);
         let probe_route = probing::probe_route(&config);
-        let mut stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
+        let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
 
         Ok(Self {
             config,
