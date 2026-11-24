@@ -76,6 +76,11 @@ fn configured() -> Option<&'static Config> {
     CONFIG.get()
 }
 
+/// Whether this process's pushes have a store ([`configure`]).
+pub(super) fn is_configured() -> bool {
+    configured().is_some()
+}
+
 /// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
 /// earlier push may still be running there. `None` when `identify` did not
 /// answer or answered with no list of capabilities: such a machine may serve
@@ -212,6 +217,9 @@ pub(super) struct Sent {
     /// write left: the caller records that one, never a later listing, and
     /// writes every other file over the link.
     pub written: BTreeMap<String, String>,
+    /// The blobs of each file cut into pieces, by the file's SHA-256: what
+    /// the folder pair's GC root names for it ([`super::roots`]).
+    pub chunks: BTreeMap<String, Vec<String>>,
 }
 
 /// The machine's fetch may have started and could not be stopped (a start or
@@ -398,6 +406,10 @@ pub(super) fn send(
             );
         }
         plan_files.push(entry);
+        if !whole && file.size > 0 {
+            sent.chunks
+                .insert(file.sha256.clone(), pieces.iter().map(|p| p.sha256.clone()).collect());
+        }
         for piece in pieces {
             wanted.entry(piece.sha256.clone()).or_insert((index, piece));
         }
@@ -501,6 +513,32 @@ pub(super) fn send(
     })
     .context("cannot read what the machine's fetch wrote")?;
     Ok(sent)
+}
+
+/// Sets the GC root of the folder pair `pair` to `tree` (its bytes, the
+/// [`super::roots`] format): uploads the tree when the store lacks it, then
+/// `POST /v1/sync/roots`. A store that is deleting that very tree answers
+/// 503; the tree is uploaded again and the root asked for once more.
+pub(super) fn register_root(pair: &str, tree: &[u8]) -> anyhow::Result<()> {
+    let config = configured().ok_or_else(|| anyhow!("no store"))?;
+    let client = Client::new(config)?;
+    let tree_sha = hex(&Sha256::digest(tree));
+    let mut last = anyhow!("the store did not answer");
+    for _ in 0..2 {
+        let tried = (|| {
+            if client.missing(std::slice::from_ref(&tree_sha))?.contains(&tree_sha) {
+                client.put(&tree_sha, tree.to_vec())?;
+            }
+            client
+                .runtime
+                .block_on(client.json("/v1/sync/roots", json!({"pair": pair, "tree": tree_sha})))
+        })();
+        match tried {
+            Ok(_) => return Ok(()),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
 }
 
 /// The store, as one signed-in person.

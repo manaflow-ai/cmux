@@ -181,6 +181,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
     ("race ls", &[("List this chat's races", "acpmux race ls")]),
     ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
+    (
+        "fork-run",
+        &[
+            (
+                "Fork a Cloud machine three ways",
+                "acpmux fork-run start --workspace WS --machine vm_ID --harness claude,codex,pi",
+            ),
+            ("Keep the codex fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS"),
+        ],
+    ),
+    (
+        "fork-run start",
+        &[(
+            "One fork per harness, each continuing a chat",
+            "acpmux fork-run start --workspace WS --machine vm_ID --harness claude --harness codex --session S",
+        )],
+    ),
+    (
+        "fork-run status",
+        &[(
+            "Wait up to 3 minutes for the forks",
+            "acpmux fork-run status RUN_ID --workspace WS --wait 180",
+        )],
+    ),
+    (
+        "fork-run select",
+        &[("Keep one ready fork", "acpmux fork-run select RUN_ID CHILD_ID --workspace WS")],
+    ),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
     (
@@ -224,6 +252,32 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("See which groups a tidy would merge", "acpmux group tidy"),
             ("Merge them", "acpmux group tidy --apply"),
+        ],
+    ),
+    (
+        "ci",
+        &[
+            (
+                "Wait up to 30 minutes for a workflow run",
+                "acpmux ci wait run 123456789 --timeout 1800",
+            ),
+            (
+                "Wait for a workflow run in another repository",
+                "acpmux ci wait run 123456789 --repo octo/app --timeout 1800",
+            ),
+        ],
+    ),
+    (
+        "ci wait",
+        &[
+            (
+                "Wait for a workflow run, as JSON",
+                "acpmux ci wait run 123456789 --timeout 1800 --json",
+            ),
+            (
+                "Wait up to 40 minutes for a pull request's checks",
+                "acpmux ci wait pr 812 --timeout 2400",
+            ),
         ],
     ),
     (
@@ -339,12 +393,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
             ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+            ("Print the server to add in ChatGPT Desktop", "acpmux bridge connect chatgpt"),
         ],
     ),
     (
         "bridge connect",
         &[
-            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            ("Connect the desktop apps; restart them after", "acpmux bridge connect"),
             (
                 "See what connecting Codex Desktop would change",
                 "acpmux bridge connect codex --dry-run",
@@ -423,6 +478,47 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("From the agent session that read it, mark a rule read", "acpmux forum ack post-3f9a")],
     ),
     (
+        "trigger",
+        &[
+            (
+                "Wake the Cloud chat fixer when CI fails in acme/app",
+                "acpmux trigger create --repo acme/app --on ci_failure --machine m1 --workspace w1 --session fixer --cwd /repo --harness codex \"CI failed; find why and fix it\"",
+            ),
+            ("The triggers registered from here, read back from Cloud", "acpmux trigger ls"),
+        ],
+    ),
+    (
+        "trigger create",
+        &[
+            (
+                "On a PR comment or a CI failure, wake the Cloud chat fixer",
+                "acpmux trigger create --repo acme/app --on pr_comment --on ci_failure --machine m1 --workspace w1 --session fixer --cwd /repo --harness claude \"Read the new comment or failure and act on it\"",
+            ),
+            (
+                "A new chat per delivery, at most 10 a day",
+                "acpmux trigger create --repo acme/app --on pr_opened --start-session --max-runs-per-day 10 --machine m1 --workspace w1 --session review --cwd /repo --harness codex \"Review this PR\"",
+            ),
+            (
+                "A generic signed webhook instead of GitHub",
+                "acpmux trigger create --webhook --repo acme/app --on deploy.failed --machine m1 --workspace w1 --session ops --cwd /repo --harness codex \"The deploy failed; look\"",
+            ),
+        ],
+    ),
+    (
+        "trigger ls",
+        &[
+            ("The triggers registered from here, on or off", "acpmux trigger ls"),
+            ("Read one trigger by id", "acpmux trigger ls 3f1c2a9e-8b7d-4c6e-9a5b-1d2e3f4a5b6c"),
+        ],
+    ),
+    (
+        "trigger rm",
+        &[(
+            "Turn a trigger off and read it back disabled",
+            "acpmux trigger rm 3f1c2a9e-8b7d-4c6e-9a5b-1d2e3f4a5b6c",
+        )],
+    ),
+    (
         "watch",
         &[
             (
@@ -493,6 +589,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     ("chats roots", &[("List the folders the chat index reads", "acpmux chats roots")]),
+    (
+        "chats warm",
+        &[
+            ("Bring back every chat's compressed history", "acpmux chats warm"),
+            ("Bring back one chat's", "acpmux chats warm --chat 019a3f9c"),
+        ],
+    ),
     (
         "hand",
         &[

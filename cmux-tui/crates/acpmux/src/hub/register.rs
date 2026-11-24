@@ -544,7 +544,7 @@ async fn send_code(
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(claimed.pid, pending);
     let uuid = uuid::Uuid::now_v7().to_string();
     let from = crate::claude_peers::from_address("register");
-    crate::claude_peers::deliver(claude_home, claimed, &text, &uuid, &from, Some(token))
+    crate::claude_peers::deliver(claude_home, claimed, text.as_str(), &uuid, &from, Some(token))
         .await
         .map_err(|e| unproven(format!("could not deliver the code: {e}")))?;
     Ok(json!({"pending": true, "name": name, "pid": claimed.pid}))

@@ -5,12 +5,12 @@
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
 // four corners and whole rim. For a chat in the workspace's private folder the folder chip's menu
-// offers Add folder…, the host's workspace folder sheet; no sentence stands over the card, and no
+// offers Add project…, which leads to the host's workspace folder sheet; no sentence stands over the card, and no
 // note line sits under the menu's actions.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
 // `centered` and `centered-codex` are Settings' Empty Chat Message Box set to Center
-// (agentPane.emptyChatComposerPosition): the composer in the pane's middle, the hero over it.
+// (agentPane.emptyChatComposerPosition): the composer in the pane's middle, nothing over it.
 // test/new-chat-composer.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
@@ -103,19 +103,20 @@ export default agentPaneEntry({
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: Add folder… heads the actions fixed under its folders, and nothing sits under them.",
+      note: "Add project… is the only pinned action below the folders.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,
     },
     "choose-folder": {
-      note: "Play: the folder chip's Add folder… opens the host's workspace folder sheet, as the old sentence's link did.",
+      note: "From Add project…, Folder on this Mac opens the workspace folder sheet.",
       ready: PRIVATE,
       snapshot: fresh(),
       native: { "workspace.chooseFolder": { cwd: CWD } },
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ selector: '.acpmux-location-menu [data-choose=""]' });
+        await ctx.click({ role: "option", name: "Add project…" });
+        await ctx.click({ role: "option", name: /^Folder on this Mac/ });
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "workspace.chooseFolder"));
       },
     },
@@ -125,7 +126,7 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       checks: {
         anchorMovePx: { value: 160, reason: "The pasted chip grows the card, then the first send clears it." },
-        layoutShiftMax: { value: 0.2, reason: "The hero leaves and the first turn mounts on the send." },
+        layoutShiftMax: { value: 0.2, reason: "The first turn mounts on the send." },
         longFrameFailMs: { value: 150, reason: "The mock daemon's first session and the first turn share a frame." },
       },
       play: async (ctx) => {
@@ -163,7 +164,7 @@ export default agentPaneEntry({
     },
     centered: {
       composerLook: "claude",
-      note: "Settings: Empty Chat Message Box set to Center. The new chat's composer sits in the pane's middle, the hero over it, as on the New Tab page.",
+      note: "Settings: Empty Chat Message Box set to Center. The new chat's composer sits in the pane's middle with no question over it, as on the New Tab page.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: centerComposer,

@@ -238,7 +238,7 @@ pub(crate) fn handoff_lines(
     let program = crate::cli::entry::program();
     if handoff.status == "delivered" {
         let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
-        let mut said = sent_lines(&accepted, superseding);
+        let mut said = sent_lines_to(&accepted, superseding, key);
         said[0].push_str(&format!(" (delivery {id})"));
         lines.extend(said);
     } else if handoff.unreachable {
@@ -336,7 +336,7 @@ async fn queue_direct(
         print_json(&out);
     } else {
         println!("{}", sent_line(state, &prompt_id.id, key));
-        for line in sent_lines(&accepted, superseding) {
+        for line in sent_lines_to(&accepted, superseding, key) {
             println!("{line}");
         }
     }

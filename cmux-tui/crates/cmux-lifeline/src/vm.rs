@@ -223,88 +223,211 @@ impl<T> Vm<Running, T> {
     }
 }
 
-macro_rules! edge {
-    ($from:ident, $method:ident, $to:ident, $doc:literal) => {
-        impl<T> Vm<$from, T> {
-            #[doc = $doc]
-            pub fn $method(self) -> Vm<$to, T> {
-                self.next()
+/// One typed lifecycle edge as data: `Vm<from, _>::method()` returns `Vm<to, _>`. [`EDGES`] lists
+/// every edge the handles have, so a runtime table (cmux-cloud-machine's `power::step`) can be
+/// checked against them: an edge the handles allow and the table refuses is a test failure there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Edge {
+    pub from: &'static str,
+    pub method: &'static str,
+    pub to: &'static str,
+}
+
+/// Each edge is written once: it becomes the consuming method and a row of [`EDGES`].
+macro_rules! edges {
+    ($(($from:ident, $method:ident, $to:ident, $doc:literal)),+ $(,)?) => {
+        $(
+            impl<T> Vm<$from, T> {
+                #[doc = $doc]
+                pub fn $method(self) -> Vm<$to, T> {
+                    self.next()
+                }
             }
-        }
+        )+
+
+        /// Every typed edge, in declaration order.
+        pub const EDGES: &[Edge] = &[$(Edge {
+            from: stringify!($from),
+            method: stringify!($method),
+            to: stringify!($to),
+        }),+];
     };
 }
 
-edge!(Provisioning, running, Running, "The provider observed a running VM (without a pool claim).");
-edge!(Starting, running, Running, "The resumed VM is running according to the provider.");
-edge!(
-    Unidentified,
-    ready,
-    Ready,
-    "The remote agent readiness handshake succeeded on this transport."
-);
-edge!(Running, ready, Ready, "The agent readiness handshake succeeded for this VM.");
-edge!(Ready, attach, Attached, "The attach handshake succeeded.");
-edge!(Attached, detach, Ready, "The attachment ended; the agent remains ready.");
-edge!(Running, pause, Pausing, "Pause was accepted; it has not completed yet.");
-edge!(Ready, pause, Pausing, "Pause was accepted; readiness is consumed.");
-edge!(Attached, pause, Pausing, "Pause was accepted; the attachment is no longer usable.");
-edge!(Pausing, paused, Paused, "The provider confirmed that the VM is paused.");
-edge!(Pausing, running, Running, "The provider confirmed running after a refused or failed pause.");
-edge!(Starting, paused, Paused, "The provider confirmed paused after a refused or failed resume.");
-edge!(
-    Starting,
-    stopped,
-    Stopped,
-    "The provider confirmed stopped after a refused or failed start."
-);
-edge!(Paused, resume, Starting, "Resume was accepted; readiness must be established again.");
-edge!(Stopped, start, Starting, "Start was accepted; readiness must be established again.");
-edge!(Deleting, deleted, Deleted, "The provider confirmed deletion.");
-
-macro_rules! deletable {
-    ($($state:ident),+ $(,)?) => {$(
-        edge!($state, delete, Deleting, "Deletion was accepted; the allocation still needs a terminal receipt.");
-    )+};
-}
-
-deletable!(
-    Provisioning,
-    Running,
-    Ready,
-    Attached,
-    Pausing,
-    Paused,
-    Starting,
-    Stopped,
-    Failed,
-    Unknown
-);
-
-macro_rules! fallible {
-    ($($state:ident),+ $(,)?) => {$(
-        edge!($state, failed, Failed, "The provider reported VM failure; retain the allocation for cleanup.");
-    )+};
-}
-
-fallible!(Provisioning, Running, Ready, Attached, Pausing, Starting, Deleting);
-
-macro_rules! uncertain {
-    ($($state:ident),+ $(,)?) => {$(
-        edge!($state, uncertain, Unknown, "The outcome is unknown; reconcile before another live operation.");
-    )+};
-}
-
-uncertain!(
-    Provisioning,
-    Running,
-    Ready,
-    Attached,
-    Pausing,
-    Paused,
-    Starting,
-    Stopped,
-    Deleting,
-    Failed
+edges!(
+    (Provisioning, running, Running, "The provider observed a running VM (without a pool claim)."),
+    (Starting, running, Running, "The resumed VM is running according to the provider."),
+    (
+        Unidentified,
+        ready,
+        Ready,
+        "The remote agent readiness handshake succeeded on this transport."
+    ),
+    (Running, ready, Ready, "The agent readiness handshake succeeded for this VM."),
+    (Ready, attach, Attached, "The attach handshake succeeded."),
+    (Attached, detach, Ready, "The attachment ended; the agent remains ready."),
+    (Running, pause, Pausing, "Pause was accepted; it has not completed yet."),
+    (Ready, pause, Pausing, "Pause was accepted; readiness is consumed."),
+    (Attached, pause, Pausing, "Pause was accepted; the attachment is no longer usable."),
+    (Pausing, paused, Paused, "The provider confirmed that the VM is paused."),
+    (Pausing, running, Running, "The provider confirmed running after a refused or failed pause."),
+    (Starting, paused, Paused, "The provider confirmed paused after a refused or failed resume."),
+    (Starting, stopped, Stopped, "The provider confirmed stopped after a refused or failed start."),
+    (Paused, resume, Starting, "Resume was accepted; readiness must be established again."),
+    (Stopped, start, Starting, "Start was accepted; readiness must be established again."),
+    (Deleting, deleted, Deleted, "The provider confirmed deletion."),
+    (
+        Provisioning,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Running,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Ready,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Attached,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Pausing,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Paused,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Starting,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Stopped,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Failed,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Unknown,
+        delete,
+        Deleting,
+        "Deletion was accepted; the allocation still needs a terminal receipt."
+    ),
+    (
+        Provisioning,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (
+        Running,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (Ready, failed, Failed, "The provider reported VM failure; retain the allocation for cleanup."),
+    (
+        Attached,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (
+        Pausing,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (
+        Starting,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (
+        Deleting,
+        failed,
+        Failed,
+        "The provider reported VM failure; retain the allocation for cleanup."
+    ),
+    (
+        Provisioning,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Running,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (Ready, uncertain, Unknown, "The outcome is unknown; reconcile before another live operation."),
+    (
+        Attached,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Pausing,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Paused,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Starting,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Stopped,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Deleting,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
+    (
+        Failed,
+        uncertain,
+        Unknown,
+        "The outcome is unknown; reconcile before another live operation."
+    ),
 );
 
 /// Pool ownership is independent of provider power. Releasing a reservation

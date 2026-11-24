@@ -102,11 +102,10 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
 // Usage data does not add a counter to the live line.
 test("the live line keeps the turn clock without token amounts, beside a call too", () => {
   const start = 1_000_000;
-  const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const drawn = (node: ReactElement) =>
     words(
       renderToStaticMarkup(
-        <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
+        <WorkingCountsContext.Provider value={{ tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
   expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s");
@@ -119,25 +118,6 @@ test("the live line keeps the turn clock without token amounts, beside a call to
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
     "Ran cargo test 6m",
   );
-});
-
-test("with the tray off the live line counts the work still going, beside a call too", () => {
-  const start = 1_000_000;
-  const counts = {
-    agents: 2,
-    commands: 1,
-    sessions: 0,
-    tokens: 2_140_000,
-    openAgents() {},
-    openCommands() {},
-    openSessions() {},
-  };
-  const drawn = (node: ReactElement) =>
-    words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
-  expect(drawn(<Thinking since={start} doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 subagents · 1 command",
-  );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
 });
 
 test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {

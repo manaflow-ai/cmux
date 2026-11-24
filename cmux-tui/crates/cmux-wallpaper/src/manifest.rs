@@ -15,6 +15,10 @@ pub const MAX_VARIANTS: usize = 16;
 pub const MAX_ID_LEN: usize = 48;
 /// The largest `wallpaper.json` read.
 pub const MAX_MANIFEST_BYTES: usize = 16 * 1024;
+/// `idle_after` when the manifest has none: the scheduler's `IDLE_AFTER_S`.
+pub const DEFAULT_IDLE_AFTER_S: f32 = 20.0;
+/// The shortest `idle_after`.
+pub const MIN_IDLE_AFTER_S: f32 = 1.0;
 
 /// One float the program reads from `frame.params` (in manifest order).
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +67,12 @@ pub struct Manifest {
     pub scale: f32,
     /// Whether pointer motion wakes it.
     pub interactive: bool,
+    /// Whether agent activity wakes it (`agents`, default false): the program
+    /// reads `Frame.activity`.
+    pub agents: bool,
+    /// Seconds of nothing before it holds (`idle_after`, 1..=20, default 20):
+    /// a wallpaper with no motion of its own holds soon after the pointer stops.
+    pub idle_after: f32,
     pub params: Vec<Param>,
     pub still: Still,
     pub variants: Vec<Variant>,
@@ -234,6 +244,8 @@ impl Manifest {
                 "fps",
                 "scale",
                 "interactive",
+                "agents",
+                "idle_after",
                 "params",
                 "still",
                 "variants",
@@ -276,6 +288,21 @@ impl Manifest {
         let interactive = required(o, "", "interactive")?.as_bool().ok_or_else(|| {
             err(ManifestErrorKind::WrongType, "/interactive", "must be true or false")
         })?;
+        let agents = match o.get("agents") {
+            None => false,
+            Some(a) => a.as_bool().ok_or_else(|| {
+                err(ManifestErrorKind::WrongType, "/agents", "must be true or false")
+            })?,
+        };
+        let idle_after = match o.get("idle_after") {
+            None => DEFAULT_IDLE_AFTER_S,
+            Some(n) => number(
+                n,
+                "/idle_after",
+                f64::from(MIN_IDLE_AFTER_S),
+                f64::from(DEFAULT_IDLE_AFTER_S),
+            )?,
+        };
         let params = match o.get("params") {
             None => Vec::new(),
             Some(p) => parse_params(p)?,
@@ -293,6 +320,8 @@ impl Manifest {
             fps: u32::try_from(fps).unwrap_or(30),
             scale,
             interactive,
+            agents,
+            idle_after,
             params,
             still,
             variants,
@@ -322,6 +351,8 @@ impl Manifest {
             "fps": self.fps,
             "scale": self.scale,
             "interactive": self.interactive,
+            "agents": self.agents,
+            "idle_after": self.idle_after,
             "params": self.params.iter().map(|p| json!({
                 "name": p.name,
                 "title": p.title.clone().unwrap_or_else(|| p.name.clone()),
@@ -545,6 +576,13 @@ mod tests {
         let back = Manifest::from_value(&m.to_json()).unwrap();
         assert_eq!(back.id, m.id);
         assert_eq!(back.params[0].title.as_deref(), Some("Speed"));
+        // `agents` is optional and off unless the program asks for it.
+        assert!(!m.agents);
+        let mut v = base();
+        v["agents"] = json!(true);
+        let m = Manifest::from_value(&v).unwrap();
+        assert!(m.agents);
+        assert!(Manifest::from_value(&m.to_json()).unwrap().agents);
     }
 
     #[test]
@@ -559,6 +597,18 @@ mod tests {
         Manifest::from_value(&v).unwrap();
         v["variants"][0]["params"] = json!({ "speed": 0.31 });
         assert_eq!(Manifest::from_value(&v).unwrap_err().kind, ManifestErrorKind::OutOfRange);
+    }
+
+    #[test]
+    fn idle_after_is_optional_and_round_trips() {
+        let m = Manifest::from_value(&base()).unwrap();
+        assert_eq!(m.idle_after, DEFAULT_IDLE_AFTER_S);
+        assert_eq!(m.to_json()["idle_after"], json!(20.0));
+        let mut v = base();
+        v["idle_after"] = json!(2);
+        let m = Manifest::from_value(&v).unwrap();
+        assert_eq!(m.idle_after, 2.0);
+        assert_eq!(Manifest::from_value(&m.to_json()).unwrap(), m);
     }
 
     #[test]
@@ -636,6 +686,22 @@ mod tests {
                 Box::new(|v| v["interactive"] = json!(1)),
                 ManifestErrorKind::WrongType,
                 "/interactive",
+            ),
+            (Box::new(|v| v["agents"] = json!("yes")), ManifestErrorKind::WrongType, "/agents"),
+            (
+                Box::new(|v| v["idle_after"] = json!(0.5)),
+                ManifestErrorKind::OutOfRange,
+                "/idle_after",
+            ),
+            (
+                Box::new(|v| v["idle_after"] = json!(21)),
+                ManifestErrorKind::OutOfRange,
+                "/idle_after",
+            ),
+            (
+                Box::new(|v| v["idle_after"] = json!("2")),
+                ManifestErrorKind::WrongType,
+                "/idle_after",
             ),
             (
                 Box::new(|v| {

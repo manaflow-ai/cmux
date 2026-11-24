@@ -368,7 +368,7 @@ an event. The base autofix
 rewrites it after each merge. The defaults guard judges a pull request by the defaults its
 exports and sources produce, never by a committed snapshot. A changed default passes
 with an independent review receipt on the head (a comment or review whose first line is
-`Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
+`Review (<reviewer>): SHIP at <full head sha>`, from a member, a self-review included; the
 newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
 approving review from a call owner in `.github/defaults-call-owners.json` other than the
 author. A new setting whose default is off (false, null, `off`, `never`, `none`,

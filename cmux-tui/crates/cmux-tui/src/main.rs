@@ -1945,7 +1945,7 @@ pub fn main() -> std::process::ExitCode {
 }
 
 /// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
 #[cfg(unix)]
 fn run_folded_host() -> Option<i32> {
     let argv0 = std::env::args_os().next()?;
@@ -1954,6 +1954,11 @@ fn run_folded_host() -> Option<i32> {
     match name {
         "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
         "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+        "cmux-mobile-host" => {
+            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+            cmux_tui_core::tool_packs::run_as(name, &exe)
+        }
         _ => None,
     }
 }
