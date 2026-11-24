@@ -7533,6 +7533,137 @@
         }
       }
     },
+    "cloud.move.restarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is restarting, so the chat stayed where it was. Retry in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُعاد تشغيل %@، لذا بقيت المحادثة في مكانها. أعد المحاولة بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se ponovo pokreće, pa je chat ostao gdje je bio. Pokušaj ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ genstarter, så chatten blev, hvor den var. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ startet neu, daher ist der Chat geblieben, wo er war. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se está reiniciando, así que el chat se quedó donde estaba. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ redémarre, la discussion est donc restée où elle était. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ si sta riavviando, quindi la chat è rimasta dov'era. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が再起動中のため、チャットは元の場所に残りました。しばらくしてから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ កំពុងចាប់ផ្តើមឡើងវិញ ដូច្នេះការជជែកនៅកន្លែងដដែល។ ព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 다시 시작하는 중이라 채팅은 원래 자리에 남아 있습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ starter på nytt, så chatten ble der den var. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uruchamia się ponownie, więc czat został tam, gdzie był. Ponów za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está reiniciando, então o chat ficou onde estava. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ перезапускается, поэтому чат остался на месте. Повторите чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ กำลังเริ่มใหม่ แชทจึงยังอยู่ที่เดิม ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yeniden başlatılıyor, bu yüzden sohbet olduğu yerde kaldı. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ перезапускається, тому чат залишився на місці. Повторіть трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đang khởi động lại nên cuộc trò chuyện vẫn ở chỗ cũ. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在重启，因此对话留在原处。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在重新啟動，因此對話留在原處。請稍後重試。"
+          }
+        }
+      }
+    },
     "cloud.move.moved": {
       "extractionState": "manual",
       "localizations": {
