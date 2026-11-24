@@ -11,6 +11,9 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "live")
 
@@ -125,6 +128,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// UIKit's `willEnterForeground` already resumed the links for this return
+    /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
+    @ObservationIgnored private var foregroundedEarly = false
+    @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -135,14 +142,12 @@ public final class LiveCoordinator {
     /// "Connectivity incidents"); idle for everyone else.
     @ObservationIgnored let incidents: ConnectivityIncidentReporter
     @ObservationIgnored private var teamTask: Task<Void, Never>?
-    @ObservationIgnored var bannerTask: Task<Void, Never>?
     /// The banner's slot: quiet link states wait out their bound before they show (`phaseChanged`).
     @ObservationIgnored lazy var bannerHold = HeldNotice<ConnectionBannerState>(clock: clock) { [weak self] in
         self?.banner = $0
     }
-    @ObservationIgnored var everConnected = false
-    /// Macs a link was connected to: a failed redial to one says
-    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    /// Macs a link was connected to (the banner's caller passes it on; a lost link to one
+    /// redials on its own).
     @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
     /// `provisional`: built before the Mac's tree listed the tab (a relaunch, a link still
@@ -920,6 +925,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
+        session.quietStatusTask?.cancel()
         session.stallTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
@@ -1157,6 +1163,7 @@ public final class LiveCoordinator {
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        foregroundedEarly = false
         backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
         // A call's link may have been opened since the call started.
@@ -1171,6 +1178,30 @@ public final class LiveCoordinator {
     public func followApplicationState() {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
+        followForegroundNotification()
+    }
+
+    /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
+    /// the first frame is drawn, not at SwiftUI's `scenePhase == .active` after it. Leo,
+    /// 2026-11-24, back from another app: "The like multi-second long reattach where like the
+    /// entire thing is somehow grayed out and I can't interact with anything at all."
+    func followForegroundNotification() {
+        #if canImport(UIKit)
+        guard foregroundObserver == nil else { return }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.willEnterForeground() }
+        }
+        #endif
+    }
+
+    /// Back from the background: the links resume now; the scene's `.active` that follows is
+    /// then a repeat (``foreground()``).
+    func willEnterForeground() {
+        guard isBackgrounded else { return }
+        foreground()
+        foregroundedEarly = true
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.
@@ -1189,6 +1220,11 @@ public final class LiveCoordinator {
 
     /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
+        // `willEnterForeground` already resumed this return.
+        if foregroundedEarly {
+            foregroundedEarly = false
+            return
+        }
         let away = backgroundedAt.map { ContinuousClock.now - $0 }
         backgroundedAt = nil
         foreground(after: away)
