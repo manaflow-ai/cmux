@@ -17,6 +17,7 @@ import { sameReferenceScope, sameRowFrame } from "../virtualTranscriptModel";
 import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
+import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -92,6 +93,8 @@ export const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   referenceScope,
   gapBelow,
+  offscreen,
+  placedHeight,
   children,
 }: {
   row: AcpmuxRow;
@@ -99,6 +102,12 @@ export const RowFrame = React.memo(function RowFrame({
   /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
   /// gap target spans it, so a drag from between two rows starts a selection.
   gapBelow: number;
+  /// Whether the row mounts away from the view (conversation/offscreenRows.ts): read at its first
+  /// mount only, so a row never changes whether its contents may be skipped.
+  offscreen: boolean;
+  /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
+  /// is this high. Read at its first mount only, with `offscreen`.
+  placedHeight: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -180,6 +189,38 @@ export const RowFrame = React.memo(function RowFrame({
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const [loadFading] = useState(loadFade);
+  // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
+  // its rendered height instead (`auto`), which the row's observer has measured by then.
+  const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  const observerRef = useRef(observer);
+  useLayoutEffect(() => {
+    observerRef.current = observer;
+  });
+  // A row mounted away from the view is marked in its mount's commit, before the page styles or lays
+  // it out, by the row's own DOM writes rather than its rendered class and style: a later render then
+  // never puts the mark back once it is dropped. (A render that changes the row's class list before
+  // then clears it early; the row is then laid out and measured like any other.)
+  // Once the page renders it (still a window or more from the view), the row draws like any other:
+  // the paint containment content-visibility brings snaps its contents to whole pixels, a pixel off
+  // the subpixel place (`marginTop`) an unmarked row draws its text at. The drop is the row's own DOM
+  // write, no render. Observed afresh, the row reports its rendered height in the next frame even
+  // when its observer saw it render first, while it still counted as skipped (drawnHeightOf).
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!skipHeight || !node) return undefined;
+    node.classList.add(OFFSCREEN_ROW_CLASS);
+    node.style.containIntrinsicHeight = skipHeight;
+    return onceRendered(node, () => {
+      node.classList.remove(OFFSCREEN_ROW_CLASS);
+      node.style.containIntrinsicHeight = "";
+      const rows = observerRef.current;
+      if (rows) {
+        rows.unobserve(node);
+        rows.observe(node);
+      }
+    });
+    // `skipHeight` is state from the frame's first mount: this runs on that mount only.
+  }, [skipHeight]);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   const morphOnMount = useEffectEvent(() => {
