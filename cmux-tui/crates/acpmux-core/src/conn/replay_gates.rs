@@ -729,8 +729,8 @@ async fn replay_frame_gate() {
     let small = replay_once(false).await;
     let god = replay_once(true).await;
     assert!(small.0 > 1 && god.0 > 1, "full replay must use multiple frames");
-    assert!(small.1 <= MAX_REPLAY_FRAME_BYTES && god.1 <= MAX_REPLAY_FRAME_BYTES);
     emit("v2.pr05c.replay_frame", small.1 as u128, god.1 as u128, god.1 as u128, "bytes");
+    assert!(small.1 <= MAX_REPLAY_FRAME_BYTES && god.1 <= MAX_REPLAY_FRAME_BYTES);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
