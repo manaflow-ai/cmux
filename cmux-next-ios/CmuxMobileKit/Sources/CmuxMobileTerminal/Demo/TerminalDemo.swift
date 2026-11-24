@@ -392,10 +392,11 @@ final class TerminalDemoDriver {
     /// a mock full-screen app (no mouse) whose transcript scrolls off its
     /// region's top, behind ``TerminalProjectingSession``: a pan within the
     /// rows it scrolled off is painted on the phone and sends nothing.
-    /// `-load`: 12,000 rows and a new row every 16 ms while the finger pans.
+    /// `-load`: 12,000 rows and a new row every 16 ms while the finger pans;
+    /// the reader stays on the rows they read (`back`, rows back at the end).
     /// `-CmuxMobileTerminalDemoNoHeldRows`: every pan goes to the app, as
     /// before held rows (the "before" of the same harness).
-    /// `tuiheld-VARIANT done ... bytes=N sends=N appScrolls=N heldPaints=N
+    /// `tuiheld-VARIANT done ... back=N backSamples=N bytes=N sends=N appScrolls=N heldPaints=N
     /// held=N heldBytes=N paint... gesture=N gestureP50=MS gestureP95=MS`
     /// (`paint`: receive to paint of the app's writes; `gesture`: a pan's
     /// wheel to the present that showed its rows, held or the app's redraw).
@@ -435,15 +436,20 @@ final class TerminalDemoDriver {
         mark(ready)
         model.demoNote = ready
         let deadline = Date().addingTimeInterval(45)
+        var backSamples = 0
         while Date() < deadline {
             await wait(0.25)
+            if projecting.heldRowsBack > 0 { backSamples += 1 }
             if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
         }
         meter.stop()
         // The last report: the screen reports every 5 s (the spinner keeps presenting).
         await wait(5.5)
         let held = projecting.heldRows
-        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
+        // Where the reader is after the finger lifted and (`-load`) the app
+        // kept writing for 9 s: output never takes them back to live.
+        let result = meter.summary + " back=\(projecting.heldRowsBack) backSamples=\(backSamples)"
+            + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) heldPaints=\(projecting.heldPaints - paints)"
             + " held=\(held.rows) heldBytes=\(held.bytes) touches=\(meter.touches) isTUI=\(model.isTUI)"
             + Self.paintNote(reports.receive) + Self.paintNote(reports.gesture, name: "gesture")

@@ -90,6 +90,12 @@ impl HeldRows {
         self.rows.get(index)
     }
 
+    /// Rows ever held since the store started: a reader's place in these
+    /// terms stays on the same rows while newer ones are held.
+    pub fn pushed(&self) -> u64 {
+        self.pushed
+    }
+
     /// Bytes the store holds (rows and their cells, by capacity).
     pub fn bytes(&self) -> usize {
         self.rows.capacity() * size_of::<Row>()
@@ -332,7 +338,15 @@ fn paint_rows(term: &Terminal, rows: &[&Row], out: &mut Vec<u8>) {
         out.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
         let mut previous: Option<Style> = None;
         let mut x = 0;
-        for cell in row.cells.iter().take(term.cols) {
+        // Trailing blanks in the default pen end in an erase, whether the row
+        // is held (stored without them) or still on the screen: a row paints
+        // the same bytes before and after it is held.
+        let cells = row.cells.get(..term.cols.min(row.cells.len())).unwrap_or_default();
+        let keep = cells
+            .iter()
+            .rposition(|c| !(c.is_empty_or_space() && c.style == 0 && c.kind == 0))
+            .map_or(0, |i| i + 1);
+        for cell in &cells[..keep] {
             if cell.kind == WIDE_TAIL {
                 x += 1;
                 continue;

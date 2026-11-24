@@ -116,14 +116,39 @@ fn a_pan_past_the_held_rows_goes_to_the_app_from_where_the_reader_is() {
 }
 
 #[test]
-fn new_output_returns_the_surface_to_the_live_screen_first() {
+fn new_output_while_back_keeps_the_reader_on_the_same_rows() {
     let mut p = alt_app();
     lines(&mut p, 0, 60);
     let _ = p.alt_pan(4.0);
-    let segments = p.feed(b"new", true);
-    let Some(Segment::Raw(first)) = segments.first() else { panic!("{segments:?}") };
-    assert!(text(first).contains("line 59"), "the live screen, before the app's bytes");
-    assert!(matches!(segments.get(1), Some(Segment::Raw(b)) if b == b"new"));
+    let before = p.alt_pan(1.0).paint;
+    assert_eq!(p.alt_rows_back(), 5);
+    // Output that scrolls 3 more rows off: the reader is 3 more rows back,
+    // on the same rows, and the app's bytes still reach the surface.
+    let segments = p.feed(b"\r\nline 60\r\nline 61\r\nline 62", true);
+    assert_eq!(p.alt_rows_back(), 8);
+    let [Segment::Raw(live), Segment::Raw(app), Segment::Raw(shown)] = segments.as_slice() else {
+        panic!("{segments:?}")
+    };
+    assert!(text(live).starts_with("\x1b[?2026h") && !text(live).contains("\x1b[?2026l"));
+    assert!(text(live).contains("line 59"), "the live screen, before the app's bytes");
+    assert_eq!(app, b"\r\nline 60\r\nline 61\r\nline 62");
+    assert_eq!(shown, &before, "the same rows, one synchronized update");
+    // A pan down to the bottom rejoins live, and the next bytes go as they come.
+    let rejoin = p.alt_pan(-8.0);
+    assert_eq!(rejoin.forward_rows, 0.0);
+    assert!(text(&rejoin.paint).contains("line 62"));
+    assert_eq!(p.alt_rows_back(), 0);
+    assert_eq!(p.feed(b"x", true), vec![Segment::Raw(b"x".to_vec())]);
+}
+
+#[test]
+fn the_apps_answer_to_a_pan_past_the_held_rows_shows_live() {
+    let mut p = alt_app();
+    lines(&mut p, 0, 30);
+    let held = p.held().0;
+    assert!(p.alt_pan((held + 3) as f64).forward_rows > 0.0);
+    let segments = p.feed(b"older", true);
+    assert!(matches!(segments.first(), Some(Segment::Raw(b)) if text(b).contains("line 29")));
     assert_eq!(p.alt_rows_back(), 0);
 }
 
@@ -361,6 +386,41 @@ fn claude_code_full_screen_repaints_are_held() {
     );
     assert!(held[0].0 >= 60, "{held:?}");
     assert!(held.iter().all(|h| *h == held[0]), "{held:?}");
+}
+
+/// Leo reads back while Claude Code works, its spinner repainting several
+/// times a second: the rows they read stay byte for byte where they are,
+/// and a pan down to the bottom rejoins the live screen.
+#[test]
+fn claude_code_spinner_frames_leave_the_reader_where_they_are() {
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/parity/real/claude_code_session.vt"
+    ))
+    .expect("fixture");
+    let end = bytes.windows(8).rposition(|w| w == b"\x1b[?1049l").expect("exit");
+    let mut p = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
+    let _ = p.set_viewport(54, 38);
+    let _ = p.feed(&bytes[..end], true);
+    let held = p.held().0;
+    let shown = p.alt_pan(held as f64).paint;
+    let live = p.alt_live_paint();
+    // The recording's own spinner frame, glyph and seconds counting.
+    for n in 0..100 {
+        let glyph = ["✶", "✻", "✽", "✢", "·", "✳"][n % 6];
+        let frame = format!(
+            "\x1b[?25l\x1b[H\r\x1b[34B\x1b[38;2;215;119;87m{glyph}\x1b[3GDeciphering…\x1b[37G\x1b[38;2;153;153;153m{}\x1b[39m\x1b[40;1H\x1b[38;3H\x1b[?25h",
+            n + 3
+        );
+        let segments = p.feed(frame.as_bytes(), true);
+        let Some(Segment::Raw(last)) = segments.last() else { panic!("{segments:?}") };
+        assert_eq!(last, &shown, "frame {n}: the rows read moved");
+        assert_eq!(p.alt_rows_back(), held);
+    }
+    assert_ne!(p.alt_live_paint(), live, "the live screen kept updating underneath");
+    let rejoin = p.alt_pan(-(held as f64));
+    assert_eq!(rejoin.forward_rows, 0.0);
+    assert_eq!(rejoin.paint, p.alt_live_paint(), "live, with no jump");
 }
 
 /// A repaint matches only on rows with text: a line alone on a blank screen
