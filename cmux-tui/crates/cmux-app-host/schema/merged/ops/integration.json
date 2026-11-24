@@ -1,6 +1,13 @@
 {
   "family": "integration",
   "ops": {
+    "integration.approval.approve": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "1db88c6ed3db17f2"
+    },
     "integration.approval.get": {
       "source": "cloud",
       "owner": "cloud:ConnectionDO",

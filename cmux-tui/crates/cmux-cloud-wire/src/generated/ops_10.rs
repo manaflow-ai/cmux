@@ -4,6 +4,61 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateParams {
+    pub issuer: String,
+    pub client_id: String,
+    pub domains: Vec<EmailDomain>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jit: Option<SsoConnectionCreateParamsJit>,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.create declares.
+    SsoConnectionCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Disable a connection (owners and admins): sign-in discovery stops routing to it.
+    SsoConnectionDisableOp {
+        name: "sso.connection.disable",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: SsoConnectionDisableParams,
+        result: SsoConnection,
+        error: SsoConnectionDisableError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionDisableParams {
+    pub connection: SsoConnectionId,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.disable declares.
+    SsoConnectionDisableError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// The team's SSO connections, without secrets (owners and admins).
     SsoConnectionListOp {
@@ -835,66 +890,4 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.
-    TeamDirectoryOp {
-        name: "team.directory",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamDirectoryParams,
-        result: TeamDirectoryResult,
-        error: TeamDirectoryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDirectoryParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDirectoryResult {
-    pub team: TeamId,
-    pub members: Vec<TeamMember>,
-    pub hosts: Vec<Host>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.directory declares.
-    TeamDirectoryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once.
-    TeamEnrollmentTokenCreateOp {
-        name: "team.enrollment_token.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: TeamEnrollmentTokenCreateParams,
-        result: EnrollmentToken,
-        error: TeamEnrollmentTokenCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenCreateParams {
-    pub label: String,
-    pub token_hash: EnrollmentTokenHash,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_domains: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<i64>,
 }
