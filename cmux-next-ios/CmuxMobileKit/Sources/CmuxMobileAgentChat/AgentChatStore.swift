@@ -738,10 +738,16 @@ public final class AgentChatStore {
 
     /// Hands a prompt's text and attachments back to the composer (it goes before a draft typed
     /// meanwhile; several in a row are joined, none lost).
+    /// One that failed may have run on the Mac (only its reply lost): sent again unchanged, it
+    /// keeps its id, so acpmux runs it once.
     private func giveBack(_ prompt: PendingPrompt) {
         if let earlier = returnedDraft {
             returnedDraft = ReturnedDraft(text: [earlier.text, prompt.text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
                                           attachments: earlier.attachments + prompt.attachments, promptID: nil)
+            resendable = nil
+        } else if prompt.look == .failed {
+            returnedDraft = ReturnedDraft(text: prompt.text, attachments: prompt.attachments, promptID: prompt.id)
+            resendable = (prompt.text, prompt.attachments, prompt.id)
         } else {
             returnedDraft = ReturnedDraft(text: prompt.text, attachments: prompt.attachments, promptID: nil)
         }
@@ -1090,7 +1096,11 @@ public final class AgentChatStore {
     public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
-    public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+    public func removeQueued(_ id: String) {
+        // Drawn in the queue from the tap, not the Mac's yet: the outbox takes it back.
+        if pendingPrompt(id) != nil { deletePending(id); return }
+        source.send(.removeQueued(promptId: id))
+    }
 
     /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
     /// sends nothing; the message goes when the person sends it from the composer. Only an
@@ -1140,17 +1150,26 @@ public final class AgentChatStore {
     public func takeBackQueued(_ id: String, draft: String) -> String? {
         guard let item = queue.first(where: { $0.id == id }) else { return nil }
         guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if pendingPrompt(id) != nil {
+            // Its text and attachments come back through ``returnedDraft`` (in this frame when it never left).
+            cancelPending(id)
+            return nil
+        }
         removeQueued(id)
         return item.text
     }
     /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
     public func editQueued(_ id: String, text: String) {
+        if pendingPrompt(id) != nil { editPending(id, text: text); return }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, queue.contains(where: { $0.id == id && $0.text != text }) else { return }
         source.send(.editQueued(promptId: id, text: text))
     }
     /// Send now: the waiting prompt goes now (steered into the running turn, or next).
-    public func sendQueuedNow(_ id: String) { source.send(.sendQueuedNow(promptId: id)) }
+    public func sendQueuedNow(_ id: String) {
+        if pendingPrompt(id) != nil { retryPending(id); return }
+        source.send(.sendQueuedNow(promptId: id))
+    }
     /// Move up (-1) / Move down (+1) in the queue.
     public func moveQueued(_ id: String, by offset: Int) {
         guard let from = queue.firstIndex(where: { $0.id == id }), queue.indices.contains(from + offset) else { return }

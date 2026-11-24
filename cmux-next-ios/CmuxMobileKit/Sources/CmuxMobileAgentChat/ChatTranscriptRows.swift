@@ -413,6 +413,8 @@ enum ChatNativeEligibility {
     static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?,
                               isSettling: (String) -> Bool = { _ in false }) -> Bool {
         guard !accessibilitySize, isCandidate(row.kind) else { return false }
+        // A bubble with a retrying or failed mark draws in SwiftUI (`UserBubble`'s mark); sent looks delivered.
+        if let look = row.sendLook, look != .sent { return false }
         switch row.kind {
         case .tool(let call) where isSettling("tool-\(call.id)"): return false
         case .toolGroup(let calls, _) where isSettling("group-\(calls.first?.id ?? "")"): return false

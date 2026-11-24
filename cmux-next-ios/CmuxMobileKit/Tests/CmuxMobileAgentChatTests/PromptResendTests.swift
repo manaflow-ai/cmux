@@ -19,14 +19,18 @@ import Testing
         return (text, id, resend)
     }
 
+    /// A failed send stays as its bubble (`OptimisticSendTests`); Cancel hands it back with its
+    /// id, so the same text sent again keeps it.
     @Test func aReturnedPromptSentAgainKeepsItsID() throws {
         let source = Recorder()
         let store = AgentChatStore(source: source)
         store.send(prompt: "run the tests")
         let first = try #require(Self.prompt(source.sent.last))
         #expect(!first.resend)
-        // The link dropped before the reply: the draft comes back with its id.
+        // The link dropped before the reply: the bubble is marked failed, and Cancel gives it back.
         store.apply(.promptNotSent(text: "run the tests", attachments: [], promptID: first.id, reason: "link down"))
+        #expect(store.returnedDraft == nil)
+        store.cancelPending(first.id)
         #expect(store.returnedDraft?.promptID == first.id)
         store.returnedDraft = nil // the composer took it
         store.send(prompt: "run the tests")
@@ -44,21 +48,23 @@ import Testing
         store.send(prompt: "run the tests")
         let first = try #require(Self.prompt(source.sent.last))
         store.apply(.promptNotSent(text: "run the tests", attachments: [], promptID: first.id, reason: "link down"))
+        store.cancelPending(first.id)
         store.returnedDraft = nil
         store.send(prompt: "run the unit tests")
         #expect(Self.prompt(source.sent.last)?.id != first.id)
     }
 
-    @Test func aDraftTheMacRanIsWithdrawn() throws {
+    @Test func aFailedBubbleTheMacRanBecomesItsTurn() throws {
         let source = Recorder()
         let store = AgentChatStore(source: source)
         store.send(prompt: "run the tests")
         let first = try #require(Self.prompt(source.sent.last))
         store.apply(.promptNotSent(text: "run the tests", attachments: [], promptID: first.id, reason: "link down"))
-        store.returnedDraft = nil
-        // The replayed transcript shows the Mac ran it.
+        // The replayed transcript shows the Mac ran it: the bubble is its turn, unmarked.
         store.apply(.userMessage(text: "run the tests", promptId: first.id, turnId: "t1", attachments: [], at: Date()))
-        #expect(store.withdrawnDraft?.text == "run the tests")
+        #expect(store.turns.map(\.id) == ["t1"])
+        #expect(store.turns[0].sendLook == nil)
+        #expect(store.pendingPrompts.isEmpty)
         // Nothing is left to resend under that id.
         store.send(prompt: "run the tests")
         let again = try #require(Self.prompt(source.sent.last))
@@ -75,28 +81,24 @@ import Testing
         store.apply(.userMessage(text: "run the tests", promptId: first.id, turnId: "t1", attachments: [], at: Date()))
         store.apply(.promptNotSent(text: "run the tests", attachments: [], promptID: first.id, reason: "link down"))
         #expect(store.returnedDraft == nil)
+        #expect(store.turns.allSatisfy { $0.sendLook == nil })
         store.send(prompt: "run the tests")
         #expect(Self.prompt(source.sent.last)?.id != first.id)
     }
 
-    /// Review: other attachments are another prompt; a withdrawal takes the attachments too.
-    @Test func attachmentsCountAndLeaveWithTheDraft() throws {
+    /// Review: other attachments are another prompt.
+    @Test func otherAttachmentsAreAnotherPrompt() throws {
         let source = Recorder()
         let store = AgentChatStore(source: source)
         let photo = AgentAttachment(kind: .file, name: "a.txt")
         store.send(prompt: "look", attachments: [photo])
         let first = try #require(Self.prompt(source.sent.last))
         store.apply(.promptNotSent(text: "look", attachments: [photo], promptID: first.id, reason: "link down"))
+        store.cancelPending(first.id)
+        #expect(store.returnedDraft?.attachments == [photo])
         store.returnedDraft = nil
         store.send(prompt: "look", attachments: [])
         #expect(Self.prompt(source.sent.last)?.id != first.id)
-
-        store.send(prompt: "look again", attachments: [photo])
-        let second = try #require(Self.prompt(source.sent.last))
-        store.apply(.promptNotSent(text: "look again", attachments: [photo], promptID: second.id, reason: "link down"))
-        store.returnedDraft = nil
-        store.apply(.queued(text: "look again", promptId: second.id, position: 0))
-        #expect(store.withdrawnDraft?.attachments == [photo])
     }
 }
 

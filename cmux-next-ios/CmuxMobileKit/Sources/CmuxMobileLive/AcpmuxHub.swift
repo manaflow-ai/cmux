@@ -856,6 +856,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let hub else { return }
         let session = JSONValue.string(sessionID)
         if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
+            #if canImport(CmuxMobileLinkFFI)
+            // Into the outbox now, never waiting: its upload runs beside it, and the outbox writes
+            // it once that is done, in send order (``startPrompt(_:)``).
+            startPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
+                                   steer: steer, resend: resend, blocks: [], at: now()))
+            return
+            #else
             // Messages reach the Mac in the order they were sent: each waits for the one before
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
@@ -875,6 +882,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                  steer: steer, resend: resend, blocks: blocks, at: sentAt))
             }
             return
+            #endif
         }
         Task {
             do {
@@ -948,6 +956,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var blocks: [JSONValue]
         /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
+        /// Its attachments' blocks once uploaded (the text block is made at write time, from
+        /// the text as edited).
+        var attachmentBlocks: [JSONValue] = []
+        /// The outbox's upload id for its attachments (``AcpmuxSessionSource/startPrompt(_:)``).
+        var uploadID: String?
     }
 
     /// How long a prompt may wait for the link before it comes back to the composer: the
@@ -963,8 +976,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
 
+    #if !canImport(CmuxMobileLinkFFI)
     /// The last message's upload, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
+    #endif
     /// Each prompt the outbox holds, by its `promptId`: what to write when it goes.
     private var promptPayloads: [String: HeldPrompt] = [:]
 
@@ -977,23 +992,150 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private let promptOutbox = ChatPromptOutbox(holdMs: 10_000, seed: UInt64.random(in: 0...UInt64.max))
     /// The wake for the outbox's next hold or retry.
     private var promptWake: Task<Void, Never>?
+    /// Each prompt's attachment upload in flight, by its outbox upload id (cancelled with it).
+    private var promptUploads: [String: Task<Void, Never>] = [:]
+    /// The looks last told to the chat that are not `sent`, by `promptId`.
+    private var shownLooks: [String: AgentPromptLook] = [:]
+
+    /// The outbox's single upload id for a prompt's attachments: all of them, uploaded or read,
+    /// as its blocks.
+    nonisolated static func blocksUploadID(_ promptID: String) -> String { "blocks:\(promptID)" }
+
+    /// A tap on Send: into the outbox in this call (its look is `sent` at once), its
+    /// attachments' upload started beside it; the outbox writes it when it may.
+    private func startPrompt(_ prompt: HeldPrompt) {
+        guard hub != nil else { return }
+        var prompt = prompt
+        let nowMs = ChatPromptClock.milliseconds(now())
+        prompt.uploadID = prompt.attachments.isEmpty ? nil : Self.blocksUploadID(prompt.promptID)
+        promptOutbox.forget(promptId: prompt.promptID)
+        promptPayloads[prompt.promptID] = prompt
+        let pushed = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: prompt.uploadID.map { [$0] } ?? [],
+                                       resend: prompt.resend, tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
+        if pushed, let uploadID = prompt.uploadID, promptUploads[uploadID] == nil {
+            startUpload(uploadID, attachments: prompt.attachments)
+        }
+        pumpPrompts()
+    }
+
+    /// Uploads (or reads) a prompt's attachments into their blocks, then tells the outbox; a
+    /// cancel drops it (its result is not used).
+    private func startUpload(_ uploadID: String, attachments: [AgentAttachment]) {
+        guard let hub else { return }
+        promptUploads[uploadID] = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let blocks = try await self.promptBlocks(text: "", attachments: attachments, hub: hub)
+                guard !Task.isCancelled, self.promptUploads.removeValue(forKey: uploadID) != nil else { return }
+                for (id, held) in self.promptPayloads where held.uploadID == uploadID {
+                    self.promptPayloads[id]?.attachmentBlocks = blocks
+                }
+                self.promptOutbox.uploaded(uploadId: uploadID, macPath: "", nowMs: ChatPromptClock.milliseconds(self.now()))
+            } catch {
+                guard !Task.isCancelled, self.promptUploads.removeValue(forKey: uploadID) != nil else { return }
+                let reason = AcpmuxSessionSource.message(error)
+                if let done = self.promptOutbox.uploadFailed(uploadId: uploadID, reason: reason),
+                   let held = self.promptPayloads.removeValue(forKey: done.promptId) {
+                    self.cancelUploads(done.cancelUploadIds)
+                    self.emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
+                }
+            }
+            self.pumpPrompts()
+        }
+    }
+
+    private func cancelUploads(_ ids: [String]) {
+        for id in ids { promptUploads.removeValue(forKey: id)?.cancel() }
+    }
+
+    /// The chat's Cancel, Delete, Retry now and Edit on a prompt it drew from the tap: what the
+    /// outbox says to do (``ChatCancelStep``, ``ChatEditStep``), done here.
+    public func promptAction(_ action: AgentPromptAction) -> AgentPromptActionResult {
+        let nowMs = ChatPromptClock.milliseconds(now())
+        switch action {
+        case .cancel(let id), .delete(let id):
+            let step: ChatCancelStep?
+            if case .delete = action { step = promptOutbox.delete(promptId: id) } else { step = promptOutbox.cancel(promptId: id) }
+            guard let step else { return .unknown }
+            switch step {
+            case .returned(let done):
+                cancelUploads(done.cancelUploadIds)
+                if let uploadID = promptPayloads.removeValue(forKey: id)?.uploadID { cancelUploads([uploadID]) }
+                shownLooks[id] = nil
+                pumpPrompts()
+                return .returned
+            case .removeOnMac(let promptId):
+                removeOnMac(promptId, tellsChat: true)
+                return .removingOnMac
+            }
+        case .retryNow(let id):
+            guard promptOutbox.retryNow(promptId: id, nowMs: nowMs) else { return .unknown }
+            pumpPrompts()
+            return .done
+        case .edit(let id, let newID, let text):
+            guard let held = promptPayloads[id],
+                  let step = promptOutbox.edit(promptId: id, newPromptId: newID, text: text,
+                                               uploadIds: held.uploadID.map { [$0] } ?? [], nowMs: nowMs) else { return .unknown }
+            switch step {
+            case .edited(let cancel):
+                cancelUploads(cancel)
+                promptPayloads[id]?.text = text
+                pumpPrompts()
+                return .done
+            case .replaced(let remove, let cancel):
+                cancelUploads(cancel)
+                var replacement = held
+                replacement.promptID = newID
+                replacement.text = text
+                replacement.resend = false
+                promptPayloads[newID] = replacement
+                removeOnMac(remove, tellsChat: false)
+                pumpPrompts()
+                return .replaced(newPromptID: newID)
+            }
+        }
+    }
+
+    /// A prompt that may be on the Mac is taken off its queue (`_acpmux/queue_remove`); the
+    /// outbox learns whether it was. `tellsChat`: the chat's bubble waits on the answer.
+    private func removeOnMac(_ promptID: String, tellsChat: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            var removed = false
+            if let hub = self.hub {
+                let reply = try? await hub.request("_acpmux/queue_remove", .object([
+                    "sessionId": .string(self.sessionID), "promptId": .string(promptID),
+                ]))
+                if case .bool(let value)? = reply?["removed"] { removed = value }
+            }
+            _ = self.promptOutbox.removeAnswered(promptId: promptID, removed: removed)
+            self.promptPayloads[promptID] = nil
+            self.shownLooks[promptID] = nil
+            if tellsChat { self.emit(.promptRemoved(promptID: promptID, removed: removed)) }
+            self.pumpPrompts()
+        }
+    }
+
+    /// Tells the chat each prompt whose look changed (`retrying` after 2 s unwritten, back to
+    /// `sent` once written; `failed` comes with ``AgentSessionEvent/promptNotSent``).
+    private func emitLooks(_ nowMs: UInt64) {
+        for id in Set(promptPayloads.keys).union(shownLooks.keys) {
+            let look: AgentPromptLook = switch promptOutbox.look(promptId: id, nowMs: nowMs) {
+            case .sent: .sent
+            case .retrying: .retrying
+            case .failed: .failed
+            }
+            guard (shownLooks[id] ?? .sent) != look else { continue }
+            shownLooks[id] = look == .retrying ? look : nil
+            emit(.promptLook(promptID: id, look: look))
+        }
+    }
 
     /// Prompts the link lost or could not take (a blip), oldest first: they go again once the
     /// link is back, in order, while younger than ``heldPromptWindow``; older, they come back to
     /// the composer with what happened.
     var heldPrompts: [HeldPrompt] {
         promptOutbox.unwritten().compactMap { promptPayloads[$0] }
-    }
-
-    /// Hands a prompt (its attachments uploaded) to the outbox, which writes it now or after the
-    /// ones before it (the Mac gets them in order).
-    private func sendPrompt(_ prompt: HeldPrompt) async {
-        guard hub != nil else { return }
-        let nowMs = ChatPromptClock.milliseconds(now())
-        promptPayloads[prompt.promptID] = prompt
-        _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: [], resend: prompt.resend,
-                              tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
-        pumpPrompts()
     }
 
     /// Does what the outbox says is due: gives back prompts past the hold, writes the next one,
@@ -1006,11 +1148,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let request = promptOutbox.nextRequest(nowMs: nowMs) {
             if var prompt = promptPayloads[request.promptId] {
                 prompt.resend = request.resend
+                // The text as it is now (an edit may have changed it), then the attachments.
+                prompt.blocks = Self.promptBlocks(text: prompt.text, attachments: []) + prompt.attachmentBlocks
                 Task { [weak self] in await self?.writePrompt(prompt, hub: hub) }
             } else {
                 _ = promptOutbox.answered(promptId: request.promptId)
             }
         }
+        emitLooks(nowMs)
         schedulePromptWake(nowMs)
     }
 
@@ -1034,7 +1179,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func schedulePromptWake(_ nowMs: UInt64) {
         promptWake?.cancel()
-        guard let wait = promptOutbox.nextWakeMs(nowMs: nowMs) else { promptWake = nil; return }
+        // The next hold or retry, or the next prompt to turn `retrying`.
+        guard let wait = [promptOutbox.nextWakeMs(nowMs: nowMs), promptOutbox.nextLookChangeMs(nowMs: nowMs)]
+            .compactMap({ $0 }).min() else { promptWake = nil; return }
         promptWake = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
             guard !Task.isCancelled else { return }
@@ -1088,6 +1235,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     #else
     /// Without the Rust outbox (the macOS test build): no prompt is held.
     var heldPrompts: [HeldPrompt] { [] }
+
+    public func promptAction(_ action: AgentPromptAction) -> AgentPromptActionResult { .unknown }
 
     private func sendPrompt(_ prompt: HeldPrompt) async {
         guard let hub else { return }
@@ -2521,7 +2670,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent, .historyLoading:
+        case .clientError, .promptNotSent, .historyLoading, .promptLook, .promptRemoved:
             // Not history: a later reader learns the load state from `events()` itself.
             break
         default:

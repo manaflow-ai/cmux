@@ -9,7 +9,8 @@ import Testing
 /// the link is back: in order, each once, with no notice. Only a real outage (past the
 /// window) brings the draft back with what happened. And the "Full access is off" notice is
 /// the Mac's word on what the message needs, never a reconnect's: it goes once a connection
-/// says Full access covers the phone.
+/// says Full access covers the phone. Leo, 2026-11-24: "i also couldnt cancel out of the send":
+/// Cancel on a message still on its way frees the composer in the same call, mid-upload or not.
 @MainActor
 @Suite struct ChatPromptBlipTests {
     /// The fake acpmux: the prompts it got (text, promptId, resend), and whether this phone's
@@ -28,8 +29,9 @@ import Testing
     }
 
     nonisolated static func link(_ mac: Mac) -> MockMacLink {
-        MockMacLink { _, data in
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        MockMacLink { service, data in
+            // Only acpmux answers: an upload (its own channel) never finishes, as on a stalled link.
+            guard service == "acpmux", let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
             let id = object["id"].map { "\($0)" } ?? "null"
             func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
@@ -99,7 +101,9 @@ import Testing
         #expect(store.returnedDraft == nil)
     }
 
-    @Test func aMessageHeldPastTheWindowComesBackWithWhatHappened() async throws {
+    /// Past the window the bubble stays, marked failed with what happened (its menu says it);
+    /// no banner, and the composer is not refilled behind the person's back.
+    @Test func aMessageHeldPastTheWindowIsMarkedFailedWithWhatHappened() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
         defer { withExtendedLifetime(hub) {} }
@@ -107,9 +111,13 @@ import Testing
         await hub.bind(nil)
         store.send(prompt: "run the tests")
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
-        await settle { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        await settle { store.pendingPrompts.first?.look == .failed }
+        let pending = try #require(store.pendingPrompts.first)
+        #expect(pending.look == .failed)
+        #expect(pending.reason?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        #expect(store.turns.first?.prompt == "run the tests")
+        #expect(store.returnedDraft == nil)
+        #expect(store.clientError == nil)
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.
@@ -117,10 +125,58 @@ import Testing
         for _ in 0..<300 { await Task.yield() }
         #expect(mac.prompts.isEmpty)
     }
+
+    /// Cancel while the attachment is still uploading: in the same call the bubble is gone and
+    /// the text and attachment are back in the composer; the upload is dropped and the Mac
+    /// never gets the prompt.
+    @Test func cancelMidUploadFreesTheComposerInTheSameCall() async throws {
+        let mac = Mac()
+        let (hub, link, source, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        hub.macLink = link
+        let clip = AgentAttachment(kind: .file, name: "clip.mov", data: Data(count: 64 << 10))
+        store.send(prompt: "look at this", attachments: [clip])
+        for _ in 0..<200 { await Task.yield() } // the upload has started, and stalls
+        let pending = try #require(store.pendingPrompts.first)
+        #expect(store.turns.first?.sendLook == .sent, "drawn as sent while it uploads")
+        #expect(mac.prompts.isEmpty)
+
+        store.cancelPending(pending.id)
+        // No await: the same frame.
+        #expect(store.pendingPrompts.isEmpty)
+        #expect(store.turns.isEmpty)
+        #expect(store.returnedDraft?.text == "look at this")
+        #expect(store.returnedDraft?.attachments == [clip])
+        #expect(source.heldPrompts.isEmpty)
+
+        for _ in 0..<300 { await Task.yield() }
+        #expect(mac.prompts.isEmpty, "a cancelled prompt never reaches the Mac")
+        #expect(store.turns.isEmpty)
+    }
+
+    /// Cancel while the link is down: the same, and the link coming back sends nothing.
+    @Test func cancelWhileTheLinkIsDownFreesTheComposerInTheSameCall() async throws {
+        let mac = Mac()
+        let (hub, link, source, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        await hub.bind(nil)
+        store.send(prompt: "run the tests")
+        await settle { source.heldPrompts.count == 1 }
+        let pending = try #require(store.pendingPrompts.first)
+        store.cancelPending(pending.id)
+        #expect(store.pendingPrompts.isEmpty)
+        #expect(store.turns.isEmpty)
+        #expect(store.returnedDraft?.text == "run the tests")
+        #expect(source.heldPrompts.isEmpty)
+
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        for _ in 0..<300 { await Task.yield() }
+        #expect(mac.prompts.isEmpty)
+    }
     #endif
 
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
-    /// message to one is refused, truly. The draft comes back with what to change; a reconnect
+    /// message to one is refused, truly. Its bubble is marked failed and the notice says what to change; a reconnect
     /// alone shows nothing, and a connection that says Full access is on clears the notice.
     @Test func fullAccessNoticeIsTheMacsWordAndClearsOnReconnectWithAccess() async throws {
         let mac = Mac(fullAccess: false)
@@ -135,7 +191,9 @@ import Testing
         store.send(prompt: "keep going")
         await settle { store.clientError != nil }
         #expect(store.clientError == AgentChatStore.fullAccessOffPromptNotice)
-        #expect(store.returnedDraft?.text == "keep going", "the message is not lost")
+        #expect(store.turns.first?.prompt == "keep going", "the message is not lost")
+        #expect(store.pendingPrompts.first?.look == .failed)
+        #expect(store.returnedDraft == nil)
         #expect(mac.prompts.isEmpty)
 
         // Turned on on the Mac: the next connection says so, and the notice goes.

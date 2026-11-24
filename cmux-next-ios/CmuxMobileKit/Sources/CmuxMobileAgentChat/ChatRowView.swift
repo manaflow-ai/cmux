@@ -99,7 +99,9 @@ struct ChatRowView: View {
             UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
                        editAndResend: { context.editAndResend(turnID: turnID) },
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
-                       polishActions: { ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store) })
+                       polishActions: { ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store) },
+                       sendLook: row.sendLook,
+                       pendingActions: { ChatPendingMenu.items(store.turns.last { $0.id == turnID }?.promptID, store: store) })
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .chiefContext(let text, let lines):
             ChiefContextRow(context: text, lines: lines, id: row.id)
@@ -110,7 +112,8 @@ struct ChatRowView: View {
                 AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at, disclosureKey: AgentIncomingCard.key(row.id))
             } else {
                 UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
-                           editAndResend: {})
+                           editAndResend: {}, sendLook: message.sendLook,
+                           pendingActions: { ChatPendingMenu.items(message.promptID, store: store) })
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         case .block(let messageID, let block):
