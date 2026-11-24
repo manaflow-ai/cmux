@@ -623,7 +623,14 @@ the Mac to hold the link while iOS suspends it, so returning skips the
 full dial. It opens the service `_link.park` with `{"hold_ms": N}`. A Mac
 that knows parking answers `close` with code `parked` (a control frame) and
 holds for N ms, at most 10 minutes. An older Mac answers `unknown_service`,
-and the phone redials on return as before. While parked:
+and the phone redials on return as before.
+
+Since 2026-11-24 the host lists `link-park-v1` in its `version` reply's
+`capabilities`. The phone's link reads that reply as it passes. Once it has
+a reply without `link-park-v1`, it never opens `_link.park` on that link:
+`park` returns false with nothing sent, and the phone redials on return as
+before. Before any `version` reply it asks as above, and an older Mac's
+`unknown_service` means the same. While parked:
 
 - Neither side sends a link keepalive or closes the link for silence.
 - The tunnel is held (`cmux-wg` `WgNet::hold`): no TCP keepalive probe,
@@ -1248,6 +1255,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `link-park-v1` | hostd `version` | (2026-11-24) The link serves `_link.park` ("Parked link"); a phone opens it only to a host whose `version` lists this. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |

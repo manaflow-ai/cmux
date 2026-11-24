@@ -11,7 +11,7 @@
 
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -63,6 +63,14 @@ const CHANNEL_BUFFER_BYTES: usize = 64 * 1024 * 1024;
 pub const PARK_SERVICE: &str = "_link.park";
 /// The `close` code that accepts a park.
 pub const PARKED: &str = "parked";
+/// The service whose reply lists the host's capabilities. A phone link reads
+/// that reply as it passes, to learn whether the host lists
+/// [`crate::names::LINK_PARK`] before it ever opens [`PARK_SERVICE`].
+pub const VERSION_SERVICE: &str = "version";
+/// What the phone knows of the host's park support ([`Inner::peer_park`]).
+const PEER_PARK_UNKNOWN: u8 = 0;
+const PEER_PARK_LISTED: u8 = 1;
+const PEER_PARK_ABSENT: u8 = 2;
 /// Park argument advertising lossless, independently deflated data frames.
 const PARK_ENCODING: &str = "deflate-v1";
 /// The longest hold a side grants; a longer ask is cut to this.
@@ -542,6 +550,9 @@ struct Route {
     /// The channel's sender's closed flag: the peer's close sets it, so a send
     /// in progress stops instead of streaming into a channel the peer dropped.
     closed: Arc<AtomicBool>,
+    /// A phone's own `version` channel: its first data frame is the host's
+    /// capability list, read for [`Inner::peer_park`].
+    version: bool,
 }
 
 /// A channel's inbound events on their way to its owner. The link reader
@@ -725,6 +736,10 @@ struct Inner {
     resume_probe: AtomicBool,
     /// What the transport should hold ([`HoldHook`]); one task applies it.
     transport_hold: watch::Sender<Option<Duration>>,
+    /// Phone: whether the host's `version` reply listed
+    /// [`crate::names::LINK_PARK`] ([`PEER_PARK_UNKNOWN`] until one arrives).
+    /// A host that answered without it never sees [`PARK_SERVICE`].
+    peer_park: AtomicU8,
     /// Tests: while `true`, a keepalive beat's pinger waits here before it
     /// pings, as a pinger the scheduler runs late does.
     #[cfg(test)]
@@ -732,6 +747,17 @@ struct Inner {
 }
 
 impl Inner {
+    /// Phone: read the host's `version` reply for [`crate::names::LINK_PARK`].
+    /// A reply that is not a capability list leaves what is known as it was.
+    fn learn_peer_park(&self, reply: &[u8]) {
+        let Ok(reply) = serde_json::from_slice::<serde_json::Value>(reply) else { return };
+        let Some(capabilities) = reply.get("capabilities").and_then(serde_json::Value::as_array) else {
+            return;
+        };
+        let listed = capabilities.iter().any(|c| c.as_str() == Some(crate::names::LINK_PARK));
+        self.peer_park.store(if listed { PEER_PARK_LISTED } else { PEER_PARK_ABSENT }, Ordering::Release);
+    }
+
     fn lock_channels(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Route>> {
         self.channels.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -999,6 +1025,7 @@ impl Link {
             writes_held: AtomicBool::new(false),
             resume_probe: AtomicBool::new(false),
             transport_hold: watch::channel(None).0,
+            peer_park: AtomicU8::new(PEER_PARK_UNKNOWN),
             #[cfg(test)]
             pinger_gate: watch::channel(false).0,
         });
@@ -1251,7 +1278,8 @@ impl Link {
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);
-        self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed) });
+        let version = self.inner.role == Role::Phone && service == VERSION_SERVICE;
+        self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed), version });
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
@@ -1500,7 +1528,15 @@ impl Link {
     /// writes only control frames until [`Link::resume`] and a ping. `Ok(false)`:
     /// the Mac predates parking or did not answer in time; nothing changed,
     /// and the link closes on silence as before.
+    ///
+    /// A host whose `version` reply did not list [`crate::names::LINK_PARK`]
+    /// is never asked: `Ok(false)` with nothing sent. Before any `version`
+    /// reply the phone asks as before, and an older host's refusal is the
+    /// same `Ok(false)`.
     pub async fn park(&self, hold: Duration, timeout: Duration) -> Result<bool, LinkError> {
+        if self.peer_parks() == Some(false) {
+            return Ok(false);
+        }
         let hold = hold.min(MAX_PARK_HOLD);
         let millis = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
         // Parked before the ask: this side's keepalive must not ping in the
@@ -1522,6 +1558,16 @@ impl Link {
             self.inner.unpark();
         }
         parked
+    }
+
+    /// Phone: whether the host's `version` reply listed
+    /// [`crate::names::LINK_PARK`]; `None` before a reply was read.
+    pub fn peer_parks(&self) -> Option<bool> {
+        match self.inner.peer_park.load(Ordering::Acquire) {
+            PEER_PARK_LISTED => Some(true),
+            PEER_PARK_ABSENT => Some(false),
+            _ => None,
+        }
     }
 
     /// Phone, back from the background: this side expects the Mac again.
@@ -1997,7 +2043,9 @@ async fn read_loop<R>(
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
                 let closed = Arc::new(AtomicBool::new(false));
                 let inbox = Inbox::new(tx, &inner, stream, frame.channel);
-                inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
+                inner
+                    .lock_channels()
+                    .insert(frame.channel, Route { inbox, closed: Arc::clone(&closed), version: false });
                 let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
                 let accepted = IncomingChannel {
                     service: request.service,
@@ -2011,7 +2059,14 @@ async fn read_loop<R>(
             }
             FrameType::Data | FrameType::DeflatedData => {
                 let channel = frame.channel;
-                let inbox = inner.lock_channels().get(&channel).map(|route| route.inbox.clone());
+                let (inbox, version) = {
+                    let mut channels = inner.lock_channels();
+                    match channels.get_mut(&channel) {
+                        // Only the first frame of a `version` channel is the reply.
+                        Some(route) => (Some(route.inbox.clone()), std::mem::take(&mut route.version)),
+                        None => (None, false),
+                    }
+                };
                 if let Some(inbox) = inbox {
                     // The reader never waits on one channel's owner (see
                     // `Inbox`), only on a channel holding its whole buffer.
@@ -2024,6 +2079,9 @@ async fn read_loop<R>(
                             Ok(payload) => payload,
                             Err(error) => break format!("read failed: {error}"),
                         };
+                        if version {
+                            inner.learn_peer_park(&payload);
+                        }
                         if !inbox.push(ChannelEvent::Data(payload)).await
                             && inner.lock_channels().remove(&channel).is_some()
                         {
@@ -3216,6 +3274,89 @@ mod tests {
         assert!(!phone.is_parked());
         assert!(!phone.resume());
         older_mac.abort();
+    }
+
+    /// A host that predates parking, answering `version` with `capabilities`
+    /// (and listing `link-park-v1` only when `parks`). It records every service
+    /// the phone opens and refuses any but `version` and, when it parks,
+    /// `_link.park`.
+    fn version_host(
+        b: tokio::io::DuplexStream,
+        parks: bool,
+    ) -> (tokio::task::JoinHandle<()>, Arc<Mutex<Vec<String>>>) {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&opened);
+        let (read, write) = tokio::io::split(b);
+        let mut from_phone = FramedRead::new(read, FrameCodec);
+        let mut to_phone = FramedWrite::new(write, FrameCodec);
+        let task = tokio::spawn(async move {
+            while let Some(Ok(frame)) = from_phone.next().await {
+                if frame.kind != FrameType::Open {
+                    continue;
+                }
+                let open: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+                let service = open["service"].as_str().unwrap().to_owned();
+                seen.lock().unwrap().push(service.clone());
+                let close = if service == VERSION_SERVICE {
+                    let mut caps = vec!["removal-v1", "file-preview-v1"];
+                    if parks {
+                        caps.push(crate::names::LINK_PARK);
+                    }
+                    let reply = serde_json::json!({"hostd": "old", "link": 2, "capabilities": caps});
+                    let data =
+                        Frame::new(frame.channel, FrameType::Data, serde_json::to_vec(&reply).unwrap());
+                    to_phone.send(data).await.unwrap();
+                    serde_json::json!({"code": "eof", "reason": ""})
+                } else if service == PARK_SERVICE && parks {
+                    serde_json::json!({"code": PARKED, "reason": ""})
+                } else {
+                    serde_json::json!({"code": "unknown_service", "reason": format!("no service {service}")})
+                };
+                let close = Frame::new(frame.channel, FrameType::Close, serde_json::to_vec(&close).unwrap());
+                to_phone.send(close).await.unwrap();
+            }
+        });
+        (task, opened)
+    }
+
+    async fn read_version(phone: &Link) {
+        let mut version = phone.open(VERSION_SERVICE, serde_json::json!({})).await.unwrap();
+        assert!(matches!(version.recv().await, Some(ChannelEvent::Data(_))));
+        assert!(matches!(version.recv().await, Some(ChannelEvent::Closed(info)) if info.code == "eof"));
+    }
+
+    /// A host whose `version` does not list `link-park-v1` never sees
+    /// `_link.park`: the new phone degrades as against a host without parking.
+    #[tokio::test]
+    async fn a_phone_never_opens_park_to_a_host_that_did_not_list_it() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let (host, opened) = version_host(b, false);
+        assert_eq!(phone.peer_parks(), None);
+        read_version(&phone).await;
+        assert_eq!(phone.peer_parks(), Some(false));
+        assert!(!phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        assert!(!phone.is_parked());
+        assert!(!phone.resume());
+        // The host reads to the end of the stream, so it saw all the phone sent.
+        phone.close("done");
+        tokio::time::timeout(Duration::from_secs(5), host).await.expect("host read to the end").unwrap();
+        assert_eq!(*opened.lock().unwrap(), vec![VERSION_SERVICE.to_owned()]);
+    }
+
+    /// A host that lists `link-park-v1` is asked, and parks.
+    #[tokio::test]
+    async fn a_phone_parks_a_host_that_listed_it() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let (host, opened) = version_host(b, true);
+        read_version(&phone).await;
+        assert_eq!(phone.peer_parks(), Some(true));
+        assert!(phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        assert!(phone.is_parked());
+        phone.close("done");
+        tokio::time::timeout(Duration::from_secs(5), host).await.expect("host read to the end").unwrap();
+        assert_eq!(*opened.lock().unwrap(), vec![VERSION_SERVICE.to_owned(), PARK_SERVICE.to_owned()]);
     }
 
     /// A phone and a Mac link joined by a network that can go dark: while
