@@ -1,0 +1,33 @@
+{
+  "family": "domain",
+  "ops": {
+    "domain.claim": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "c10600d244758f28"
+    },
+    "domain.list": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a0be0066a7ef596b"
+    },
+    "domain.release": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "5db2b9a3d4090462"
+    },
+    "domain.verify": {
+      "source": "cloud",
+      "owner": "cloud:TeamDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "a058c62ab6d3579d"
+    }
+  }
+}

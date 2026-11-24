@@ -32,7 +32,7 @@ extension AcpmuxHub {
                                   timeout: Duration) async throws -> JSONValue {
         try await LinkDeadline.run(
             timeout: timeout,
-            timeoutError: LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"),
+            timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
             operation: { try await connection.reply(to: id) }
         )
     }

@@ -128,6 +128,59 @@ struct AgentPaneHostGlassTests {
         #expect(container.superview == nil)
     }
 
+    /// The report's zoom places the glass, never the pane's own (cmux#42413 switched host glass off
+    /// for this; Leo, 2026-11-20: "we have glass project / i add background / it refract / boom done").
+    /// A Chromium page applies a new zoom over another channel than its reports: a box measured at
+    /// 1.5 still lands at 1.5 while the pane already set 1.25, and a pane resize keeps it there.
+    @Test func theReportsZoomPlacesTheGlassAtEveryZoomAndAfterAResize() async throws {
+        var withZoom = Self.box
+        withZoom["id"] = "g1"
+        let decoded = AgentPaneRequest(body: ["id": "g", "method": "pane.glass",
+                                              "params": ["surfaces": [withZoom], "zoom": 1.25]])
+        #expect(decoded == .hostGlass([
+            AgentPaneHostGlassSurface(id: "g1", level: .popover, rect: CGRect(x: 40, y: 60, width: 200, height: 120),
+                                      radius: 12, opacity: 0.5, zoom: 1.25),
+        ]))
+        for bad: Any in [0, -1, 40, "1.25", Double.nan] {
+            let request = AgentPaneRequest(body: ["id": "g", "method": "pane.glass",
+                                                  "params": ["surfaces": [withZoom], "zoom": bad]])
+            #expect(request == .unsupported("pane.glass"))
+        }
+
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        defer { view.close() }
+        view.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
+        view.layoutSubtreeIfNeeded()
+        let paneZoom = CGFloat(view.uiPointerPageZoom)
+        for zoom: CGFloat in [0.9, 1, 1.25, 1.5] {
+            let surface = AgentPaneHostGlassSurface(id: "g1", rect: CGRect(x: 40, y: 60, width: 200, height: 120),
+                                                    radius: 12, zoom: zoom)
+            _ = await view.model.respond(to: .hostGlass([surface]))
+            let container = try #require(view.model.hostGlass.container)
+            let glass = try #require(view.model.hostGlass.views["g1"])
+            let page = CGRect(origin: .zero, size: container.frame.size)
+            #expect(surface.placementZoom(paneZoom: paneZoom) == zoom)
+            #expect(glass.frame == AgentPaneView.hostGlassFrame(surface.rect, page: page, zoom: zoom, flipped: container.isFlipped))
+            #expect(abs(glass.frame.width - 200 * zoom) < 0.001)
+            #expect(abs(glass.frame.height - 120 * zoom) < 0.001)
+            #expect(abs(glass.frame.minX - 40 * zoom) < 0.001)
+            #expect(glass.cornerRadius == 12 * zoom)
+
+            // A pane resize lays the glass out again at the report's zoom, under the page's new frame.
+            view.frame = CGRect(x: 0, y: 0, width: 640, height: 520)
+            view.layoutSubtreeIfNeeded()
+            let resized = CGRect(origin: .zero, size: container.frame.size)
+            #expect(container.frame == (view.page ?? view.webView).frame)
+            #expect(glass.frame == AgentPaneView.hostGlassFrame(surface.rect, page: resized, zoom: zoom, flipped: container.isFlipped))
+            view.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
+            view.layoutSubtreeIfNeeded()
+        }
+        // An older page that sends no zoom: the pane's own.
+        let legacy = AgentPaneHostGlassSurface(id: "g1", rect: CGRect(x: 40, y: 60, width: 200, height: 120))
+        #expect(legacy.placementZoom(paneZoom: 1.25) == 1.25)
+    }
+
     /// The page's frame moved (a pane resize): the glass follows in the same layout.
     @Test func theGlassFollowsThePageFrame() async throws {
         let file = try #require(AgentPageTestRoot.page)

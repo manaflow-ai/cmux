@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { CheckpointClient, type CheckpointClientOptions, type Request } from "./client";
+import { CheckpointClient, type CheckpointClientOptions, type CheckpointClientState, type Request } from "./client";
 import type { CheckpointTarget } from "./protocol";
 import { CheckpointReview } from "./Review";
 import type { CheckpointStrings } from "./strings";
+
+/** The client state's fields the pane reads (the rest, `target` and `capabilities`, only the client does). */
+const REVIEW_FIELDS = ["supported", "error", "record", "list", "busy", "pending"] as const;
 
 /** One intent path for the palette, pane header and Changes toolbar. No snapshot work runs in the page. */
 export function useCheckpoints({
@@ -29,7 +32,19 @@ export function useCheckpoints({
       }),
   );
   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
-  const read = useCallback(() => client.getSnapshot(), [client]);
+  // The pane draws only what the review reads, so the snapshot holds those fields: a change to the target or the
+  // capability list (every attach's select and capability read) hands back the same object and redraws nothing.
+  const shown = useRef<{ client: CheckpointClient; state: CheckpointClientState } | undefined>(undefined);
+  const read = useCallback(() => {
+    const now = client.getSnapshot();
+    const was = shown.current?.client === client ? shown.current.state : undefined;
+    if (was && REVIEW_FIELDS.every((field) => Object.is(was[field], now[field]))) return was;
+    const kept = { ...now };
+    delete kept.target;
+    delete kept.capabilities;
+    shown.current = { client, state: kept };
+    return kept;
+  }, [client]);
   const state = useSyncExternalStore(subscribe, read);
   const [open, setOpen] = useState(false);
   const [copyError, setCopyError] = useState(false);
