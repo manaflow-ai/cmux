@@ -699,12 +699,20 @@ LAG_MS = 100        # the page reaches the pane's final size at most this long a
 HIT_PX = 1.0        # a click lands within this many points of where it was sent
 
 
+PAGE_EVAL_FAILURES = []  # (script, reply) of page_json reads that gave no JSON: a row's null viewport names its cause
+
+
 def page_json(script, tab):
-    value = page_eval(script, tab).get("value")
+    reply = page_eval(script, tab)
+    value = reply.get("value")
     try:
-        return json.loads(value) if isinstance(value, str) else None
+        if isinstance(value, str):
+            return json.loads(value)
     except ValueError:
-        return None
+        pass
+    PAGE_EVAL_FAILURES.append((script[:60], str(reply)[:300]))
+    del PAGE_EVAL_FAILURES[:-20]
+    return None
 
 
 def main_layers():
@@ -761,7 +769,9 @@ def track(pane, tab, trigger, seconds=6.0, quiet=0.6):
         if frame != final:
             break
         pane_final_ms = ms
+    failed_before = len(PAGE_EVAL_FAILURES)
     vp = page_json(f"window.vpSince({int(t0 * 1000)})", tab) or []
+    vp_reply = PAGE_EVAL_FAILURES[-1][1] if len(PAGE_EVAL_FAILURES) > failed_before else None
     page_final_ms = None
     if final:
         for entry in reversed(vp):
@@ -771,7 +781,7 @@ def track(pane, tab, trigger, seconds=6.0, quiet=0.6):
     lag = None if page_final_ms is None or pane_final_ms is None else round(page_final_ms - pane_final_ms)
     return {"reply": str(reply)[:200], "t0_ms": int(t0 * 1000), "samples": samples, "final": final,
             "pane_final_ms": pane_final_ms, "page_final_ms": None if page_final_ms is None else round(page_final_ms),
-            "lag_ms": lag, "vp": vp}
+            "lag_ms": lag, "vp": vp, "vp_reply": vp_reply}
 
 
 def zoom_glitch(vp):
@@ -964,16 +974,22 @@ def check_fullscreen(tab, pane):
         before = page_view(pane)
         result = track(pane, tab, lambda: action("toggleFullScreen"), 8, quiet=0.8)
         wait(lambda: is_full_screen() == (direction == "enter"), 5)
+        failed_before = len(PAGE_EVAL_FAILURES)
         viewport = page_json("window.viewport()", tab)
+        # The page's own reply when it gave no viewport (a null viewport was the harness or the page; a6372332 could not tell).
+        eval_reply = PAGE_EVAL_FAILURES[-1][1] if len(PAGE_EVAL_FAILURES) > failed_before else None
         glitches, over = zoom_glitch(result["vp"]), overshoot(result["samples"], before, result["final"])
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"fullscreen-{direction}.png")})
-        row(not glitches, f"fullscreen.{direction}.no_zoom", {"bug": 12, "glitch_frames": glitches,
-                                                              "pass_if": "visualViewport.scale 1 and devicePixelRatio unchanged every frame"})
+        # An empty rAF log is no evidence of no zoom (a6372332's enter passed with nothing read): INFO, never PASS.
+        row("INFO" if not result["vp"] else (not glitches), f"fullscreen.{direction}.no_zoom",
+            {"bug": 12, "glitch_frames": glitches, "vp_entries": len(result["vp"]),
+             "pass_if": "visualViewport.scale 1 and devicePixelRatio unchanged every frame (INFO when the page logged no frame)"})
         row(not over, f"fullscreen.{direction}.no_overflow", {"bug": 12, "samples": over, "before": before, "final": result["final"],
                                                               "pass_if": "page view never larger than start and end, never outside the window"})
         row(result["lag_ms"] is not None and result["lag_ms"] <= LAG_MS and fits(viewport, result["final"]),
             f"fullscreen.{direction}.page_follows",
             {"bug": 12, "lag_ms": result["lag_ms"], "pane_final_ms": result["pane_final_ms"], "viewport": viewport,
+             "viewport_eval_reply": eval_reply, "vp_entries": len(result["vp"]), "vp_reply": result.get("vp_reply"),
              "page_view": result["final"], "full_screen": is_full_screen(),
              "pass_if": f"page matches the pane <= {LAG_MS} ms after the pane settles, then within 1 pt"})
     if is_full_screen():
@@ -2169,6 +2185,7 @@ finally:
         app.send_signal(signal.SIGKILL)
     server.shutdown()
 failed = [r for r in ROWS if r["verdict"] == "FAIL"]
+RAW["page_eval_failures"] = PAGE_EVAL_FAILURES
 report = {"in_tree_requested": opts.in_tree, "rows": ROWS, "failed": len(failed), "raw": RAW}
 with open(opts.json or os.path.join(opts.out, "in-tree-live.json"), "w") as f:
     json.dump(report, f, indent=1, default=str)
