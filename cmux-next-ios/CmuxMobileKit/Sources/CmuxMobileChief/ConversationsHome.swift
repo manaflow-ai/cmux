@@ -40,6 +40,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
+    /// When Home started showing kept rows while its list loads (the "Updating" chip's wait).
+    @State private var updatingSince: Date?
     @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
@@ -446,10 +448,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // "a symbol or short thing, not a sentence. stop layout shifting").
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")))
+                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
                     .padding(.bottom, 8)
                     .accessibilityIdentifier("home.note.updating")
             }
+        }
+        .onChange(of: listNote(searching: searching) == .updating, initial: true) { _, updating in
+            updatingSince = ConnectionChip.nextDownSince(updatingSince, down: updating, now: Date())
         }
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
@@ -541,8 +546,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Color.clear
                 .alert("New Chief", isPresented: $namingChief) {
                     TextField("Name", text: $newChiefName)
-                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                        .autocorrectionDisabled()
+                        // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                         .textInputAutocapitalization(.never)
                         .accessibilityIdentifier("home.chief.newName")
                     Button("Cancel", role: .cancel) {}

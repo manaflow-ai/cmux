@@ -996,6 +996,11 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
+    public final Object processCensus() throws CmuxException {
+        Object result = execute(Commands.PROCESS_CENSUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);
@@ -1416,6 +1421,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final Object terminalFind(TerminalFindRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_FIND, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
