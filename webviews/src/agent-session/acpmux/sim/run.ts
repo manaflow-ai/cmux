@@ -13,7 +13,10 @@ import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
-import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
+import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, MARK_STEP, transcriptGap } from "../transcriptGrid";
+import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
+import { SUBAGENT_STARTED } from "../subagents/subagentRows";
+import { subagentNamed } from "../subagents/subsessions";
 import type { SimScenario, SimStep } from "./script";
 
 /** One drawn row as a probe sees it. */
@@ -72,7 +75,18 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
+  rule:
+    | "a-turn-gap"
+    | "a-head-gap"
+    | "b-mid-turn-fold"
+    | "b-mid-turn-shrink"
+    | "c-rerender"
+    | "d-blank"
+    | "d-shift"
+    | "d-started-pill"
+    | "d-started-lines"
+    | "d-action-only"
+    | "d-steer-order";
   step: number;
   at: number;
   label: string;
@@ -193,6 +207,12 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
   const cache = new Map();
+  // The subagent lines the running tray puts in the transcript (App.tsx `withSubagentLines`, on by
+  // default): each turn's "started working" line and each subagent's end line.
+  const subagentLines: DoneLineCache = new Map();
+  // (d) each drawn row's top at the step before, and whether the chat drew any row yet.
+  const tops = new Map<string, number>();
+  let drewRows = false;
   // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
   const drawnHeights = new Map<string, number>();
   // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
@@ -231,7 +251,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       return undefined;
     }
     const view = turnViewFrom(
-      snap.rows,
+      withSubagentLines(snap.rows, subagentLines) as AcpmuxRow[],
       folds,
       {
         now: step.at,
@@ -445,6 +465,62 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn_result`,
         );
       }
+    }
+
+    // (d) what Leo saw from 22:05 to 22:11Z on 2026-11-22 (test/fixtures/chat-sim/leo-2205-subagent-burst.ndjson):
+    // "ENTIRE THING FUCKING BLANKED AND FUCKING SHIFTED AND PLAYED SOME BULLSHIT ANIMATIONS WHEN YOU
+    // STARTED A SUBAGENT"; "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT THEN
+    // MY STEER WENT UNDER IT".
+    if (rows.length > 0) drewRows = true;
+    else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
+    const lines = new Map<string, string>();
+    for (let at = 0; at < rows.length; at += 1) {
+      const row = rows[at]!;
+      const live = isLive(row) || LIVE_KINDS.has(row.kind);
+      // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
+      const top = layout.tops[at]!;
+      const was = tops.get(row.id);
+      if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
+        flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);
+      if (row.kind !== SUBAGENT_STARTED) continue;
+      // A start line names at most STARTED_LINE_NAMES subagents, each named, each one this pane saw start.
+      const agents = row.subagents ?? [];
+      const named = agents.slice(0, row.startedNamed ?? agents.length);
+      if (named.length > STARTED_LINE_NAMES)
+        flag("d-started-pill", row.id, `names ${named.length} subagents (want <= ${STARTED_LINE_NAMES})`);
+      for (const agent of agents)
+        if (!subagentNamed(agent) || agent.startUnseen)
+          flag(
+            "d-started-pill",
+            row.id,
+            `${agent.startUnseen ? "a subagent whose start it never read" : "an unnamed subagent"}`,
+          );
+      // One start line a turn.
+      const key = `${ownTurn(row)}\u0000${row.inBackground ?? ""}`;
+      const other = lines.get(key);
+      if (other !== undefined)
+        flag("d-started-lines", row.id, `a second start line in turn ${ownTurn(row)} (first ${other})`);
+      else lines.set(key, row.id);
+    }
+    tops.clear();
+    for (let at = 0; at < rows.length; at += 1) tops.set(rows[at]!.id, layout.tops[at]!);
+    // A steer stands where it was sent: no row of its turn that came after it is drawn over it.
+    for (let at = 0; at < rows.length; at += 1) {
+      const steer = rows[at]!;
+      if (steer.kind !== "user" || steer.steer === undefined) continue;
+      for (let above = 0; above < at; above += 1) {
+        const row = rows[above]!;
+        if (isLive(row) || LIVE_KINDS.has(row.kind) || ownTurn(row) !== ownTurn(steer)) continue;
+        if (row.at > steer.at + 1)
+          flag("d-steer-order", steer.id, `${row.kind} ${row.id} (+${row.at - steer.at} ms after it) drawn over it`);
+      }
+    }
+    // A turn that ended draws more than its prompt and its action row.
+    if (step.type === "event" && bySeq.get(step.seq)?.kind === "turn_result") {
+      const own = rows.filter((row) => ownTurn(row) === turn);
+      if (own.length > 0 && own.every((row) => row.kind === "user" || row.kind === "turnSummary"))
+        flag("d-action-only", own.at(-1)!.id, `turn ${turn} ended with only its prompt and action row`);
     }
 
     // (c) rows above the newest change rebuilt with nothing of their own changed (same id, version and fold).
