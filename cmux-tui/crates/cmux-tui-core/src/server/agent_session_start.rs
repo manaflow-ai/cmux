@@ -684,7 +684,8 @@ fn run(
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
+        .map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|StartRefused(refusal, data)| (refusal, data))
@@ -704,10 +705,18 @@ fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
+    harness: Option<&str>,
     until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    // `harness`: acpmux rediscovers it before answering when its catalog lacks it (a Cloud
+    // machine whose acpmux loaded before Claude was on its login PATH), so `start_family` never
+    // refuses `harness_missing` from a list `session/new` would have refreshed.
+    let mut ask_params = json!({"cwd": cwd});
+    if let Some(harness) = harness {
+        ask_params["harness"] = json!(harness);
+    }
     loop {
-        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+        match ask(&link, until, "_acpmux/harnesses", ask_params.clone()) {
             Ok(catalog) => return Ok((link, catalog)),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {

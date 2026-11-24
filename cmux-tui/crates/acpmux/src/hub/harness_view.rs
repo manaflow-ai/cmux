@@ -82,7 +82,8 @@ impl Hub {
 }
 
 impl Hub {
-    /// `_acpmux/harnesses {cwd?}`: the catalog (`harnesses_view`) and, with an
+    /// `_acpmux/harnesses {cwd?, harness?}`: the catalog (`harnesses_view`), after
+    /// rediscovering `harness` when the catalog lacks it (`rediscover_head`), and, with an
     /// absolute `cwd`, `folderProfiles`: the folder profiles a chat there
     /// sees, with their state (`folder_profile_row`). A Web or peer
     /// connection (`remote`) never gets them: a folder file is not catalog
@@ -99,6 +100,14 @@ impl Hub {
         // the catalog lacks every harness installed under the person's home. Not
         // the rest of startup: launcher checks can take seconds each.
         let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
+        // A start about to run `harness` (cmux-tui-core's `agent-session-start` reads this
+        // catalog first and refuses a harness it lacks) gets the same rediscovery `session/new`
+        // would: a CLI installed or put on the login PATH after the catalog loaded is found here,
+        // not refused from the stale list before `session/new` could look (hq#12175's class).
+        let harness = params.get("harness").and_then(Value::as_str).filter(|h| !h.is_empty());
+        if harness.is_some() {
+            self.rediscover_head(harness, None).await;
+        }
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();

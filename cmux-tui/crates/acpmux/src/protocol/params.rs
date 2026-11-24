@@ -238,7 +238,7 @@ keyed! {
     /// `_acpmux/harness/health`.
     HarnessHealthParams: ["refresh", "rescan", "checkLatest", "autoUpdate", "view"];
     /// `_acpmux/harnesses`.
-    HarnessesParams: ["cwd"];
+    HarnessesParams: ["cwd", "harness"];
     /// `_acpmux/inbox_thread`.
     InboxThreadParams: ["sessionId", "threadId", "markRead"];
     /// `initialize`.

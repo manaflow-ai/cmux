@@ -4246,7 +4246,8 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
-        "cwd": true
+        "cwd": true,
+        "harness": true
       },
       "type": "object"
     },
