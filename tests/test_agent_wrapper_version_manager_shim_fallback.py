@@ -88,8 +88,8 @@ AGENTS_BY_COMMAND = {agent.command: agent for agent in AGENTS}
 VERSION_MANAGER = f"""#!/bin/bash
 # Stand-in for mise, started through one of its shims. With a version selected
 # it puts that install ahead of its shim directory on PATH and runs the tool
-# from it. With none it leaves PATH alone and runs the next same-named
-# executable outside the shim's directory.
+# from it. With none it runs the next same-named executable outside the shim's
+# directory, and like mise it hands PATH on with duplicate entries dropped.
 name="${{0##*/}}"
 self_dir="$(cd "$(dirname "$0")" && pwd)"
 printf '%s\\n' "$$" >> "$VERSION_MANAGER_SHIM_LOG"
@@ -107,6 +107,14 @@ if [[ -n "${{VERSION_MANAGER_SELECTED_DIR:-}}" ]]; then
     exec "$VERSION_MANAGER_SELECTED_DIR/$name" "$@"
 fi
 IFS=:
+deduplicated=""
+for directory in $PATH; do
+    case ":$deduplicated:" in
+        *":$directory:"*) continue ;;
+    esac
+    deduplicated="${{deduplicated:+$deduplicated:}}$directory"
+done
+export PATH="$deduplicated"
 for directory in $PATH; do
     [[ "$directory" == "$self_dir" ]] && continue
     if [[ -x "$directory/$name" ]]; then
@@ -237,7 +245,9 @@ class Fixture:
         return {
             "HOME": str(self.root / "home"),
             "TMPDIR": str(self.root / "tmp"),
-            "PATH": f"{self.shim_root}:{self.version_manager_dir}:{self.installed_dir}:/usr/bin:/bin",
+            # The repeated entry is what a real PATH often has, and what the
+            # version manager drops when it hands a launch on.
+            "PATH": f"{self.shim_root}:{self.version_manager_dir}:{self.installed_dir}:/usr/bin:/bin:/usr/bin",
             "VERSION_MANAGER_SHIM_LOG": str(self.version_manager_log),
             "AGENT_RUN_LOG": str(self.agent_log),
             "FAKE_CMUX_CALL_LOG": str(self.cmux_log),
@@ -285,7 +295,7 @@ class Fixture:
         return [run[1:] for run in self.runs() if run[0] == str(self.installed_agent)]
 
     def path_without_version_manager(self) -> str:
-        return f"{self.shim_root}:{self.installed_dir}:{self.tools_dir}:/usr/bin:/bin"
+        return f"{self.shim_root}:{self.installed_dir}:{self.tools_dir}:/usr/bin:/bin:/usr/bin"
 
     def launch(self, *, child: bool = False, **overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         """Start the agent the way that can come back to its wrapper, and return the arguments used."""
