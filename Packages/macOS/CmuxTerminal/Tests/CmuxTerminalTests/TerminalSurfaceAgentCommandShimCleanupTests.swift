@@ -28,6 +28,32 @@ private final class InstallDuringSweepFileManager: FileManager {
     }
 }
 
+/// Publishes a directory under the name an install is about to move its own
+/// to, the way another cmux restoring the same surface can between the
+/// install's look and its move when the install could not get the lock.
+private final class PublishRaceFileManager: FileManager {
+    private let racedDirectoryPath: String
+    private let raced = OSAllocatedUnfairLock(initialState: false)
+
+    init(racedDirectoryURL: URL) {
+        self.racedDirectoryPath = racedDirectoryURL.path
+        super.init()
+    }
+
+    override func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        let isFirstPublish = raced.withLock { alreadyRaced in
+            defer { alreadyRaced = true }
+            return !alreadyRaced
+        }
+        if destinationURL.path == racedDirectoryPath, isFirstPublish {
+            try createDirectory(at: destinationURL, withIntermediateDirectories: false)
+            try Data("another cmux's shim\n".utf8)
+                .write(to: destinationURL.appendingPathComponent("codex"))
+        }
+        try super.moveItem(at: sourceURL, to: destinationURL)
+    }
+}
+
 /// Records, at every move, whether the shim directory lock is free. Installing
 /// and sweeping both publish with a move, so this samples the moment they
 /// could collide.
@@ -328,6 +354,98 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         )
         #expect(removedAfterReuse == [reusedDirectory.lastPathComponent])
         #expect(exists(installed.appendingPathComponent("codex")))
+    }
+
+    /// A bundle directory holding one wrapper the installer will shim.
+    private func makeWrapperDirectory() throws -> URL {
+        let wrapperDirectory = root.appendingPathComponent("bundle-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDirectory, withIntermediateDirectories: false)
+        let wrapper = wrapperDirectory.appendingPathComponent("cmux-codex-wrapper", isDirectory: false)
+        try Data("#!/bin/bash\n".utf8).write(to: wrapper)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        return wrapperDirectory
+    }
+
+    @Test("A directory taken over from a cmux that kept no record is left for the sweep")
+    func installOverAnUnrecordedDirectoryKeepsItForItsOtherUser() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapperDirectory = try makeWrapperDirectory()
+        // A cmux built before owner records has this pane open, and a session
+        // restored from its channel gave this cmux the same surface.
+        let shared = UUID()
+        let directory = try makeShimDirectory(shared.uuidString, writtenAt: now)
+        _ = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: shared,
+                rootDirectory: root
+            )
+        )
+        let thisProcess = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        #expect(owners(of: directory) == [thisProcess])
+
+        // Closing the pane here must not take the directory from the other cmux.
+        let removedByClose = TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root)
+            .removeShimDirectory(surfaceId: shared)
+
+        #expect(!removedByClose)
+        #expect(exists(directory.appendingPathComponent("codex")))
+
+        // Nor may a sweep, days after this cmux has gone, while another runs.
+        try setLastWrite(stale, of: directory)
+        let whileAnotherCmuxRuns = sweep(removesDirectoriesWithoutOwnerRecord: false)
+
+        #expect(whileAnotherCmuxRuns.isEmpty)
+        #expect(exists(directory.appendingPathComponent("codex")))
+
+        let alone = sweep(removesDirectoriesWithoutOwnerRecord: true)
+
+        #expect(alone == [shared.uuidString])
+        #expect(!exists(directory))
+    }
+
+    @Test("Reinstalling keeps the claim of a cmux that kept no record")
+    func reinstallKeepsTheUnrecordedClaim() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapperDirectory = try makeWrapperDirectory()
+        let shared = UUID()
+        let directory = try makeShimDirectory(shared.uuidString, writtenAt: now)
+        for _ in 0..<2 {
+            _ = try #require(
+                TerminalSurface.installAgentCommandShimsIfPossible(
+                    wrapperDirectoryURL: wrapperDirectory,
+                    surfaceId: shared,
+                    rootDirectory: root
+                )
+            )
+        }
+
+        let removedByClose = TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root)
+            .removeShimDirectory(surfaceId: shared)
+
+        #expect(!removedByClose)
+        #expect(exists(directory.appendingPathComponent("codex")))
+    }
+
+    @Test("An install that loses the race for its directory's name still publishes its shims")
+    func installPublishesAgainAfterLosingTheRaceForItsDirectory() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wrapperDirectory = try makeWrapperDirectory()
+        let restored = UUID()
+        let directory = shimParent.appendingPathComponent(restored.uuidString, isDirectory: true)
+
+        let shims = TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: restored,
+            rootDirectory: root,
+            fileManager: PublishRaceFileManager(racedDirectoryURL: directory)
+        )
+
+        #expect(shims?.directoryPath == directory.path)
+        // This install's shim, not the directory that got there first.
+        #expect(FileManager.default.isExecutableFile(atPath: directory.appendingPathComponent("codex").path))
+        let thisProcess = try #require(AgentPIDProcessIdentity(pid: getpid()))
+        #expect(owners(of: directory).contains(thisProcess))
     }
 
     @Test("Installing and sweeping take the same lock, so neither sees the other halfway")
