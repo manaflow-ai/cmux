@@ -72,8 +72,12 @@ async fn select_stalled_then_unix(
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let mut attempt = PerRouteBudgetAttempt {
         attempts: vec![
-            RuntimeInitialRouteAttempt { options: &stalled, shutdown: shutdown_rx.clone() },
-            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx },
+            RuntimeInitialRouteAttempt {
+                options: &stalled,
+                shutdown: shutdown_rx.clone(),
+                last_good: None,
+            },
+            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx, last_good: None },
         ],
         failures: Vec::new(),
     };
@@ -95,8 +99,10 @@ async fn select_stalled_then_unix(
     // other fixed deadline below the Unix route's hang guard.
     let (index, error) = attempt.failures.first().expect("the stalled route did not fail");
     assert_eq!(*index, 0, "the first failure is not the stalled route's: {:?}", attempt.failures);
+    // #40976 gave the lane open its own bound inside the attempt timer: "opening lane … did not
+    // finish within 20 ms" is the same 20 ms timer, worded where the open stalled.
     assert!(
-        error.contains("timed out after 20ms"),
+        error.contains("did not finish within 20 ms") || error.contains("timed out after 20ms"),
         "the stalled route did not fail on its 20 ms attempt timer: {error}"
     );
     assert!(

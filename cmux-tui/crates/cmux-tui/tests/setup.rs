@@ -866,6 +866,13 @@ fn cmux_setup_machine_an_agent_adds_a_peer_reruns_it_and_undoes_it() {
     assert_eq!(world.take_ssh_calls(), [probe_call("box.example")], "a dry run only probes");
     assert!(daemon.peers().is_empty(), "a dry run registered a peer");
     assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"));
+    // A host given by its address is named by the whole address, not its first number
+    // ("10" for every host on a 10.x network; remote e2e walk, 2026-11-10).
+    for (target, name) in [("dev@10.138.15.214", "10.138.15.214"), ("10.0.0.5", "10.0.0.5")] {
+        let planned = world.json(&["setup", "machine", target, "--dry-run"]);
+        assert_eq!(planned["name"], name, "{planned}");
+        world.take_ssh_calls();
+    }
 
     // The change: acpmux installs and registers the machine.
     let changed = world.json(&["setup", "machine", "box.example"]);
@@ -1215,8 +1222,8 @@ env_key = "CXS_UNSET_ROUTER_KEY"
     assert_eq!(World::harness_log(&codex), "", "the harness was asked");
 }
 
-/// cmux never writes an agent's own config: `cmux setup mcp` (what the onboarding step and
-/// Settings run) reports which agents get cmux's server when cmux starts them, from a shipped
+/// cmux never writes an agent's own config: `cmux setup mcp` (what Settings
+/// runs) reports which agents get cmux's server when cmux starts them, from a shipped
 /// build and a DEV build alike, whatever the answer, and names the lines a person runs themselves
 /// to use cmux's tools elsewhere. No option writes or removes a global entry.
 #[test]
@@ -1234,7 +1241,7 @@ fn cmux_setup_mcp_never_writes_an_agents_own_config() {
         }
         let cli = world.cli();
         for (answer, state, clients) in
-            [("on", "ok", "terminals"), ("off", "ok", "planned"), ("ask", "needs_user", "planned")]
+            [("on", "ok", "terminals"), ("off", "ok", "planned"), ("ask", "ok", "terminals")]
         {
             world.settings(&json!({"agents": {"cmuxMcp": answer}}));
             let report = world.json(&["setup", "mcp"]);
@@ -1615,7 +1622,8 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
     assert_eq!(check["fix"], Value::Null, "{check}");
     let result = world.json(&["setup", "mcp"]);
     assert_eq!(result["state"], "ok", "{result}");
-    assert_eq!(result["enabled"], false, "{result}");
+    // No settings file: agents.cmuxMcp is on by default, so the server is on.
+    assert_eq!(result["enabled"], true, "{result}");
     assert_eq!(result["user_action"], Value::Null, "{result}");
     let clients = result["clients"].as_array().unwrap();
     assert!(clients.iter().all(|c| c["state"] == "not_applicable"), "{result}");
@@ -1887,13 +1895,11 @@ fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
     assert_eq!(world.record(), Some(json!({})));
 }
 
-/// While the person has not answered the cmux Tools question (`agents.cmuxMcp`
-/// unset or `ask`), `cmux setup mcp` writes nothing into their agents, even
-/// with `"mcp": {"enabled": true}` (which is no answer: it is not a user-only
-/// key, so an agent can write it): it plans, names the question, and runs no
-/// CLI; `setup status` reports it as waiting on the person.
+/// With `agents.cmuxMcp` unset or `ask` (on by default), agents started in cmux get cmux's
+/// tools through their launch, and `cmux setup mcp` still writes nothing into their own
+/// configs: it reports `terminals`, asks nothing, and runs no CLI.
 #[test]
-fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
+fn cmux_setup_mcp_is_on_by_default_and_writes_nothing() {
     let world = World::new("mcp-ask").with_fake_mcp_clients().with_shipped_cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
@@ -1905,22 +1911,17 @@ fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
         let run = world.json(&["setup", "mcp"]);
         let states =
             run["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
-        assert_eq!(states, [&json!("planned"), &json!("planned")], "{run}");
-        assert_eq!(run["state"], "needs_user", "{run}");
-        let text = run["user_action"]["text"].as_str().unwrap();
-        assert!(text.contains("agents.cmuxMcp"), "{text}");
-        assert!(!text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
-        assert!(
-            world.take_mcp_calls().is_empty(),
-            "setup wrote before the person answered: {settings}"
-        );
+        assert_eq!(states, [&json!("terminals"), &json!("terminals")], "{run}");
+        assert_eq!(run["state"], "ok", "{run}");
+        assert_eq!(run["user_action"], Value::Null, "{run}");
+        assert!(world.take_mcp_calls().is_empty(), "setup ran an agent's CLI: {settings}");
         assert!(!claude_json.exists() && !codex_toml.exists());
         let status = world.json(&["setup", "status"]);
         let check =
             status["checks"].as_array().unwrap().iter().find(|c| c["task"] == "mcp").unwrap();
-        assert_eq!(check["state"], "needs_user", "{check}");
+        assert_eq!(check["state"], "ok", "{check}");
         assert!(
-            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "planned"),
+            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "terminals"),
             "{check}"
         );
     }

@@ -10,14 +10,17 @@ public import CmuxNextDesignTokens
 /// as a macOS overlay scroller (Lawrence 2026-10-23, msg 11494: "auto-fades away, and grows bigger
 /// on near-hover so it's easier to grab"):
 ///
-/// - It shows while the user scrolls the view and fades out ``restDelay`` after the last step.
+/// - It shows while the user scrolls the view and fades out ``restDelay`` after the last step. The
+///   pointer alone never shows it (Leo 2026-11-22: "hovering only doesnt show"); it only holds and
+///   widens a knob a scroll showed.
 /// - Its grab zone (``grabZone``: the scroller's own strip, ``width`` wide at the trailing edge, a
 ///   sideways scroller's at the bottom edge) is one rect for the pointer and for a press: the
-///   pointer over it shows the knob and widens it from ``knobThickness`` to
+///   pointer over it widens a shown knob from ``knobThickness`` to
 ///   ``expandedKnobThickness``, and a press there grabs the knob or pages the track, pixel for
 ///   pixel the same columns (Lawrence 2026-11-20, msg 42498: "it is possible for me to hover close,
 ///   and for the width to change, but after i mousedown and drag, it fails to scroll"). Anywhere
-///   else, and while the knob would not widen, a press is the content's.
+///   else, and while the knob would not widen, a press is the content's. A resize handle's band
+///   (``ResizeBands``) has priority over the zone: a press in it resizes, never grabs the knob.
 /// - A grabbed knob follows the pointer 1:1 until the release, also once the pointer leaves the
 ///   bar; it stays wide while it is dragged.
 /// - Fades and the grow go through the ``MotionCategory/feedback`` gate: Reduce Motion, calm mode
@@ -51,13 +54,6 @@ public final class ThinScroller: NSScroller {
     public var autoHides: Bool {
         get { presence.autoHides }
         set { update { $0.autoHides = newValue } }
-    }
-
-    /// True (the default, the terminal's too): the pointer near the edge reveals a hidden knob.
-    /// False: the pointer only holds and widens a knob already shown.
-    public var revealsNearPointerAtRest: Bool {
-        get { presence.revealsNearPointerAtRest }
-        set { update { $0.revealsNearPointerAtRest = newValue } }
     }
 
     /// True shows the knob while the user scrolls the scroll view (AppKit's live scroll: wheel,
@@ -185,8 +181,17 @@ public final class ThinScroller: NSScroller {
     /// column is in it or not, for both.
     public var grabZone: CGRect { frame }
 
+    /// `point` (the scroll view's coordinates) is in ``grabZone`` and not inside a resize handle's
+    /// band (``ResizeBands``): the handle has priority over this scroller, so a press in its band
+    /// resizes, and the pointer there does not widen the knob.
+    func inGrabZone(_ point: CGPoint) -> Bool {
+        guard grabZone.contains(point) else { return false }
+        guard let superview, let window else { return true }
+        return !ResizeBands.claims(superview.convert(point, to: nil), in: window)
+    }
+
     /// The knob is wide with the pointer in ``grabZone``: the content overflows and the pointer there
-    /// would show it (``revealsNearPointerAtRest``, or the knob already shown).
+    /// would hold it: the knob is already shown by a scroll (the pointer never reveals a hidden one).
     var widensUnderPointer: Bool {
         var near = presence
         near.pointer(near: true)
@@ -200,7 +205,7 @@ public final class ThinScroller: NSScroller {
     ///   The scroller's own tracking area calls it; a host that builds the scroller under the
     ///   pointer calls it once so the knob shows before the next move.
     public func pointerMoved(to point: CGPoint?) {
-        let near = point.map { grabZone.contains($0) } ?? false
+        let near = point.map { inGrabZone($0) } ?? false
         guard near != presence.pointerNear else { return }
         update { $0.pointer(near: near) }
     }
@@ -209,7 +214,7 @@ public final class ThinScroller: NSScroller {
     /// ``pointerMoved(to:)``'s: everywhere else, and at rest where the pointer does not reveal the
     /// knob, it is the content's.
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        !isHidden && grabZone.contains(point) && widensUnderPointer ? self : nil
+        !isHidden && inGrabZone(point) && widensUnderPointer ? self : nil
     }
 
     override public func mouseDown(with event: NSEvent) {
