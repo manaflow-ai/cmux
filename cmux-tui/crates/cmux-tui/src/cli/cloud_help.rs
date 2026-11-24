@@ -865,9 +865,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nチェック\n  preflight [--agent claude|codex] [--json]  Cloud チャットを今開始できるか、できない理由\n\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCHECKS\n  preflight [--agent claude|codex] [--json]  Would a Cloud chat start now, and if not, why\n\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -959,6 +959,9 @@ fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
     let short = short_usage(name, verb);
     let long = usage_line(verb);
     let shutdown = name == "shutdown";
+    // Only these fall back to the VM API without the app (vm_short.rs API_VERBS); `status`,
+    // `resize`, `rename`, `ssh` and `move` do not, so their help must not say they do.
+    let api = super::vm_short::API_VERBS.contains(&name);
     if japanese {
         let note = if shutdown {
             "`shutdown` は `pause` と同じです（削除は `rm`）。\n"
@@ -966,14 +969,24 @@ fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
             ""
         };
         format!(
-            "使い方: {short}\n\n{}。VM は名前か ID で指定し、1 台なら省略できます。\n{note}\n同じ動作: {long}\nアプリがなければ cmux VM API の同名の動詞として動きます（`cmux vm --help`）。\n",
-            verb.ja
+            "使い方: {short}\n\n{}。VM は名前か ID で指定し、1 台なら省略できます。\n{note}\n同じ動作: {long}\n{}\n",
+            verb.ja,
+            if api {
+                "アプリがなければ cmux VM API の同名の動詞として動きます（`cmux vm --help`）。"
+            } else {
+                "この動詞には cmux アプリが必要です。アプリなしで使える VM API の動詞は `cmux vm --help` にあります。"
+            }
         )
     } else {
         let note = if shutdown { "`shutdown` is `pause` (`rm` deletes the VM).\n" } else { "" };
         format!(
-            "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\nWithout the cmux app this is the cmux VM API's verb of the same name (`cmux vm --help`).\n",
-            verb.en
+            "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\n{}\n",
+            verb.en,
+            if api {
+                "Without the cmux app this is the cmux VM API's verb of the same name (`cmux vm --help`)."
+            } else {
+                "This verb needs the cmux app; the VM API verbs that work without it are in `cmux vm --help`."
+            }
         )
     }
 }

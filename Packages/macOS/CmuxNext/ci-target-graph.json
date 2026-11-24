@@ -583,6 +583,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApps",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextBrowserCore",
         "CmuxNextCompat",
@@ -591,6 +592,7 @@
         "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -610,6 +612,7 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
+        "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -2174,7 +2177,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
-        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",

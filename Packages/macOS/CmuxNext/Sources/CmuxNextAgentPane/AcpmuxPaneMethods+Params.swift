@@ -193,6 +193,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
+        "_acpmux/agent_home": (["sessionId"], []),
+        // `accept` and `drop`: proposal ids from `_acpmux/agent_home`.
+        "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
