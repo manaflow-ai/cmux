@@ -585,7 +585,7 @@ where
     let Some(who) = attested.lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
-    let (mut sink, mut source) = ws.split();
+    let (mut sink, source) = ws.split();
     let (in_tx, in_rx) = tokio::sync::mpsc::channel::<String>(256);
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<String>(4096);
     // The owner's link may carry the v2 list stream: its frames wait here, never in `out_tx`.
@@ -595,10 +595,15 @@ where
     let reader = tokio::spawn(async move {
         let _reader_end = reader_end;
         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-        super::ws_read_ahead::read_ahead(source, async |frame| match frame {
-            Frame::Text(t) => in_tx.send(t.to_string()).await.is_ok(),
-            Frame::Close(_) => false,
-            _ => true,
+        super::ws_read_ahead::read_ahead(source, |frame| {
+            let in_tx = in_tx.clone();
+            async move {
+                match frame {
+                    Frame::Text(t) => in_tx.send(t.to_string()).await.is_ok(),
+                    Frame::Close(_) => false,
+                    _ => true,
+                }
+            }
         })
         .await;
     });

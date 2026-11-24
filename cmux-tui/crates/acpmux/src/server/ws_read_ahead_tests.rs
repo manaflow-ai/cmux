@@ -26,13 +26,15 @@ async fn a_ping_behind_queued_bulk_frames_is_answered_while_they_wait() {
     let (open_tx, open_rx) = tokio::sync::watch::channel(false);
     let (got_tx, mut got_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = tokio::spawn(async move {
-        read_ahead(source, async |frame| {
-            let mut open = open_rx.clone();
-            let _ = open.wait_for(|open| *open).await;
-            if let Frame::Text(t) = frame {
-                let _ = got_tx.send(t.to_string());
+        read_ahead(source, |frame| {
+            let (mut open, got_tx) = (open_rx.clone(), got_tx.clone());
+            async move {
+                let _ = open.wait_for(|open| *open).await;
+                if let Frame::Text(t) = frame {
+                    let _ = got_tx.send(t.to_string());
+                }
+                true
             }
-            true
         })
         .await
     });
@@ -55,8 +57,10 @@ async fn a_ping_behind_queued_bulk_frames_is_answered_while_they_wait() {
             tokio::time::timeout(Duration::from_secs(5), got_rx.recv()).await.unwrap().unwrap();
         assert_eq!(line, format!("{n}:{bulk}"), "in order, whole");
     }
+    // A dialer gone without a close ends the read with its error.
     drop(client);
-    assert!(tokio::time::timeout(Duration::from_secs(5), reader).await.unwrap().unwrap().is_none());
+    let ended = tokio::time::timeout(Duration::from_secs(5), reader).await.unwrap().unwrap();
+    assert!(ended.is_some(), "a reset is an error the caller logs");
 }
 
 /// Past its bound the reader stops, so a connection that takes nothing holds a bounded backlog
@@ -69,7 +73,7 @@ async fn the_read_ahead_stops_at_its_bound() {
     let counted = source.inspect(move |_| {
         let _ = read_tx.send(());
     });
-    tokio::spawn(read_ahead(counted, async |_| std::future::pending::<bool>().await));
+    tokio::spawn(read_ahead(counted, |_| std::future::pending::<bool>()));
     for n in 0..READ_AHEAD_FRAMES + 50 {
         client.send(Frame::Text(n.to_string().into())).await.unwrap();
     }
@@ -88,8 +92,9 @@ async fn a_refused_frame_ends_the_read() {
     let (mut client, server) = pair().await;
     let (_sink, source) = server.split();
     client.send(Frame::Text("first".into())).await.unwrap();
-    let ended = tokio::time::timeout(Duration::from_secs(5), read_ahead(source, async |_| false))
-        .await
-        .expect("the read did not end when the connection refused a frame");
+    let ended =
+        tokio::time::timeout(Duration::from_secs(5), read_ahead(source, |_| async { false }))
+            .await
+            .expect("the read did not end when the connection refused a frame");
     assert!(ended.is_none());
 }
