@@ -154,9 +154,9 @@ bench() {
   [[ "$mode" == links && "$surface" == terminal ]] && filter=(--exact terminal_attach_under_link_profiles)
   # The send phase has its own tests; the other modes skip them (the chat bench ran every ignored
   # test before the send phase existed, and keeps doing so).
-  [[ "$mode" != send && "$surface" == chat ]] && filter=(--skip chat_send_under_link_conditions)
+  [[ "$mode" != send && "$surface" == chat ]] && filter=(--skip chat_send_under_link_conditions --skip chat_attach_under_link_conditions)
   [[ "$mode" == send && "$surface" == terminal ]] && filter=(--exact terminal_send_under_link_conditions)
-  [[ "$mode" == send && "$surface" == chat ]] && filter=(--exact chat_send_under_link_conditions)
+  [[ "$mode" == send && "$surface" == chat ]] && filter=(--exact chat_send_under_link_conditions chat_attach_under_link_conditions)
   # One target directory for every leg: the dependencies build once.
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \

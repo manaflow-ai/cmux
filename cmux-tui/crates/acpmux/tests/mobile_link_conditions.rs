@@ -1346,12 +1346,28 @@ async fn chat_send_once(
     last: &mut u64,
     tap: Instant,
 ) -> (Option<f64>, u64) {
+    let build = |resend: bool| prompt_params(session, "ping", prompt_id, resend);
+    chat_send_with(link, addr, token, session, prompt_id, last, tap, &build, &mut None).await
+}
+
+/// `chat_send_once` with the prompt built by `build(resend)`; `written` gets the ms from the tap
+/// to the first write of it returning (the socket took every byte).
+#[allow(clippy::too_many_arguments)]
+async fn chat_send_with(
+    link: &mut Link,
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    prompt_id: &str,
+    last: &mut u64,
+    tap: Instant,
+    build: &dyn Fn(bool) -> Value,
+    written: &mut Option<f64>,
+) -> (Option<f64>, u64) {
     let deadline = tap + send_bound();
     let mut retries = 0;
-    let mut request = link
-        .post(method::SESSION_PROMPT, prompt_params(session, "ping", prompt_id, false))
-        .await
-        .ok();
+    let mut request = link.post(method::SESSION_PROMPT, build(false)).await.ok();
+    *written = Some(ms(Instant::now() - tap));
     let mut last_ping = Instant::now();
     loop {
         if request.is_some() {
@@ -1414,10 +1430,7 @@ async fn chat_send_once(
         let Some(fresh) = redialed else { return (None, retries) };
         *link = fresh;
         retries += 1;
-        request = link
-            .post(method::SESSION_PROMPT, prompt_params(session, "ping", prompt_id, true))
-            .await
-            .ok();
+        request = link.post(method::SESSION_PROMPT, build(true)).await.ok();
         last_ping = Instant::now();
     }
 }
@@ -1592,5 +1605,112 @@ async fn chat_send_under_link_conditions() {
             None => emit_error(&k, "double_sends", "the host's log could not be read"),
         }
         drop(link);
+    }
+}
+
+/// A ~5 MB image-sized blob as the phone sends an image: one base64 `image` block in the prompt.
+fn image_prompt(session: &str, text: &str, prompt_id: &str, resend: bool, bytes: usize) -> Value {
+    use base64::Engine as _;
+    let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let data = base64::engine::general_purpose::STANDARD.encode(blob);
+    json!({"sessionId": session,
+           "prompt": [{"type": "text", "text": text},
+                      {"type": "image", "mimeType": "image/png", "data": data}],
+           "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": resend}}})
+}
+
+/// The attachment row: an image send, then a text send tapped at the same instant that the phone
+/// holds behind it (its prompt chain writes in order). Phase "attach", scale = the row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+async fn chat_attach_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-attach");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_ATTACH_SENDS", 20);
+    let bytes = env_u64("NETCOND_ATTACH_BYTES", 5 << 20) as usize;
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let rows_wanted = env_list("NETCOND_ATTACH_ROWS", &["idle", "lte"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let profile = match row.as_str() {
+            "idle" => None,
+            other => file.get(other).cloned(),
+        };
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("attach-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        control.seed(&session, 0, BASE_TURNS).await;
+        let shaper = match &profile {
+            Some(p) => Shaper::start(upstream, p.clone(), seed_base, &trace).await.ok(),
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else { continue };
+        let mut last = 0;
+        if let Ok((_, reply)) = link.attach(&session, None, opened).await {
+            for seq in rows(&reply) {
+                last = last.max(seq);
+            }
+        }
+        let tag = std::process::id();
+        for i in 0..sends {
+            let k =
+                Key { profile: &label, phase: "attach", scale: row, run: i, seed: seed_base + i };
+            let image_id = format!("img-{row}-{tag}-{i}");
+            let text_id = format!("txt-{row}-{tag}-{i}");
+            let tap = Instant::now();
+            let build = |resend: bool| image_prompt(&session, "photo", &image_id, resend, bytes);
+            let mut written = None;
+            let (visible, _) = chat_send_with(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &image_id,
+                &mut last,
+                tap,
+                &build,
+                &mut written,
+            )
+            .await;
+            emit(&k, "attach_written_ms", written);
+            emit(&k, "attach_visible_ms", visible);
+            if visible.is_none() {
+                emit_error(&k, "attach_visible_ms", "the image prompt's user_message did not show");
+            }
+            // The text, tapped at the same instant, goes once the image has been written.
+            let text_build = |resend: bool| prompt_params(&session, "after", &text_id, resend);
+            let (text_visible, _) = chat_send_with(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &text_id,
+                &mut last,
+                tap,
+                &text_build,
+                &mut None,
+            )
+            .await;
+            emit(&k, "text_behind_attach_visible_ms", text_visible);
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+        }
     }
 }

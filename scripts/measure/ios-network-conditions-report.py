@@ -36,7 +36,7 @@ READ_FIRST_LEGEND = (
 )
 # settled_*: link up to the settled Workspaces list, the setup in 4 serial round trips or 1.
 DURESS_PHASES = ("home", "settled_serial", "settled_batched", "reattach")
-PHASE_ORDER = ["cold", "warm", "reconnect", "send", "fixture", "home", "settled_serial", "settled_batched", "reattach"]
+PHASE_ORDER = ["cold", "warm", "reconnect", "send", "attach", "fixture", "home", "settled_serial", "settled_batched", "reattach"]
 # mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
 DURESS_SCALES = {"idle": 0, "duress": 1}
 DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "setup_ms", "interactive_ms", "workspaces_shown"]
