@@ -759,7 +759,12 @@ mod tests {
         })
         .unwrap();
         let mut carrier = ServeCarrier {
-            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            link: LinkCarrier::new(
+                net,
+                crate::wg_carrier::Role::Host,
+                crate::carrier::LinkMode::Legacy,
+            )
+            .unwrap(),
             app: AppLines { buf: Vec::new() },
         };
         carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();

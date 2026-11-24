@@ -699,7 +699,7 @@ impl Net {
     /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
     /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
     /// died without a close. `None` (the default) waits forever.
-    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+    pub fn set_peer_lost(&self, after: Option<Duration>) {
         let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
         self.command(Command::PeerLost(us));
     }

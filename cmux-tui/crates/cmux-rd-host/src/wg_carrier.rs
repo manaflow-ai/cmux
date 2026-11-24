@@ -249,7 +249,7 @@ impl Negotiation {
                     endpoint: None,
                     persistent_keepalive: None,
                     peer_addresses: vec![IpAddr::V4(self.role.peer())],
-                    ultra: None,
+                    ultra: cmux_wg::UltraChoice::Off,
                 };
                 match runtime::Session::start(config, sender.clone(), self.role.peer()) {
                     Ok(session) => {
