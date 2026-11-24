@@ -475,7 +475,7 @@ mod tests {
         *TEST_RULES.lock().unwrap() = Some((
             "tr-hub".into(),
             rules(json!([
-                {"id": "s", "at": "start", "say": "S"},
+                {"id": "s", "at": "start", "say": "S", "cooldown": 0},
                 {"id": "e", "at": "end", "say": "E", "if": {"draft_any": ["fixed"], "tools_any": ["cargo"]}},
             ])),
         ));
