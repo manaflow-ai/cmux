@@ -276,6 +276,12 @@ extension AgentPaneRequest {
                             settled: params?["settled"] as? Bool ?? false,
                             copy: params?["copy"] as? Bool ?? false,
                             live: params?["live"] as? Bool ?? false)
+        case "pane.inputEchoed":
+            if let epochMs = params?["echoedEpochMs"] as? Double, epochMs.isFinite {
+                self = .inputEchoed(at: Date(timeIntervalSince1970: epochMs / 1_000))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.launchSettle":
             if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
                let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
