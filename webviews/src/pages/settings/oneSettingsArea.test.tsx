@@ -9,7 +9,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, renderPage } = await import("./testing");
+const { renderPage } = await import("./testing");
 const { categories } = await import("./categories");
 
 let page: Rendered | null = null;

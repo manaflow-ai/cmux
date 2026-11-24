@@ -189,7 +189,7 @@ try {
   releases.push(() => statics.stop(true));
   const origin = `http://127.0.0.1:${statics.port}`;
   const urlFor = (index: number) =>
-    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+    `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
 
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({

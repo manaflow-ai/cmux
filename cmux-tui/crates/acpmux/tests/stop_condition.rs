@@ -110,8 +110,29 @@ impl Client {
     }
 }
 
+/// The settings a stop condition's Claude Code starts with (`hub/stop_condition.rs` `settings`):
+/// one block before the turn ends, a hook that lets a stop through once the check sent the turn
+/// back (`stop_hook_active`), and the check.
 fn stop_hook(condition: &str) -> Value {
-    json!({"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]}})
+    let mut doc = json!({
+        "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
+        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+    });
+    let hooks = doc.pointer_mut("/hooks/Stop/0/hooks").and_then(Value::as_array_mut).unwrap();
+    let repeat = hooks_command();
+    hooks.insert(0, json!({"type": "command", "command": repeat, "timeout": 5}));
+    doc
+}
+
+/// The `stop_hook_active` hook's command, as `hub/stop_condition.rs` writes it.
+fn hooks_command() -> &'static str {
+    concat!(
+        "input=$(cat); case \"$input\" in ",
+        "*'\"stop_hook_active\":true'*|*'\"stop_hook_active\": true'*) ",
+        "printf '%s' '{\"continue\":false,\"suppressOutput\":true,",
+        "\"stopReason\":\"The stop condition was checked once this turn\"}' ;; ",
+        "esac; true"
+    )
 }
 
 #[tokio::test]

@@ -172,7 +172,7 @@ export default agentPaneEntry({
   ],
   variants: {
     now: {
-      note: "Shipped: the room for older history is held from the first frame (thumb right), blank, under the transcript's 18px soft top edge; pages are asked six viewports ahead.",
+      note: "Shipped: the room for older history is held from the first frame (thumb right), blank, under the transcript's 24px soft top edge; pages are asked six viewports ahead.",
       snapshot: godChat(),
       play: (ctx) => toLoadedTop(ctx),
     },

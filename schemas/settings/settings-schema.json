@@ -1544,6 +1544,7 @@
             "key" : "settings.group.mobile",
             "rows" : [
               "mobile.allowIPhoneConnections",
+              "mobile.autoApprovePhones",
               "mobile.terminalSizing"
             ],
             "title" : {
@@ -6152,7 +6153,7 @@
           "operations" : [
 
           ],
-          "reason" : "action ids; toggled from the tab bar's More menu (Show in Tab Bar)",
+          "reason" : "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)",
           "row" : null
         },
         "socket" : {
@@ -18692,7 +18693,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.mobile",
@@ -18700,7 +18701,7 @@
       },
       "help" : {
         "key" : "settings.mobile.allowIPhoneConnections.help",
-        "text" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account."
+        "text" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.allowIPhoneConnections",
@@ -18814,6 +18815,143 @@
       "title" : {
         "key" : "settings.mobile.allowIPhoneConnections",
         "text" : "Allow iPhone Connections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.autoApprovePhones.help",
+        "text" : "A new phone signed in to your account connects without asking you first. Other accounts never connect."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.autoApprovePhones",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "approve",
+        "allow",
+        "pair",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "autoApprovePhones"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.autoApprovePhones.summary",
+        "text" : "New phones on your account connect without asking"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:mobile.autoApprovePhones"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.mobile.autoApprovePhones",
+        "text" : "Approve Phone Requests Automatically"
       },
       "validation" : "portable"
     },
