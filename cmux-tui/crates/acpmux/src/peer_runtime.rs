@@ -980,7 +980,7 @@ impl Peer {
         {
             return Err(self.unreachable_error());
         }
-        self.send_request_with(m, params, epoch, ListKey::None, retry).await
+        self.send_request_with(m, params, epoch, ListKey::None, retry, true).await
     }
 
     /// Sends `m` on the link of epoch `epoch` (any link when None), with no check that the
@@ -1001,6 +1001,6 @@ impl Peer {
         epoch: Option<u64>,
         list: ListKey,
     ) -> Result<Value, RpcError> {
-        self.send_request_with(m, params, epoch, list, false).await
+        self.send_request_with(m, params, epoch, list, false, false).await
     }
 }

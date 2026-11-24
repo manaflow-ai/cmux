@@ -84,7 +84,7 @@ async fn a_peer_reads_connected_only_once_its_handshake_finished() {
     assert_eq!(summary["connected"], true, "{summary}");
     assert_eq!(summary["handshaking"], false, "{summary}");
     assert_eq!(summary["state"], "connected", "{summary}");
-    // A request now goes out and is answered; the peer read no `early` before it.
+    // The request waited for the handshake, then went out and was answered.
     tokio::time::timeout(Duration::from_secs(5), early)
         .await
         .expect("the waiting request finishes")
@@ -93,11 +93,7 @@ async fn a_peer_reads_connected_only_once_its_handshake_finished() {
     while let Ok(m) = seen.try_recv() {
         methods.push(m);
     }
-    assert!(methods.iter().any(|m| m == "_acpmux/later"), "{methods:?}");
-    assert!(
-        !methods.iter().any(|m| m == "_acpmux/early"),
-        "sent during the handshake: {methods:?}"
-    );
+    assert!(methods.iter().any(|m| m == "_acpmux/early"), "{methods:?}");
     serving.abort();
     fake.abort();
 }
@@ -420,7 +416,9 @@ async fn a_day_old_outage_retries_hourly_and_times_out_requests() {
     let (tx, mut notices) = mpsc::channel(64);
     // Invalid WebSocket URL fails without network I/O or a real SSH process.
     let mut peer = Peer::new("gone", "invalid://peer", None, None, tx);
-    Arc::get_mut(&mut peer).unwrap().timings.request = Duration::from_millis(1);
+    let timings = &mut Arc::get_mut(&mut peer).unwrap().timings;
+    timings.request = Duration::from_millis(1);
+    timings.start = Duration::from_millis(1);
     peer.with_link(|link| {
         link.down(crate::store::now_ms() - 86_400_001, Duration::ZERO);
     });
@@ -497,7 +495,9 @@ async fn parked_boot_settles_without_probing_but_manual_replacement_retries() {
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = crate::hub::Hub::new(cfg, store);
         let mut peer = Peer::new("absent", "invalid://peer", None, None, hub.peer_notices.clone());
-        Arc::get_mut(&mut peer).unwrap().timings.request = Duration::from_millis(1);
+        let timings = &mut Arc::get_mut(&mut peer).unwrap().timings;
+        timings.request = Duration::from_millis(1);
+        timings.start = Duration::from_millis(1);
         if manual {
             peer.seed_last_seen(None);
         }

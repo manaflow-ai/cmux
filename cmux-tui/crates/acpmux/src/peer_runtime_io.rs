@@ -12,6 +12,7 @@ impl Peer {
         epoch: Option<u64>,
         list: ListKey,
         retry: bool,
+        wait_for_ready: bool,
     ) -> Result<Value, RpcError> {
         // One deadline from here: a request that waits for room in the queue (a stalled link,
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
@@ -36,7 +37,7 @@ impl Peer {
         // cannot add an unbounded delay or a second request budget.
         let epoch = match epoch {
             Some(epoch) => Some(epoch),
-            None => {
+            None if wait_for_ready => {
                 if !self.ready() {
                     let mut stopped = self.stopped();
                     let mut settled = self.settled();
@@ -67,6 +68,7 @@ impl Peer {
                 }
                 Some(self.link_epoch())
             }
+            None => None,
         };
         // The `initialize` that left with the upgrade request (`early_initialize`) is already on
         // the wire and registered: this takes its answer, and sends nothing.
