@@ -1344,6 +1344,17 @@ class WebUiTests(unittest.TestCase):
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
 
+    def test_the_coord_sim_script_names_shape_files_that_exist(self):
+        # cmux#47315 renamed shapes/default.json; the script kept the old path and every coord-sim part failed at gen
+        # ("No such file or directory") for days. Each repo path it names under the crate must exist.
+        import re
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        text = open(os.path.join(root, "scripts", "measure", "coord-sim-linux.sh")).read()
+        named = re.findall(r"\$crate/(shapes/[\w.-]+\.json)", text)
+        self.assertTrue(named)
+        for rel in named:
+            self.assertTrue(os.path.isfile(os.path.join(root, "cmux-tui", "crates", "coord-sim", rel)), rel)
+
     def test_the_coord_sim_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("coord-sim"))
         self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")
