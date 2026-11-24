@@ -97,7 +97,40 @@ public final class AttachmentUploadClient {
     /// The file's absolute path on the Mac once it is there whole; throws the
     /// engine's failure (with its sentence) or `cancelled`.
     public func wait(_ id: String) async throws -> String {
-        try await engine.wait(uploadId: id)
+        do {
+            return try await engine.wait(uploadId: id)
+        } catch let error as CmuxMobileError {
+            throw Self.failure(error)
+        }
+    }
+
+    /// One upload over one given link, start to end, for callers that hold a
+    /// link rather than a Mac (chat attachments, the upload probe,
+    /// ``LinkUpload/upload(_:name:cwd:over:scope:)``): the engine's bounds and
+    /// retries from the last acked byte on that link; cancelling the calling
+    /// task cancels the upload at once.
+    public func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, over link: LinkHandle) async throws -> String {
+        let key = "link-\(UUID().uuidString)"
+        engine.setLink(macId: key, link: link)
+        defer { engine.setLink(macId: key, link: nil) }
+        let destination = AttachmentDestination(macID: key, cwd: cwd)
+        let id = switch payload {
+        case .data(let data): start(data, name: name, to: destination)
+        case .file(let url): start(url, name: name, to: destination)
+        }
+        return try await withTaskCancellationHandler {
+            try await wait(id)
+        } onCancel: {
+            Task { @MainActor in AttachmentUploadClient.shared.cancel(id) }
+        }
+    }
+
+    static func failure(_ error: CmuxMobileError) -> LinkUpload.Failure {
+        switch error {
+        case .Refused(let code, let message): LinkUpload.Failure(code: code, message: message)
+        case .Timeout: LinkUpload.Failure(code: "timeout", message: "The upload timed out.")
+        default: LinkUpload.Failure(code: "failed", message: String(describing: error))
+        }
     }
 
     fileprivate func apply(_ update: UploadProgress) {
