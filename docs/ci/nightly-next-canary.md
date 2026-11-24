@@ -156,8 +156,10 @@ The canary run summary shows both medians, ranges, delta and threshold. Its
 `fail` emits a warning. Static verification still decides ring promotion.
 Five first frames on a signed Nightly ranged from 1,182.3 to 1,328.6 ms
 (median 1,224.5 ms). A five-launch large-session run ranged from 993.6 to
-2,225.3 ms, and an earlier unattended run missed all eight native terminal
-echoes. Both timings warn while the canary collects comparable native samples.
+2,225.3 ms. Five native key-to-echo measurements on a 120-workspace Mac
+build had a median of 29.7 ms and a p90 of 43.5 ms. An earlier unattended run
+missed all eight echoes. Both timings warn while the scheduled canary collects
+comparable samples on signed Nightlies. [Native echo measurements](https://github.com/manaflow-ai/cmux/pull/47154#issuecomment-7040903643)
 
 ### Switches
 
