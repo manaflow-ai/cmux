@@ -128,3 +128,14 @@ async fn the_kept_order_matches_a_sort_after_evictions_and_rehydrates() {
     drop(hub.session_get("s3"));
     assert_eq!(hub.kept_order_for_test(), want);
 }
+
+#[tokio::test]
+async fn a_replay_or_newest_window_brings_an_evicted_chat_back() {
+    let hub = hub_with(2);
+    hub.evict_idle_chats();
+    assert!(!in_map(&hub, "s0") && !in_map(&hub, "s1"));
+    hub.scan_events("s0", 0, &mut |_| true).unwrap();
+    assert!(in_map(&hub, "s0"), "a replay reads it through its session (a cold log warms first)");
+    hub.newest_window("s1", 400).unwrap();
+    assert!(in_map(&hub, "s1"), "so does the open's newest window");
+}
