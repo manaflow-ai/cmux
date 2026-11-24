@@ -503,6 +503,26 @@ impl Conn {
         self.caller.get().map(String::as_str)
     }
 
+    /// Who closes `target` when this connection asks (`close_why.rs`): a peer daemon or remote
+    /// client by its paired machine, the app's pane, an agent closing itself, or the local CLI
+    /// (with the session it runs in, when it proved one, and its pid).
+    pub(super) fn close_actor(&self, target: &str) -> crate::close_why::CloseActor {
+        use crate::close_why::CloseActor;
+        let pid = match self.socket_peer {
+            crate::sender_harness::SocketPeer::Pid(pid) => Some(pid),
+            _ => None,
+        };
+        let caller = self.caller();
+        let kind = match self.origin {
+            Origin::Peer => "peer",
+            Origin::Web => "web",
+            Origin::LocalApp => "app",
+            Origin::Local if caller == Some(target) => "agent_self",
+            Origin::Local => "cli",
+        };
+        CloseActor::new(kind).session(caller).host(self.device.as_deref()).pid(pid)
+    }
+
     /// Who this connection is in the caller stats (`caller_stats.rs`): its client name, origin,
     /// unix peer pid and the session its first `initialize` named.
     fn stats_caller(&self) -> crate::caller_stats::Caller {
@@ -2730,6 +2750,7 @@ pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
 mod chunk_deltas;
+mod felt;
 pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
@@ -2793,6 +2814,7 @@ mod sign_in_follow;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
+mod chat_place;
 pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
