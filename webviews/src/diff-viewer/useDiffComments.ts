@@ -9,6 +9,9 @@ import {
   postComments as bridgePostComments,
   saveComment as bridgeSaveComment,
   sendComments as bridgeSendComments,
+  sendThreadedComments as bridgeSendThreadedComments,
+  threadComment as bridgeThreadComment,
+  listCommentsAndReview,
 } from "../comments/bridge";
 import { commentSubmissionText, commentsPromptText } from "../comments/format";
 import type {
@@ -60,12 +63,14 @@ export function useDiffComments({
   dispatch,
   latestState,
   repoRoot,
+  commentsThreads = false,
 }: {
   bridgeAvailable: boolean;
   canSend: boolean;
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
+  commentsThreads?: boolean;
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
@@ -102,6 +107,44 @@ export function useDiffComments({
     },
     [dispatch],
   );
+
+  const refreshComments = useCallback(async () => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    try {
+      const loaded = await listCommentsAndReview(repoRoot);
+      if (activeRepoRoot.current === repoRoot) {
+        onLoaded(loaded.comments, loaded.review);
+      }
+    } catch (error) {
+      console.warn("cmux diff comments refresh failed", error);
+    }
+  }, [activeRepoRoot, bridgeAvailable, commentsThreads, onLoaded, repoRoot]);
+
+  useEffect(() => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    // Only a thread sent to the agent and still open can gain an answer the page has not written.
+    const awaitingAgent = () =>
+      latestState.current.comments.some((comment) => comment.sentIn != null && comment.resolved !== true);
+    const refresh = () => {
+      if (document.visibilityState === "visible" && awaitingAgent()) {
+        void refreshComments();
+      }
+    };
+    const onFocus = () => refresh();
+    const onVisibilityChange = () => refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const interval = window.setInterval(refresh, 4000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [bridgeAvailable, commentsThreads, latestState, refreshComments, repoRoot]);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
@@ -213,7 +256,10 @@ export function useDiffComments({
     if (pending.length > 0) pendingSends.current.set(targetRepoRoot, pending);
     else pendingSends.current.delete(targetRepoRoot);
     setSendState("sending");
-    bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid)
+    const sendRequest: Promise<string[] | undefined> = commentsThreads
+      ? bridgeSendThreadedComments(targetRepoRoot, batch.ids, batch.opid).then(() => undefined)
+      : bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid);
+    sendRequest
       .then((cleared) => {
         const outstanding = pendingSends.current.get(targetRepoRoot);
         if (outstanding?.[0]?.opid === batch.opid) outstanding.shift();
@@ -222,9 +268,14 @@ export function useDiffComments({
         // Another repository is shown now: its button is idle; the sent one lists what the host kept
         // when it is shown again.
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
+        if (commentsThreads) {
+          void refreshComments();
+          setSendState("idle");
+          return;
+        }
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        removeUnchanged(cleared, batch.versions);
+        removeUnchanged(cleared ?? [], batch.versions);
         setSendState("idle");
       })
       .catch((error) => {
@@ -232,6 +283,32 @@ export function useDiffComments({
         setSendState(activeRepoRoot.current === targetRepoRoot ? "failed" : "idle");
       });
   };
+
+  const reply = useCallback(
+    (comment: DiffCommentRecord, message: string) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null || message.trim() === "") return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { reply: message }, `diff-comment-reply-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment reply failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
+
+  const resolve = useCallback(
+    (comment: DiffCommentRecord, resolved: boolean) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null) return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { resolved }, `diff-comment-resolve-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment resolve failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
 
   const removeUnchanged = (cleared: readonly string[], versions: Record<string, string>) => {
     const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
@@ -299,6 +376,7 @@ export function useDiffComments({
   return {
     canPost: review != null && bridgeAvailable,
     canSend: canSend && bridgeAvailable,
+    threaded: commentsThreads && bridgeAvailable,
     editMessage,
     onGutterUtilityClick,
     onLoaded,
@@ -307,6 +385,9 @@ export function useDiffComments({
     posted,
     postState,
     remove,
+    refreshComments,
+    reply,
+    resolve,
     review,
     saveDraft,
     send,

@@ -367,6 +367,9 @@ pub struct TranslatorSpec {
     /// translator owes that turn's prompt from the start.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resumes_cut_turn: bool,
+    /// Register the repeated-stop callback for this session’s Claude stop condition.
+    #[serde(default)]
+    pub stop_condition: bool,
 }
 
 fn suggestions_default() -> bool {
