@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
+  changed how groups look. A group opens with its visible header band and member rail. Folders and the six
+  other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
+  `ChiefGroupRailTests`, and `SidebarGroupsAsFoldersTests`.
+
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
   the settings watcher. The existing title, detail and metadata slots move together using

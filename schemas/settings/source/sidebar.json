@@ -1306,7 +1306,7 @@
               }
             }
           ],
-          "default": "folder",
+          "default": "auto",
           "keywords": [
             "sidebar",
             "group",
