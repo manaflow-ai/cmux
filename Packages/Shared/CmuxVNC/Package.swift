@@ -23,14 +23,9 @@ let package = Package(
         .package(path: "../CmuxEgress"),
     ],
     targets: [
-        .target(name: "CmuxVNC", swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
                 linkerSettings: [.linkedLibrary("z")]),
         .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer"], swiftSettings: swiftSettings),
     ]
 )
-
-// The egress gate (docs/privacy.md, "Egress gate"): the targets that open connections make them through CmuxEgress.
-for target in package.targets where ["CmuxVNC"].contains(target.name) {
-    target.dependencies.append(.product(name: "CmuxEgress", package: "CmuxEgress"))
-}

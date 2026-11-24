@@ -1,5 +1,4 @@
-import CmuxEgress
-import CmuxNextCloud
+import CmuxEgress; import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation

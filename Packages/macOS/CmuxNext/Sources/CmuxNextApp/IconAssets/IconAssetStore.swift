@@ -1,5 +1,4 @@
-import CmuxEgress
-import CmuxNextDaemon
+import CmuxEgress; import CmuxNextDaemon
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -92,8 +91,7 @@ nonisolated enum IconAssetKind: String {
     /// does, then stores what it got like a chosen file. Off the main actor: the read and the
     /// scaling never block it.
     @concurrent func download(_ url: URL) async throws -> (mediaType: String, data: Data) {
-        guard url.scheme?.lowercased() == "https" else { throw IconAssetDownloadError.notHTTPS }
-        CmuxEgress.allowNamed(url)   // an icon the person's own project or page names
+        guard url.scheme?.lowercased() == "https" else { throw IconAssetDownloadError.notHTTPS }; CmuxEgress.allowNamed(url)  // an icon the person's own project or page names
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30

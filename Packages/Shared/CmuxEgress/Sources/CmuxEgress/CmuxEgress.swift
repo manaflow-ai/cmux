@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if canImport(Network)
 import Network
 #endif
@@ -141,7 +142,7 @@ public enum CmuxEgress {
     public static func shared(site: String) -> URLSession {
         if let existing = state.withLock({ $0.shared[site] }) { return existing }
         let made = session(site: site)
-        return state.withLock { state in
+        return state.withLock { (state: inout Values) -> URLSession in
             if let existing = state.shared[site] { return existing }
             state.shared[site] = made
             return made
@@ -150,18 +151,20 @@ public enum CmuxEgress {
 
     // MARK: WebSocket
 
+    private static let refusedURL = URL(string: "ws://127.0.0.1:1/egress-refused") ?? URL(fileURLWithPath: "/")
+
     /// A gated `session.webSocketTask(with:)`. Where the gate refuses (enforce mode) the task is aimed at a closed
     /// loopback port, so it fails when resumed, after the `egress.unlisted` line names the host.
     public static func websocket(_ session: URLSession, with url: URL, site: String) -> URLSessionWebSocketTask {
         if blocks(url.absoluteString, site: site) {
-            return session.webSocketTask(with: URL(string: "ws://127.0.0.1:1/egress-refused")!)
+            return session.webSocketTask(with: refusedURL)
         }
         return session.webSocketTask(with: url)
     }
 
     public static func websocket(_ session: URLSession, with request: URLRequest, site: String) -> URLSessionWebSocketTask {
         if let url = request.url, blocks(url.absoluteString, site: site) {
-            return session.webSocketTask(with: URL(string: "ws://127.0.0.1:1/egress-refused")!)
+            return session.webSocketTask(with: refusedURL)
         }
         return session.webSocketTask(with: request)
     }
@@ -254,22 +257,16 @@ public enum CmuxEgress {
 
     // MARK: State
 
-    private final class State: @unchecked Sendable {
-        private let lock = NSLock()
+    private struct Values: Sendable {
         var modeOverride: Mode?
         /// Seeded with the hosts the person's own `CMUX_*_URL`, `_ORIGIN`, `_BASE`, `_HOST` and `_ENDPOINT`
         /// environment variables name (a dev server, a staging API): the person set them, the code did not.
         var named: Set<String> = CmuxEgress.namedByEnvironment(ProcessInfo.processInfo.environment)
         var seen: Set<String> = []
         var shared: [String: URLSession] = [:]
-        func withLock<T>(_ body: (State) -> T) -> T {
-            lock.lock()
-            defer { lock.unlock() }
-            return body(self)
-        }
     }
 
-    private static let state = State()
+    private static let state = OSAllocatedUnfairLock(initialState: Values())
 
     static func namedByEnvironment(_ environment: [String: String]) -> Set<String> {
         var hosts: Set<String> = []
