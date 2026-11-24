@@ -384,6 +384,43 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertGreaterEqual(time.monotonic() - start, 2.0)
 
+    def test_the_pr_tier_leaves_push_steps_to_the_push_tier(self) -> None:
+        t = table('''
+            [step.fast]
+            job = "linux"
+            run = "true"
+            [step.slow]
+            job = "linux"
+            tier = "push"
+            run = "true"
+            ''')
+        self.assertEqual(ci_steps.route(t, None)["linux"], ["fast", "slow"])
+        self.assertEqual(ci_steps.route(t, None, tier="full")["linux"], ["fast", "slow"])
+        self.assertEqual(ci_steps.route(t, None, tier="pr")["linux"], ["fast"])
+        self.assertEqual(ci_steps.route(table('[step.slow]\njob = "linux"\ntier = "push"\nrun = "true"'), None, tier="pr"), {})
+        with self.assertRaisesRegex(ci_steps.TableError, "`tier` is one of"):
+            table('[step.a]\njob = "linux"\ntier = "later"\nrun = "true"')
+
+    def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
+        for step in ci_steps.load().steps.values():
+            if step.job == "linux" and step.needs:
+                self.assertEqual(step.tier, "push", step.name)
+        text = (ROOT / ".github/workflows/pr-pipeline.yml").read_text()
+        self.assertIn('ci/run run --job linux --tier "$TIER"', text)
+        self.assertIn("CI_PR_PIPELINE_TIER", text)
+        self.assertIn("full-ci", text)
+
+    def test_the_router_counts_only_the_pr_tier_steps(self) -> None:
+        import pr_router
+        callees = pr_router.load_manifest()
+        files = ["cmux-tui/crates/acpmux/src/lib.rs"]
+        self.assertEqual(pr_router.pipeline_tier(set()), "pr")
+        self.assertEqual(pr_router.pipeline_tier({"full-ci"}), "full")
+        full = pr_router.table_steps(callees["pr-pipeline.yml"], files, tier="full")
+        pr = pr_router.table_steps(callees["pr-pipeline.yml"], files, tier="pr")
+        self.assertIn("cmux-next-daemon-tests", full)
+        self.assertNotIn("cmux-next-daemon-tests", pr)
+
     def test_alone_is_true_or_false(self) -> None:
         self.assertTrue(table('[step.a]\njob = "linux"\nalone = true\nrun = "true"').steps["a"].alone)
         self.assertFalse(table('[step.a]\njob = "linux"\nrun = "true"').steps["a"].alone)

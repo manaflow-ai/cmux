@@ -100,12 +100,13 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
-def table_steps(config: dict, files: list[str], table: Path | None = None) -> list[str] | None:
+def table_steps(config: dict, files: list[str], table: Path | None = None,
+                tier: str = "full") -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read."""
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return None
     steps = [step for job in config["table_jobs"] for step in routed.get(job, [])]
@@ -117,17 +118,24 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
     return steps
 
 
-def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
+def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None,
+                      tier: str = "full") -> list[str]:
     """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
     when the change or the table is unknown (the router routes more, never less)."""
     jobs = [job for config in callees.values() for job in config.get("table_jobs", [])]
     if files is None:
         return jobs
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier=tier)
     except Exception:  # noqa: BLE001
         return jobs
     return [job for job in jobs if routed.get(job)]
+
+
+def pipeline_tier(labels: set[str]) -> str:
+    """"pr": a pull request's step table leaves the `tier = "push"` steps to the push tier. "full": the `full-ci`
+    label, or vars.CI_PR_PIPELINE_TIER=full (the workflow sets CI_PR_PIPELINE_TIER), runs every routed step."""
+    return "full" if FULL_CI in labels or os.environ.get("CI_PR_PIPELINE_TIER") == "full" else "pr"
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -178,7 +186,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files)
+            steps = table_steps(config, files, tier=pipeline_tier(labels))
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -267,7 +275,8 @@ def main(argv: list[str]) -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
         start, why = route(event, callees, files, decided=head_tier.decide("pull_request", event))
-        write_outputs(start, why, files, table_jobs_routed(callees, files))
+        labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+        write_outputs(start, why, files, table_jobs_routed(callees, files, tier=pipeline_tier(labels)))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

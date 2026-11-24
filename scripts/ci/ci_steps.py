@@ -2,7 +2,7 @@
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
   ci/run route --paths-file F            the routed steps by job, as JSON
-  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES]
+  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--tier pr|full]
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -79,6 +79,11 @@ class Step:
     about: str = ""
     needs: tuple[str, ...] = ()
     alone: bool = False
+    # "push": the pull request's own run leaves the step to the push tier (`--tier pr` skips it, `full` runs it).
+    tier: str = "pr"
+
+
+TIERS = ("pr", "push")
 
 
 @dataclass
@@ -150,7 +155,10 @@ def parse(doc: dict) -> Table:
             about=raw.get("about", ""),
             needs=tuple(raw.get("needs", ())),
             alone=raw.get("alone", False),
+            tier=raw.get("tier", "pr"),
         )
+        if step.tier not in TIERS:
+            raise TableError(f"step {name}: `tier` is one of {TIERS}")
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(step.blocks, bool):
@@ -185,9 +193,13 @@ def routed(step: Step, paths: list[str] | None) -> bool:
     return any(p.match(path) for path in paths for p in patterns)
 
 
-def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
+def route(table: Table, paths: list[str] | None, label: str | None = None,
+          tier: str = "full") -> dict[str, list[str]]:
+    """Each job's routed steps. TIER "pr" leaves out the steps marked `tier = "push"`; "full" keeps every step."""
     jobs: dict[str, list[str]] = {}
     for step in table.steps.values():
+        if tier == "pr" and step.tier == "push":
+            continue
         if label is not None and label not in step.labels:
             continue
         if routed(step, paths):
@@ -258,8 +270,8 @@ def parse_only(text: str | None) -> list[str]:
 
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
-            workers: int | None = None, only: list[str] | None = None) -> int:
-    names = route(table, paths, label).get(job, [])
+            workers: int | None = None, only: list[str] | None = None, tier: str = "full") -> int:
+    names = route(table, paths, label, tier).get(job, [])
     if only:
         for name in only:
             if name not in table.steps:
@@ -341,6 +353,8 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
+    x.add_argument("--tier", choices=("pr", "full"), default="full",
+                   help="pr: leave the steps marked `tier = \"push\"` to the push tier; full (default): every routed step")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
@@ -351,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only))
+                   only=parse_only(args.only), tier=args.tier)
 
 
 if __name__ == "__main__":

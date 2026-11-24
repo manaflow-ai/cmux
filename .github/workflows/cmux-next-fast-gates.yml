@@ -90,7 +90,10 @@ jobs:
           # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
           # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
           # fast gate's critical path ahead of the gates themselves.
-          filter: blob:none
+          # A same-repository pull request's runner reads objects from the host's git mirror, which drops --depth: with
+          # a blob filter the fetch walked the history GitHub-side (67 to 151 s, 2026-11-24); with none it takes 2 to 4 s,
+          # as the receipt job's and pr-pipeline's checkouts do. A fork's runner has no mirror and keeps the filter.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/runners.json
@@ -216,7 +219,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          filter: blob:none
+          # A same-repository pull request's runner reads objects from the host's git mirror, which drops --depth: with
+          # a blob filter the fetch walked the history GitHub-side (67 to 151 s, 2026-11-24); with none it takes 2 to 4 s,
+          # as the receipt job's and pr-pipeline's checkouts do. A fork's runner has no mirror and keeps the filter.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/
@@ -346,7 +352,10 @@ jobs:
           # A pull request's merge commit and both parents. A dispatch fetches
           # the PR head and the tip itself and deepens until they meet.
           fetch-depth: 2
-          filter: blob:none
+          # A same-repository pull request's runner reads objects from the host's git mirror, which drops --depth: with
+          # a blob filter the fetch walked the history GitHub-side (67 to 151 s, 2026-11-24); with none it takes 2 to 4 s,
+          # as the receipt job's and pr-pipeline's checkouts do. A fork's runner has no mirror and keeps the filter.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /*
@@ -381,12 +390,17 @@ jobs:
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
+          # The pull request tier: the gates under 30 s. The slow ones (crash-class rules 71 s, web lint, the webviews
+          # checks) run on the push (their own workflows) and on a dispatch. `full-ci` or vars.CI_FAST_GATES_PR_TIER=full
+          # runs them here too (docs/ci/cmux-next-workflow-notes.md).
+          TIER: ${{ github.event_name == 'pull_request' && (vars.CI_FAST_GATES_PR_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
         run: |
           set -euo pipefail
+          echo "TIER=$TIER" >> "$GITHUB_ENV"
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --tier "$TIER" --output "$GITHUB_OUTPUT"
           else
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --tier "$TIER" --output "$GITHUB_OUTPUT"
           fi
 
       # Web lint installs node_modules only in the web folders the diff touches
@@ -494,7 +508,7 @@ jobs:
           FIXIT_COMPILE_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
         # reason inside its 25-minute limit instead of being cancelled with none.
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --tier "$TIER" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
 
       # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
       # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a), as

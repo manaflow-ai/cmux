@@ -55,7 +55,9 @@ jobs:
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
       - name: Run the routed linux steps (ci/steps.toml)
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        env:
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
+        run: ci/run run --job linux --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -98,7 +100,9 @@ jobs:
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
       - name: Run the routed web-browser steps (ci/steps.toml)
-        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        env:
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
+        run: ci/run run --job web-browser --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
         if: ${{ !cancelled() }}

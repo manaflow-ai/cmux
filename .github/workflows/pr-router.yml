@@ -53,7 +53,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          filter: blob:none
+          # The runner's git mirror drops --depth, and with a blob filter the fetch walked the history GitHub-side
+          # (75 to 151 s, 2026-11-24); unfiltered it takes 2 to 4 s (pr-pipeline.yml's checkout). A fork keeps the filter.
+          filter: ${{ github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
@@ -77,6 +79,8 @@ jobs:
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # Docs, plans, skills, copy or tests-only changes run the cheap tier (fast_track.py); 0 turns that off.
           CMUX_FAST_TRACK: ${{ vars.CMUX_FAST_TRACK || '1' }}
+          # The step table's pull request tier skips the steps marked `tier = "push"` (ci/steps.toml); `full` runs them.
+          CI_PR_PIPELINE_TIER: ${{ vars.CI_PR_PIPELINE_TIER || 'pr' }}
         run: python3 -I scripts/ci/pr_router.py route
 
   size-budget:

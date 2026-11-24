@@ -11,6 +11,13 @@
 # with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
 # job still passes. tests/test_ci_step_table.py holds both rules.
 #
+# `tier = "push"` marks a step the pull request's own run leaves to the push tier (cmux-next-base-linux.yml runs every
+# routed linux step on the feat-cmux-next tip after each landing; a red there is fixed forward). The pull request runs
+# `ci/run run --tier pr`, which skips them, and the router starts no runner for a change that routes only such steps.
+# The `full-ci` label, or vars.CI_PR_PIPELINE_TIER=full, runs them on the pull request again. Every step that needs a
+# tool (a bun, node, rust, zig, go or zlib download and build) and every web-browser step is `push`; the rest are
+# scripts that finish in seconds.
+#
 # `linux` steps run on the pull request's merge commit, in pr-pipeline.yml's one job, which pr-router.yml
 # starts only when a step's inputs changed. `advisory` steps run from the base branch's checkout, never
 # the pull request's code, and read the event from the environment the calling workflow step sets (BODY,
@@ -286,6 +293,7 @@ run = "python3 scripts/ci/sync_labels.py --dry-run"
 # Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
 [step.shim-cpp]
 job = "linux"
+tier = "push"
 needs = ["zlib"]
 timeout = 300
 title = "CEF shim C++ tests"
@@ -396,6 +404,7 @@ exit "$rc"
 # push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "App platform (runtime, SDK, samples, first-party forks)"
 about = "the app host's runtime bundle and generated cmux global are current, the app-test harness, runtime and sample apps pass their bun tests, and every first-party app runs its own tests as a fork with only the public SDK"
@@ -413,6 +422,7 @@ run = "bash scripts/cmux-next/check-app-platform.sh"
 
 [step.mux]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "mux bun test"
 about = "the mux brain host's bun test suite (mux/), on its frozen lockfile"
@@ -426,6 +436,7 @@ bun test
 
 [step.automation-bench]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Automation bench scoreboard"
 about = "the unit tests of the automation bench scoreboard (tests/automation-bench)"
@@ -435,6 +446,7 @@ run = "bun test tests/automation-bench"
 
 [step.cloud-vm-image-lock]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Cloud VM image lock"
 about = "images/cmux-vm/inputs.lock.json, the sshd policy checker, the bake and promote workflows' step scripts (with a stubbed bun) and the promote workflow's permissions, key handling and delete refusal; web's locked dependencies installed first"
@@ -504,6 +516,7 @@ python3 tests/test_ci_parallel_artifact_transport.py
 
 [step.ci-artifact-worker]
 job = "linux"
+tier = "push"
 timeout = 360
 # broker.test.mjs times its deadlines in wall-clock milliseconds: beside the other linux steps "concurrent cold misses
 # time out together" failed on #53426 three runs out of three (534 ms, 2330 ms); coderouter is alone for the same test.
@@ -527,6 +540,7 @@ WRANGLER_SEND_METRICS=false npm run check
 # not a step: a failed step prints its `git diff --stat`.
 [step.cmux-vm-sdk]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "cmux VM SDK"
 about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
@@ -558,6 +572,7 @@ exit "$status"
 
 [step.web-complexity]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Web complexity candidate"
 about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
@@ -639,6 +654,7 @@ exit "$status"
 # 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
 [step.web-typecheck]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Web typecheck"
 about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"
@@ -770,6 +786,7 @@ run = "python3 tests/test_repair_nightly_appcast_content_types.py"
 # platforms built three times with an empty Go build cache); the runner keeps that cache.
 [step.remote-daemon-packaging]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "cmux-next remote daemon packaging"
 about = "cmuxd-remote's licenses are allowed, its third-party notices and release verification pass their tests, and stable, nightly and rc daemon artifacts build with the go.mod Go and pass verification"
@@ -798,6 +815,7 @@ exit "$rc"
 # starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
 [step.coderouter]
 job = "linux"
+tier = "push"
 # Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
 alone = true
 timeout = 360
@@ -1162,6 +1180,7 @@ python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section re
 # web_subareas.py itself (`has`, over $CI_PATHS_FILE), so a path the globs over-route skips in a second.
 [step.web-instant-navigation]
 job = "web-browser"
+tier = "push"
 timeout = 600
 title = "Instant navigation"
 about = "web's instant-navigation Playwright suite against system Chrome (web/e2e/instant, test:instant)"
@@ -1197,6 +1216,7 @@ CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 
 [step.agent-pane-real-acpmux]
 job = "web-browser"
+tier = "push"
 timeout = 1800
 # After the other web-browser steps: its engine installs take apt's lock, and its daemon build every core.
 alone = true
@@ -1270,6 +1290,7 @@ exit "$status"
 # merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
 [step.webviews-typecheck]
 job = "linux"
+tier = "push"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
 about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
@@ -1294,6 +1315,7 @@ exit "$rc"
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
 [step.cmux-next-daemon-tests]
 job = "linux"
+tier = "push"
 # 22 minutes of test compile cold, then the tests: the job's own 65-minute bound for this step.
 alone = true
 timeout = 3900

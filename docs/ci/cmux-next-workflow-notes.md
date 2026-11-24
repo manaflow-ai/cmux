@@ -5035,3 +5035,31 @@ verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes 
 the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
+
+## note-558
+
+Above the checkouts of `.github/workflows/cmux-next-fast-gates.yml` and `.github/workflows/pr-router.yml`, the
+`tier` field of `ci/steps.toml`, and the `TIER` env of `pr-pipeline.yml`.
+
+Leo, 2026-11-21: "help 100x ci speed and the decrease of needed minutes aka lower resources and lower wall time and
+lower machine time while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."
+
+Where the time went (2026-11-24, newest heads, job step timestamps): `pr pipeline / linux` is a router job and a
+linux job in series. The router's blobless checkout took 75 and 151 s: the runner's git mirror drops `--depth`
+("cmux-git-mirror: fetch without --depth"), so a `filter: blob:none` fetch walks the history on GitHub's side, while
+the same ref unfiltered, in the linux job, took 3 s. Then the linux job made every tool a routed step listed (rust,
+zig, node, bun: 40 s) before it ran the first step, and ran the daemon tests (28 min) on a head that touched
+cmux-tui. fast gates is four jobs in series (resolve and route in parallel, receipt, gates, post) with the same
+filtered checkout in three of them: 67 s, 95 s and 76 s of 275 s; its gates ran 71 s (crash-class rules), 24 s
+(prepush gate), 17 s (crash ratchet).
+
+What changed: a same-repository pull request's checkouts (router, resolve, fast-check-route, gates) carry no blob
+filter; a fork keeps it. A pull request runs a tier: ci/steps.toml marks every step that needs a tool, and every
+web-browser step, `tier = "push"`, and `ci/run run --tier pr` skips them; pr_router.py counts only the pr tier's
+steps, so a head that routes only push steps starts no runner (its check reads skipped). cmux-next-base-linux.yml
+runs every routed linux step on the feat-cmux-next tip after each landing, with no tier, so a red there is fixed
+forward. fast gates runs `--tier pr`: web lint, crash-class rules and the webviews checks wait for the push tier
+(cmux-next-web-lint.yml, cmux-next-crash-class.yml, ci-web.yml); a dispatch (a merger's fresh-base run) and a head
+with the `full-ci` label run them. Revert: set the repo variable `CI_PR_PIPELINE_TIER=full` (the step table) or
+`CI_FAST_GATES_PR_TIER=full` (fast gates), both default `pr`. The `cmux-next/fast-gates` status, its description and
+its freshness rules are unchanged.
