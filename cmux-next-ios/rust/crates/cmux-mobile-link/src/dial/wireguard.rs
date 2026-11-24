@@ -45,7 +45,7 @@ use super::{
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
 use crate::signaling::{
-    RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION,
+    RELAY_FIRST, RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION,
 };
 use crate::timing::Timeline;
 
@@ -451,7 +451,26 @@ fn relay_plan(
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         return None;
     };
-    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
+    let now = own_now || peer == RELAY_NOW;
+    // Both sides join as the dial starts only when both said `first` (an older
+    // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
+    let first = !now && options.relay_first && peer == RELAY_FIRST;
+    Some(roam::RelayPlan { endpoint, now, first, ticket })
+}
+
+/// This side's `relay` in its `wg-init` / `wg-resp`: `now` with no other path,
+/// else `first` (join as the dial starts) or, as an older build, `ready`.
+fn relay_offer(options: &DialOptions, own_now: bool) -> Option<String> {
+    options.relay.as_ref().map(|_| {
+        (if own_now {
+            RELAY_NOW
+        } else if options.relay_first {
+            RELAY_FIRST
+        } else {
+            RELAY_READY
+        })
+        .to_owned()
+    })
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
@@ -1298,6 +1317,15 @@ impl HybridUnderlay {
                 self.relay_shared.set_held(true);
                 self.wake_receiver();
                 self.publish_path();
+                // The pending handshake initiation goes through the relay at
+                // once, not at its next repeat: the same message (a copy the
+                // peer already answered is dropped there, its timestamp is not
+                // newer), so a direct answer in flight still completes it.
+                if let Some((datagram, class)) =
+                    self.handshake_repeat.as_ref().map(|repeat| (repeat.datagram.clone(), repeat.class))
+                {
+                    self.send_relay(&datagram, class);
+                }
                 // What went nowhere while nothing reached the peer goes again.
                 if self.direct.is_none_or(|route| route.carrier != Carrier::Udp) {
                     self.replay_recent(true);
@@ -2471,8 +2499,7 @@ pub(super) fn dial_wireguard<'a>(
         let udp_blocked = gathered.udp_looks_blocked();
         diagnose_gather(options, udp_blocked, turn.as_ref(), true);
         let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-        let relay_offer =
-            options.relay.as_ref().map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
+        let relay_offer = relay_offer(options, own_relay_now);
         let turn_missed = missed_turn(true, turn.as_ref(), options);
         let Gathered { mut endpoints, stun, .. } = gathered;
         let (relayed, relayed_tls) = relayed_of(turn.as_ref());
@@ -2721,10 +2748,7 @@ impl Dialer for WireGuardDialer {
             let udp_blocked = !trickle && gathered.udp_looks_blocked();
             diagnose_gather(options, udp_blocked, turn.as_ref(), wants_turn);
             let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-            let relay_offer = options
-                .relay
-                .as_ref()
-                .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
+            let relay_offer = relay_offer(options, own_relay_now);
             let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
