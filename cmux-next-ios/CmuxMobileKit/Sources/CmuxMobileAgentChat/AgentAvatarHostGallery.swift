@@ -64,6 +64,7 @@ public struct AgentAvatarHostGallery: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(variant.title).font(.subheadline.weight(.semibold))
                     HStack(alignment: .top, spacing: 10) {
+                        // visible-only: six fixed gallery samples, never a live list.
                         ForEach(Array(Self.samples.enumerated()), id: \.offset) { _, sample in
                             VStack(spacing: 6) {
                                 GalleryAvatar(harness: sample.harness, host: sample.host, variant: variant, side: 40)
