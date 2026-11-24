@@ -634,6 +634,12 @@ export function drawPaneComposer({
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
   };
+  // A started chat can use native file links before its cwd arrives. On a fresh pane, the
+  // native host still verifies the destination before handing back a gesture's paths.
+  const localFileLinks =
+    !quick &&
+    !readOnlySubagent &&
+    (snapshot.summary ? chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot)) : !onOtherMachine);
   const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return (
     (readOnlySubagent || !reviewing) && (
@@ -1555,15 +1561,9 @@ export function drawPaneComposer({
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
             // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
-            canRecord={
-              localCwd !== undefined &&
-              !quick &&
-              !readOnlySubagent &&
-              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
-            }
+            canRecord={localCwd !== undefined && localFileLinks}
             upload={uploadFiles}
-            // A chat on this Mac (as Sources' + below); the host refuses any other.
-            localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
+            localPaths={localFileLinks ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.
