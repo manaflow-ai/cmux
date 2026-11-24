@@ -577,6 +577,88 @@ fn a_rewritten_argv_does_not_make_a_server() {
     }
 }
 
+/// A server that re-executes itself through a script of its own (`lane-gh mcp` becomes
+/// `/usr/bin/python3 .../lane_gh_shared.py .../lane-gh mcp`, same pid) is still that server. On
+/// one lane VM it kept 22 of 23 idle Claude sessions, about 4.3 GB, up for hours.
+#[test]
+fn a_server_reexecuted_through_its_own_script_is_still_the_server() {
+    let servers = from_json(Some(&json!({
+        "github": {"command": "/opt/tools/lane-gh", "args": ["mcp"]},
+        "cmux": {"command": "/opt/cmux/bin/cmux", "args": ["mcp", "serve"]},
+    })));
+    let who = |exe: &str, argv: &[&str]| Identity {
+        exe: exe.into(),
+        argv: argv.iter().map(|w| w.to_string()).collect(),
+        cwd: None,
+    };
+    let cases = [
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            true,
+        ),
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["python3", "/opt/tools/proxy.py", "--x", "/opt/cmux/bin/cmux", "mcp", "serve"],
+            ),
+            true,
+        ),
+        // Other args after the server's program.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &[
+                    "/usr/bin/python3",
+                    "/opt/tools/lane_gh_shared.py",
+                    "/opt/tools/lane-gh",
+                    "mcp",
+                    "--x",
+                ],
+            ),
+            false,
+        ),
+        // The server named by a bare word, or by a script given by a relative path.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "notes.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        // `exec -a`: an executable that is no interpreter.
+        (
+            who(
+                "/opt/devserver",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/opt/tools/lane-gh", "mcp"],
+            ),
+            false,
+        ),
+        // Another program's path in the server's place.
+        (
+            who(
+                "/usr/bin/python3.12",
+                &["/usr/bin/python3", "/opt/tools/lane_gh_shared.py", "/tmp/lane-gh", "mcp"],
+            ),
+            false,
+        ),
+    ];
+    for (identity, server) in cases {
+        let found = [under(11, 10, &identity.argv.join(" "))];
+        let census = classify(&found, 10, &servers, None, |_| Some(identity.clone()));
+        assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+    }
+}
+
 /// A script's interpreter is what its `#!` line runs: a program, or `env`'s name on `PATH`.
 #[test]
 fn a_scripts_interpreter_comes_from_its_shebang() {

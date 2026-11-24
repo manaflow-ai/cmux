@@ -189,7 +189,17 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
+    # The routing token (owned-pool picker below) lives in ci-routing-agent. A call from another
+    # workflow (main's production pipeline) takes no environment, so its deploy rules never stop
+    # the gate; its picker then reads the queue with the job token.
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && 'ci-routing-agent' || '' }}
+    permissions:
+      contents: read
+      actions: read
     outputs:
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      label: ${{ steps.pool.outputs.label }}
       # The device families the reviewer-path matrix walks, and the whole
       # decision each leg checks against its image (see "Which device legs
       # take a Mac" below).
@@ -266,6 +276,13 @@ jobs:
             .github/scripts/ios_review_gate_devices.py
             scripts/ci/xcode-pins.txt
             cmux-next-ios/project.yml
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/deadline_http.py
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
       - name: Which device legs take a Mac
         id: devices
@@ -326,6 +343,103 @@ jobs:
           path: ${{ runner.temp }}/planned/*.skipped.json
           if-no-files-found: error
           retention-days: 3
+      # Pick an idle owned Mac with an iOS simulator for the device legs with
+      # the review-gate lane of scripts/ci/ios_runner_pool.py (the gate's own
+      # copy, so a call from another branch picks with it too), then fall back
+      # to Blacksmith macOS 26 on retries, forks, and when no owned simulator
+      # mini is free. asc-validate keeps its ephemeral Blacksmith Mac: it
+      # writes the App Store Connect key to the runner.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          # Queue, job and capacity-snapshot reads use this App's quota.
+          permission-actions: read
+          permission-organization-self-hosted-runners: read
+      - name: Mint the repository routing token
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          FAMILIES: ${{ steps.devices.outputs.families }}
+          # Where the legs ran before the picker: a picker failure never stops the gate.
+          FALLBACK_RUNS_ON: ${{ vars.RUNNER_POOLS && toJSON(fromJSON(vars.RUNNER_POOLS).macos_26) || '"blacksmith-6vcpu-macos-26"' }}
+        run: |
+          set -euo pipefail
+          # One reviewer-path leg per planned family: a single family budgets
+          # one simulator mini, two (a push walks iPhone and iPad) budget two.
+          family="$(python3 -I -c 'import json, sys; f = json.loads(sys.argv[1]); print(f[0] if len(f) == 1 else "")' "$FAMILIES")"
+          if ! python3 -I gate/scripts/ci/ios_runner_pool.py \
+            --lane review-gate --fork "$FORK_PULL_REQUEST" --requested auto \
+            --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
+            --device-family "$family" > "$RUNNER_TEMP/pool.out"; then
+            echo "::warning title=review gate pool::the picker failed; the device legs take $FALLBACK_RUNS_ON"
+            printf 'label=\nruns_on=%s\nretry_runs_on=%s\npersistent=false\n' "$FALLBACK_RUNS_ON" "$FALLBACK_RUNS_ON" \
+              > "$RUNNER_TEMP/pool.out"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/pool.out"
+      - name: Create the owned-pool marker
+        id: marker
+        if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1 && steps.devices.outputs.families != '[]'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+      - name: Upload the persistent pool marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the simulator capacity marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the owned-pool watch marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
   lint:
     needs: plan
@@ -429,13 +543,13 @@ jobs:
         # iphone and ipad always; duo only when the plan's device list says
         # the image has it (it has not so far, so it takes no Mac).
         family: ${{ fromJSON(needs.plan.outputs.families) }}
-    # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs) until a picker
-    # routes it (.github/runners.json picker_followup). A fork pull request takes the
-    # same label directly, since it reads no repository variables.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # An owned simulator mini from the plan job's picker on attempt 1, ephemeral Blacksmith macOS 26 on a
+    # re-run or a fork pull request (which reads no repository variables).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Result paths
         run: |
@@ -555,6 +669,7 @@ jobs:
         if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -600,10 +715,15 @@ jobs:
           # Debug: the mock account the walk signs in with is DEBUG only.
           # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the
           # App Store configurations do (Debug hides it).
+          # TARGETED_DEVICE_FAMILY=1: every build App Review gets is iPhone-only, so on iPad it
+          # runs in compatibility mode (the iPhone layout in a phone-sized window). Debug alone
+          # also targets iPad (project.yml, for the foldable harness on an iPad mini), and walked
+          # as is, the iPad leg judged a two-pane layout no reviewer sees: run 45334322455 failed
+          # 8 iPad tests that wait for the tab bar ("the shell must show") on that layout.
           xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
             -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-            CMUX_MOBILE_APPLE_SIGN_IN=YES \
+            CMUX_MOBILE_APPLE_SIGN_IN=YES TARGETED_DEVICE_FAMILY=1 \
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
           # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
@@ -756,6 +876,9 @@ jobs:
             echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
           else
             asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
+            # The app's version history: its first App Store version takes no
+            # What's New (App Store Connect refuses it, run 45102744374).
+            asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json || true
           fi
           if [ -d app/cmux-next-ios/AppStoreReview/metadata ]; then
             asc metadata validate --dir app/cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
@@ -765,7 +888,9 @@ jobs:
         continue-on-error: true
         with:
           name: review-gate-asc
-          path: asc-*.json
+          path: |
+            asc-*.json
+            app-store-versions.json
           retention-days: 3
 
   # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
@@ -904,6 +1029,7 @@ jobs:
             while IFS= read -r f; do args+=(--suite-log "$f"); done < <(find in -name "$fam.log" -type f | sort)
           done
           while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
+          while IFS= read -r f; do args+=(--asc-versions "$f"); done < <(find in -name 'app-store-versions.json' -type f | sort | head -n1)
           if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
           known=cmux-next-ios/AppStoreReview/known-blockers.json
           if [ "$RATCHET" = true ] && [ -f "base/$known" ]; then

@@ -336,11 +336,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # GitHub computes it on the full history. A shallow checkout cannot:
-          # where a boundary hides the real base, git merge-base can return an
-          # older common ancestor without failing.
-          merge_base="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
-          [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no merge base from GitHub: $merge_base" >&2; exit 1; }
+          # GitHub's compare first (full history); git, deepened past the
+          # shallow boundary, when the API fails (rate limit, run 45142205045).
+          merge_base="$(scripts/ci/media_merge_base.sh "$BASE_SHA" "$HEAD_SHA")"
           # The base app builds from it, and pin-cmux-tui.sh
           # resolve-newest-published searches its newest 50 commits.
           git fetch --no-tags --quiet --depth=60 origin "$merge_base"

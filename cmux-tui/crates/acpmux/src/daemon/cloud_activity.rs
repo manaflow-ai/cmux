@@ -61,7 +61,10 @@
 //! stops being at work, so a missed `completed` never holds `tool` past its turn. A missed start
 //! is worse (a tool would run under `model-wait`), so after a lag every session then at work
 //! reports `unknown` (which the Cloud reads as awake) until its turn ends or it is no longer at
-//! work.
+//! work. A restarted daemon missed every event before its start the same way (a tool an agent
+//! host that outlived the last daemon still runs), so every session at work until its startup
+//! settles, and at the first look after, is `unknown` too ([`Tracker::startup`]): a pause never
+//! lands under a tool this daemon did not see start (wake kind 5, cmuxterm-hq RFD 0017).
 //!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
@@ -104,6 +107,9 @@ pub(super) struct Tracker {
     lagged: bool,
     /// Sessions whose tool events may be missing since a lag.
     uncertain: BTreeSet<String>,
+    /// This daemon started after events it never saw (every daemon's own tracker,
+    /// [`Tracker::new`]): until its startup settles, each look is a lag ([`Self::startup`]).
+    restarted: bool,
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
     /// The phases the agent last got, by session: (phase, since).
@@ -121,7 +127,7 @@ pub(super) struct TurnPhase {
 
 impl Tracker {
     pub(super) fn new(daemon: String) -> Tracker {
-        Tracker { daemon, ..Tracker::default() }
+        Tracker { daemon, restarted: true, ..Tracker::default() }
     }
 
     /// An agent acted at `at_ms` (a record's own time).
@@ -189,6 +195,18 @@ impl Tracker {
     /// turn ends.
     pub(super) fn lagged(&mut self) {
         self.lagged = true;
+    }
+
+    /// Before each look ([`Self::observe`]): whether this daemon's startup has settled
+    /// ([`crate::hub::Hub::startup_settled`]). A daemon that just started missed every tool
+    /// event before it (an agent host that outlived the last daemon may run a tool now), so
+    /// until it settles, and at the first look after (adoption's sessions show up then), every
+    /// session at work is `unknown` until its turn ends, as after a lag.
+    pub(super) fn startup(&mut self, settled: bool) {
+        if self.restarted {
+            self.lagged = true;
+            self.restarted = !settled;
+        }
     }
 
     /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
@@ -310,11 +328,14 @@ async fn agent_socket_appears(path: &Path) {
     if path.exists() {
         return;
     }
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    // A coalescing slot of one (RFD 0124 R4): each wake looks at the path again, so one waiting
+    // stands for any number more. An unbounded channel kept one per event in the folder (`/run`
+    // off a Cloud machine, for the daemon's whole life) until the next look.
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             if !matches!(&event, Ok(e) if e.kind.is_access()) {
-                let _ = tx.send(());
+                let _ = tx.try_send(());
             }
         })
     else {
@@ -394,6 +415,8 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         if !path.exists() {
             continue;
         }
+        // Read before the sessions: once settled, this look already sees adoption's sessions.
+        let settled = hub.startup_settled();
         let detail = {
             let hub = hub.clone();
             tokio::task::spawn_blocking(move || hub.sessions_at_work_detail()).await.ok()
@@ -401,13 +424,14 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         let now = crate::store::now_ms();
         let at_work = match &detail {
             Some(detail) => {
+                tracker.startup(settled);
                 tracker.observe(detail, now);
                 detail.len()
             }
             // A count that cannot be read is not a known 0.
             None => 1,
         };
-        let at_work = reported_at_work(at_work, hub.startup_settled());
+        let at_work = reported_at_work(at_work, settled);
         if let Some(at) = hub.last_person_prompt_at() {
             tracker.person_prompted(at);
         }

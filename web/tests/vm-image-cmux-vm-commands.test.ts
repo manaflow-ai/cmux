@@ -6,7 +6,7 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
@@ -283,7 +283,7 @@ describe("cmux VM image apt index", () => {
       mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
       writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
       const run = async (snapshot: string, debs = { "x=1": deb }) => {
-        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replace("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replaceAll(UBUNTU_ARCHIVE, `file://${dir}/no-archive/`);
         return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
       };
       const fetched = await run(`file://${dir}/mirror/`);

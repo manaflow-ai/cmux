@@ -100,6 +100,7 @@ export function OnboardingGallery({
         agentsLook={look}
         makeItYoursLook={makeLook}
         makeItYoursScreen={makeScreen}
+        online={online}
       />
     </div>
   );

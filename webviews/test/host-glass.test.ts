@@ -853,3 +853,28 @@ test("a cover surface with nothing under it to blur is never reported: one glass
   expect(reports.every((report) => report.length === 0)).toBe(true);
   expect(menu.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
 });
+
+// TOOLTIP REFRESH (experiments.hoverLook; Leo, ask-1ca2396492: "the double glassed thing on certain menus"):
+// a restyled tooltip paints its own glass, so the App never draws under it, not at mount and not on any
+// later frame, and turning the look on while a tooltip is open takes the App's glass away from it.
+test("a restyled tooltip is never reported, and turning the look on withdraws an open one", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => {
+    reports.push(surfaces);
+    return Promise.resolve();
+  });
+  const tip = surface(doc);
+  tip.classList.add("ui-tooltip");
+  await frames();
+  expect(reports.at(-1)?.map((s) => s.id)).toEqual(["g1"]);
+  doc.documentElement.setAttribute("data-hover-look", "crisp");
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+  expect(tip.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  const late = surface(doc);
+  late.classList.add("ui-tooltip");
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+  expect(late.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});

@@ -387,20 +387,30 @@ export function importState(kind: ImportFixture = "ready"): OnboardingState {
 
 // MARK: Computer Use
 
-export type ComputerUseFixture = "fresh" | "oneGranted" | "allGranted" | "helperFailed" | "off" | "unavailable";
+/** `finished`: the person's Allow got the last grant on (the done view); `confirmingCapture`: Screen
+ * Recording was just allowed here while Accessibility still waits (the Screenshots row's capture note). */
+export type ComputerUseFixture =
+  | "fresh"
+  | "oneGranted"
+  | "allGranted"
+  | "finished"
+  | "confirmingCapture"
+  | "helperFailed"
+  | "off"
+  | "unavailable";
 
 export function computerUseState(kind: ComputerUseFixture = "fresh"): OnboardingState {
+  const allOn = kind === "allGranted" || kind === "finished";
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || kind === "allGranted" ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
       pane: "screenRecording",
       control:
-        kind === "allGranted"
+        allOn || kind === "confirmingCapture"
           ? "done"
           : kind === "helperFailed"
             ? "hidden"
@@ -412,13 +422,13 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   ];
   return {
     step: "computerUse",
-    footer: footer({ primary: "done", primaryEnabled: kind === "allGranted" }),
+    footer: footer({ primary: "done", primaryEnabled: allOn }),
     agents: null,
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
       rows,
-      allGranted: kind === "allGranted",
+      allGranted: allOn,
       note:
         kind === "helperFailed"
           ? "helperFailed"
@@ -428,7 +438,9 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               ? "unavailable"
               : null,
       showsRestart: kind === "helperFailed",
-      comebacks: kind === "oneGranted" ? 1 : 0,
+      comebacks: kind === "oneGranted" || kind === "confirmingCapture" ? 1 : kind === "finished" ? 2 : 0,
+      finished: kind === "finished",
+      confirmsCapture: kind === "confirmingCapture" || kind === "finished",
     },
   };
 }

@@ -203,6 +203,12 @@ export interface ComputerUseState {
   /** A grant landed or the drag panel's back button closed it: the count goes up, and the page
    * moves focus back to its primary control. */
   comebacks: number;
+  /** The person's Allow got the last grant on: the done view, and the window closes by itself. A
+   * window opened with every grant already on keeps the rows and the ready line instead. */
+  finished: boolean;
+  /** Screen Recording turned on after the person allowed it here: the Screenshots row says macOS
+   * asks once more (the private window picker "bypass" alert) the first time it captures. */
+  confirmsCapture: boolean;
 }
 
 // MARK: Make cmux Yours

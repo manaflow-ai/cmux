@@ -37,7 +37,9 @@ mod call;
 mod chat_perf;
 mod classic;
 mod events;
+mod fallback_socket;
 mod group_create;
+mod health;
 mod join;
 mod keybinding;
 mod launch_times;
@@ -225,6 +227,8 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
+    Health(health::Command),
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
@@ -342,6 +346,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
@@ -915,12 +920,13 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Live(command) => {
             let command =
                 live::routed(command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
         _ => {}
     }
@@ -1066,12 +1072,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Live(command) => {
             let command =
                 live::routed(&command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
@@ -1383,8 +1390,11 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let Some(flag) = explicit_daemon_route(global) else {
+        // No app around this CLI and none in its environment (an ssh shell, a `cmux` copied onto
+        // `PATH`): the one cmux NIGHTLY that answers, when exactly one does.
         return identity
             .map(|identity| identity.control_socket(&home))
+            .or_else(|| fallback_socket::nightly(&home))
             .ok_or_else(|| messages.no_app.to_owned());
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
@@ -1561,7 +1571,8 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
 
 /// An app from before `caller` refuses it as an unknown param (its
 /// `browser.open_split` takes no unknown params): the request is sent again
-/// without it, so a newer CLI still opens the tab there.
+/// without it, so a newer CLI still opens the tab there. (Newer daemons ignore an unknown
+/// param instead of refusing it; this fallback stays for the older builds that refuse.)
 fn refused_caller(response: &Result<Value, Value>) -> bool {
     let Err(error) = response else { return false };
     error_code(error) == Some("invalid_params")

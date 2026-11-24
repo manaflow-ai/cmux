@@ -1,9 +1,11 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
-import { sampleMachines, sampleSnapshots } from "./mockData";
+import { sampleMachines, sampleSnapshots, sampleSurge } from "./mockData";
 import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
+const surgeDone = sampleSurge(25);
+const surgeStarting = sampleSurge(25, 7);
 const snapshots = sampleSnapshots();
 const diskReport = (
   free_mb: number,
@@ -202,6 +204,18 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "surge-drained": {
+      note: "After a surge of 25 machines: all ready, the last one 33 s after the start, queue drained.",
+      machines: [...surgeDone.machines, ...machines],
+      surge: surgeDone.surge,
+      snapshots,
+    },
+    "surge-starting": {
+      note: "A surge of 25 machines with 7 still provisioning: the card counts what is still starting.",
+      machines: [...surgeStarting.machines, ...machines],
+      surge: surgeStarting.surge,
+      snapshots,
     },
     "disk-healthy": {
       note: "Fresh disk reports show free and used capacity with the configured floor and top users.",
@@ -421,6 +435,34 @@ export default cloudPageEntry({
       note: "Cloud settings: the plan's cleanup in words, the email heads-up toggle and the team's numbers.",
       action: "cleanup-team",
       retention: { ...freeRetention, team: { heads_up_days: 7 } },
+      machines,
+      snapshots,
+    },
+    "billing-past-due": {
+      note: "The latest renewal failed (cmux.com paymentPastDue): one line under the plan with Manage Billing.",
+      planId: "pro",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-past-due-max": {
+      note: "A failed renewal on the Max plan: the same line and Manage Billing; the plan name is the plan's own.",
+      planId: "max",
+      paymentPastDue: true,
+      machines,
+      snapshots,
+    },
+    "billing-paid": {
+      note: "A paid plan whose renewal went through: no payment line.",
+      planId: "pro",
+      paymentPastDue: false,
+      machines,
+      snapshots,
+    },
+    "billing-read-failed": {
+      note: "The billing read fails (cmux.com unreachable): no payment line, the plan shows as usual.",
+      planId: "pro",
+      paymentPastDue: "fail",
       machines,
       snapshots,
     },

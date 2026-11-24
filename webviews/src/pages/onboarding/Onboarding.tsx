@@ -143,6 +143,11 @@ function Scaffold({
         </h1>
         {agents && <p className="onb-sentence">{strings.t("onboarding.agents.body")}</p>}
         {make && <p className="onb-sentence">{strings.t(makeText.body)}</p>}
+        {offlineShown && (
+          <output className="onb-offline" aria-live="polite">
+            {strings.t("onboarding.offline")}
+          </output>
+        )}
       </header>
       <div className="onb-body">
         {agents ? (
@@ -241,6 +246,7 @@ export function OnboardingPage({
             walk={{ screen, go: setScreen }}
             opened={opened.current}
             readiness={readiness}
+            online={online}
           />
         )}
       </div>
