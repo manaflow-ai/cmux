@@ -273,6 +273,22 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
+    // lists this id, so an older peer is never sent a `connect` it would drop.
+    Capability {
+        id: crate::server::channels::CAPABILITY,
+        wire: &[
+            method::MUX_CHANNEL_LISTEN,
+            method::MUX_CHANNEL_UNLISTEN,
+            method::MUX_CHANNEL_OPEN,
+            method::MUX_CHANNEL_SEND,
+            method::MUX_CHANNEL_CLOSE,
+            method::MUX_CHANNEL_CONNECT,
+            method::MUX_CHANNEL_OPENED,
+            method::MUX_CHANNEL_DATA,
+            method::MUX_CHANNEL_CLOSED,
+        ],
+    },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {

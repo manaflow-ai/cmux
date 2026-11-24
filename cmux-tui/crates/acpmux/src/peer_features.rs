@@ -79,6 +79,19 @@ impl Peer {
         self.session_messages.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it serves agent byte channels
+    /// (`server/channels.rs`, `agent-channels-v1`).
+    pub fn agent_channels(&self) -> bool {
+        self.agent_channels.load(Ordering::SeqCst)
+    }
+
+    /// Integration-test stand-in for a peer from before `agent-channels-v1`: until the next
+    /// handshake, as though it had not listed it.
+    #[doc(hidden)]
+    pub fn forget_agent_channels_for_tests(&self) {
+        self.agent_channels.store(false, Ordering::SeqCst);
+    }
+
     /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
     /// handshake, as though it had not listed it.
     #[doc(hidden)]

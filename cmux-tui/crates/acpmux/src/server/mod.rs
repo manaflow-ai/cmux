@@ -2411,6 +2411,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // Its listeners go and its channels close on their other side (`channels.rs`).
+    channels::conn_ended(&hub, &conn).await;
     // The link's v2 connection ends with it.
     drop(link_v2);
     let preparations: Vec<_> =
@@ -2812,6 +2814,8 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
