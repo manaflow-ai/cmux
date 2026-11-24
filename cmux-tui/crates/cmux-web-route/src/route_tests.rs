@@ -52,7 +52,7 @@ fn the_shared_vectors_read_the_same_here() {
                 }
             }
             (Value::Null, Value::String(code), Err(e)) => {
-                assert_eq!(e.code(), code, "{name}: {address}")
+                assert_eq!(e.code(), code, "{name}: {address}");
             }
             (_, _, got) => panic!("{name}: {address} read as {got:?}"),
         }
