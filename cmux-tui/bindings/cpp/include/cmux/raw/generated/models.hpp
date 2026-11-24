@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "97d06eb386d91e9f2a3b47b2b22c5e88879c140d8344cd814bf07b55b0c9a936";
+inline constexpr std::string_view kProtocolIrSha256 = "bfbb4b4a1c00cb2dbe1454f3eb1e8a8fb2b302d5642fbdc12a0c49c38183a0f5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -509,6 +509,7 @@ struct PasteImageRequest;
 struct PasteImageResult;
 struct PinWorkspaceRequest;
 struct PingRequest;
+struct ProcessCensusRequest;
 struct ProcessInfoRequest;
 struct PutBlobRequest;
 struct PutFrontendProjectionRequest;
@@ -3894,6 +3895,7 @@ struct ListWorkspacesKnown {
 };
 
 struct ListWorkspacesRequest {
+    Field<std::uint64_t> after{};
     Field<ListWorkspacesKnown> known{};
     Field<std::uint64_t> limit{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
@@ -4632,6 +4634,10 @@ struct PingResult {
     std::uint32_t protocol{};
     std::string version{};
     friend bool operator==(const PingResult&, const PingResult&) = default;
+};
+
+struct ProcessCensusRequest {
+    friend bool operator==(const ProcessCensusRequest&, const ProcessCensusRequest&) = default;
 };
 
 struct ProcessInfoRequest {
@@ -6441,6 +6447,7 @@ struct Workspace {
 
 struct Tree {
     std::optional<std::string> generation{};
+    std::optional<std::uint64_t> next{};
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::uint64_t> terminal_revision{};
@@ -9732,6 +9739,12 @@ template <>
 struct Codec<PingRequest> {
     static Result<Json> encode(const PingRequest& value);
     static Result<PingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ProcessCensusRequest> {
+    static Result<Json> encode(const ProcessCensusRequest& value);
+    static Result<ProcessCensusRequest> decode(const Json& value);
 };
 
 template <>

@@ -110,7 +110,12 @@
       "why": "Which New Tab page draws; a look switch, ends no work.",
       "keys": [
         "tabs.nativeNewTabPage",
-        "tabs.newTabApp"
+        "tabs.newTabApp",
+        "tabs.newTabClock.show",
+        "tabs.newTabClock.font",
+        "tabs.newTabClock.weight",
+        "tabs.newTabClock.color",
+        "tabs.newTabClock.date"
       ]
     },
     {
@@ -278,6 +283,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
@@ -821,6 +827,7 @@
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -851,6 +858,8 @@
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
+        "agentPane.display.modelChipIcon",
+        "agentPane.display.queueing",
         "agentPane.display.rail.side",
         "agentPane.display.rail.show",
         "agentPane.display.rail.control",
@@ -1525,6 +1534,13 @@
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.",
+      "keys": [
+        "diagnostics.shareInstallCounts"
       ]
     },
     {

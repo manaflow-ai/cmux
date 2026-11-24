@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 97d06eb386d91e9f2a3b47b2b22c5e88879c140d8344cd814bf07b55b0c9a936. */
+/* cmux-tui mux protocol 12, IR bfbb4b4a1c00cb2dbe1454f3eb1e8a8fb2b302d5642fbdc12a0c49c38183a0f5. */
 
 
 import type * as T from "./types.js";
@@ -1578,6 +1578,7 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
 }
@@ -2083,6 +2084,12 @@ export type PinWorkspaceResult = T.JsonValue;
 export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface ProcessCensusRequest extends CmuxRequestBase {
+  cmd: "process-census";
+}
+export type ProcessCensusResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
@@ -3350,6 +3357,7 @@ export type CmuxRequest =
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
+  | ProcessCensusRequest
   | ProcessInfoRequest
   | PutBlobRequest
   | PutFrontendProjectionRequest
@@ -5026,6 +5034,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "process-census": {
+    request: ProcessCensusRequest;
+    result: ProcessCensusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "process-census-v1";
     stream: null;
   };
   "process-info": {

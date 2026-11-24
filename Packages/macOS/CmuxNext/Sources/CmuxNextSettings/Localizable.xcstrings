@@ -19550,6 +19550,534 @@
         }
       }
     },
+    "settings.agentPane.display.modelChipIcon": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Logo in Composer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شعار النموذج في مربع الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo modela u polju za pisanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell-Logo im Eingabefeld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipo del modelo en el campo de redacción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo du modèle dans la zone de saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo del modello nel campo di scrittura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄にモデルのロゴを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "និមិត្តសញ្ញាម៉ូដែលក្នុងប្រអប់សរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창에 모델 로고 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modellogo i skrivefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo modelu w polu tekstowym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipo do modelo no campo de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип модели в поле ввода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โลโก้โมเดลในช่องเขียนข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanında model logosu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логотип моделі в полі введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo mô hình trong ô soạn thảo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在输入框中显示模型标志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在輸入框中顯示模型標誌"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.modelChipIcon.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض شعار المزوّد بجانب اسم النموذج في مربع الرسالة. انقر بزر الماوس الأيمن على النموذج لإيقافه أو تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje logo dobavljača pored naziva modela u polju za poruku. Desnim klikom na model ga isključite ili uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser udbyderens logo ved siden af modellens navn i beskedfeltet. Højreklik på modellen for at slå det fra eller til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Logo des Anbieters neben dem Modellnamen im Nachrichtenfeld. Klicke mit der rechten Maustaste auf das Modell, um es aus- oder einzuschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el logotipo del proveedor junto al nombre del modelo en el cuadro de mensaje. Haz clic derecho en el modelo para desactivarlo o activarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le logo du fournisseur à côté du nom du modèle dans la zone de message. Cliquez avec le bouton droit sur le modèle pour le désactiver ou l'activer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il logo del fornitore accanto al nome del modello nel riquadro del messaggio. Fai clic destro sul modello per disattivarlo o attivarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ欄のモデル名の横にプロバイダのロゴを表示します。モデルを右クリックするとオン・オフを切り替えられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញនិមិត្តសញ្ញារបស់អ្នកផ្តល់សេវានៅជាប់ឈ្មោះម៉ូដែលក្នុងប្រអប់សារ។ ចុចកណ្ដុរស្ដាំលើម៉ូដែលដើម្បីបិទ ឬបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 상자의 모델 이름 옆에 제공업체 로고를 표시합니다. 모델을 오른쪽 클릭해 끄거나 켤 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser leverandørens logo ved siden av modellnavnet i meldingsfeltet. Høyreklikk på modellen for å slå det av eller på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje logo dostawcy obok nazwy modelu w polu wiadomości. Kliknij model prawym przyciskiem, aby je wyłączyć lub włączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o logotipo do provedor ao lado do nome do modelo na caixa de mensagem. Clique com o botão direito no modelo para desativar ou ativar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает логотип поставщика рядом с названием модели в поле сообщения. Нажмите на модель правой кнопкой, чтобы выключить или включить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโลโก้ของผู้ให้บริการข้างชื่อโมเดลในช่องข้อความ คลิกขวาที่โมเดลเพื่อปิดหรือเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj kutusunda modelin adının yanında sağlayıcının logosunu gösterir. Kapatmak veya açmak için modele sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує логотип постачальника поруч із назвою моделі в полі повідомлення. Клацніть модель правою кнопкою, щоб вимкнути або ввімкнути його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện logo của nhà cung cấp cạnh tên mô hình trong ô tin nhắn. Nhấp chuột phải vào mô hình để tắt hoặc bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在消息框中的模型名称旁显示提供方的标志。右键点按模型可将其关闭或打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在訊息框中的模型名稱旁顯示提供者的標誌。按右鍵點按模型可將其關閉或開啟。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.queueing": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue Prompts During a Turn"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع الطلبات في قائمة الانتظار أثناء الدور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stavi upite u red tokom poteza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sæt prompter i kø under en tur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompts während eines Durchgangs einreihen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner en cola las instrucciones durante un turno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre les invites en file pendant un tour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti in coda i prompt durante un turno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターン中のプロンプトをキューに入れる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ប្រអប់បញ្ចូលក្នុងជួររង់ចាំក្នុងវេន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴 중 프롬프트를 대기열에 넣기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett ledetekster i kø under en tur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejkuj polecenia podczas tury"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfileirar prompts durante um turno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ставить запросы в очередь во время хода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดคิวพรอมต์ระหว่างรอบการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tur sırasında istemleri sıraya al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ставити запити в чергу під час ходу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xếp hàng lời nhắc trong một lượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回合进行中将提示加入队列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回合進行中將提示加入佇列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.queueing.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، يضع زر الإرسال و⌘Return الطلب المُرسل أثناء الدور في قائمة الانتظار، ويوجّهه Return إلى الدور الجاري. عند الإيقاف، يوجّه كل إرسال، فلا ينتظر شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključeno: Pošalji i ⌘Return stavljaju u red upit poslan tokom poteza, a Return ga usmjerava u potez. Isključeno: svako slanje usmjerava, pa ništa ne čeka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Til: Send og ⌘Return sætter en prompt sendt under en tur i kø, og Return styrer den ind i turen. Fra: hver afsendelse styrer, så intet venter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein: Senden und ⌘Return reihen einen Prompt, der während eines Durchgangs gesendet wird, ein, und Return lenkt ihn in den Durchgang. Aus: Jedes Senden lenkt, nichts wartet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado: Enviar y ⌘Return ponen en cola una instrucción enviada durante un turno, y Return la dirige al turno. Desactivado: cada envío la dirige, así que nada espera."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé : Envoyer et ⌘Retour mettent en file une invite envoyée pendant un tour, et Retour l'oriente dans le tour. Désactivé : chaque envoi oriente, rien n'attend."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivo: Invia e ⌘Return mettono in coda un prompt inviato durante un turno, e Return lo indirizza nel turno. Disattivo: ogni invio lo indirizza, così niente resta in attesa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、ターン中に送ったプロンプトは送信と ⌘Return でキューに入り、Return でそのターンに割り込ませます。オフにすると、どの送信も割り込むので待つものはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក៖ ផ្ញើ និង ⌘Return ដាក់ប្រអប់បញ្ចូលដែលបានផ្ញើក្នុងវេនក្នុងជួររង់ចាំ ហើយ Return បញ្ជូនវាចូលវេន។ បិទ៖ ការផ្ញើនីមួយៗបញ្ជូនចូល ដូច្នេះគ្មានអ្វីរង់ចាំទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 턴 중에 보낸 프롬프트를 보내기와 ⌘Return이 대기열에 넣고, Return은 진행 중인 턴에 끼워 넣습니다. 끄면 모든 전송이 끼워 넣어지므로 기다리는 것이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På: Send og ⌘Return setter en ledetekst sendt under en tur i kø, og Return styrer den inn i turen. Av: hver sending styrer, så ingenting venter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włączone: Wyślij i ⌘Return kolejkują polecenie wysłane w trakcie tury, a Return kieruje je do tury. Wyłączone: każde wysłanie kieruje, więc nic nie czeka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativado: Enviar e ⌘Return enfileiram um prompt enviado durante um turno, e Return o direciona para o turno. Desativado: cada envio direciona, então nada espera."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включено: «Отправить» и ⌘Return ставят запрос, отправленный во время хода, в очередь, а Return направляет его в текущий ход. Выключено: каждая отправка направляет, ничего не ждёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด: ส่งและ ⌘Return จะจัดคิวพรอมต์ที่ส่งระหว่างรอบ และ Return จะนำเข้าสู่รอบนั้น ปิด: ทุกการส่งจะนำเข้าทันที จึงไม่มีอะไรรอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık: Gönder ve ⌘Return, tur sırasında gönderilen istemi sıraya alır; Return onu tura yönlendirir. Kapalı: her gönderim yönlendirir, hiçbir şey beklemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнено: «Надіслати» і ⌘Return ставлять у чергу запит, надісланий під час ходу, а Return спрямовує його в хід. Вимкнено: кожне надсилання спрямовує, тож ніщо не чекає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật: Gửi và ⌘Return xếp hàng lời nhắc gửi trong một lượt, còn Return lái nó vào lượt đó. Tắt: mỗi lần gửi đều lái vào, nên không có gì phải chờ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开时，回合进行中发送的提示会通过“发送”和 ⌘Return 加入队列，Return 则将其插入当前回合。关闭时，每次发送都会插入，不会有任何等待。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，回合進行中傳送的提示會透過「傳送」和 ⌘Return 加入佇列，Return 則將其插入目前回合。關閉時，每次傳送都會插入，不會有任何等待。"
+          }
+        }
+      }
+    },
     "settings.choice.harnessSymbols": {
       "extractionState": "manual",
       "localizations": {
@@ -177160,6 +177688,270 @@
         }
       }
     },
+    "settings.agentPane.display.sendPop": {
+      "comment": "Settings > Appearance > Agent Chat > Pop In Sent Prompts: the title of the toggle that animates a sent prompt into the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الطلبات المرسلة بحركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj poslane upite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad sendte prompts poppe ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesendete Prompts einblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop In Sent Prompts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar los prompts enviados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les prompts envoyés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i prompt inviati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信したプロンプトをポップ表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ prompt ដែលបានផ្ញើដោយចលនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낸 프롬프트 팝 효과"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sendte prompter sprette inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj wysłane prompty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar prompts enviados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать отправленные запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง prompt ที่ส่งแบบเด้งเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderilen istemleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати надіслані запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiệu ứng bật cho lời nhắc đã gửi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送的提示弹入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送的提示彈入"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.sendPop.help": {
+      "comment": "Settings > Appearance > Agent Chat > Pop In Sent Prompts: help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يظهر الطلب الذي ترسله بحركة ويستقر في مكانه بدلًا من الظهور فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upit koji pošaljete iskoči i smiri se na svom mjestu, umjesto da se odmah pojavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En prompt, du sender, popper ind og falder på plads i stedet for at dukke op med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein gesendeter Prompt springt herein und setzt sich an seinen Platz, statt sofort zu erscheinen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A prompt you send pops in and settles where it lands, instead of appearing at once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt que envías aparece con un pequeño salto y se asienta en su sitio, en lugar de aparecer de golpe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt envoyé apparaît avec un petit rebond et se pose à sa place, au lieu d'apparaître d'un coup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un prompt inviato compare con un piccolo balzo e si assesta al suo posto, invece di apparire di colpo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信したプロンプトが即座に表示される代わりに、ポップして所定の位置に収まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt ដែលអ្នកផ្ញើលោតចូល ហើយតាំងនៅកន្លែងរបស់វា ជំនួសឲ្យការបង្ហាញភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보낸 프롬프트가 바로 나타나는 대신 튀어나온 뒤 제자리에 자리 잡습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En prompt du sender, spretter inn og legger seg på plass i stedet for å vises med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysłany prompt wskakuje i osiada na swoim miejscu, zamiast pojawić się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um prompt enviado surge com um pequeno salto e se acomoda no lugar, em vez de aparecer de uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправленный запрос появляется с лёгким толчком и встаёт на место, а не возникает сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt ที่คุณส่งจะเด้งเข้ามาแล้วลงตัวในตำแหน่ง แทนที่จะปรากฏทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderdiğiniz istem hemen görünmek yerine küçük bir sıçrayışla gelip yerine oturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надісланий запит з'являється з легким поштовхом і стає на місце, а не виникає одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc bạn gửi bật vào rồi nằm yên tại chỗ, thay vì hiện ra ngay lập tức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你发送的提示会弹入并落定到位，而不是立即出现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你傳送的提示會彈入並落定到位，而不是立即出現。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.width": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -181378,6 +182170,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux Sans"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontCmuxSansSquat": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Squat"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontCmuxSansCandy": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Candy"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatUiFontCmuxSansOpen": {
+      "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sans Open"
           }
         }
       }
@@ -231908,6 +233096,84 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Mẫu sử dụng"}}
       }
     },
+    "settings.diagnostics.shareInstallCounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Share Package Installs to Improve cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مشاركة تثبيت الحزم لتحسين cmux"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Paketinstallationen teilen, um cmux zu verbessern"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compartir instalaciones de paquetes para mejorar cmux"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Partager les installations de paquets pour améliorer cmux"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージのインストール情報を共有して cmux を改善"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 설치 정보를 공유해 cmux 개선"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "共享软件包安装情况以改进 cmux"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "分享套件安裝情況以改進 cmux"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dijeli instalacije paketa za poboljšanje cmuxa"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallationer for at forbedre cmux"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Condividi le installazioni di pacchetti per migliorare cmux"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចែករំលែកការដំឡើងកញ្ចប់ ដើម្បីកែលម្អ cmux"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Del pakkeinstallasjoner for å forbedre cmux"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Udostępniaj instalacje pakietów, by ulepszyć cmux"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Compartilhar instalações de pacotes para melhorar o cmux"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Делиться установками пакетов, чтобы улучшать cmux"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชร์การติดตั้งแพ็กเกจเพื่อปรับปรุง cmux"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "cmux'u geliştirmek için paket kurulumlarını paylaş"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Ділитися встановленнями пакетів, щоб покращувати cmux"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chia sẻ lượt cài gói để cải thiện cmux"}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يرسل إلى cmux أسماء الحزم التي يثبّتها الوكلاء والأدوات التي تضيفها إلى أجهزة Cloud الخاصة بك، لكي تأتي أجهزة Cloud الجديدة وفيها الشائع منها منزّلًا مسبقًا. أسماء وأعداد فقط، ولا يرسل أبدًا المطالبات أو الأوامر أو أسماء الملفات أو المشاريع أو أي شيء يعرّف بك. إيقافه يحذف قائمة أدواتك."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sendet cmux die Namen der Pakete, die Agenten installieren, und der Tools, die du deinen Cloud-Maschinen hinzufügst, damit neue Cloud-Maschinen die üblichen schon heruntergeladen haben. Nur Namen und Anzahlen, nie Prompts, Befehle, Datei- oder Projektnamen oder etwas, das dich identifiziert. Beim Ausschalten wird deine Tool-Liste gelöscht."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Envía a cmux los nombres de los paquetes que instalan los agentes y de las herramientas que añades a tus máquinas Cloud, para que las nuevas máquinas Cloud vengan con las habituales ya descargadas. Solo nombres y recuentos, nunca prompts, comandos, nombres de archivos o proyectos ni nada que te identifique. Al desactivarlo se borra tu lista de herramientas."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Envoie à cmux les noms des paquets que les agents installent et des outils que vous ajoutez à vos machines Cloud, pour que les nouvelles machines Cloud arrivent avec les plus courants déjà téléchargés. Noms et nombres seulement, jamais de prompts, commandes, noms de fichiers ou de projets, ni rien qui vous identifie. Le désactiver supprime votre liste d’outils."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "エージェントがインストールしたパッケージと、Cloud マシンに追加したツールの名前を cmux に送信し、新しい Cloud マシンによく使われるものを事前にダウンロードしておきます。送るのは名前と回数だけで、プロンプト、コマンド、ファイル名やプロジェクト名、あなたを特定できる情報は送りません。オフにするとツールの一覧は削除されます。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 설치한 패키지와 Cloud 머신에 추가한 도구의 이름을 cmux에 보내, 새 Cloud 머신에 자주 쓰는 것들이 미리 내려받아져 있게 합니다. 이름과 횟수만 보내며 프롬프트, 명령, 파일 또는 프로젝트 이름, 사용자를 식별할 수 있는 정보는 절대 보내지 않습니다. 끄면 도구 목록이 삭제됩니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "向 cmux 发送代理安装的软件包名称以及你添加到 Cloud 机器上的工具名称，让新的 Cloud 机器预先下载好常用的那些。只发送名称和次数，从不发送提示词、命令、文件或项目名称，或任何能识别你的信息。关闭后会删除你的工具列表。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "向 cmux 傳送代理安裝的套件名稱，以及你加到 Cloud 機器上的工具名稱，讓新的 Cloud 機器預先下載好常用的那些。只傳送名稱和次數，絕不傳送提示詞、指令、檔案或專案名稱，或任何能識別你的資訊。關閉後會刪除你的工具清單。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šalje cmuxu nazive paketa koje agenti instaliraju i alata koje dodaš na svoje Cloud mašine, da nove Cloud mašine dođu s uobičajenima već preuzetim. Samo nazivi i brojevi, nikad promptovi, komande, nazivi datoteka ili projekata niti išta što te identifikuje. Isključivanje briše tvoju listu alata."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sender cmux navnene på pakker, som agenter installerer, og på værktøjer, du tilføjer til dine Cloud-maskiner, så nye Cloud-maskiner har de almindelige allerede hentet. Kun navne og antal, aldrig prompts, kommandoer, fil- eller projektnavne eller noget, der identificerer dig. Når du slår det fra, slettes din værktøjsliste."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Invia a cmux i nomi dei pacchetti che gli agenti installano e degli strumenti che aggiungi alle tue macchine Cloud, così le nuove macchine Cloud arrivano con quelli comuni già scaricati. Solo nomi e conteggi, mai prompt, comandi, nomi di file o progetti né nulla che ti identifichi. Disattivarlo elimina il tuo elenco di strumenti."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ញើឈ្មោះកញ្ចប់ដែលភ្នាក់ងារដំឡើង និងឧបករណ៍ដែលអ្នកបន្ថែមទៅម៉ាស៊ីន Cloud របស់អ្នក ទៅ cmux ដើម្បីឱ្យម៉ាស៊ីន Cloud ថ្មីមានរបស់ដែលប្រើញឹកញាប់ទាញយករួចហើយ។ មានតែឈ្មោះ និងចំនួនប៉ុណ្ណោះ មិនដែលផ្ញើ prompt ពាក្យបញ្ជា ឈ្មោះឯកសារ ឬគម្រោង ឬអ្វីដែលបញ្ជាក់អត្តសញ្ញាណអ្នកទេ។ ការបិទវានឹងលុបបញ្ជីឧបករណ៍របស់អ្នក។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sender cmux navnene på pakker agenter installerer og på verktøy du legger til på Cloud-maskinene dine, så nye Cloud-maskiner har de vanlige allerede lastet ned. Bare navn og antall, aldri prompter, kommandoer, fil- eller prosjektnavn eller noe som identifiserer deg. Når du slår det av, slettes verktøylisten din."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysyła do cmux nazwy pakietów instalowanych przez agentów i narzędzi dodanych przez Ciebie do maszyn Cloud, aby nowe maszyny Cloud miały popularne z nich już pobrane. Tylko nazwy i liczby, nigdy prompty, polecenia, nazwy plików lub projektów ani nic, co Cię identyfikuje. Wyłączenie usuwa Twoją listę narzędzi."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Envia ao cmux os nomes dos pacotes que os agentes instalam e das ferramentas que você adiciona às suas máquinas Cloud, para que novas máquinas Cloud venham com as mais comuns já baixadas. Só nomes e contagens, nunca prompts, comandos, nomes de arquivos ou projetos nem nada que identifique você. Desativar apaga sua lista de ferramentas."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отправляет в cmux названия пакетов, которые устанавливают агенты, и инструментов, которые вы добавляете на свои Cloud-машины, чтобы новые Cloud-машины приходили с популярными уже загруженными. Только названия и количество, никогда промпты, команды, имена файлов или проектов и ничего, что вас идентифицирует. Выключение удаляет ваш список инструментов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งชื่อแพ็กเกจที่เอเจนต์ติดตั้งและเครื่องมือที่คุณเพิ่มลงในเครื่อง Cloud ของคุณไปยัง cmux เพื่อให้เครื่อง Cloud ใหม่มีตัวที่ใช้บ่อยดาวน์โหลดไว้แล้ว ส่งแค่ชื่อและจำนวนเท่านั้น ไม่ส่งพรอมต์ คำสั่ง ชื่อไฟล์หรือโปรเจกต์ หรือสิ่งใดที่ระบุตัวคุณ การปิดจะลบรายการเครื่องมือของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların kurduğu paketlerin ve Cloud makinelerine eklediğin araçların adlarını cmux'a gönderir, böylece yeni Cloud makineleri yaygın olanlar önceden indirilmiş gelir. Yalnızca adlar ve sayılar; asla istemler, komutlar, dosya veya proje adları ya da seni tanımlayan bir şey gönderilmez. Kapatmak araç listeni siler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Надсилає cmux назви пакетів, які встановлюють агенти, та інструментів, які ви додаєте на свої Cloud-машини, щоб нові Cloud-машини мали поширені вже завантаженими. Лише назви й кількість, ніколи промпти, команди, назви файлів чи проєктів або будь-що, що вас ідентифікує. Вимкнення видаляє ваш список інструментів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi cho cmux tên các gói mà agent cài và các công cụ bạn thêm vào máy Cloud của mình, để máy Cloud mới có sẵn những thứ phổ biến đã tải về. Chỉ tên và số lần, không bao giờ gửi prompt, lệnh, tên tệp hay dự án, hoặc bất cứ gì nhận dạng bạn. Tắt nó sẽ xóa danh sách công cụ của bạn."}}
+      }
+    },
+    "settings.diagnostics.shareInstallCounts.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Package names and counts only."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أسماء الحزم وأعدادها فقط."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nur Paketnamen und Anzahlen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Solo nombres de paquetes y cantidades."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Noms de paquets et nombres uniquement."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パッケージ名と回数のみ。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "패키지 이름과 횟수만."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "仅包含软件包名称和次数。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "僅包含套件名稱和次數。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Samo nazivi paketa i brojevi."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kun pakkenavne og antal."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Solo nomi dei pacchetti e conteggi."}},
+        "km": {"stringUnit": {"state": "translated", "value": "តែឈ្មោះកញ្ចប់ និងចំនួនប៉ុណ្ណោះ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bare pakkenavn og antall."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tylko nazwy pakietów i liczby."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Somente nomes de pacotes e contagens."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Только названия пакетов и счётчики."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เฉพาะชื่อแพ็กเกจและจำนวนเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yalnızca paket adları ve sayılar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Лише назви пакетів і лічильники."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chỉ tên gói và số lần."}}
+      }
+    },
     "settings.diagnostics.usagePatterns": {
       "extractionState": "manual",
       "localizations": {
@@ -234196,6 +235462,2495 @@
           "stringUnit": {
             "state": "translated",
             "value": "新分頁輸入框上的擴充功能"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ساعة في علامة تبويب جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sat na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ur på Ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uhr auf „Neuer Tab“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reloj en Nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horloge dans Nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orologio in Nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブの時計"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាឡិកាក្នុងផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 시계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klokke på Ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zegar na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relógio na Nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Часы на новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นาฬิกาในแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme'de Saat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Годинник у новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng hồ trên Tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页时钟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁時鐘"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.show.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ساعة كبيرة فوق مربع الكتابة في علامة تبويب جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veliki sat iznad polja za pisanje nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et stort ur over skrivefeltet på siden Ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine große Uhr über dem Eingabefeld von „Neuer Tab“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A large clock over the New Tab composer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reloj grande sobre el redactor de Nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une grande horloge au-dessus de la zone de saisie de Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un grande orologio sopra il compositore di Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブの入力欄の上に表示する大きな時計。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាឡិកាធំពីលើប្រអប់សរសេរនៃផ្ទាំងថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 입력창 위에 표시되는 큰 시계입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En stor klokke over skrivefeltet på siden Ny fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duży zegar nad polem tworzenia nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um relógio grande sobre o editor da Nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Большие часы над полем ввода новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นาฬิกาขนาดใหญ่เหนือช่องเขียนของแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekme yazma alanının üzerinde büyük bir saat."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Великий годинник над полем введення нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng hồ lớn phía trên ô soạn của Tab mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页输入框上方的大时钟。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁輸入框上方的大時鐘。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.font": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط الساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font sata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urets skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftart der Uhr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock Font"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del reloj"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l’horloge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carattere dell'orologio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時計のフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរនាឡិកា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시계 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klokkens skrifttype"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka zegara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do relógio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт часов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฟอนต์นาฬิกา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт годинника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ đồng hồ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时钟字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時鐘字體"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.weight": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سماكة الساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debljina sata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urets tykkelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftstärke der Uhr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock Weight"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grosor del reloj"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graisse de l’horloge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spessore dell'orologio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時計の太さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទម្ងន់នាឡិកា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시계 두께"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klokkens tykkelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grubość czcionki zegara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peso do relógio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насыщенность часов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหนานาฬิกา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat Kalınlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Товщина шрифту годинника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ đậm đồng hồ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时钟字重"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時鐘字重"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون الساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja sata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urets farve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe der Uhr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del reloj"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’horloge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell'orologio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時計の色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌នាឡិកា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시계 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klokkens farge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor zegara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor do relógio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет часов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีนาฬิกา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір годинника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu đồng hồ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时钟颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時鐘顏色"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabClock.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التاريخ فوق الساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datum iznad sata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dato over uret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datum über der Uhr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date over Clock"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fecha sobre el reloj"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date au-dessus de l’horloge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data sopra l'orologio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時計の上の日付"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាលបរិច្ឆេទលើនាឡិកា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시계 위 날짜"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dato over klokken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data nad zegarem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data sobre o relógio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата над часами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วันที่เหนือนาฬิกา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saatin Üzerinde Tarih"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата над годинником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngày phía trên đồng hồ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时钟上方日期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時鐘上方日期"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockFontRounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستدير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaobljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afrundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerundet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redondeada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrondie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrotondato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丸ゴシック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "둥근 꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avrundet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaokrąglona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arredondada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скруглённый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yuvarlak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Округлий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bo tròn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圓體"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockFontSystem": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockFontSerif": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيريف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セリフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세리프"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szeryfowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serifada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С засечками"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีเชิง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З засічками"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "衬线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "襯線"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockFontMono": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحادي المسافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospaced"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monoespaciada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospazio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等幅"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងស្មើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정폭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monospace"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stałej szerokości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monoespaçada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моноширинный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมโนสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eş Aralıklı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Моноширинний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đơn cách"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等宽"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等寬"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockFontCondensed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضغوط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schmal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condensed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condensada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condensée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condensato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンデンス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តូចចង្អៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "좁은 꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wąska"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condensada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узкий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вузький"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hẹp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窄体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窄體"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockWeightThin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفيع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tynd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dünn"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細字"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가늘게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tynn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cienka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонкий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnce"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонкий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纤细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纖細"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockWeightRegular": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uobičajen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwykła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常规"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockWeightBold": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عريض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podebljan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fett"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bold"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negrita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gras"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grassetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "太字"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "굵게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pogrubiona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negrito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жирный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жирний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗體"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockWeightHeavy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عريض جدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrlo debeo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra fed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extrafett"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heavy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extranegrita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Très gras"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra grassetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "極太"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដិតខ្លាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아주 굵게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra fet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bardzo gruba"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super negrito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сверхжирный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หนาพิเศษ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çok Kalın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наджирний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rất đậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特粗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特粗"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockColorText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نص السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst teme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temateksten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Themetext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texto del tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texte du thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Testo del tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの文字色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 텍스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tematekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst motywu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texto do tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema Metni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chữ theo chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题文字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題文字"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockColorAccent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naglasak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌សង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockColorMuted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خافت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prigušen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dæmpet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedämpft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atenuado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atténuée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attenuato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្រាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "흐리게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dempet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyciszony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suave"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглушённый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглушений"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和"
+          }
+        }
+      }
+    },
+    "settings.choice.newTabClockColorGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زجاجي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글래스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃"
           }
         }
       }
@@ -249018,6 +252773,168 @@
             "value": "置中"
           }
         }
+      }
+    },
+    "settings.appearance.terminalCellBackgrounds": {
+      "comment": "Settings row title: how program-painted terminal cell backgrounds draw over a translucent window.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Cell Backgrounds"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "خلفيات خلايا الطرفية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pozadine ćelija terminala"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Baggrunde i terminalceller"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Hintergründe von Terminalzellen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Fondos de celdas del terminal"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Arrière-plans des cellules du terminal"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sfondi delle celle del terminale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ターミナルのセル背景"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទៃខាងក្រោយក្រឡាស្ថានីយ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "터미널 셀 배경"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bakgrunner i terminalceller"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tła komórek terminala"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Fundos das células do terminal"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Фон ячеек терминала"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "พื้นหลังเซลล์เทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Terminal hücre arka planları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Тло клітинок термінала"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nền ô terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "终端单元格背景"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "終端機儲存格背景"}}
+      }
+    },
+    "settings.appearance.terminalCellBackgrounds.help": {
+      "comment": "Settings search help for Terminal Cell Backgrounds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow)."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كيف تُرسم خلفيات الخلايا التي يلونها البرنامج (شريط رسائل واجهة نصية، سطر الحالة) فوق نافذة شفافة أو خلفية سطح المكتب: معتمة (الافتراضي)، بشفافية النافذة (window)، بتلاشي الرماديات القريبة من الخلفية إلى صبغة (tint)، أو كلاهما (tintWindow)."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kako se pozadine ćelija koje boji program (traka poruka TUI-ja, statusna linija) crtaju preko prozirnog prozora ili pozadine: neprozirno (zadano), uz prozirnost prozora (window), sive blizu pozadine blijede u nijansu (tint), ili oboje (tintWindow)."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvordan cellebaggrunde, som et program maler (en TUI's beskedbånd, statuslinje), tegnes over et gennemsigtigt vindue eller skrivebordsbillede: uigennemsigtigt (standard), med vinduets gennemsigtighed (window), grå nær baggrunden toner over i en toning (tint), eller begge (tintWindow)."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wie von Programmen gefärbte Zellhintergründe (das Nachrichtenband einer TUI, eine Statuszeile) über einem durchscheinenden Fenster oder Hintergrundbild gezeichnet werden: deckend (Standard), mit der Deckkraft des Fensters (window), hintergrundnahe Grautöne verblassen zu einer Tönung (tint), oder beides (tintWindow)."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cómo se dibujan los fondos de celda que pinta un programa (la banda de mensajes de una TUI, una línea de estado) sobre una ventana translúcida o el fondo de pantalla: opacos (predeterminado), con la opacidad de la ventana (window), con los grises cercanos al fondo atenuados a un tinte (tint), o ambos (tintWindow)."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Comment les arrière-plans de cellules peints par un programme (bandeau de messages d’une TUI, ligne d’état) s’affichent sur une fenêtre translucide ou un fond d’écran : opaques (par défaut), à l’opacité de la fenêtre (window), gris proches du fond estompés en teinte (tint), ou les deux (tintWindow)."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come vengono disegnati gli sfondi delle celle dipinti da un programma (la banda dei messaggi di una TUI, una riga di stato) su una finestra traslucida o uno sfondo: opachi (predefinito), con l’opacità della finestra (window), con i grigi vicini allo sfondo sfumati in una tinta (tint), o entrambi (tintWindow)."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "プログラムが塗るセル背景（TUIのメッセージ帯やステータス行）を、半透明のウインドウや壁紙の上にどう描くか：不透明（デフォルト）、ウインドウの不透明度で（window）、背景に近いグレーをティントへフェード（tint）、またはその両方（tintWindow）。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របៀបដែលផ្ទៃខាងក្រោយក្រឡាដែលកម្មវិធីលាបពណ៌ (បន្ទះសារ TUI បន្ទាត់ស្ថានភាព) គូរលើបង្អួចថ្លា ឬផ្ទាំងរូបភាព៖ ស្រអាប់ (លំនាំដើម) តាមភាពស្រអាប់បង្អួច (window) ពណ៌ប្រផេះជិតផ្ទៃខាងក្រោយរសាត់ទៅជាពណ៌លាប (tint) ឬទាំងពីរ (tintWindow)។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "프로그램이 칠한 셀 배경(TUI의 메시지 띠, 상태 줄)을 반투명 윈도우나 배경화면 위에 그리는 방식: 불투명(기본값), 윈도우 불투명도로(window), 배경에 가까운 회색을 틴트로 흐리게(tint), 또는 둘 다(tintWindow)."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvordan cellebakgrunner som et program maler (en TUI-s meldingsbånd, statuslinje) tegnes over et gjennomsiktig vindu eller bakgrunnsbilde: ugjennomsiktig (standard), med vinduets gjennomsiktighet (window), grått nær bakgrunnen tones over til en toning (tint), eller begge (tintWindow)."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak tła komórek malowane przez program (pasek wiadomości TUI, wiersz stanu) są rysowane na półprzezroczystym oknie lub tapecie: nieprzezroczyste (domyślnie), z przezroczystością okna (window), szarości bliskie tłu przechodzą w odcień (tint), lub oba (tintWindow)."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Como os fundos de célula pintados por um programa (a faixa de mensagens de uma TUI, uma linha de status) são desenhados sobre uma janela translúcida ou papel de parede: opacos (padrão), com a opacidade da janela (window), com cinzas próximos ao fundo esmaecendo para uma tonalidade (tint), ou ambos (tintWindow)."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как фон ячеек, закрашенный программой (полоса сообщений TUI, строка состояния), рисуется поверх полупрозрачного окна или обоев: непрозрачно (по умолчанию), с прозрачностью окна (window), серые оттенки рядом с фоном растворяются в оттенок (tint), или оба варианта (tintWindow)."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "วิธีวาดพื้นหลังเซลล์ที่โปรแกรมระบายสี (แถบข้อความของ TUI แถบสถานะ) บนหน้าต่างโปร่งแสงหรือภาพพื้นหลัง: ทึบ (ค่าเริ่มต้น) ตามความทึบของหน้าต่าง (window) สีเทาที่ใกล้พื้นหลังจางเป็นสีอ่อน (tint) หรือทั้งสองอย่าง (tintWindow)"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir programın boyadığı hücre arka planlarının (bir TUI'nin mesaj bandı, durum satırı) yarı saydam bir pencere veya duvar kâğıdı üzerinde nasıl çizileceği: opak (varsayılan), pencerenin opaklığında (window), arka plana yakın griler bir renk tonuna solar (tint), ya da ikisi birden (tintWindow)."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як тло клітинок, зафарбоване програмою (смуга повідомлень TUI, рядок стану), малюється поверх напівпрозорого вікна чи шпалер: непрозоро (типово), з прозорістю вікна (window), сірі відтінки біля тла розчиняються у відтінок (tint), або обидва (tintWindow)."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cách vẽ nền ô do chương trình tô (dải tin nhắn của TUI, dòng trạng thái) trên cửa sổ trong mờ hoặc hình nền: đục (mặc định), theo độ mờ của cửa sổ (window), các màu xám gần nền nhạt dần thành sắc màu (tint), hoặc cả hai (tintWindow)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "程序绘制的单元格背景（TUI 的消息带、状态行）在半透明窗口或墙纸上的绘制方式：不透明（默认）、按窗口不透明度（window）、接近背景的灰色渐隐为着色（tint），或两者兼有（tintWindow）。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "程式繪製的儲存格背景（TUI 的訊息帶、狀態列）在半透明視窗或桌布上的繪製方式：不透明（預設）、依視窗不透明度（window）、接近背景的灰色漸隱為著色（tint），或兩者皆有（tintWindow）。"}}
+      }
+    },
+    "settings.choice.terminalCellBackgrounds.opaque": {
+      "comment": "Terminal Cell Backgrounds choice: cell backgrounds draw fully opaque.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Opaque"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "معتمة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Neprozirno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Uigennemsigtig"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Deckend"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Opaco"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Opaque"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Opaco"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "不透明"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្រអាប់"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "불투명"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ugjennomsiktig"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nieprzezroczyste"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Opaco"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Непрозрачный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ทึบ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Opak"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Непрозоре"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đục"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "不透明"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "不透明"}}
+      }
+    },
+    "settings.choice.terminalCellBackgrounds.window": {
+      "comment": "Terminal Cell Backgrounds choice: cell backgrounds take the window's opacity.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Window Opacity"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "شفافية النافذة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prozirnost prozora"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vinduets gennemsigtighed"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Fensterdeckkraft"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Opacidad de la ventana"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Opacité de la fenêtre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Opacità della finestra"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ウインドウの不透明度"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភាពស្រអាប់បង្អួច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "윈도우 불투명도"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vinduets gjennomsiktighet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przezroczystość okna"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Opacidade da janela"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Прозрачность окна"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ความทึบของหน้าต่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Pencere opaklığı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Прозорість вікна"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Độ mờ của cửa sổ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗口不透明度"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "視窗不透明度"}}
+      }
+    },
+    "settings.choice.terminalCellBackgrounds.tint": {
+      "comment": "Terminal Cell Backgrounds choice: greys near the background fade to a tint.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tint"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صبغة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nijansa"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Toning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tönung"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tinte"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Teinte"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tinta"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ティント"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌លាប"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "틴트"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Toning"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odcień"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tonalidade"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Оттенок"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สีอ่อน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Renk tonu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відтінок"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Sắc màu"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "着色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "著色"}}
+      }
+    },
+    "settings.choice.terminalCellBackgrounds.tintWindow": {
+      "comment": "Terminal Cell Backgrounds choice: both the tint fade and the window's opacity.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tint at Window Opacity"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "صبغة بشفافية النافذة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nijansa uz prozirnost prozora"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Toning med vinduets gennemsigtighed"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tönung mit Fensterdeckkraft"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tinte con opacidad de la ventana"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Teinte à l’opacité de la fenêtre"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Tinta con opacità della finestra"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ウインドウの不透明度でティント"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពណ៌លាបតាមភាពស្រអាប់បង្អួច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "윈도우 불투명도로 틴트"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Toning med vinduets gjennomsiktighet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odcień z przezroczystością okna"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tonalidade com opacidade da janela"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Оттенок с прозрачностью окна"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สีอ่อนตามความทึบของหน้าต่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Pencere opaklığında renk tonu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відтінок із прозорістю вікна"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Sắc màu theo độ mờ cửa sổ"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "按窗口不透明度着色"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "依視窗不透明度著色"}}
       }
     },
     "settings.category.customize": {
