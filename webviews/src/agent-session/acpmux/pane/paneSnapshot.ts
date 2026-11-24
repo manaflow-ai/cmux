@@ -1,3 +1,4 @@
+import { chatOpenRefusal } from "../chatUnavailable";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -923,6 +924,7 @@ export function paneSnapshotEffect({
     // its identity, without unmounting ComposerContext and losing a pending machine selection.
     reconnectingRef.current = true;
     cloudTypingPrewarm.reset();
+    let requestedSession: string | undefined;
     try {
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
@@ -984,6 +986,7 @@ export function paneSnapshotEffect({
       // What another chat handed this new Cloud chat, by its token, read once (commandPlace.ts).
       const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
       const host = received.host;
+      requestedSession = host.sessionId;
       if (received.folder) setHandedFolder(received.folder);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
@@ -2864,6 +2867,22 @@ export function paneSnapshotEffect({
     } catch (error) {
       if (!cancelled) {
         acpWire.lifecycle("handshake failed", { message: String(error) });
+        const refusal = chatOpenRefusal(error);
+        if (requestedSession && refusal) {
+          const refused = {
+            ...emptySnapshot(),
+            connection: "failed",
+            missingSession: requestedSession,
+            openRefusal: refusal,
+          };
+          snapshotRef.current = refused;
+          setSnapshot(refused);
+          setHostError(undefined);
+          setHostErrorShown(false);
+          setRelinkingSince(undefined);
+          setAwaitsChat(false);
+          return;
+        }
         setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);

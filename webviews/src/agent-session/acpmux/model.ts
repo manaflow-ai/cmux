@@ -38,7 +38,7 @@ import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
-import type { ChatUnavailable } from "./chatUnavailable";
+import type { ChatOpenRefusal, ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
@@ -1681,6 +1681,7 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  openRefusal?: ChatOpenRefusal;
   /** Why `missingSession` is not here: deleted, or on a machine that is not connected (or still
    * connecting, which the pane shows as loading). chatUnavailable.ts. */
   unavailable?: ChatUnavailable;
