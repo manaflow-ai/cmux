@@ -1441,6 +1441,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
@@ -1527,6 +1528,7 @@ export function drawPaneBody({
                     unavailable={cloudUnavailable}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
+                    resumeLong={cloudRecovery.slow}
                     error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
