@@ -18,7 +18,6 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-egress",
-    "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
@@ -323,7 +322,6 @@ exclude = [
     "vendor/crossterm",
     "vendor/smoltcp",
     "crates/cmux-rd-host",
-    "crates/cmux-cellgrid-bench",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
 ]

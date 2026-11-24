@@ -51,8 +51,7 @@ Build and test cmux-tui on the fleet first (`cmux-ci`, Linux lanes); the Testbox
 It gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
 and Zig builds: warm your own box before the build, and never compile cmux-tui on the Mac. The
 workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live here. Team members
-with a cmuxterm-hq checkout can run `HQ_TOOLS=<hq checkout on main> ./scripts/blacksmith-testbox-demo.sh`
-for a guided tour; it starts the box through the private hq wrapper and stops without it.
+start and stop boxes with the maintainer tooling in the private repo.
 
 Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
 inside `cmux-tui/` locally (needs the Zig that `ghostty-next/build.zig.zon` sets as `minimum_zig_version`, and `git submodule update --init ghostty ghostty-next`; see

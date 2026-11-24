@@ -61,7 +61,7 @@ Mediums: cmux-app-5..8 (design mode, CEF events, task-manager kill policy, iPhon
 
 ## Recurring audit
 
-`scripts/security/daybreak-nightly/` (16e2a1d8062, b913aa31e2e, 9f4c14a92d3, c44e585a765,
+`scripts/security/daybreak-nightly/` (now in the private repo; 16e2a1d8062, b913aa31e2e, 9f4c14a92d3, c44e585a765,
 c7548e94d08): LaunchAgent `ai.manaflow.cmux-daybreak-nightly`, daily 04:23, installed by
 `install.sh`. It audits only commits since the last audited sha, read-only, in lanes (cmux app,
 rust, cloud, mobile, ci; cmuxterm-hq), max 4 workers, 90 min per lane, and raises a cmux
