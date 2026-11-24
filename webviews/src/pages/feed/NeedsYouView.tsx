@@ -81,7 +81,7 @@ function NeedsYouRow({ store, snap, strings, item }: FeedProps & { item: ViewIte
       </button>
       {answersInline(item) ? (
         <div className="feed-needs-answers">
-          <AnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
+          <AnswerControls item={item} store={store} strings={strings} density="inline" {...answerState(snap, item)} />
         </div>
       ) : null}
     </div>

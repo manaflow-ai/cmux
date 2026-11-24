@@ -1,0 +1,48 @@
+diff a/webviews/src/pages/feed/AnswerControls.tsx b/webviews/src/pages/feed/AnswerControls.tsx	(rejected hunks)
+@@ -5,18 +5,41 @@
+ import type { KeyboardEvent } from "react";
+ import { Button } from "../../ui/Button";
+ import { cx } from "../../ui/cx";
+-import { canChange, isPending, plain, type FeedProps } from "./context";
++import { plain } from "./context";
++import type { FeedStore } from "./store";
++import type { Strings } from "../shared/i18n";
+ import { FeedIcon } from "./icons";
+ import { useButtonMenu } from "./menus";
+-import { Answers, approveScopes, choiceIssues, closedStatus, draftChoice, isOneTap, SCOPE_LABEL } from "./model";
+-import type { ViewItem } from "./types";
++import {
++  Answers,
++  approveScopes,
++  choiceIssues,
++  closedStatus,
++  isOneTap,
++  SCOPE_LABEL,
++  type ChoiceSelection,
++} from "./model";
++import type { FeedApproveScope, ViewItem } from "./types";
+ 
+ /** How much room the controls get: under a request in a list, or the Inbox detail (every field). */
+ export type FeedDensity = "inline" | "detail";
+ 
+-type Props = FeedProps & { item: ViewItem; density?: FeedDensity };
++/** One request's controls get its own part of the snapshot (context.ts `answerState`), not all of it. */
++type Props = {
++  item: ViewItem;
++  store: FeedStore;
++  strings: Strings;
++  density?: FeedDensity;
++  /** Pending, or its owner unreachable: nothing may be sent. */
++  disabled: boolean;
++  /** Its drafts: the approve scope, the choices by question, the reply. */
++  scope?: FeedApproveScope;
++  choices?: Record<string, ChoiceSelection>;
++  reply?: string;
++};
+ 
+-export function AnswerControls({ item, store, snap, strings, density = "inline" }: Props) {
++export function AnswerControls({ density = "inline", ...rest }: Props) {
++  const { item, store, strings } = rest;
+   const closed = closedStatus(item, strings);
+   if (closed)
+     return (

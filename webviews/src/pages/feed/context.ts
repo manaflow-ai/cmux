@@ -33,3 +33,37 @@ export function isLocal(item: ViewItem): boolean {
 export function isPending(snap: FeedSnapshot, item: ViewItem): boolean {
   return item.pending || snap.inflight.has(item.id);
 }
+
+/** The store's row handlers, one set per store: a row or card gets the same functions on every
+ * render (rows are memo), and calls them with its own id. */
+export interface RowActions {
+  select(id: string): void;
+  open(id: string): void;
+  selectReport(id: string): void;
+}
+
+const rowActionsByStore = new WeakMap<FeedStore, RowActions>();
+
+export function rowActions(store: FeedStore): RowActions {
+  let actions = rowActionsByStore.get(store);
+  if (!actions) {
+    actions = {
+      select: (id) => store.select(id),
+      open: (id) => store.open(id),
+      selectReport: (id) => store.selectReport(id),
+    };
+    rowActionsByStore.set(store, actions);
+  }
+  return actions;
+}
+
+/** One request's own part of the snapshot for its answer controls: whether they take input now, and
+ * its drafts. Each draft keeps its identity while only another item's draft changes. */
+export function answerState(snap: FeedSnapshot, item: ViewItem) {
+  return {
+    disabled: isPending(snap, item) || !canChange(snap, item),
+    scope: snap.drafts.scopes[item.id],
+    choices: snap.drafts.choices[item.id],
+    reply: snap.drafts.replies[item.id],
+  };
+}
