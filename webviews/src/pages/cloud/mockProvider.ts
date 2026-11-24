@@ -23,6 +23,7 @@ import {
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
+  type CloudSurge,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
@@ -104,6 +105,8 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export class MockCloudProvider implements PageClient {
   readonly calls: MockCall[] = [];
   machines: CloudMachine[] = sampleMachines();
+  /** The latest surge the list's last page reports (the server computes it); absent: no surge. */
+  surge?: CloudSurge;
   snapshots: CloudSnapshot[] = sampleSnapshots();
   account = sampleAccount();
   /** Machines whose daemon reports `fs-v1`; file ops on the others answer `unsupported`. */
@@ -540,6 +543,7 @@ export class MockCloudProvider implements PageClient {
           machines: this.machines.slice(start, end),
           next_cursor: end < this.machines.length ? `cur_${end}` : null,
           revision: this.revision,
+          ...(end >= this.machines.length && this.surge ? { surge: this.surge } : {}),
         };
         this.onList?.();
         return result;
