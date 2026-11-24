@@ -287,6 +287,10 @@ impl Hub {
         let asks = super::start_mode::asks(&current, &family);
         let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
         if current == wanted || (asks && !narrower) {
+            // A family that asks only on this Mac logs its gap here too (`note_unenforced_policy`).
+            if crate::web_modes::local_asking_gap(&family).is_some() {
+                self.note_unenforced_policy(session, &*self.config.read().await);
+            }
             return;
         }
         // Under the spawn lock: a start in flight (`ensure_child`) either ends first and its

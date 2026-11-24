@@ -660,6 +660,14 @@ async fn an_antigravity_chat_with_a_narrower_policy_runs_in_its_default_mode() {
     }
     let (id, _) = app.chat_with_policy(&dir, "agy", "approve-all").await;
     assert!(app.unenforced(&id).await.is_empty());
+    // A live chat the person put in `default`, narrowed later: it stays there, and the gap is
+    // logged as at a start.
+    let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "default");
+    assert_eq!(app.unenforced(&id).await.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
