@@ -941,6 +941,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/surgery",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/task_list/set",
       "params": true,
       "result": true
