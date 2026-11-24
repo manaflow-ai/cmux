@@ -103,9 +103,9 @@ const CLAIMED_PREFIX: &str = ".claimed-";
 
 /// A reserved folder name: `r` and 32 lowercase hex digits, never a surface id.
 fn reserved_name(name: &str) -> bool {
-    name.len() == 33
-        && name.starts_with('r')
-        && name[1..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    name.strip_prefix('r').is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 /// The folder a ticket file names; None unless it is a small regular file this user owns.
