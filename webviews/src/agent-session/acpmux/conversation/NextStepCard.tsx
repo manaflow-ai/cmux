@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
@@ -31,6 +31,10 @@ import "./NextStepCard.css";
 /// behaviour is very weird"). A send that fails brings the buttons back with "not sent".
 /// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
 /// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
+/// The whole ask shows, wrapped at word breaks, as Claude's question card shows its question (a
+/// coordinator's [irreversible] ask was cut mid-word). Only a very long one stops at
+/// `--acpmux-next-step-lines` lines (its tail at `--acpmux-next-step-detail-lines`) with Show more
+/// under it, which opens the rest in place: the answers keep their order under the text.
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -78,6 +82,21 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  // Whether the question or its tail runs past its cap: only then is there a Show more to offer.
+  const [whole, setWhole] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const textRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element || whole) return;
+    const measure = () =>
+      setClipped(Array.from(element.children).some((child) => child.scrollHeight > child.clientHeight + 1));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ask.question, ask.detail, whole, settled]);
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
@@ -111,8 +130,20 @@ export const NextStepCard = memo(function NextStepCard({
   return (
     <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       {recap}
-      <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
-      {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+      <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
+        <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
+        {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+      </div>
+      {(clipped || whole) && (
+        <button
+          type="button"
+          className="acpmux-next-step__more"
+          aria-expanded={whole}
+          onClick={() => setWhole((value) => !value)}
+        >
+          {t(whole ? "message.less" : "message.more")}
+        </button>
+      )}
       {onAnswer && (
         <div className="acpmux-next-step__answers">
           {ask.options.map((option, index) => (

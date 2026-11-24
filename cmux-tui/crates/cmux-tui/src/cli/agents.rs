@@ -122,7 +122,7 @@ fn normalize_qualified_target(
 
 fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     if args.is_empty() || asks_help(args) {
-        println!("{HELP}");
+        println!("{}", verb_help(args).unwrap_or_else(|| HELP.to_owned()));
         return 0;
     }
     // The CLI waits longer than an MCP tool call may (wait.rs `MAX_CLI_TIMEOUT_SECONDS`).
@@ -191,6 +191,38 @@ fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+/// `cmux agents chat new --help`: the lines of [`HELP`] for the verb asked about (the longest
+/// run of its words that has any), `None` for the whole help. Before, every verb printed it all
+/// (the Cloud and remote command matrix).
+fn verb_help(args: &[String]) -> Option<String> {
+    let words = args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .filter(|arg| !arg.starts_with('-'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (verb, lines) = (1..=words.len()).rev().find_map(|count| {
+        let verb = words.get(..count)?.join(" ");
+        let prefix = format!("  cmux agents {verb}");
+        let lines = HELP
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(&prefix)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .collect::<Vec<_>>();
+        (!lines.is_empty()).then_some((verb, lines))
+    })?;
+    let mut text = format!("Usage: cmux agents {verb}\n\n{}", lines.join("\n"));
+    if verb == "chat new" || verb == "chat" {
+        text.push_str(
+            "\n\n`cmux agents chat new --on vm:ID|NAME|new` starts the chat on a Cloud machine, as \
+             `cmux chat --on` does (`cmux chat --help`).",
+        );
+    }
+    Some(text)
+}
+
 fn asks_help(args: &[String]) -> bool {
     args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }

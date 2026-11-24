@@ -6,6 +6,7 @@ import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
 import type { RowReader, RowWrite } from "@cmux/ownership"
 import { can, hostByInstall, hostDelete, hostInSpace, hostOf, hostPayload, hostSpaceOf, hostUpsert, memberOf } from "./team-members.ts"
+import { PAIRING_TTL_MS } from "./pairing.ts"
 
 /**
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
@@ -47,6 +48,67 @@ export interface ServerRevocation {
    * revokes the machine that token made too, as `cmux machine revoke` would, before the item is done.
    */
   readonly machine_join_token?: string
+}
+
+/**
+ * The pairing that made a server, as the Durable Object ids of its PairingDO record and of the
+ * invite it came through: opaque, so team state and events never carry a usable pairing code or
+ * invite (a member could otherwise race the box's begin with them). Kept only while those objects
+ * can still answer (both end within PAIRING_TTL_MS of the approval), so a revoke can spend them:
+ * pair-invite-routes.ts revokeServerPairing.
+ */
+export interface ServerPairing {
+  readonly pairing_object: string
+  readonly invite_object: string | null
+  readonly at: number
+}
+
+/** How long a server's pairing is kept for its revoke: past the life of its code and its invite. */
+export const SERVER_PAIRING_KEEP_MS = 2 * PAIRING_TTL_MS
+
+const livePairings = (state: TeamState, now: number): Record<string, ServerPairing> =>
+  Object.fromEntries(Object.entries(state.server_pairings ?? {}).filter(([, p]) => p.at > now - SERVER_PAIRING_KEEP_MS))
+
+/** The pairing that made `host` (if still live), and the kept set without it. */
+const takePairing = (state: TeamState, host: string, now: number): { pairing: { pairing_object: string; invite_object: string | null } | undefined; rest: Record<string, ServerPairing> } => {
+  const { [host]: taken, ...rest } = livePairings(state, now)
+  return { pairing: taken ? { pairing_object: taken.pairing_object, invite_object: taken.invite_object } : undefined, rest }
+}
+
+const OBJECT_ID = /^[0-9a-f]{64}$/
+/** Moves `host`'s live pairing (if any) into the spend queue: the state fields to merge. */
+const queueSpend = (state: TeamState, host: string, now: number): Pick<TeamState, "server_pairings" | "pairing_spends"> => {
+  const { pairing, rest } = takePairing(state, host, now)
+  return { server_pairings: rest, ...(pairing ? { pairing_spends: { ...(state.pairing_spends ?? {}), [host]: pairing } } : {}) }
+}
+
+/** TeamDO spent the queued pairing of `host` (its PairingDO record and invite answered). */
+export const reduceServerPairingSpent = (state: TeamState, params: unknown): Out => {
+  const host = (params as { host?: unknown } | null)?.host
+  if (typeof host !== "string") return reject("validation.invalid", "host required")
+  if (!state.pairing_spends?.[host]) return { ok: true, state, value: { host }, changed: false }
+  const { [host]: _done, ...rest } = state.pairing_spends
+  return { ok: true, state: { ...state, pairing_spends: rest }, value: { host } }
+}
+
+const validPairing = (p: unknown): p is { pairing_object: string; invite_object: string | null } => {
+  const v = p as { pairing_object?: unknown; invite_object?: unknown } | null
+  return typeof v?.pairing_object === "string" && OBJECT_ID.test(v.pairing_object) && (v.invite_object === null || (typeof v.invite_object === "string" && OBJECT_ID.test(v.invite_object)))
+}
+
+/**
+ * TeamDO.enrollServer, right after `server.enrolled` added the host: keep the pairing that made it
+ * (pair-routes.ts passes it). Only for the live server host of that install; a malformed pairing
+ * is ignored. Its own op, so `server.enrolled`'s params (and their replays) stay as they were.
+ */
+export const reduceServerPairingRecorded = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
+  const v = params as { host?: unknown; install?: unknown; pairing_object?: unknown; invite_object?: unknown }
+  const { host, install } = v
+  if (typeof host !== "string" || typeof install !== "string" || !validPairing(v)) return reject("validation.invalid", "invalid server pairing")
+  if (!serverPlacementActive(state, ctx.rows, host, install)) return { ok: true, state, value: { host, recorded: false }, changed: false }
+  const pairings = livePairings(state, ctx.now)
+  pairings[host] = { pairing_object: v.pairing_object, invite_object: v.invite_object, at: ctx.now }
+  return { ok: true, state: { ...state, server_pairings: pairings }, value: { host, recorded: true } }
 }
 
 /** UserDO confirmed the revocation: drop it from the retry set. */
@@ -172,18 +234,48 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   const host = hostOf(state, ctx.rows, d.value.host)
   if (!host || host.kind !== "server" || !hostInSpace(ctx.rows, host.id, p)) return reject("selector.not_found", "server not found")
   const space = hostSpaceOf(ctx.rows, host.id)
+  // The owner is the person who approved its pairing; for a server that came through an invite that is
+  // always the inviter (PairingDO.claim lets only `invited_by` approve), so the inviter may revoke it.
   if (host.owner_user !== p.user && !can(state, ctx.rows, p.user, "team.manage")) return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
   const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
   // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
   // Its machine (the join token its approval minted) is revoked with it, by the same pending item.
   const { [host.enrolled_by]: machineJoin, ...joins } = state.server_machine_joins ?? {}
   const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now, ...(machineJoin ? { machine_join_token: machineJoin } : {}), ...(space ? { space } : {}) }
-  const next = { ...state, ...legacy, host_count: space ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}) }
+  // The pairing that made it, while its code and invite still live, is queued to be spent in the same
+  // commit: TeamDO spends it after any path that committed this op (HTTP or a socket) and retries.
+  const next = { ...state, ...legacy, host_count: space ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, ...(machineJoin ? { server_machine_joins: joins } : {}), ...queueSpend(state, host.id, ctx.now) }
   return withWrites(
     audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(space ? { space } : {}) } }, `server ${host.name} revoked`, {
       host: host.id,
       install: host.enrolled_by,
       by: p.user
+    }),
+    hostDelete(host)
+  )
+}
+
+/**
+ * The server's install was revoked in UserDO (`install.sign_out` from `cmux server unpair`, or any
+ * other revoke): TeamDO hears it through UserDO's retried revocation notice (revokeInstallCerts),
+ * whichever path committed it. Its host leaves the directory, as a revoke would, its pairing is
+ * queued to be spent, and no install revocation is queued (the install is revoked already). A
+ * repeat finds no host and changes nothing.
+ */
+export const reduceServerSignedOut = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
+  const install = (params as { install?: unknown } | null)?.install
+  if (typeof install !== "string") return reject("validation.invalid", "install required")
+  const host = hostByInstall(state, ctx.rows, install)
+  if (!host || host.kind !== "server") return { ok: true, state, value: { host: null, install }, changed: false }
+  const space = hostSpaceOf(ctx.rows, host.id)
+  const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
+  // Its machine join goes too: the install that made it is revoked, so nothing will revoke by it later.
+  const { [install]: _join, ...joins } = state.server_machine_joins ?? {}
+  const next = { ...state, ...legacy, host_count: space ? (state.host_count ?? 0) : Math.max(0, (state.host_count ?? 1) - 1), ...(_join ? { server_machine_joins: joins } : {}), ...queueSpend(state, host.id, ctx.now) }
+  return withWrites(
+    audited(next, ctx, "server.signed_out", { host: host.id, install, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id, ...(space ? { space } : {}) } }, `server ${host.name} unpaired itself`, {
+      host: host.id,
+      install
     }),
     hostDelete(host)
   )

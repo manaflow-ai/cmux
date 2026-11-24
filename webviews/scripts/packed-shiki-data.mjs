@@ -11,11 +11,19 @@
 // A module of either package that neither holds that one document nor re-exports another
 // (`export { default } from './x.mjs'`, the aliases) fails the build, so a Shiki that changes
 // its module format is noticed here, not as a grammar that is silently missing.
+//
+// Monaco's UI strings get the same treatment: each `monaco-editor/esm/vs/nls/lang/<code>.js`
+// sets `globalThis._VSCODE_NLS_MESSAGES` to one JSON array of 2,153 strings, written with
+// `\uXXXX` escapes (Russian is 620 KB). The rewritten module sets the same array, inflated when
+// the editor page imports it before Monaco (src/pages/editor/main.tsx): 1.5 MB of the app becomes
+// about 0.45 MB. A language module in another shape fails the build the same way.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 
 const PACKED_MODULE = /\/@shikijs\/(langs|themes)\/dist\/([^/]+)\.mjs$/;
+const MONACO_MESSAGES_MODULE = /\/monaco-editor\/esm\/vs\/nls\/lang\/[^/]+\.js$/;
+const MONACO_MESSAGES = /^globalThis\._VSCODE_NLS_MESSAGES=(\[.*\]);$/m;
 const DOCUMENT = /^(const lang = |export default )Object\.freeze\(JSON\.parse\(("(?:[^"\\\n]|\\.)*")\)\)$/m;
 const ALIAS = /^export \{ default \} from '\.\/[^']+\.mjs'$/m;
 
@@ -44,6 +52,25 @@ export function packShikiModule(source, id) {
   return out.length < source.length ? out : null;
 }
 
+/**
+ * A Monaco UI-strings module with its messages array deflated. Unlike a grammar it always
+ * shrinks; a module without that one array fails the build. Exported for the test.
+ */
+export function packMonacoMessages(source, id) {
+  const messages = source.match(MONACO_MESSAGES);
+  if (!messages) {
+    throw new Error(`cmux-packed-shiki-data: ${id} sets no globalThis._VSCODE_NLS_MESSAGES=[...]; update the pattern`);
+  }
+  const array = JSON.parse(messages[1]); // an array that is not JSON fails the build, not the editor
+  if (!Array.isArray(array)) throw new Error(`cmux-packed-shiki-data: ${id} messages are not an array`);
+  const packed = deflateRawSync(Buffer.from(JSON.stringify(array), "utf8"), { level: 9 }).toString("base64");
+  const replaced = source.replace(
+    messages[0],
+    () => `globalThis._VSCODE_NLS_MESSAGES=unpackJson(${JSON.stringify(packed)});`,
+  );
+  return `import { unpackJson } from ${JSON.stringify(UNPACK_MODULE)};\n${replaced}`;
+}
+
 export function packedShikiData() {
   return {
     name: "cmux-packed-shiki-data",
@@ -51,6 +78,9 @@ export function packedShikiData() {
     enforce: "pre",
     load(id) {
       const path = id.split("?")[0];
+      if (MONACO_MESSAGES_MODULE.test(path)) {
+        return { code: packMonacoMessages(readFileSync(path, "utf8"), path), map: null };
+      }
       if (!PACKED_MODULE.test(path)) return null;
       const code = packShikiModule(readFileSync(path, "utf8"), path);
       return code == null ? null : { code, map: null };

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Reference send" },
+  "version": "1.0.0",
+  "description": "The builder new-chat page: one quiet centered line, \"What should we build in {project}?\", the project a picker, the chats that need you under it, and the field at the foot.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderBuilder",
+      "title": "Builder",
+      "symbol": "text.bubble"
+    }
+  },
+  "scopes": {
+    "chat:read": "List your chats: their folders for the project picker, and the ones waiting on you.",
+    "workspace:write": "Show a chat's workspace when you click it.",
+    "actions:run": "Start a chat from the field, start one in the project you pick, and open a chat that has no workspace."
+  },
+  "activation": ["onInterface:cmux.newtab/1"],
+  "files": ["main.js"]
+}

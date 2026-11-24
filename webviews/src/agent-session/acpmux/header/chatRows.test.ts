@@ -77,9 +77,11 @@ test("Delete asks through the delete dialog", () => {
 // window, Archive, Delete) all stay reachable from the header's ⋮ menu once the title is plain text.
 test("the header's ⋮ menu keeps every action the title menu had", () => {
   const app = readFileSync(join(import.meta.dir, "../App.tsx"), "utf8");
-  const start = app.indexOf("const chatMenu = (): ChatMenuItem[] =>");
-  const end = app.indexOf("\n  };\n", start);
-  const chatMenu = app.slice(start, end);
+  // AcpmuxPane's chatMenu builds its rows in pane/chatMenu.ts.
+  const menu = readFileSync(join(import.meta.dir, "../pane/chatMenu.ts"), "utf8");
+  const start = menu.indexOf("export function chatMenuItems(");
+  const end = menu.indexOf("\n}\n", start);
+  const chatMenu = menu.slice(start, end);
   expect(start).toBeGreaterThan(-1);
   for (const needle of [
     'key: "rename"',

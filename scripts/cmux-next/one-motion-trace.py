@@ -30,6 +30,7 @@ import argparse, glob, json, os, signal, subprocess, sys, tarfile, tempfile, tim
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
 import one_motion_plot  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 from one_motion_series import summarize  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -86,8 +87,26 @@ def action(name, args=None, settle=0.0, target=None):
         params["target"] = target
     reply = rpc("action.run", params, timeout=60)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        at_rest(f"the layout after {name}", timeout=max(10.0, settle * 10))
     return reply
+
+
+def at_rest(what, timeout=10.0, frames=8):
+    """Until the topology holds and the sidebar and every pane hold still for `frames` display frames in a short
+    `debug.motion` trace (the springs landed). Never called inside measure(): it runs its own trace."""
+    wait_stable(lambda: json.dumps(topology(), sort_keys=True), f"{what}: the topology", timeout=timeout,
+                interval=0.1, reads=3, raise_on_timeout=False)
+    started = rpc("debug.motion", {"action": "trace_start", "targets": ["sidebar", "panes"]})
+    if error_of(started):
+        return
+    def still():
+        tail = ((rpc("debug.motion", {"action": "trace_read"}) or {}).get("samples") or [])[-frames:]
+        return len(tail) >= frames and len({json.dumps([s.get("sidebar"), s.get("panes")]) for s in tail}) == 1
+    try:
+        if not wait_until(still, what, timeout=timeout, interval=0.05, raise_on_timeout=False):
+            print(f"{what} never held still in {timeout:g} s", flush=True)
+    finally:
+        rpc("debug.motion", {"action": "trace_stop"})
 
 
 def error_of(reply):
@@ -142,13 +161,19 @@ def setup():
         print(f"seeded {opts.rows} rows: {json.dumps(seeded)[:200]}", flush=True)
     else:
         action("terminal.sendText", {"text": "seq 1 3000\r"}, settle=0.5)
-    time.sleep(1.5)  # test harness: setup work settles
+    if opts.content == "terminal":
+        # Until the terminal's text stops changing (seq's output landed).
+        wait_stable(lambda: json.dumps((rpc("debug.surfaces", {"text": True}) or {}).get("windows"), sort_keys=True),
+                    "the terminal text after seq", timeout=15, interval=0.1, reads=5, raise_on_timeout=False)
+    at_rest("the setup's layout", timeout=15)
     print(f"main pane: {shown_panes()}", flush=True)
 
 
 def ensure_sidebar(shown):
     sample = rpc("debug.motion", {"action": "trace_start", "targets": ["sidebar"]})
-    time.sleep(0.1)  # test harness: a few frames
+    # Until the trace holds a few frames.
+    wait_until(lambda: len((rpc("debug.motion", {"action": "trace_read"}) or {}).get("samples") or []) >= 3,
+               "a few traced frames of the sidebar", timeout=5, interval=0.02, raise_on_timeout=False)
     trace = rpc("debug.motion", {"action": "trace_stop"}) or {}
     widths = [s["sidebar"][0] for s in trace.get("samples") or [] if isinstance(s.get("sidebar"), list) and s["sidebar"]]
     is_shown = bool(widths) and widths[-1] > 1
@@ -173,12 +198,12 @@ def motions():
 
     def b_then_d():
         first = toggle()
-        time.sleep(opts.gap / 1000)  # the person's gap between the two keys
+        time.sleep(opts.gap / 1000)  # sleep-ok: the person's gap between the two keys (--gap) is the input itself
         return [first, split()]
 
     def undo_b_then_d():
         first = toggle()
-        time.sleep(opts.gap / 1000)
+        time.sleep(opts.gap / 1000)  # sleep-ok: the person's gap between the two keys (--gap) is the input itself
         return [first, close_new()]
 
     return [
@@ -197,11 +222,15 @@ def measure(name, perform):
     if opts.record:
         rpc("debug.motion", {"action": "record_start", "path": movie, "seconds": 4, "mbps": 40})
         wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 5, 0.1)
-    time.sleep(0.15)  # test harness: frames at rest before the action
+    # Until the trace holds frames at rest before the action (summarize reads each mover's from-value there).
+    wait_until(lambda: len((rpc("debug.motion", {"action": "trace_read"}) or {}).get("samples") or []) >= 6,
+               f"{name}: traced frames at rest before the action", timeout=5, interval=0.02, raise_on_timeout=False)
     clock = rpc("debug.motion", {"action": "trace_read"}) or {}
     acted_at = float(((clock.get("samples") or [{}])[-1]).get("t", 0))
     acted = perform()
-    time.sleep(1.2)  # test harness: every spring lands (rest is under 0.6 s)
+    # sleep-ok: the trace window itself; it runs past the landing (rest is under 0.6 s) on purpose so a mover that
+    # starts or lays out late is caught, which stopping at the first still frame would cut off.
+    time.sleep(1.2)
     trace = rpc("debug.motion", {"action": "trace_stop"}) or {}
     if opts.record:
         rpc("debug.motion", {"action": "record_stop"})
@@ -224,9 +253,9 @@ def frames(perform):
     rpc("debug.hangs", {"clear": True})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.main_cpu", {"action": "start"})
-    time.sleep(0.1)  # test harness: frames at rest before the action
+    time.sleep(0.1)  # sleep-ok: the frames window's fixed at-rest lead, the same in every pass
     acted = perform()
-    time.sleep(1.0)  # test harness: every spring lands
+    time.sleep(1.0)  # sleep-ok: the frames window itself, past every landing so late frames and hangs count
     cpu = rpc("debug.main_cpu", {"action": "stop"}) or {}
     stats = rpc("debug.frames", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
@@ -283,7 +312,7 @@ def main():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    time.sleep(5)  # test harness: launch work settles
+    at_rest("the launch's layout", timeout=30)
     rpc("debug.motion", {"action": "speed", "value": "fast"})
     rpc("debug.motion", {"action": "reduce", "value": False})
     setup()

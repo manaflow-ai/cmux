@@ -355,6 +355,33 @@ class BisectTests(unittest.TestCase):
         self.assertEqual(report["lines"], [line for line in printed.splitlines() if line.startswith("web bisect: ")
                                            and "probing" not in line and "nothing" not in line])
 
+    def test_the_report_names_each_culprit_for_a_reader_that_acts_on_it(self):
+        base, culprit, _, probed, report = self.run_bisect()
+        self.assertEqual(report["schema"], "web-bisect/2")
+        self.assertEqual(report["culprits"], [{"sha": culprit, "pr": 103, "subject": "break a (#103)",
+                                               "files": ["src/a.test.ts"]}])
+        verdicts = {v["file"]: v for v in report["verdicts"]}
+        self.assertEqual(verdicts["src/a.test.ts"]["verdict"], "culprit")
+        self.assertEqual(verdicts["src/a.test.ts"]["culprit"]["sha"], culprit)
+        self.assertEqual(verdicts["src/old.test.ts"], {"file": "src/old.test.ts", "verdict": "base-red",
+                                                       "culprit": None, "green": None})
+        # One entry a probe run, with its seconds: the bisect's cost per culprit is their sum.
+        self.assertEqual([p["sha"] for p in report["probes"]], probed)
+        self.assertTrue(all(isinstance(p["seconds"], int) and p["files"] == 1 for p in report["probes"]))
+
+    def test_a_flaky_or_unpinned_red_names_no_culprit(self):
+        _, _, _, _, report = self.run_bisect(flaky_history=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertEqual({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], "flaky")
+        _, _, _, _, report = self.run_bisect_again(timed_out=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertIn({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], ("unresolved", "base-red"))
+
+    def run_bisect_again(self, **kw):
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        return self.run_bisect(**kw)
+
     def test_a_test_already_red_at_the_base_in_the_same_file_does_not_move_the_first_red(self):
         _, culprit, printed, probed, _ = self.run_bisect(old_red_in_file=True)
         found = test_reds.bisect_report(printed)["src/a.test.ts"]
