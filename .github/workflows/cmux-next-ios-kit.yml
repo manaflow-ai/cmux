@@ -356,7 +356,9 @@ jobs:
       # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
       # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+      # CmuxMobileModelTests, CmuxMobileRealtimeTests and CmuxMobileTransportTests run on Linux (swift-linux-packages.yml, group
+      # ios-kit); the simulator run below skips Realtime and Transport too, and keeps Model for the one test Linux disables.
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests --skip CmuxMobileModelTests --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests
 
       - name: swift test (macOS, measured suites alone)
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
@@ -397,6 +399,8 @@ jobs:
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
             -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -skip-testing:CmuxMobileInstantPerfTests \
+            -skip-testing:CmuxMobileRealtimeTests \
+            -skip-testing:CmuxMobileTransportTests \
             -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
           # -quiet drops Swift Testing's output: report from the result bundle (counts,
           # suites that did not pass, #23829's banner suite, and every failure).
