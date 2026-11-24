@@ -62,6 +62,9 @@ public final class MockTerminalSession: TerminalSession {
     /// when it painted it (``reportPaint(_:)``): the simulator's receive-to-paint.
     public var stampsRedraws = false
     private var paintSeq = 0
+    /// When the phone's first unanswered input was sent (gesture-to-paint stamps, negative seq).
+    private var firstInputMs: Double?
+    private var gestureSeq = 0
     /// What the screen reported painted (`[seq, received, painted]`, epoch ms).
     public var paintSamples: [TerminalPaintTally.Sample] = []
 
@@ -148,6 +151,7 @@ public final class MockTerminalSession: TerminalSession {
     public func send(_ bytes: Data) {
         guard !offline else { return }
         bytesFromPhone += bytes.count
+        if stampsRedraws, firstInputMs == nil { firstInputMs = TerminalPaintReport.nowMs }
         guard batchesInputPerTurn else {
             sends += 1
             return forward(bytes)
@@ -187,8 +191,15 @@ public final class MockTerminalSession: TerminalSession {
             appScrolls += full.scrolls - before
             program = .agentFull(full)
             write(full.render(columns: columns, rows: rows))
+            if stampsRedraws, let sentMs = firstInputMs {
+                // Gesture to paint: the app's redraw for the wheel the phone sent.
+                gestureSeq += 1
+                handler?(.paintMark(seq: -gestureSeq, receivedMs: sentMs))
+            }
+            firstInputMs = nil
             return
         }
+        firstInputMs = nil
         for byte in bytes { receive(byte) }
         // A lone ESC at the end of a write is the Escape key, not a sequence start.
         if escapeBuffer == [0x1B] {
@@ -614,7 +625,8 @@ public final class MockTerminalSession: TerminalSession {
             let mouse = !parts.contains("keys")
             let stream = parts.first { $0.hasPrefix("stream=") }.flatMap { Int($0.dropFirst(7)) }.map { max(5, $0) }
             busy = false
-            let full = MockClaudeFull(rows: count, mouse: mouse)
+            var full = MockClaudeFull(rows: count, mouse: mouse)
+            full.scrolling = parts.contains("scroll")
             program = .agentFull(full)
             setAlternate(true, program: "claude")
             if mouse { handler?(.output(Data(Self.htopMouse.utf8))) }
@@ -630,7 +642,13 @@ public final class MockTerminalSession: TerminalSession {
                         if full.offset > 0 { full.offset += 1 }
                     }
                     self.program = .agentFull(full)
-                    self.write(stream != nil ? full.render(columns: self.columns, rows: self.rows) : full.statusRow(rows: self.rows))
+                    if stream == nil {
+                        self.write(full.statusRow(rows: self.rows))
+                    } else if full.scrolling, full.offset == 0 {
+                        self.write(full.appendRow(columns: self.columns, rows: self.rows))
+                    } else {
+                        self.write(full.render(columns: self.columns, rows: self.rows))
+                    }
                 }
             }
             tasks.append(task)
@@ -801,6 +819,10 @@ public final class MockTerminalSession: TerminalSession {
 struct MockClaudeFull: Equatable {
     var rows: Int
     let mouse: Bool
+    /// `scroll`: the transcript is written into a scroll region (rows 2 to
+    /// the status row) a line feed at a time, so its rows scroll off the
+    /// region's top as a log viewer's do, instead of a whole-screen redraw.
+    var scrolling = false
     /// Rows scrolled up from the newest.
     var offset = 0
     var tick = 0
@@ -838,6 +860,7 @@ struct MockClaudeFull: Equatable {
     /// The whole screen: a header row, the transcript ending `offset` rows
     /// above the newest, the status row and the input box.
     func render(columns: Int, rows screen: Int) -> String {
+        if scrolling { return renderScrolling(columns: columns, rows: screen) }
         let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
         let body = max(1, screen - 5)
         let last = max(1, rows - offset)
@@ -849,6 +872,33 @@ struct MockClaudeFull: Equatable {
         out += statusRow(rows: screen)
         out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
         return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: each row cleared in place (no erase of the display), the
+    /// header, then the transcript's last rows (at the newest: 3,000 past
+    /// the region) written down the region `2...screen-4`, scrolling it.
+    private func renderScrolling(columns: Int, rows screen: Int) -> String {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+        let body = max(1, screen - 5)
+        let last = max(1, rows - offset)
+        // Scrolled back by the app: its screen only (a redraw per wheel).
+        let first = max(1, last - body + 1 - (offset > 0 ? 0 : 3_000))
+        var out = "\u{1B}[r"
+        for row in 1...max(1, screen) { out += "\u{1B}[\(row);1H\u{1B}[2K" }
+        out += "\u{1B}[1;1H\u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock full screen, scrolling)"
+        out += "\u{1B}[2;\(body + 1)r\u{1B}[2;1H"
+        for index in first...last {
+            out += (index == first ? "" : "\r\n") + String(Self.transcriptRow(index).prefix(columns + 12))
+        }
+        out += statusRow(rows: screen)
+        out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
+        return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: the newest row, a line feed at the region's bottom (its top row scrolls off).
+    func appendRow(columns: Int, rows screen: Int) -> String {
+        let body = max(1, screen - 5)
+        return "\u{1B}7\u{1B}[\(body + 1);1H\r\n" + String(Self.transcriptRow(rows).prefix(columns + 12)) + "\u{1B}8" + statusRow(rows: screen)
     }
 }
 
