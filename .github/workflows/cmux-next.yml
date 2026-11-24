@@ -2821,7 +2821,6 @@ jobs:
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
-          PR: ${{ github.event.pull_request.number }}
           MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail

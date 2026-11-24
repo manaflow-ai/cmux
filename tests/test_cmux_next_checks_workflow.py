@@ -3655,9 +3655,6 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
     LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
-    # Gated jobs that keep the idle-reading guard (so their Mac fallback runs exactly when it did) but no longer
-    # run on the gateway: the app compile only reads the tip check's verdict, on a plain runner (note-556).
-    READS_ELSEWHERE = {"app-compile-fleet": "cmux-linux"}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -3701,7 +3698,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
         pinned = {name for name, job in self.jobs().items()
                   if (route_text := runs_on_text(job)) is None or any(pin in route_text for pin in self.PINS)}
-        self.assertEqual(pinned, set(self.FALLBACKS) - set(self.READS_ELSEWHERE),
+        self.assertEqual(pinned, set(self.FALLBACKS),
                          "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
 
     def test_the_gateway_is_taken_only_on_an_idle_reading_from_the_same_attempt(self):
@@ -3718,10 +3715,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                 with self.subTest(job=name, attempt=attempt, reading=reading):
                     self.assertEqual(bool(evaluate(job["if"], context)), idle or name in self.LINUX_ROUTE)
                     if idle:
-                        if name in self.READS_ELSEWHERE:
-                            self.assertEqual(one_runs_on(job), self.READS_ELSEWHERE[name])
-                        else:
-                            self.assertEqual(evaluate(one_runs_on(job), context), reading[1])
+                        self.assertEqual(evaluate(one_runs_on(job), context), reading[1])
                         continue
                     if name in self.LINUX_ROUTE:
                         # Never the gateway (busy, or judged in another attempt): a Linux runner.
@@ -3778,8 +3772,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         context = {**self.context(), "needs.app-compile-placement.outputs.gateway_attempt": "1",
                    "needs.app-compile-placement.outputs.gateway_runner": "glaeda-gateway"}
         self.assertTrue(evaluate(job["if"], context))
-        # It only reads the tip check's verdict, so it holds no gateway runner while it waits.
-        self.assertEqual(job["runs-on"], "cmux-linux")
+        self.assertEqual(evaluate(one_runs_on(job), context), "glaeda-gateway")
 
     def test_it_takes_only_an_idle_gateway_placement_saw(self):
         """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
@@ -3795,10 +3788,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
                         f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
                 self.assertTrue(evaluate(job["if"], idle))
-                if name == "app-compile-fleet":
-                    self.assertEqual(job["runs-on"], "cmux-linux")  # it only reads the verdict
-                else:
-                    self.assertEqual(evaluate(one_runs_on(job), idle), "glaeda-side-std-xcode-26.6")
+                self.assertEqual(evaluate(one_runs_on(job), idle), "glaeda-side-std-xcode-26.6")
                 none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
                 self.assertFalse(evaluate(job["if"], none_idle))
                 # Placement skipped, failed, or ran an older base script: no reading, no gateway queue.
@@ -3867,33 +3857,30 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertIn("app-compile-fleet", jobs["release-compile"]["needs"])
 
-    def run_check(self, word: str | None, *, mac_release: str = "false"
+    def run_check(self, client_exit: int | None, *, mac_release: str = "false"
                   ) -> tuple[subprocess.CompletedProcess, str, str, str]:
-        """Run the step with a stub fleet compile reader printing word (None: no reader checked out)."""
+        """Run the step with a stub cmux-ci exiting client_exit (None: no client installed)."""
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"]["REF"], "${{ github.event.pull_request.head.sha }}")
-        self.assertEqual(step["env"]["PR"], "${{ github.event.pull_request.number }}")
         with tempfile.TemporaryDirectory() as tmp:
-            if word is not None:
-                reader = Path(tmp) / "scripts" / "ci" / "fleet_compile_result.py"
-                reader.parent.mkdir(parents=True)
-                reader.write_text("import sys\n"
-                                  f"open({str(Path(tmp) / 'args')!r}, 'w').write(' '.join(sys.argv[1:]))\n"
-                                  f"print({word!r})\n")
+            client = Path(tmp) / "cmux-ci"
+            if client_exit is not None:
+                client.write_text(f'#!/bin/bash\necho "$@" > "{tmp}/args"\nexit {client_exit}\n')
+                client.chmod(0o755)
             output = Path(tmp) / "output"
             output.touch()
             summary = Path(tmp) / "summary"
-            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "REF": "d" * 40, "PR": "42",
-                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp,
-                   "RUNNER_NAME": "gw", "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
-            # The step's own shell: bash -e {0}, in the job's workspace (the sparse checkout).
-            result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, cwd=tmp,
+            env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
+                   "GITHUB_STEP_SUMMARY": str(summary), "MAC_RELEASE": mac_release})
+            # The step's own shell: bash -e {0}.
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                                     capture_output=True, text=True, timeout=60)
             args = (Path(tmp) / "args").read_text() if (Path(tmp) / "args").exists() else ""
             return result, output.read_text(), args, summary.read_text() if summary.exists() else ""
 
-    def test_a_tip_check_pass_is_green(self):
-        result, output, args, summary = self.run_check("pass")
+    def test_a_fleet_pass_is_green_and_compiles_the_head(self):
+        result, output, args, summary = self.run_check(0)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("verdict=pass", output)
         self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
@@ -3914,24 +3901,24 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     def test_no_fleet_verdict_is_never_green(self):
         """2026-10-28: cmux-ci exited 69 (EX_UNAVAILABLE, a TimeoutError against the wedged controller)
         on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
-        that change: a pass with nothing compiled. No verdict (the reader's none, a word it does not
-        know, or no reader at all) fails the job and says so; the verdict output stays unavailable, so
-        release-compile still takes over where mac_release sends it."""
-        for word in ("none", "superseded", "pending", "", None):
-            with self.subTest(word=word):
-                result, output, _, summary = self.run_check(word)
+        that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
+        output stays unavailable, so release-compile still takes over where mac_release sends it."""
+        for client_exit in (69, 75, 124, 2, 3, 137):
+            with self.subTest(client_exit=client_exit):
+                result, output, _, summary = self.run_check(client_exit)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
                 self.assertIn("verdict=unavailable", output)
                 self.assertNotIn("verdict=pass", output)
-                self.assertIn("No build-fleet verdict for", result.stdout)
-                self.assertIn("the tip check gave no verdict in time", result.stdout)
+                self.assertIn("no verdict", result.stdout)
+                self.assertIn("controller unreachable or timed out", result.stdout)
+                self.assertIn(f"exit {client_exit}", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"].get("MAC_RELEASE"), "${{ needs.path_route.outputs.mac_release }}")
-        result, output, _, _ = self.run_check("none", mac_release="true")
+        result, output, _, _ = self.run_check(69, mac_release="true")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verdict=unavailable", output)
         self.assertIn("Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback", result.stdout)
@@ -3940,14 +3927,12 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         self.assertIn("always()", jobs["release-compile"]["if"])
         self.assertIn("needs.app-compile-fleet.outputs.verdict != 'pass'", jobs["release-compile"]["if"])
 
-    def test_it_only_reads_the_verdict_and_holds_no_gateway(self):
-        """2026-11-23/24: 1,791 of these jobs held a gateway Mac mini about 22,900 minutes only waiting on
-        the tip check. The job compiles nothing itself and takes no gateway runner."""
-        job = self.job()
-        step = next(s for s in job["steps"] if s.get("id") == "check")
-        self.assertNotIn("gateway_runner", str(job["runs-on"]))
-        self.assertNotIn("cmux-ci", step["run"])
-        self.assertNotIn("compile-check", step["run"])
+    def test_a_missing_client_is_no_verdict_not_a_pass(self):
+        result, output, args, _ = self.run_check(None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(args, "")
+        self.assertIn("verdict=unavailable", output)
+        self.assertIn("is not installed on runner gw", result.stdout)
 
     def test_a_skip_is_a_skip_never_a_pass(self):
         """The only no-compile outcome that is not red is the job-level skip (no idle gateway, a
