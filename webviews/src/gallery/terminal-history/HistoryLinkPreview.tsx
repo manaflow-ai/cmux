@@ -22,7 +22,7 @@ export function HistoryLinkPreview({ variant }: HistoryLinkProps) {
           {variant !== "compact" && " " + label}
         </button>
       </div>
-      <pre style={{ fontSize: 12 }}>{"Session resumed\n\n› "}</pre>
+      <pre style={{ fontSize: "var(--text-detail)" }}>{"Session resumed\n\n› "}</pre>
     </div>
   );
 }

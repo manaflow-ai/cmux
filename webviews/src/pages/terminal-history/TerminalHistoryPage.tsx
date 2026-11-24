@@ -79,9 +79,9 @@ export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistory
                 {hit.snippet}
               </button>
             ))}
-            {snapshot.searching && <span role="status">{strings.t("files.searching")}</span>}
+            {snapshot.searching && <output>{strings.t("files.searching")}</output>}
             {!snapshot.searching && snapshot.searchComplete && !snapshot.hits.length && (
-              <span role="status">{strings.t("find.noResults")}</span>
+              <output>{strings.t("find.noResults")}</output>
             )}
             {!snapshot.searching && !snapshot.searchComplete && (
               <button type="button" onClick={() => void store.continueFind()}>
@@ -114,9 +114,7 @@ export function TerminalHistoryPage({ store, strings, fixture }: TerminalHistory
           </button>
         )}
         {snapshot.loading && !fixture && (
-          <p role="status" className="terminal-history-status">
-            {strings.t("transcript.loading")}
-          </p>
+          <output className="terminal-history-status">{strings.t("transcript.loading")}</output>
         )}
         {!snapshot.loading && !turns.length && (
           <p className="terminal-history-status">{strings.t("subagents.empty.title")}</p>
