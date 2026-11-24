@@ -106,6 +106,8 @@ import {
   type DoctorRun,
   type HubRun,
   type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -887,6 +889,18 @@ export class SettingsStore {
   async runHub(run: HubRun): Promise<HubState | null> {
     await this.request("cmux.settings.hub.run", run);
     return this.hubState();
+  }
+
+  /** Settings > Connections (hosted MCP servers); null when the host has none. */
+  async connectionsState(): Promise<ConnectionsState | null> {
+    const reply = await this.request("cmux.settings.connections.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Connections gesture, then the card as it is after it (null: the host has none). */
+  async runConnections(run: ConnectionsRun): Promise<ConnectionsState | null> {
+    await this.request("cmux.settings.connections.run", run);
+    return this.connectionsState();
   }
 
   /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the

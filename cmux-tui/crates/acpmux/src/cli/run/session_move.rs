@@ -348,6 +348,8 @@ pub(crate) struct MoveArgs {
     /// `--from-snapshot`: the chats start on the target from this machine's copy of them
     /// (`session_move_snapshot.rs`), for a machine that does not answer.
     pub from_snapshot: bool,
+    /// `--as HARNESS`: the chats land on the target's harness HARNESS, one for the same agent.
+    pub as_harness: Option<String>,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -745,6 +747,7 @@ pub(crate) async fn move_auto(src: &Client, id: &str, resume_there: bool) -> Res
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        as_harness: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
     let mut targets = Targets::new(&args.host, &peers)?;
@@ -935,9 +938,8 @@ async fn move_steps(
     // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
     let opened =
         waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
-    let asked =
-        waiting(&o.name, "asking the target to take it", target_ask::ask(&opened.dst, &id, &info))
-            .await;
+    let ask = target_ask::ask(&opened.dst, &id, &info, args.as_harness.as_deref());
+    let asked = waiting(&o.name, "asking the target to take it", ask).await;
     let answer = match asked {
         Ok(answer) => answer,
         Err(e) => {
@@ -1011,7 +1013,8 @@ async fn move_steps(
     if staged.is_none() {
         super::transfer::whole_freeze_refusal(&mut src_end, &id).await?;
     }
-    let begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    let mut begun = begin_waiting(&mut src_end, &id, &name, watch, args, staged.as_ref()).await?;
+    begun.as_harness = args.as_harness.clone();
     let prepared = waiting(
         &name,
         "making its folder on the target",
