@@ -22,11 +22,11 @@ env:
 jobs:
   linux:
     name: linux
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # Above setup (10 min), the tool downloads (3 min), eleven waves of the slowest step (6 min; twenty-one
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Above setup (10 min), the tool downloads (3 min), twelve waves of the slowest step (6 min; twenty-four
     # steps, two at once on 2 CPUs) and the `alone` coderouter step (6 min), with room for the checkout, so a
     # slow step is reported by the runner, not cut here.
-    timeout-minutes: 85
+    timeout-minutes: 91
     permissions:
       contents: read
     steps:
@@ -48,3 +48,15 @@ jobs:
           fi
       - name: Run the routed linux steps (ci/steps.toml)
         run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
+      # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
+      # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
+      # lane/* branch as a fixup commit (ci-oops 0a). No patch, no artifact.
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3

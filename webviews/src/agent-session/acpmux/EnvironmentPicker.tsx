@@ -37,9 +37,12 @@ import {
   useMachineRefresh,
 } from "./environmentPickerModel";
 import { WithFacts } from "./chips/FactsHoverCard";
+import { AutoIcon } from "./AutoWhere";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";
+/// Auto's row (autoWhereModel.ts): where the chat runs is the daemon's call on Send.
+const AUTO_RUN = "\u0000auto-run";
 
 /// A machine's kind, which the search also matches ("ssh", "cloud").
 const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
@@ -255,8 +258,12 @@ export function EnvironmentPicker({
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const clouded = runMode?.mode === "cloud";
-  const checkedRow = sandboxed || clouded ? undefined : currentRow;
+  // Auto picked: no other row is checked until the daemon says where (autoWhereModel.ts).
+  const auto = runMode?.auto;
+  const autoPicked = auto?.picked === true;
+  const checkedRow = sandboxed || clouded || autoPicked ? undefined : currentRow;
   const persistent = () => {
+    if (autoPicked) auto?.onPick(false);
     if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
   };
   // ⌥ held while the list is open shows Cloud's other face (as a Mac menu's alternate).
@@ -405,8 +412,19 @@ export function EnvironmentPicker({
           ...(offloadReason ? { reason: offloadReason } : {}),
         }
       : undefined;
-  // Move to…'s list: each target, then nothing else (Escape closes it, as Machines…).
-  const moveRows = targetActions.map((action) => action.value);
+  // Move to…'s list opens on where the chat runs now, checked, so the person sees what they are
+  // moving from (a pick of it only closes the list); a machine card already names it, so its
+  // Continue on rows stay the targets alone.
+  const here: Action | undefined = opensMoves
+    ? {
+        value: MOVE_HERE,
+        text: value,
+        kind: sections.get(current) === "local" ? "local" : "cloud",
+        run: () => undefined,
+      }
+    : undefined;
+  // Move to…'s list: where it is now, each target, then nothing else (Escape closes it, as Machines…).
+  const moveRows = [...(here ? [here.value] : []), ...targetActions.map((action) => action.value)];
   // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
   // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere it shows where the chat runs
   // and a pick makes nothing (cmux#47677: it once ran New Cloud Machine, a new workspace on a click).
@@ -441,6 +459,8 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
+  // Auto heads a new chat's where-it-runs rows when the page offers it (opt in, per chat).
+  const autoRows = auto ? [AUTO_RUN] : [];
   // Which machine's list, and Other devices' list, end with Add Machine….
   const addMachine: Action | undefined =
     (listRows === "machines" || offersDevices) && onConnect
@@ -468,6 +488,7 @@ export function EnvironmentPicker({
   const actions: Action[] = [
     ...cardActions,
     ...(move ? [move] : []),
+    ...(here ? [here] : []),
     ...targetActions,
     ...(cloud ? [cloud] : []),
     ...(devicesMenu ? [devicesMenu] : []),
@@ -518,6 +539,7 @@ export function EnvironmentPicker({
   const main = card
     ? [...cardActions, ...continueOn].map((action) => action.value)
     : [
+        ...autoRows,
         ...ordered.filter(isLocal).map((environment) => environment.id),
         ...(pickedOther ? [pickedOther] : []),
         ...(move ? [move.value] : []),
@@ -564,6 +586,7 @@ export function EnvironmentPicker({
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked && !savedLocal;
   const where = [
+    ...autoRows,
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
     ...(devicesMenu ? [devicesMenu.value] : []),
@@ -609,7 +632,11 @@ export function EnvironmentPicker({
             ? machines
             : listRows === "where" || listRows === "run"
               ? listRows === "run"
-                ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+                ? [
+                    ...autoRows,
+                    ...ordered.filter(isLocal).map((environment) => environment.id),
+                    ...(cloudRow ? [cloudRow] : []),
+                  ]
                 : where
               : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
@@ -703,7 +730,17 @@ export function EnvironmentPicker({
       return;
     }
     close();
+    if (value === AUTO_RUN) {
+      // Auto is a pick like Cloud: it changes no folder or machine, and Send asks where.
+      if (!autoPicked) {
+        if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
+        auto?.onPick(true);
+      }
+      focusPrompt();
+      return;
+    }
     if (value === CLOUD_RUN) {
+      if (autoPicked) auto?.onPick(false);
       // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
       if (sandboxFace) {
         if (sandboxed) focusPrompt();
@@ -731,6 +768,31 @@ export function EnvironmentPicker({
     return motion ? React.cloneElement(node, { "data-row-motion": motion }) : node;
   };
   const rowContent = (value: string) => {
+    // Auto: the plain word, the other rows' size; its look is the icon (autoWhere.css). What it does
+    // is on its hover card.
+    if (value === AUTO_RUN && auto) {
+      return (
+        <WithFacts facts={[{ value: t("composer.autoRunDetail") }]}>
+          {(facts) => (
+            <span
+              {...facts}
+              className="acpmux-location-row acpmux-env-row acpmux-env-new"
+              data-kind="auto"
+              data-auto-look={auto.look}
+              data-current={autoPicked ? "" : undefined}
+            >
+              <AutoIcon look={auto.look} />
+              <span className="acpmux-menu-text acpmux-location-name">
+                <span className="acpmux-menu-label">{t("composer.auto")}</span>
+              </span>
+              <span className="acpmux-location-check" aria-hidden="true">
+                {autoPicked && <CheckIcon />}
+              </span>
+            </span>
+          )}
+        </WithFacts>
+      );
+    }
     if (value === CLOUD_RUN && sandboxFace) {
       return (
         <span
@@ -797,6 +859,7 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       const checked =
+        action === here ||
         (action === devicesMenu && listRows === "where" && anotherPicked) ||
         (action === cloud && listRows === "where" && cloudChecked);
       return (
@@ -811,9 +874,11 @@ export function EnvironmentPicker({
                 ? "moveTo"
                 : value === DEVICES_MENU
                   ? "otherDevices"
-                  : value.startsWith(MOVE_TO)
-                    ? "moveTarget"
-                    : undefined
+                  : value === MOVE_HERE
+                    ? "moveHere"
+                    : value.startsWith(MOVE_TO)
+                      ? "moveTarget"
+                      : undefined
           }
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
@@ -825,7 +890,7 @@ export function EnvironmentPicker({
             <MoveIcon />
           ) : value === DEVICES_MENU ? (
             <DevicesIcon />
-          ) : value.startsWith(MOVE_TO) ? (
+          ) : value === MOVE_HERE || value.startsWith(MOVE_TO) ? (
             <EnvironmentIcon kind={action.kind} {...(action.kind === "cloud" ? { name: action.text } : {})} />
           ) : action === addMachine ? (
             <PlusIcon />
@@ -972,6 +1037,7 @@ export function EnvironmentPicker({
       ref={control}
       className="acpmux-location-picker"
       data-kind="computer"
+      data-auto-look={autoPicked ? auto?.look : undefined}
       data-face={faceStyle}
       data-rows={listRows}
       data-machine-card={card ? "" : undefined}
@@ -1007,6 +1073,7 @@ export function EnvironmentPicker({
         side={side}
         flip={flip}
         finalFocus={false}
+        resize={{ id: "composer.environment" }}
       >
         {card?.header}
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
@@ -1062,6 +1129,9 @@ const CARD = ACTION + "card:";
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
 const MOVE_TO = ACTION + "moveTo:";
+/// Move to…'s first row: where the chat runs now, checked. No target's value, which has an id after
+/// the colon, is this one.
+const MOVE_HERE = ACTION + "moveHere";
 /// A new chat's Other devices row, which opens the person's own machines.
 const DEVICES_MENU = ACTION + "otherDevices";
 

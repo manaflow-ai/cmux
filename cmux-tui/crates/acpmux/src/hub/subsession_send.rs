@@ -175,14 +175,29 @@ pub(super) fn family_role(from: &SessionMeta, to: &SessionMeta) -> &'static str 
     }
 }
 
-/// What a sub-session waits on the person for, when it does: `question`
-/// (an agent question, with its first prompt) or `permission`. Only the
-/// person allows a permission (`person.rs`), in the app's card or with
-/// `acpmux allow` from their own terminal. An ancestor may answer a question
-/// only when the person turned that on (`subsession_answer.rs`, the row's
-/// `questions`); otherwise the person answers it too.
-pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> {
-    waiting_cut(s, short_text)
+impl Hub {
+    /// What a session waits on the person for, when it does (the summary's `waitingOn`):
+    /// `question` (an agent question, with its first prompt) or `permission` while one is
+    /// pending; else `secret` or `elevation` (a private card asking a secret's value or the
+    /// password for one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server) while that card is open; else, while it is Waiting, the reason it was set Waiting
+    /// with (`Hub::set_waiting`), so a Waiting session always says what it waits for. Only the
+    /// person allows a permission (`person.rs`), in the app's card or with `acpmux allow` from
+    /// their own terminal, and only the person answers a card. An ancestor may answer a question
+    /// only when the person turned that on (`subsession_answer.rs`, the row's `questions`);
+    /// otherwise the person answers it too.
+    pub(super) fn waiting_on(&self, s: &Session) -> Option<(&'static str, Option<String>)> {
+        if let Some(asked) = waiting_cut(s, short_text) {
+            return Some(asked);
+        }
+        let reason = self
+            .secrets
+            .waiting_for(&s.id)
+            .or_else(|| self.mcp_connects.waiting_in(&s.id).then_some(WaitReason::McpConnect))
+            // None exactly while the status is not Waiting: both are written together.
+            .or_else(|| *s.wait_reason.lock().unwrap_or_else(|e| e.into_inner()))?;
+        Some((reason.as_str(), None))
+    }
 }
 
 /// The question prompt [`waiting_on`] reads, masked before its cut
@@ -223,6 +238,15 @@ pub(super) fn doing(summary: &Value) -> Value {
         }
         (Some("question"), None) => {
             return json!("Waiting for the user to answer a question, in the app");
+        }
+        (Some("secret"), _) => {
+            return json!("Waiting for the user to enter a secret, in the app");
+        }
+        (Some("elevation"), _) => {
+            return json!("Waiting for the user to approve a command as root, in the app");
+        }
+        (Some("mcp_connect"), _) => {
+            return json!("Waiting for the user to connect an MCP server, in the app");
         }
         (Some(_), _) => return json!("Waiting for the user to allow a tool, in the app"),
         (None, _) if summary["lane"]["state"] == "input" => {
