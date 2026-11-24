@@ -90,7 +90,12 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
-import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
+import {
+  FIELD_GROWTH_EVENT,
+  growthTranslate,
+  type FieldGrowthEvent,
+  growthPendingIn,
+} from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
@@ -149,6 +154,7 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
+  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
 } from "./conversation/turnEndFold";
@@ -162,7 +168,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -170,7 +176,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
+import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_OF } from "./subagents/subagentRows";
@@ -236,8 +242,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  broughtSentPrompt,
   noReplyCame,
+  broughtSentPrompt,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -1343,7 +1349,12 @@ function TranscriptView({
       const view = thread.current?.ownerDocument.defaultView;
       if (!thread.current || typeof view?.getComputedStyle !== "function") return chase.outstanding();
       const translate = view.getComputedStyle(thread.current).translate;
-      return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+      if (!translate || translate === "none") return 0;
+      // A one-component translate ("10px") moves x only: its y is 0.
+      const parts = translate.trim().split(/\s+/);
+      if (parts.length < 2) return 0;
+      const y = Number.parseFloat(parts[1]!);
+      return Number.isFinite(y) ? y : 0;
     };
     const rowTop = (id: string, drawn: number) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
@@ -1697,7 +1708,21 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
+    // in that round, the dock already holds the field at its natural height. Taken here, the rows
+    // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
+    // The growth event, in the same round, takes it on the field's curve instead; a change no growth
+    // claims by the next frame is taken then.
+    let waitedForGrowth = 0;
     const resized = () => {
+      if (!growth && growthPendingIn(dock)) {
+        if (!waitedForGrowth)
+          waitedForGrowth = requestAnimationFrame(() => {
+            waitedForGrowth = 0;
+            if (!growth) resized();
+          });
+        return;
+      }
       const rows = thread.current;
       if (!rows || growth || asksFolding()) {
         take();
@@ -1819,6 +1844,7 @@ function TranscriptView({
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      if (waitedForGrowth) cancelAnimationFrame(waitedForGrowth);
       rowsMove?.cancel();
       for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
@@ -2910,6 +2936,11 @@ function TranscriptView({
     const box = { height: -1, width: -1 };
     /// `resized`: the box changed (not the first measure); `stepped` then hears a new width.
     const measure = (resized: boolean, stepped?: () => void) => {
+      // No layout box at all (a hidden view in a shared document, display:none on an ancestor): the
+      // transcript keeps its last box. Taking the 0x0 as its size dropped every row's window and width,
+      // so the show rebuilt and re-measured them all in its first frame (~140 ms for a 100-turn chat,
+      // bench/chat-pages-memory.bench.ts SHARED=1). A zero-high box that is laid out still counts.
+      if (resized && node.getClientRects().length === 0) return;
       box.height = node.clientHeight;
       box.width = node.offsetWidth;
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
@@ -3555,6 +3586,14 @@ function TranscriptView({
       last && last.sessionId === sessionId && last.width === rowWidth ? (last.layout.origin ?? 0) : 0;
     // Placed through the gap-aware index (placedHeightIndex.ts): a streamed token or a drawn
     // height reads only the rows it changed, in O(log rows) each, and copies no row's place.
+    // What the closures below read of the last pass is copied out first: a closure here that named `last` would keep
+    // it in this pass's scope, which the placed layout's index keeps, so each layout kept the one before it and its
+    // rows, every pass of the chat (the long chat's heap went 40 -> 117 MB; repository-cache-held.cost.test.ts).
+    const lastHere = last && last.sessionId === sessionId ? last : undefined;
+    const mountedFirst = lastHere?.first ?? 0;
+    const mountedLast = lastHere?.last ?? 0;
+    const mountedHeld = lastHere?.held ?? [];
+    const mountedRows = lastHere?.rows ?? [];
     const placed =
       drawn.size === 0
         ? placedFromEstimate(estimated.layout, placedOrigin)
@@ -3580,10 +3619,8 @@ function TranscriptView({
               // again: its estimate, which reads the same stores (rowOpenState.ts), places it. A
               // mounted row is measured in the state it is drawn in before the frame paints.
               const mounted =
-                last !== undefined &&
-                last.sessionId === sessionId &&
-                ((index >= last.first && index < last.last) || last.held.includes(index)) &&
-                last.rows[index]?.id === row.id;
+                ((index >= mountedFirst && index < mountedLast) || mountedHeld.includes(index)) &&
+                mountedRows[index]?.id === row.id;
               if (!drawnOpenStateHolds(known, sessionId, row, mounted)) return undefined;
               return known.height;
             },
@@ -3605,7 +3642,7 @@ function TranscriptView({
     // into the room above, so the rows in view and the scrollbar's thumb stay where they were.
     const leftAbove =
       last && last.sessionId === sessionId && last.width === rowWidth
-        ? heightLeftAbove(last.rows, (index) => last.layout.geometry.topAt(index), rows)
+        ? heightLeftAbove(last.rows, last.layout.geometry, rows)
         : 0;
     // A rail jump made another page the held window (direct.ts `jumpWindow`): no row is the last pass's, so the
     // room above is estimated again for the rows there now.
@@ -4820,11 +4857,25 @@ function TranscriptView({
             // the rows it brings, not the reply's text that lands in the send's window. A
             // steer's next reply segment landing within SEND_RISE_MS moved 40.69 px in one frame, and
             // a send's first reply row 38.75 px (send-stream-motion.test.ts); they drift with the stream.
+            // The turn's closing recap card (wrapUp.ts) arrives in place: with the shipped `place`
+            // entrance the pass that brings it moves the rows at once, so the card is drawn whole where
+            // it lands in the frame it comes. On the chase it came in at the view's bottom edge and the
+            // view followed it up 109 px over 100 ms (fold-variants-record, big-claude-recap). Leo,
+            // 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you
+            // finish chats." `open` and `hold` keep the chase (their own entrances ride it).
+            // O(the last rows): the card lands at the tail, or just above the live line.
+            let recapCame = false;
+            for (let index = rows.length - 1; index >= Math.max(0, rows.length - 3) && !recapCame; index -= 1) {
+              const row = rows[index]!;
+              if (row.kind === NEXT_STEP && !oldRows.slice(-4).some((old) => old.id === row.id)) recapCame = true;
+            }
+            if (recapCame && turnEndRecap(node) !== "place") recapCame = false;
             const atOnce =
               dockMoved ||
               !live ||
               stepped ||
               slimFollow ||
+              recapCame ||
               (followArm === "steady" && (promptCame || (sentRows && noReplyCame(oldRows, rows))));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
@@ -5054,6 +5105,8 @@ function TranscriptView({
       pinLive ? LIVE_THINKING : undefined,
       carry,
       placedRows,
+      // The scroller's box: a row that moves out of the view is drawn at its place, unseen.
+      () => ref.current?.getBoundingClientRect(),
     );
     refreshPinned(thread.current);
     finishCarry(thread.current, carry, (px) => {
@@ -5900,8 +5953,14 @@ function TranscriptView({
     }, SCROLL_GUARD_IDLE_MS);
   };
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
-    armFrameGuard();
-    pacing.scrolled();
+    // A hidden scroller (no height: a display:none view, cmuxterm-hq goals/memory-per-chat.md cut 2a) paints no
+    // frame, so there is nothing for the guard to commit or the pacer to sample; armed, each kept a frame loop
+    // running for as long as the hidden view's offset events came (60 frames/s a view).
+    const hidden = node.clientHeight === 0;
+    if (!hidden) {
+      armFrameGuard();
+      pacing.scrolled();
+    }
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
     // so it never plays on under the view when they come back to the latest row (tailGlide.ts).
     if (!followingRef.current) tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
@@ -5909,7 +5968,7 @@ function TranscriptView({
     if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
-    if (node.clientHeight === 0) return;
+    if (hidden) return;
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
