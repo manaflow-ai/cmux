@@ -67,9 +67,11 @@ extension CloudHandlers {
         // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way. Auto starts with them.
         let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
+        // Cancel is never refused, even with Cloud off: typed as `reason` so the two branches share one closure type.
+        let neverRefused: @MainActor () -> String? = { nil }
         for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
-            bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
+            bind(id, registry, reason: cancels ? neverRefused : reason) { invocation in
                 guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named((invocation["sessions"] ?? invocation["session"])?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {

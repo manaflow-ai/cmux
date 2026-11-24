@@ -334,18 +334,15 @@ final class CloudService {
                 await self.refresh()
             }
         })
-        // After sleep the list is stale even with cmux in front: the idle
-        // auto-pause may have parked machines while the lid was closed.
+        // After sleep the list is stale even with cmux in front (the idle auto-pause may have parked machines
+        // while the lid was closed); Auto starts its moves as the system is about to sleep. One observer for both.
         observers.append(Task { [weak self] in
-            for await note in NSWorkspace.shared.notificationCenter.notifications(named: nil) {
-                switch note.name {
-                case NSWorkspace.didWakeNotification:
-                    self?.placeDriver?.slept(false)
-                    await self?.refresh(ifOlderThan: .seconds(30))
-                // Auto starts its moves as the system is about to sleep.
-                case NSWorkspace.willSleepNotification: self?.placeDriver?.slept(true)
-                default: continue
-                }
+            let center = NSWorkspace.shared.notificationCenter, (names, feed) = AsyncStream.makeStream(of: Notification.Name.self, bufferingPolicy: .bufferingNewest(8))
+            let token = center.addObserver(forName: nil, object: nil, queue: nil) { feed.yield($0.name) }
+            defer { center.removeObserver(token) }
+            for await name in names where name == NSWorkspace.didWakeNotification || name == NSWorkspace.willSleepNotification {
+                self?.placeDriver?.slept(name == NSWorkspace.willSleepNotification)
+                if name == NSWorkspace.didWakeNotification { await self?.refresh(ifOlderThan: .seconds(30)) }
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
