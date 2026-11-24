@@ -22,6 +22,7 @@ import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
+import { forgetAddedRepos, rememberAddedRepo } from "../addedRepos";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { resetStashForTests, stashedNow, type StashTransport } from "../composer/draftStash";
@@ -2884,6 +2885,9 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
 // cmux#53226 (Austin): with This Mac picked, picking a GitHub repository in the folder menu cloned it at once.
 // The pick is the chip's choice only; Return checks it out here (cloned first when there is none), then asks there.
 test("with This Mac picked a GitHub repository's pick checks nothing out; Return checks it out, then asks there", async () => {
+  // acme/api was added as a project: the folder menu lists only repositories added so (cmux#53226).
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: false });
   setNativeHost(async (method) => {
     if (method === "github.status") return { state: "ready", repos_scope: "all" };
     if (method === "github.repos.list")

@@ -283,8 +283,8 @@ test.each([
     await press(gitHubRow());
     expect(scopeChip("GitHub")).toBeDefined();
     if (button) await press(option(button)!);
-    // The chip showing read the status (prefetch), and the open read it again.
-    const reads = ["github.status", "github.status"];
+    // Add project read the status, once: the folder chip and its menu read nothing (cmux#53226).
+    const reads = ["github.status"];
     expect(gh.calls.map(([method]) => method)).toEqual(action ? [...reads, action] : reads);
     expect(picked).toEqual([]);
     if (!action) expect(message()).toBeTruthy();
@@ -499,6 +499,8 @@ test("repository search survives an outside click, Back returns, and Escape clos
 
 test("Cloud source rows and searches exclude local folders, paths, and Git URLs", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 2);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1);
   let empty = 0;
   const { root } = await renderTray(
     {
@@ -674,6 +676,7 @@ test.each([
 
 test("a GitHub project moves the chat to Cloud when no local checkout action is available", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 1);
   const modes: string[] = [];
   const { root, picked } = await renderTray(
     { runMode: { mode: "persistent", onMode: (mode: string) => modes.push(mode) } },
