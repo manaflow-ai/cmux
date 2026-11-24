@@ -82,7 +82,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, screens
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, layout, screens
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -113,6 +113,7 @@ extension Workspace {
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
         group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
+        layout = try c.decodeIfPresent(WorkspaceLayout.self, forKey: .layout)
         screens = try c.decodeIfPresent([MacScreen].self, forKey: .screens) ?? []
     }
 }

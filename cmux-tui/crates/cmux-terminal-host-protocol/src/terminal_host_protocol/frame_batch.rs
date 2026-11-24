@@ -11,18 +11,18 @@ use super::{Frame, HEADER_LEN, MAX_FRAME_PAYLOAD, ProtocolError, encode_header};
 
 /// The most frames one [`write_frames`] call is given by a queue drain. Two
 /// slices per frame stays far below every platform's `IOV_MAX` (1024).
-pub(crate) const MAX_BATCH_FRAMES: usize = 64;
+pub const MAX_BATCH_FRAMES: usize = 64;
 
 /// The most frame bytes (headers and payloads) a queue drain gathers before
 /// it writes. One PTY read is at most 64 KiB, so a batch never holds back a
 /// single large frame, and a drain that stops here writes at once.
-pub(crate) const MAX_BATCH_BYTES: usize = 256 * 1024;
+pub const MAX_BATCH_BYTES: usize = 256 * 1024;
 
 /// Writes `frames` in order, byte for byte as [`super::write_frame`] writes
 /// each one, in as few vectored writes as the writer takes. A frame that
 /// cannot be encoded ends the batch: the frames before it are written and
 /// flushed, then its error returns, as a run of single writes would do.
-pub(crate) fn write_frames<F: Borrow<Frame>>(
+pub fn write_frames<F: Borrow<Frame>>(
     writer: &mut impl Write,
     frames: &[F],
 ) -> Result<(), ProtocolError> {
