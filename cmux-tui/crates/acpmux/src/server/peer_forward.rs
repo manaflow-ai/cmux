@@ -39,6 +39,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STATUS,
     method::MUX_PERF,
     method::MUX_CALLERS,
+    method::MUX_FELT_SNAPSHOT,
     method::MUX_SESSIONS,
     method::MUX_USAGE,
     method::MUX_WEB_MODES,
@@ -67,6 +68,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_GITHUB_ACTION,
     // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
     method::MUX_GITHUB_APP_LEASE,
+    // So are the app's own GitHub calls with it (`github_rest_op.rs`).
+    method::MUX_GITHUB_REST,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -107,7 +110,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
+    method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
@@ -120,6 +126,16 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
     "_acpmux/peer_snapshots_clear",
+    // Saved prompts are this machine's library; their `name` is a prompt's, never a session's.
+    method::MUX_PROMPTS_LIST,
+    method::MUX_PROMPTS_SAVE,
+    method::MUX_PROMPTS_DELETE,
+    // So are the stashed drafts; their `chat` is the composer's key.
+    method::MUX_STASH_LIST,
+    method::MUX_STASH_PUSH,
+    method::MUX_STASH_GET,
+    method::MUX_STASH_DROP,
+    method::MUX_STASH_MOVE,
     // A launch credential is for this daemon's own session only (`agent_credentials.rs`).
     crate::agent_credentials::UPDATE_METHOD,
     // The machine's own journal takes records only from its owner's link or its own socket
@@ -128,6 +144,47 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
 ];
+
+/// The requests a chat that moved to a peer still takes here, forwarded to its copy there
+/// (`hub/moved_forward.rs`): what a client attached to the chat sends it. A move's own steps
+/// (`_acpmux/transfer_*`) and everything that is about this daemon's record of the chat (kill,
+/// delete, archive, rename, fork) stay here, answered as before.
+const MOVED_FORWARDED: &[&str] = &[
+    method::SESSION_PROMPT,
+    method::SESSION_CANCEL,
+    method::SESSION_LOAD,
+    method::SESSION_RESUME,
+    method::SESSION_SET_MODE,
+    method::SESSION_SET_MODEL,
+    method::SESSION_SET_CONFIG_OPTION,
+    method::MUX_ATTACH,
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACHMENT,
+    method::MUX_ROWS,
+    method::MUX_HISTORY,
+    method::MUX_NATIVE_HISTORY,
+    method::MUX_DRAFT_GET,
+    method::MUX_DRAFT_SET,
+    method::MUX_COMPOSER_SET,
+    method::MUX_COMPOSERS,
+    method::MUX_PERMISSION_RESPOND,
+    method::MUX_QUEUE_GET,
+    method::MUX_QUEUE_REMOVE,
+    method::MUX_QUEUE_EDIT,
+    method::MUX_QUEUE_TEXT,
+    method::MUX_STEER_WITHDRAW,
+];
+
+/// Where request `m` for `key` goes when not here: a peer's chat, or for a request of
+/// [`MOVED_FORWARDED`] the peer copy of a chat that moved away (`Hub::remote_or_moved`).
+pub(super) fn target(
+    hub: &Hub,
+    m: &str,
+    key: &str,
+) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+    hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
+}
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
 /// itself (`SESSION_SCOPED_EXCLUDED`).
@@ -247,7 +304,16 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
 /// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
 pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The upload methods that wait for a peer's link (`await_upload_link`).
+/// How long a prompt for a peer's chat waits for that peer's link to come back before it is
+/// refused as unreachable: a game holds a player's action through a short drop instead of
+/// failing it. The wait wakes the peer (`Peer::wake`), so a connect attempt comes at most
+/// `Backoff::WANTED_CAP` (1 s) after the last while it waits (`peer_wanted.rs`; a restart's
+/// Close 1012 keeps the peer wanted for `RESTART_WANTED_FOR` anyway). 8 s is about seven attempts,
+/// each with its handshake: a daemon's restart handoff or a Wi-Fi drop of a few seconds. Past it
+/// the machine is likely off or resuming (about a minute) and the caller hears so, as before.
+pub(super) const PROMPT_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// The upload methods that wait for a peer's link (`await_link`).
 pub(super) fn waits_for_link(m: &str) -> bool {
     matches!(
         m,
@@ -259,16 +325,14 @@ pub(super) fn waits_for_link(m: &str) -> bool {
     )
 }
 
-/// A file the person dropped for a chat on `peer` waits, up to `within`, for the peer's link to be
-/// up instead of failing at once while it reconnects: the peer is wanted (`peer_wanted.rs`), so the
-/// next attempt comes within a second, and each settled attempt is checked. Before, the first
-/// try of a pasted video met a link that was reconnecting and failed, and only the person's Retry
-/// got it through (Leo, 2026-11-01: "i had to retry to get it to load???"). Whether it came up:
-/// a link still down is refused as unreachable by the request, as before.
-pub(super) async fn await_upload_link(
-    peer: &crate::peer::Peer,
-    within: std::time::Duration,
-) -> bool {
+/// A file the person dropped, or a prompt, for a chat on `peer` waits, up to `within`, for the
+/// peer's link to be up instead of failing at once while it reconnects: the peer is wanted
+/// (`peer_wanted.rs`), so the next attempt comes within a second, and each settled attempt is
+/// checked. Before, the first try of a pasted video met a link that was reconnecting and failed,
+/// and only the person's Retry got it through (Leo, 2026-11-01: "i had to retry to get it to
+/// load???"). Whether it came up: a link still down is refused as unreachable by the request, as
+/// before, and a peer removed or replaced ends the wait at once (`Peer::stopped`).
+pub(super) async fn await_link(peer: &crate::peer::Peer, within: std::time::Duration) -> bool {
     let mut stopped = peer.stopped();
     if *stopped.borrow() {
         return false;
@@ -340,11 +404,13 @@ async fn gated(
     let remote = (m == method::SESSION_PROMPT)
         .then(|| session_key(params).ok())
         .flatten()
-        .filter(|key| hub.resolve(key).is_err())
-        .and_then(|key| hub.resolve_remote(key));
-    let Some((peer, id, _)) = remote else {
+        .and_then(|key| target(hub, m, key));
+    let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
+    if let Err(e) = wait_for_prompt_link(conn, &peer, params).await {
+        return Some(Err(e));
+    }
     let mut tries = 0;
     loop {
         tries += 1;
@@ -362,6 +428,34 @@ async fn gated(
             continue;
         }
         return reply;
+    }
+}
+
+/// A prompt for a chat on `peer`, whose link is down, waits up to [`PROMPT_LINK_WAIT`] for it
+/// (`await_link`) before it goes through the gate, so it goes on the link that came back once
+/// that link's restores are decided, or is refused by `forward_inner` as unreachable, as before.
+/// Nothing went out while it waited: a cancel (`request_cancel.rs` drops this future) or a
+/// client that leaves ends the wait with nothing sent.
+///
+/// The prompt is checked first, so a bad one is refused at once. The outbox's own attempts
+/// (`outbox.rs`) do not wait: it keeps the delivery, tries again the moment the link is ready
+/// (`Outbox::peer_ready`), and hands a delivery that reached no one to the mesh relay at once.
+async fn wait_for_prompt_link(
+    conn: &Conn,
+    peer: &crate::peer::Peer,
+    params: &Value,
+) -> Result<(), RpcError> {
+    if peer.ready() || conn.socket_peer == crate::sender_harness::SocketPeer::Outbox {
+        return Ok(());
+    }
+    crate::author::of_prompt(params)?;
+    crate::prompt_provenance::notice_checked(params)?;
+    // A message wakes the peer's machine as its refusal would have (`ask_back`), now instead of
+    // after the wait.
+    peer.wake();
+    tokio::select! {
+        _ = await_link(peer, PROMPT_LINK_WAIT) => Ok(()),
+        () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
     }
 }
 
@@ -394,7 +488,8 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 }
 
 /// Whether request `m` says a person is writing to the chat: typing turned on
-/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// (`_acpmux/typing`), or a surface's unsent draft that is not blank: text, or an image
+/// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
 fn composing(m: &str, params: &Value) -> bool {
@@ -402,6 +497,7 @@ fn composing(m: &str, params: &Value) -> bool {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
             params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                || params.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty())
         }
         _ => false,
     }
@@ -425,8 +521,7 @@ async fn forward_inner(
 ) -> Result<Option<Value>, RpcError> {
     if super::remote_guard::cloud_mobile(params)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && hub.resolve_remote(key).is_some()
+        && target(hub, m, key).is_some()
     {
         return Err(super::remote_guard::refuse_cloud_mobile_forward());
     }
@@ -486,9 +581,19 @@ async fn forward_inner(
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(params)
-        && hub.resolve(key).is_err()
-        && let Some((peer, id, row)) = hub.resolve_remote(key)
+        && let Some((peer, id, row, moved)) = target(hub, m, key)
     {
+        // A request for a chat that moved there has followed one more move: past the bound it
+        // is answered here, as a chat that moved (`hub/moved_forward.rs`).
+        let moved_hops = moved.then(|| {
+            params
+                .pointer(&format!("/_meta/acpmux/{}", crate::hub::MOVED_HOPS_FIELD))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        });
+        if moved_hops.is_some_and(|hops| hops >= crate::hub::MAX_MOVES_FOLLOWED) {
+            return Ok(None);
+        }
         // A link that is down lists no features (`link_ended`), so every feature check below (the
         // trust gate, attachments, a prompt that waits for the owner) would call a prompt
         // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
@@ -511,6 +616,14 @@ async fn forward_inner(
         {
             return Err(super::fork_through::retarget_unsupported(&peer.name));
         }
+        // A subagent's fork, or one in a picked mode or on a model of the chat's own harness, goes
+        // only to a peer that takes them: an older build would fork the whole chat as it is.
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_start(params)
+            && !peer.lists(crate::hub::fork_subagent::FEATURE)
+        {
+            return Err(super::fork_through::start_unsupported(&peer.name));
+        }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
@@ -519,7 +632,7 @@ async fn forward_inner(
         // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
             let ready = tokio::select! {
-                ready = await_upload_link(&peer, UPLOAD_LINK_WAIT) => ready,
+                ready = await_link(&peer, UPLOAD_LINK_WAIT) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
             };
             // The old peer instance may have been removed or replaced while
@@ -655,7 +768,7 @@ async fn forward_inner(
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
         // trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() && !row.is_null() {
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -720,6 +833,11 @@ async fn forward_inner(
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
+        }
+        if let Some(hops) = moved_hops {
+            crate::hub::merge_mux_meta(&mut p, json!({crate::hub::MOVED_HOPS_FIELD: hops + 1}));
+            // Its stream comes from the peer now, and returns here with the chat (`follow.rs`).
+            conn.follows.forwarded(&id);
         }
         let mut first_attach = false;
         if matches!(
@@ -1239,6 +1357,23 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 mod tests {
     use super::*;
 
+    /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
+    #[test]
+    fn saved_prompts_stay_on_this_daemon() {
+        for m in [
+            method::MUX_PROMPTS_LIST,
+            method::MUX_PROMPTS_SAVE,
+            method::MUX_PROMPTS_DELETE,
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
+    }
+
     #[test]
     fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
         let mut p = json!({"_meta": {"acpmux": {
@@ -1299,7 +1434,7 @@ mod tests {
         for _ in 0..2 {
             let peer = peer.clone();
             pending.push(tokio::spawn(async move {
-                await_upload_link(&peer, std::time::Duration::from_secs(30)).await
+                await_link(&peer, std::time::Duration::from_secs(30)).await
             }));
         }
         // Peer::run is deliberately absent: removal itself, not a later
@@ -1487,3 +1622,7 @@ mod message_identity_tests {
 #[cfg(test)]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
+
+#[cfg(test)]
+#[path = "prompt_link_wait_tests.rs"]
+mod prompt_link_wait_tests;
