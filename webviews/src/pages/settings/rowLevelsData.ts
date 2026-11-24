@@ -211,7 +211,7 @@ export const ROW_LEVELS: {
     "focusRing.style": "more",
     "focusRing.contrast": "more",
     "focusRing.showWhenSinglePane": "more",
-    "focusRing.color": "hidden",
+    "focusRing.color": "more",
     "focusRing.width": "hidden",
     "sidebar.showChats": "more",
     "tabs.newTabNowPlaying": "more",

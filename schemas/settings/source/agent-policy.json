@@ -390,6 +390,7 @@
         "terminal.fontFamily",
         "terminal.fontSize",
         "terminal.term",
+        "terminal.predictiveLocalEcho",
         "sidebar.sectionLook",
         "sidebar.sections.hidden",
         "sidebar.sections.order",
@@ -1732,6 +1733,13 @@
       "why": "Which computers cmux dials over ssh and checks from the sidebar: the person declares a host, so an agent cannot point cmux at an address of its choosing.",
       "keys": [
         "machines.hosts"
+      ]
+    },
+    {
+      "agent": "network",
+      "why": "Whether remote connections may use a Tailscale carrier changes network egress, so only the person enables it.",
+      "keys": [
+        "transport.tailnetCarrier"
       ]
     },
     {
