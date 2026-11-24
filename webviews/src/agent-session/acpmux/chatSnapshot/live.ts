@@ -14,7 +14,9 @@ import {
 import { watchLaunchSettle } from "../launchSettle";
 import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean };
+/// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
+/// what still differed between the copy's composer and the live one (`composerDifference`).
+type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean; hold?: { by: string; at: number; differs?: string } };
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -35,6 +37,46 @@ function liveSide(): SnapshotLive {
 /// Whether the boot script drew a snapshot this document still shows.
 export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
+}
+
+/// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
+/// placeholder lies beside it). It holds the prompt, surrounding text, tile count, and height.
+function composerShows(scope: ParentNode | null | undefined): string[] | undefined {
+  const composer = scope?.querySelector(".acpmux-composer");
+  const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  if (!composer || !field) return undefined;
+  const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+  const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
+  return [fold(field), fold(composer), String(tiles), String(Math.round(composer.getBoundingClientRect().height))];
+}
+
+const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
+
+/// Returns a bounded description of differences between the saved and live composers.
+export function composerDifference(): string | undefined {
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
+  if (!copy || !live) return "no composer";
+  const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
+    if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at += 1;
+    return `${part} at ${at}, ${a.length}/${b.length} chars`;
+  };
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!) ]));
+  return parts.length ? parts.join("; ") : undefined;
+}
+
+/// Whether the live page's composer shows what the copy over it shows.
+export function promptMatchesChatSnapshot(): boolean {
+  return showsChatSnapshot() && composerDifference() === undefined;
+}
+
+/// Records how the draft wait ended on the copy's launch record.
+export function noteDraftWaitEnd(by: string): void {
+  const value = shown();
+  if (!value || value.hold) return;
+  value.hold = { by, at: performance.now(), ...(by === "cap" ? { differs: composerDifference() ?? "none" } : {}) };
 }
 
 /// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
@@ -70,6 +112,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
   const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
   return {
     ...chatSnapshotTimes(),
+    hold: shown()?.hold ?? null,
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
     served_cause: (globals[SNAPSHOT_GLOBAL] as { cause?: unknown } | undefined)?.cause ?? null,
