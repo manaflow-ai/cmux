@@ -614,6 +614,40 @@ try {
       await setHidden(page, true);
       await setMinimized(cdp, true);
     }
+    // The shared arm's timer on a kept page: shown in the page, forced style and layout, then its first and second
+    // frames, so the two compare like for like. The timer above stops at the first rAF poll that finds the reply in
+    // the DOM, which a hidden kept page always holds, so it counts two evaluate round trips and one frame.
+    const sameTimer: { ms: number; layout: number; frame1: number }[] = [];
+    for (const { page, cdp } of pages.slice(1, Math.min(REOPEN, pages.length - 1) + 1)) {
+      if (!hiddenPages.has(page)) continue;
+      if (process.env.HIDDEN_FREEZE === "1") await cdp.send("Page.setWebLifecycleState", { state: "active" });
+      const start = await page.evaluate(() => performance.now());
+      await setMinimized(cdp, false);
+      const entry = await page.evaluate(async (t0) => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        document.dispatchEvent(new Event("visibilitychange"));
+        void document.body.offsetHeight;
+        const layout = performance.now() - t0;
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        await frame();
+        const frame1 = performance.now() - t0;
+        await frame();
+        return { ms: performance.now() - t0, layout, frame1 };
+      }, start);
+      sameTimer.push(entry);
+      await setHidden(page, true);
+      await setMinimized(cdp, true);
+    }
+    if (sameTimer.length) {
+      const mid = (pick: (entry: (typeof sameTimer)[number]) => number) => percentile(sameTimer.map(pick), 0.5);
+      const ms = sameTimer.map((entry) => entry.ms);
+      const [p50, p95] = [percentile(ms, 0.5), percentile(ms, 0.95)];
+      console.log(
+        `chat-pages-memory: kept page, shared arm's timer p50: style+layout ${mid((e) => e.layout).toFixed(0)} ms, first frame ${mid((e) => e.frame1).toFixed(0)} ms, second frame ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms (n=${sameTimer.length})`,
+      );
+      perfRow({ name: "chat_pages_memory.reshow_many_frames", p50, p95, unit: "ms" });
+    }
     if (reshows.length) {
       const [p50, p95] = [percentile(reshows, 0.5), percentile(reshows, 0.95)];
       console.log(
