@@ -34,6 +34,15 @@ enum AgentImageOptimizer {
             return data
         }
 
+        let sourceMIMEType = AgentAttachment(kind: .image, name: "image", data: data).imageMIMEType
+        if sourceMIMEType == "image/png",
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           max(width, height) <= maxPixelSize {
+            return data
+        }
+
         let hasAlpha: Bool
         switch image.alphaInfo {
         case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly:
@@ -42,7 +51,7 @@ enum AgentImageOptimizer {
             hasAlpha = false
         }
         let type: CFString = hasAlpha ? UTType.png.identifier as CFString : UTType.jpeg.identifier as CFString
-        let alreadyAccepted = AgentAttachment(kind: .image, name: "image", data: data).imageMIMEType != nil
+        let alreadyAccepted = sourceMIMEType != nil
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { return data }
         var properties: [CFString: Any] = [:]
@@ -51,6 +60,15 @@ enum AgentImageOptimizer {
         guard CGImageDestinationFinalize(destination) else { return data }
         let optimized = output as Data
         return alreadyAccepted && optimized.count >= data.count ? data : optimized
+    }
+
+    static func filename(_ name: String, for data: Data) -> String {
+        guard !URL(fileURLWithPath: name).pathExtension.isEmpty,
+              let mime = AgentAttachment(kind: .image, name: name, data: data).imageMIMEType,
+              let extensionName = UTType(mimeType: mime)?.preferredFilenameExtension else { return name }
+        let url = URL(fileURLWithPath: name)
+        guard url.pathExtension.caseInsensitiveCompare(extensionName) != .orderedSame else { return name }
+        return url.deletingPathExtension().appendingPathExtension(extensionName).lastPathComponent
     }
 }
 #endif

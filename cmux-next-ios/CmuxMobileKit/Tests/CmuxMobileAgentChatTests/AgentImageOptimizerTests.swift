@@ -29,6 +29,13 @@ import UniformTypeIdentifiers
         #expect(AgentAttachment(kind: .image, name: "transparent", data: optimized).imageMIMEType == "image/png")
     }
 
+    @Test func keepsSmallOpaquePNGLossless() throws {
+        let image = try #require(makeImage(width: 1200, height: 900, alpha: false))
+        let original = try encode(image, type: UTType.png.identifier as CFString)
+
+        #expect(AgentImageOptimizer.optimize(original) == original)
+    }
+
     @Test func reencodesUnsupportedImageTypesAsJPEG() throws {
         let image = try #require(makeImage(width: 1200, height: 900, alpha: false))
         let original = try encode(image, type: UTType.tiff.identifier as CFString)
