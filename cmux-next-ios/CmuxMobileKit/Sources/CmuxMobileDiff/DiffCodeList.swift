@@ -216,22 +216,6 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         collectionView.deselectItem(at: indexPath, animated: false)
         if case .collapsed(let range)? = row(at: indexPath) { onExpand?(range) }
     }
-
-    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
-                        point: CGPoint) -> UIContextMenuConfiguration? {
-        guard indexPaths.count == 1, let indexPath = indexPaths.first, let model,
-              case .line(let index)? = row(at: indexPath) else { return nil }
-        let line = model.rows.lines[index]
-        // Built on demand, for the pressed line only.
-        return UIContextMenuConfiguration(actionProvider: { _ in
-            UIMenu(children: [
-                UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = line.text },
-                UIAction(title: "Copy with Line Number", image: UIImage(systemName: "number")) { _ in
-                    UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
-                },
-            ])
-        })
-    }
 }
 
 // MARK: Layout
@@ -355,8 +339,21 @@ private func numberLabel() -> UILabel {
     return label
 }
 
+@MainActor
+private func diffCopyMenuElements(for line: DiffLine) -> [UIMenuElement] {
+    [
+        UIAction(title: "Copy Line", image: UIImage(systemName: "doc.on.doc")) { _ in
+            UIPasteboard.general.string = line.text
+        },
+        UIAction(title: "Copy with Line Number", image: UIImage(systemName: "number")) { _ in
+            UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
+        },
+    ]
+}
+
 /// A unified line: old and new numbers and the ± marker (the gutter), then the code.
-final class DiffLineCell: UICollectionViewCell, DiffCell {
+@MainActor
+final class DiffLineCell: UICollectionViewCell, DiffCell, UIContextMenuInteractionDelegate {
     private let gutter = UIView()
     private let gutterRow = UIView()
     private let gutterBand = UIView()
@@ -364,19 +361,24 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     private let newLabel = numberLabel()
     private let markerLabel = UILabel()
     private let codeLabel = UILabel()
+    private let codeHost = UIView()
     /// Search in File's current match: an accent bar at the gutter's leading edge.
     private let matchBar = UIView()
     private var pinnedX: CGFloat = 0
     private var wraps = false
     private var indent: CGFloat = 0
     private var fonts: DiffFonts?
+    private var representedLine: DiffLine?
+    private var textSelection: InPlaceTextSelection?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         markerLabel.textAlignment = .center
         codeLabel.lineBreakMode = .byWordWrapping
-        contentView.addSubview(codeLabel)
+        contentView.addSubview(codeHost)
+        codeHost.addSubview(codeLabel)
         gutter.backgroundColor = .systemBackground
+        gutter.addInteraction(UIContextMenuInteraction(delegate: self))
         gutter.addSubview(gutterRow)
         gutter.addSubview(gutterBand)
         [oldLabel, newLabel, markerLabel].forEach(gutter.addSubview)
@@ -385,6 +387,16 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
         gutter.addSubview(matchBar)
         contentView.addSubview(gutter)
         isAccessibilityElement = true
+        let selection = InPlaceTextSelection(host: codeHost) { [weak self] in
+            guard let self else { return [] }
+            return [self.codeLabel]
+        }
+        selection.extraMenu = { [weak self] _ in
+            guard let line = self?.representedLine else { return [] }
+            return diffCopyMenuElements(for: line)
+        }
+        selection.onChange = { [weak self] selecting in self?.isAccessibilityElement = !selecting }
+        textSelection = selection
     }
 
     func setCurrentMatch(_ isCurrent: Bool) {
@@ -396,6 +408,8 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(line: DiffLine, text: NSAttributedString, indent: CGFloat, model: DiffRenderModel) {
+        textSelection?.end()
+        representedLine = line
         wraps = model.style.wrap
         self.indent = indent
         fonts = model.fonts
@@ -417,6 +431,22 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
         setNeedsLayout()
     }
 
+    // Holding a line number offers line actions even on an empty line. Only the number
+    // gutter is the menu source, so code never lifts with it.
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard let line = representedLine else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(children: diffCopyMenuElements(for: line))
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        textSelection?.end()
+        representedLine = nil
+    }
+
     func pin(_ x: CGFloat) {
         let x = wraps ? 0 : x
         guard x != pinnedX else { return }
@@ -427,6 +457,7 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         let bounds = contentView.bounds
+        codeHost.frame = bounds
         let numberWidth = DiffLayout.numberWidth
         let numberCell = numberWidth + DiffLayout.numberTrailingPadding
         gutter.frame = CGRect(x: wraps ? 0 : pinnedX, y: 0, width: DiffLayout.gutterWidth, height: bounds.height)
@@ -455,6 +486,7 @@ final class DiffLineCell: UICollectionViewCell, DiffCell {
 }
 
 /// A hunk header, a gap between parsed hunks, or "Expand N lines".
+@MainActor
 final class DiffBandCell: UICollectionViewCell, DiffCell {
     enum Content: Equatable {
         case header(String)
@@ -535,7 +567,9 @@ final class DiffBandCell: UICollectionViewCell, DiffCell {
 }
 
 /// A split pair: the old line on the left, the new line on the right.
+@MainActor
 final class DiffSplitCell: UICollectionViewCell, DiffCell {
+    @MainActor
     private final class Side: UIView {
         let number = numberLabel()
         let code = UILabel()
@@ -577,6 +611,7 @@ final class DiffSplitCell: UICollectionViewCell, DiffCell {
     private let divider = UIView()
     /// Search in File's current match: an accent bar at the row's leading edge.
     private let matchBar = UIView()
+    private var textSelection: InPlaceTextSelection?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -585,6 +620,12 @@ final class DiffSplitCell: UICollectionViewCell, DiffCell {
         matchBar.isHidden = true
         [left, right, divider, matchBar].forEach(contentView.addSubview)
         isAccessibilityElement = true
+        let selection = InPlaceTextSelection(host: contentView) { [weak self] in
+            guard let self else { return [] }
+            return [self.left.code, self.right.code]
+        }
+        selection.onChange = { [weak self] selecting in self?.isAccessibilityElement = !selecting }
+        textSelection = selection
     }
 
     func setCurrentMatch(_ isCurrent: Bool) {
@@ -596,12 +637,18 @@ final class DiffSplitCell: UICollectionViewCell, DiffCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(left: (DiffLine, NSAttributedString)?, right: (DiffLine, NSAttributedString)?, model: DiffRenderModel) {
+        textSelection?.end()
         self.left.configure(left, number: left?.0.oldNumber, wrap: model.style.wrap, fonts: model.fonts)
         self.right.configure(right, number: right?.0.newNumber, wrap: model.style.wrap, fonts: model.fonts)
         accessibilityLabel = [left?.0, right?.0].compactMap { $0 }.reduce(into: [String]()) { labels, line in
             if !labels.contains(line.accessibilityText) { labels.append(line.accessibilityText) }
         }.joined(separator: ", ")
         setNeedsLayout()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        textSelection?.end()
     }
 
     func pin(_ x: CGFloat) {}

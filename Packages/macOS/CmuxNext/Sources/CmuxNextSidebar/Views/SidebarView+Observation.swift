@@ -63,6 +63,10 @@ extension SidebarViewComponents {
         /// a change draws every row again (WorkspaceRowView+NeedsYouGlow).
         var needsYouMark: AttentionMarkLook
         var animatesLoops: Bool
+        /// `appearance.tabShape`: a row's corners (rounded), and whether the selected row runs into the card
+        /// (``CornerFlush/sidebarRowFlows``): every row lays out again and reports to the window's chrome.
+        var tabShape: TabShape
+        var rowFlows: Bool
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -112,6 +116,8 @@ extension SidebarViewComponents {
             rowTuning = SidebarRowTuning.signature
             needsYouMark = design.attention.mark
             animatesLoops = Motion.indicators.animatesLoops
+            tabShape = design.tabShape
+            rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -121,6 +127,14 @@ extension SidebarViewComponents {
                       "\(Metrics.tabHeight)"]
         }
     }
+    /// Whether a render opens the folds above the selection whatever its ancestry did: a new selection, or the
+    /// lineage arriving (no parents before, some now: the feed starts after restored windows). Any other change of
+    /// `parents` (an agent started or closed elsewhere) forces nothing: `SidebarSelectionTreeReveal` still reveals
+    /// when the selected row's own ancestors change, and a fold the person made stays closed.
+    static func revealsSelection(selectionChanged: Bool, from old: SidebarSessionTreeState?, to new: SidebarSessionTreeState?) -> Bool {
+        selectionChanged || ((old?.parents.isEmpty ?? true) && !(new?.parents.isEmpty ?? true))
+    }
+
     func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
@@ -169,6 +183,7 @@ extension SidebarViewComponents {
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
             || lastState?.rowTuning != state.rowTuning
             || lastState?.needsYouMark != state.needsYouMark || lastState?.animatesLoops != state.animatesLoops
+            || lastState?.tabShape != state.tabShape || lastState?.rowFlows != state.rowFlows
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true
@@ -191,11 +206,13 @@ extension SidebarViewComponents {
             || lastState?.groupChromeShape != state.groupChromeShape
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
-        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
-        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
+        // Resolve the selected row's ancestors in its newly drawn lists. A drag or regrouping can
+        // change those ancestors without changing either the selection or the daemon's parent map.
+        selectionTreeReveal.update(selection: state.selection, model: model, tree: .shared,
+                                   force: Self.revealsSelection(selectionChanged: selectionChanged, from: lastState?.tree, to: state.tree))
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
         // controls fade to the new rule.
@@ -245,6 +262,8 @@ extension SidebarViewComponents {
             if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
+        // A built-in listed as a row (the Chief in a group) draws its info there: its status or unread change reloads nothing.
+        if let old = lastState?.itemInfo, old != state.itemInfo { list.patchItemInfo(from: old, to: state.itemInfo) }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
@@ -253,5 +272,26 @@ extension SidebarViewComponents {
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
+    }
+}
+
+/// Remembers only the selected rows' drawn ancestry. Fold changes do not change it, so an explicit
+/// fold stays closed; moving a selected row under another list's ancestors reveals it there.
+@MainActor
+struct SidebarSelectionTreeReveal {
+    private var ancestors: [WorkspaceID: Set<[WorkspaceID]>] = [:]
+
+    mutating func update(selection: Set<WorkspaceID>, model: SidebarModel, tree: SidebarSessionTree, force: Bool) {
+        // No lineage, nothing nests: no fold hides the selection, and `listsHolding` would rebuild the model's row
+        // index (O(rows)) after every structural change for nothing. Remembering nothing reveals once lineage arrives.
+        guard let state = tree.state, !state.parents.isEmpty else { ancestors = [:]; return }
+        var next: [WorkspaceID: Set<[WorkspaceID]>] = [:]
+        for id in selection {
+            let lists = model.listsHolding(id)
+            let paths = Set(lists.map { state.drawnAncestors(of: id, inList: $0) })
+            next[id] = paths
+            if force || ancestors[id] != paths { tree.reveal(id, lists: lists) }
+        }
+        ancestors = next
     }
 }

@@ -366,6 +366,31 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertGreaterEqual(time.monotonic() - start, 2.0)
 
+    def test_alone_is_true_or_false(self) -> None:
+        self.assertTrue(table('[step.a]\njob = "linux"\nalone = true\nrun = "true"').steps["a"].alone)
+        self.assertFalse(table('[step.a]\njob = "linux"\nrun = "true"').steps["a"].alone)
+        with self.assertRaisesRegex(ci_steps.TableError, "`alone` is true or false"):
+            table('[step.a]\njob = "linux"\nalone = "yes"\nrun = "true"')
+
+    def test_an_alone_step_starts_after_the_others_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # Each step logs its start and end; an alone step must start only after every other one ended.
+            def step(name: str, alone: bool) -> str:
+                return (f'[step.{name}]\njob = "linux"\nalone = {str(alone).lower()}\n'
+                        f'run = "echo start-{name} >> {tmp}/log; sleep 0.3; echo end-{name} >> {tmp}/log"\n')
+            t = table(step("big", True) + step("a", False) + step("b", False) + step("last", True))
+            code, out = self.run_job(t, "linux", workers=4)
+            self.assertEqual(code, 0, out)
+            log = Path(tmp, "log").read_text().split()
+        self.assertEqual(sorted(log[:4]), ["end-a", "end-b", "start-a", "start-b"], log)
+        self.assertEqual(log[4:], ["start-big", "end-big", "start-last", "end-last"])
+        self.assertLess(out.index("::group::a"), out.index("::group::big"), out)
+        self.assertLess(out.index("::group::big"), out.index("::group::last"), out)
+
+    def test_the_tables_coderouter_runs_alone(self) -> None:
+        # Its cargo build takes every core; broker.test.mjs's 50 ms deadline failed beside it, twice.
+        self.assertTrue(ci_steps.load().steps["coderouter"].alone)
+
 
 class PipelineTest(unittest.TestCase):
     """pr-pipeline.yml runs the table's linux job through ci/run; pr-router.yml starts it from the table."""
@@ -405,7 +430,17 @@ class PipelineTest(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertIn("ci/run run --job linux", job["steps"][-1]["run"])
+        runs = [i for i, s in enumerate(job["steps"]) if "ci/run run --job linux" in s.get("run", "")]
+        self.assertEqual(len(runs), 1)
+        # After it only the failure-only upload of a fixit-compile patch (the web-typecheck step's), for the
+        # cmuxterm-hq reconciler, which reads a run's `fixit-compile-*` artifacts.
+        after = job["steps"][runs[0] + 1:]
+        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"])
+        self.assertEqual(after[0]["if"], "${{ failure() && !cancelled() }}")
+        self.assertTrue(after[0]["uses"].startswith("actions/upload-artifact@"))
+        self.assertTrue(after[0]["with"]["name"].startswith("fixit-compile-"))
+        self.assertEqual(after[0]["with"]["path"], "${{ runner.temp }}/fixit-compile")
+        self.assertEqual(after[0]["with"]["if-no-files-found"], "ignore")
 
     def test_the_router_starts_it_only_when_a_step_is_routed(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -495,7 +530,8 @@ class PipelineTest(unittest.TestCase):
                  "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
-                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast"}
+                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -503,6 +539,72 @@ class PipelineTest(unittest.TestCase):
                 self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+        # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
+        wf = yaml.safe_load((ROOT / ".github/workflows/coderouter-ci.yml").read_text())
+        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(steps["coderouter"].job, "linux")
+        # So did web-complexity.yml.
+        wf = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text())
+        self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(steps["web-complexity"].job, "linux")
+        # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
+        self.assertEqual(wf["jobs"]["sdk"]["if"],
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+        self.assertNotIn("if", wf["jobs"]["rust"])
+        self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
+                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
+        self.assertEqual(steps["submodule-forward-only"].job, "linux")
+        gitlinks = re.findall(r"^\s*path = (\S+)$", (ROOT / ".gitmodules").read_text(), re.M)
+        self.assertTrue(gitlinks)
+        self.assertLessEqual({".gitmodules", *gitlinks}, set(steps["submodule-forward-only"].inputs))
+        # ci-web.yml's web-typecheck keeps its route and skips only feat-cmux-next's pull requests; what routed it
+        # (web_subareas.py's typecheck subarea) routes the step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        self.assertTrue(wf["jobs"]["web-typecheck"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        typecheck = steps["web-typecheck"]
+        self.assertEqual(typecheck.job, "linux")
+        self.assertIn("bun run typecheck", typecheck.run)
+        self.assertIn("fixit_compile.py run --kind tsc", typecheck.run)
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import web_subareas
+
+        for path in ("web/app/page.tsx", "web/services/x.ts", "web/next-env.d.ts", "web/scripts/a.mjs",
+                     "web/package.json", "web/tsconfig.json", "web/bun.lock", "web/messages/fr.json",
+                     ".github/workflows/ci-web.yml", "scripts/ci/web_subareas.py"):
+            with self.subTest(path=path):
+                self.assertTrue(web_subareas.classify_paths([path]).typecheck)
+                self.assertTrue(ci_steps.routed(typecheck, [path]))
+        # cmux-next-guards.yml's security-holes job judged every pull request (gitleaks reads any file), so its step's
+        # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        self.assertEqual(wf["jobs"]["security-holes"]["if"],
+                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
+                         "|| github.workflow == 'docs-only fallback') }}")
+        holes = steps["security-holes"]
+        self.assertEqual(holes.job, "linux")
+        self.assertEqual(holes.inputs, ("**",))
+        self.assertTrue(holes.blocks)
+        for path in ("a.txt", "web/app/page.tsx", "Sources/App.swift", ".github/workflows/x.yml"):
+            with self.subTest(path=path):
+                self.assertTrue(ci_steps.routed(holes, [path]))
+        # A docs-only change alone does not start the pipeline for it, as the job's docs-only path filter did not.
+        import pr_router
+        callee = pr_router.load_manifest()["pr-pipeline.yml"]
+        self.assertEqual(pr_router.table_steps(callee, ["docs/x.md"]), [])
+        self.assertIn("security-holes", pr_router.table_steps(callee, ["docs/x.md", "a.txt"]))
+        self.assertIn("security-holes", pr_router.table_steps(callee, ["a.txt"]))
+        for command in ("ratchet.py zizmor --base HEAD^1 --head HEAD", "ratchet.py gitleaks --base HEAD^1 --head HEAD",
+                        "tests/test_static_analysis_ratchet.py", "tests/test_ci_linux_single_size.py",
+                        "tests/test_ci_no_single_size_pins.py", "CMUX_STATIC_ANALYSIS_BLOCKING=1"):
+            self.assertIn(command, holes.run)
+        # One failed command does not stop the others, as the job's `!cancelled()` steps did.
+        self.assertEqual(holes.run.count("|| status=1"), 4)
+        self.assertIn('exit "$status"', holes.run)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -519,9 +621,12 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "node"])
-        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
-        wants_node = {"ci-artifact-worker"}
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
+        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
+                     "web-typecheck"}
+        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity"}
+        self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
+        self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
                 continue
@@ -545,7 +650,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
             "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
@@ -559,7 +664,10 @@ class PipelineTest(unittest.TestCase):
     def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
         # Setup, the tools a routed step needs, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
         linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
-        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        # An `alone` step is a wave of its own.
+        shared = [s for s in linux if not s.alone]
+        need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
+                + sum(s.timeout for s in linux if s.alone))
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 
@@ -623,6 +731,13 @@ class PrChecksAdvisoryJobTest(unittest.TestCase):
                 self.assertEqual((step.job, step.blocks, step.klass), ("advisory", False, "idle"))
                 self.assertFalse(step.labels, "a label event runs only pr-body-checks.yml's steps")
                 self.assertLessEqual(step.timeout, 10 * 60, "within the run step's timeout")
+
+    def test_split_plan_fits_its_fetches_in_its_timeout(self) -> None:
+        # The window fetch, its ref fallback, the deepen and its fallback: four bounded fetches, then the checker.
+        step = self.table.steps["split-plan"]
+        bound = int(re.search(r"fetch\(\) \{ timeout (\d+) ", step.run).group(1))
+        self.assertEqual(len(re.findall(r"^\s*(?:\|\| )?fetch ", step.run, re.M)), 4, step.run)
+        self.assertGreaterEqual(step.timeout, 4 * bound + 30, "the checker gets the step's last half minute")
 
     def test_it_runs_the_picked_steps_from_the_base_checkout(self) -> None:
         checkout = self.steps["Check out the advisory steps from the base"]

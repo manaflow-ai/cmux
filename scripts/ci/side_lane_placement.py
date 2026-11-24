@@ -720,9 +720,9 @@ def light_side_label(label: str) -> str:
 
 def _family(label: str) -> str:
     """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
-    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
-    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
-    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than pool.OWNED_LABEL alone:
+    the nightly builder's pool (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must
+    hold the light minis too."""
     parts = (label or "").split("-")
     if not parts or parts[0] != "glaeda":
         return ""
@@ -1372,6 +1372,9 @@ def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None
           and small in cascade.stalled(live, waiting, seen.waits, seen.age)):
         out = f"stalled (oldest queued job {seen.waits.get(small, 0.0):.0f} min)"
     owned = route_label(label, runners, 1) or label
+    if not out and not cascade.blacksmith_on(env):
+        # With Blacksmith macOS off no runner serves its label, so a hand-back there would queue with no runner.
+        out = f"off (vars.{cascade.BLACKSMITH_SWITCH} is not `on`)"
     if not out or not owned.startswith("glaeda-"):
         return small, f"no idle owned Mac, so the fast tier takes `{small}`"
     return owned, f"no idle owned Mac and `{small}` is {out}, so the fast tier waits on the owned route `{owned}`"

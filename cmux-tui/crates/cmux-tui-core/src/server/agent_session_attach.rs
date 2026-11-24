@@ -30,6 +30,8 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_bad_field.rs"]
+mod bad_field;
 #[path = "agent_session_context.rs"]
 mod context;
 #[path = "agent_session_inventory_socket.rs"]
@@ -650,10 +652,14 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    // acpmux's `agent_login::Agent`s; it answers which way each signs in (`unsupported`).
+    // Any agent id: acpmux's `agent_login::Agent` decides which it signs in and how
+    // (`unsupported_agent`, `unsupported`), so an agent it gains needs no change here (a list here
+    // fell behind acpmux's more than once).
     let agent = || {
-        text(&params.agent)
-            .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
+        text(&params.agent).filter(|a| {
+            a.len() <= 32
+                && a.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
     };
     let (mut body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
@@ -1150,8 +1156,9 @@ fn prewarm(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let params = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1171,8 +1178,9 @@ fn start(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let params = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1204,14 +1212,13 @@ fn credentials(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(CredentialsParams { surface, env, vm_kind }) =
-        serde_json::from_value(Value::Object(params))
-    else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let CredentialsParams { surface, env, vm_kind } = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     let credential = agent_session_start::StartCredentials { env };
     if !credential.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+        return bad_field::refuse_field(writer, id, Some("env"));
     }
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -2192,10 +2199,13 @@ fn refuse_with_data(
 }
 
 /// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
-/// so a reader of the error alone sees why; every other refusal's text is its own.
+/// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
+/// why; every other refusal's text is its own.
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
-    match (refusal, data.get("reason").and_then(Value::as_str)) {
-        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
+    let text = |key: &str| data.get(key).and_then(Value::as_str);
+    match (refusal, text("reason"), text("field")) {
+        (Refusal::Refused, Some(reason), _) => format!("{} ({reason})", refusal.message()),
+        (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
         _ => refusal.message().to_string(),
     }
 }

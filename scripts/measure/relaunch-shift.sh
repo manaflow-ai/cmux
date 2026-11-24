@@ -7,7 +7,8 @@
 # it runs alone on a display worker:
 #   cmux-ci run --class exclusive --measurement --label measure --display --script scripts/measure/relaunch-shift.sh \
 #     --ref <sha> --artifact artifacts/relaunch-shift/report.json [--arg=--rounds=3] [--arg=--seconds=8] [--arg=--config=bench]
-# The log prints the table between RELAUNCH-SHIFT-TABLE-BEGIN and -END and the medians as RELAUNCH-SHIFT {json}.
+# The log prints the table between RELAUNCH-SHIFT-TABLE-BEGIN and -END, the medians as RELAUNCH-SHIFT {json}, and the
+# headline first: PERCEIVED settled_match_ms=... shift_score=... tti_ms=... first_frame_is_final=... (launch_shift.py).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # A step's checkout has empty submodules: reload.sh needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
@@ -64,5 +65,5 @@ tail -n 120 "$out/journey/journey.log" 2>/dev/null || true
 echo "RELAUNCH-SHIFT-TABLE-BEGIN"
 cat "$out/report.md" 2>/dev/null || tail -n 60 "$out/bench.log"
 echo "RELAUNCH-SHIFT-TABLE-END"
-grep -E "^RELAUNCH-SHIFT |LAUNCH-SHIFT " "$out/bench.log" || true
+grep -E "^PERCEIVED |^RELAUNCH-SHIFT |LAUNCH-SHIFT " "$out/bench.log" || true
 exit "$status"

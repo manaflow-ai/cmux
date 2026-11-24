@@ -68,6 +68,11 @@ extension CloudTeamFeature {
             }
             return { ["link": link, "key": ref.key, "kind": kind.wireKind, "copied": copied] }
         }
+        // A local workspace or tab has no Cloud session: its menu leaves the row out. The palette and
+        // the CLI keep it, and a run there refuses with cloud_session.not_cloud.
+        ActionTargetVisibility.hide("cloud.team.copyLink", in: registry) { invocation in
+            (try? Self.session(invocation, host())) == nil
+        }
         for (id, follow) in [("cloud.team.follow", true), ("cloud.team.unfollow", false)] as [(ActionID, Bool)] {
             bind(id) { invocation in
                 let ref = try Self.session(invocation, host())
