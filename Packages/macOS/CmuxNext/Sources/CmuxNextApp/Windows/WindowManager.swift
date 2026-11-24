@@ -131,8 +131,6 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// The launch window's frame marks until their fourth run-loop pass (RFD 0134 row 4).
-    private var frameMarks: FirstFrameMarks?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -502,7 +500,6 @@ final class WindowManager {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks
-            if controllers.count == 1, frameMarks == nil { frameMarks = FirstFrameMarks(window: window, mark: { DebugTimings.markLaunch($0) }, finished: { [weak self] in self?.frameMarks = nil }) } // marks only (RFD 0134 row 4)
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }

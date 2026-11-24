@@ -528,7 +528,7 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "window.ordered_front", "frame.commit_start", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed",
-            "window.display_done", "window.flush_done", "frame.window_update", "frame.window_expose", "frame.occlusion_visible", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "home.first_page", "reveal.home",
+            "window.display_done", "window.flush_done", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
             "window_usable", "first_shell_live", "first_key_down",

@@ -237,7 +237,7 @@ import Testing
             "home.page_host_made": 430, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
             "terminal_input_accepted": 640, "terminal_echo": 645,
             "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
-            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.window_update": 402, "frame.window_expose": 403, "frame.occlusion_visible": 404, "frame.loop_1": 405, "frame.loop_2": 406, "frame.loop_3": 407, "frame.loop_4": 408, "first_key_down": 630,
+            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.loop_1": 402, "frame.loop_2": 403, "frame.loop_3": 404, "frame.loop_4": 405, "first_key_down": 630,
             "premain.first_initializer": 31, "main.setup_done": 41.5, "daemon.spawned": 290, "daemon.reused": 299,
             "first_page.navigation_start": 905, "first_page.dom_content_loaded": 940, "first_page.first_contentful_paint": 962,
         ]
