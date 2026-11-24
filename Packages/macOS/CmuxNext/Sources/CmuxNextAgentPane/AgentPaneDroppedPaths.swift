@@ -206,7 +206,9 @@ public final class AgentPaneDroppedPaths {
     /// (`chat.attach.dropped`) makes. Reads no file: whether an item is a folder is its URL's
     /// trailing slash (Finder's), and the page also knows WebKit's `<name>.zip` for one.
     func pushed(local: Bool) -> [String: Any]? {
-        guard let record = held[.drop], !record.items.contains(where: \.needsSnapshot) else { return nil }
+        // Keep the record available for the base `chat.attach.dropped` fallback. The page consumes
+        // a pushed remote token separately, and a local chat uses the base gestureAt lookup.
+        guard let record = held[.drop]?.last, !record.items.contains(where: \.needsSnapshot) else { return nil }
         let items = record.items.map { item -> [String: Any] in
             var entry: [String: Any] = ["path": item.url.path, "folder": item.url.hasDirectoryPath]
             if !local {
