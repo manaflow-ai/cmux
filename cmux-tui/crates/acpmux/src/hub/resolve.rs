@@ -346,6 +346,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         icon: None,
         name_given: false,
         former_names: Vec::new(),
+        succeeds: Vec::new(),
+        roles: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
