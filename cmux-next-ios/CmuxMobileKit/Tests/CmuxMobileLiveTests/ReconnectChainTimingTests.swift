@@ -1,6 +1,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -215,7 +216,14 @@ private final class FakeMac: @unchecked Sendable {
     let lockstep = Lockstep()
     private let lock = NSLock()
     private var oneWayLatency: Duration = .milliseconds(40)
+    private var acceptsParks = false
     private var linkEpoch = 0
+
+    /// The Mac accepts a park (PROTOCOL.md "Parked link"); off, it refuses as an older Mac.
+    var parks: Bool {
+        get { lock.withLock { acceptsParks } }
+        set { lock.withLock { acceptsParks = newValue } }
+    }
 
     /// The links the Mac holds now; `forgetLinks` drops them (a long background:
     /// the phone's old link is gone, so the chain measured is a fresh link's).
@@ -293,7 +301,7 @@ private final class ChainChannel: LinkChannel, @unchecked Sendable {
 /// A link to the fake Mac. Opening a channel costs no round trip (the open frame travels with
 /// the data behind it); the Mac serves a channel opened after `auth` only once `auth` passed.
 // crash-allow: every mutable field is read and written only under `lock`
-private final class ChainLink: MacLink, @unchecked Sendable {
+private final class ChainLink: ParkableMacLink, @unchecked Sendable {
     let transport: CmuxMobileTransport.TransportKind = .wireGuard
     let connectedPath: LinkPathKind? = .direct
     let states: AsyncStream<LinkState>
@@ -309,6 +317,14 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     private var channels: [ChainChannel] = []
     /// acpmux request id -> method, to name the replies.
     private var methods: [String: String] = [:]
+    /// Parked: nothing the Mac sends reaches the phone until it resumes the link (its tunnel
+    /// sits on a socket the suspension left behind, and the Mac holds its writes).
+    private var parked = false
+    private var heldDown: [(ChainChannel, Data)] = []
+    private var parks = 0
+    private var resumes = 0
+    var parkCount: Int { lock.withLock { parks } }
+    var resumeCount: Int { lock.withLock { resumes } }
 
     init(mac: FakeMac) {
         let delay = mac.oneWay
@@ -352,6 +368,28 @@ private final class ChainLink: MacLink, @unchecked Sendable {
             return nil
         }
         return try await ping()
+    }
+
+    func park(hold: Duration, timeout: Duration) async -> Bool {
+        guard mac.parks else { return false }
+        lock.withLock {
+            parks += 1
+            parked = true
+        }
+        return true
+    }
+
+    func resumeParked() -> Bool {
+        let held = lock.withLock { () -> [(ChainChannel, Data)]? in
+            guard parked else { return nil }
+            parked = false
+            resumes += 1
+            defer { heldDown = [] }
+            return heldDown
+        }
+        guard let held else { return false }
+        for (channel, data) in held { toPhone(channel, data) }
+        return true
     }
 
     var isClosed: Bool { lock.withLock { closed } }
@@ -410,6 +448,12 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     // MARK: Mac side (runs when the phone's message arrives)
 
     private func toPhone(_ channel: ChainChannel, _ data: Data) {
+        let held = lock.withLock { () -> Bool in
+            guard parked else { return false }
+            heldDown.append((channel, data))
+            return true
+        }
+        guard !held else { return }
         mac.lockstep.send(up: false) { [self] in arrived(channel, data) }
     }
 
@@ -690,6 +734,159 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         }
         // One attach per run (and the first open's): no retry hid in the numbers.
         #expect(mac.acpmux.attachCount == reattach + 1)
+    }
+}
+
+/// What a parked link does for work that can't wait for the phone to come back (PROTOCOL.md
+/// "Parked link"): a call on the link keeps it out of the park, and a notification action taken in
+/// the background resumes it for its request. The fake Mac parks: while parked, nothing it sends
+/// reaches the phone until the phone resumes the link. Nothing here brings the scene back.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(2))) struct ParkedLinkWorkTests {
+    /// A coordinator linked to `mac`, paired and with its chats ready.
+    private struct Rig {
+        let live: LiveCoordinator
+        let mac: FakeMac
+        let session: MacSession
+        let stop: @MainActor () -> Void
+
+        @MainActor var link: ChainLink? { session.link.link as? ChainLink }
+    }
+
+    private func rig() async throws -> Rig {
+        let userID = "user-\(UUID().uuidString)"
+        let teamID = "t-park-\(UUID().uuidString.prefix(8))"
+        let macID = "mac-park-\(UUID().uuidString.prefix(8).lowercased())"
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-park-\(UUID().uuidString)")
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(
+            teamID: teamID, teamName: "One", macs: [MacDevice(id: macID, name: "Studio", isOnline: true)], linkedMacID: macID,
+            workspaces: [macID: .init(workspaces: [], savedAt: Date(timeIntervalSince1970: 1_000))]
+        ), accountID: userID)
+        snapshots.flush()
+        let mac = FakeMac(macID: macID)
+        let secrets = MemorySecretStore()
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        // No heartbeat, probe bound or retry fires unless the test moves this clock.
+        let clock = LinkTestClock()
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: ChainDialer(mac: mac),
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: userID, service: "test.park.\(UUID())", store: secrets, enclave: false),
+            snapshots: snapshots, secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json")),
+            pins: MacPins(file: nil), clock: clock
+        )
+        live.transcriptCache = nil
+        let stop: @MainActor () -> Void = {
+            live.stop()
+            clock.stop()
+            UserDefaults.standard.removeObject(forKey: "cmuxMobile.live.mac.\(teamID)")
+        }
+        do {
+            try await waitFor("the link") { store.macConnection[macID] == .connected }
+            let session = try #require(live.session(macID: macID))
+            try await waitFor("the pairing") { session.pairingState == .paired }
+            try await waitFor("acpmux ready") { session.acpmux.isReady }
+            mac.parks = true
+            return Rig(live: live, mac: mac, session: session, stop: stop)
+        } catch {
+            stop()
+            throw error
+        }
+    }
+
+    /// Polls `done` on the main actor until it holds, for at most `within` awake.
+    func waitFor(_ what: String, within: Duration = .seconds(30), _ done: () -> Bool) async throws {
+        var watchdog = AwakeDeadline(within)
+        while !done(), watchdog.hasTimeLeft() { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
+        try #require(done(), "timed out waiting for \(what)")
+    }
+
+    /// Whether a request on the Mac's acpmux comes back within `within`: a reply the Mac
+    /// sends on a parked link waits there until the phone resumes it.
+    func answers(_ hub: AcpmuxHub, within: Duration) async throws -> Bool {
+        var answered = false
+        let request = Task { @MainActor in
+            _ = try? await hub.request("_acpmux/events", .object(["sessionId": .string("s1")]))
+            answered = true
+        }
+        defer { request.cancel() }
+        var watchdog = AwakeDeadline(within)
+        while !answered, watchdog.hasTimeLeft() { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
+        return answered
+    }
+
+    /// The phone locks during a call: the call's link is not parked, so the agent's replies
+    /// (read aloud) still reach the phone, and it parks once the call ends.
+    @Test func aLinkACallUsesIsNotParkedWhenThePhoneLocks() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let link = try #require(rig.link)
+        rig.live.setCallMac(rig.mac.macID)
+        rig.live.background()
+        #expect(try await answers(rig.session.acpmux, within: .seconds(4)), "a reply on the call's link did not arrive")
+        #expect(link.parkCount == 0, "the call's link was parked")
+        #expect(!rig.session.link.isParked)
+
+        rig.live.setCallMac(nil)
+        try await waitFor("the park after the call", within: .seconds(10)) { rig.session.link.isParked }
+        #expect(link.parkCount == 1)
+    }
+
+    /// A call that starts while the phone is away (Siri, the Action Button) resumes the parked
+    /// link, with no redial.
+    @Test func aCallStartingOnAParkedLinkResumesIt() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let link = try #require(rig.link)
+        rig.live.background()
+        try await waitFor("the park", within: .seconds(10)) { rig.session.link.isParked }
+
+        rig.live.setCallMac(rig.mac.macID)
+        #expect(!rig.session.link.isParked)
+        #expect(link.resumeCount == 1)
+        #expect(try await answers(rig.session.acpmux, within: .seconds(4)), "a reply on the call's link did not arrive")
+        #expect(rig.link === link, "the call's link was redialed")
+    }
+
+    /// Deny on a notification while the app is in the background, on a parked link: the
+    /// permission lookup comes back within the reply's budget, and the link parks again after.
+    @Test func aBackgroundDenyOnAParkedLinkGetsItsLookupAnswered() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let link = try #require(rig.link)
+        rig.live.background()
+        try await waitFor("the park", within: .seconds(10)) { rig.session.link.isParked }
+
+        let reply = PushReply(mac: rig.mac.macID, kind: .permission, sessionId: "s1", permissionId: "perm-1",
+                              action: .deny(optionID: nil))
+        var outcome: Result<Void, any Error>?
+        let delivery = Task { @MainActor in
+            do {
+                try await rig.live.deliver(reply)
+                outcome = .success(())
+            } catch {
+                outcome = .failure(error)
+            }
+        }
+        defer { delivery.cancel() }
+        var watchdog = AwakeDeadline(LiveCoordinator.pushReplyBudget)
+        while outcome == nil, watchdog.hasTimeLeft() { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
+        let result = try #require(outcome, "the permission lookup did not answer within the reply's budget")
+        // The fake Mac lists nothing pending: the lookup answered, and said so.
+        #expect(rig.mac.marks.all["info_in"] != nil, "no answer to _acpmux/info reached the phone")
+        if case .failure(let error) = result {
+            #expect((error as? LiveCoordinator.PushReplyFailure)?.reason == .refused(String(localized: "This was already answered.")))
+        }
+        #expect(rig.link === link, "the parked link was redialed")
+        try await waitFor("the park after the reply", within: .seconds(10)) { rig.session.link.isParked }
+        #expect(link.parkCount == 2)
     }
 }
 
