@@ -36,11 +36,14 @@ const rows = [
 document.body.style.margin = "0";
 createRoot(document.getElementById("root")!).render(
   <TurnActionsContext.Provider value={{}}>
-    {/* Rows are placed absolutely, as the virtualized transcript places them. */}
+    {/* Rows are placed absolutely, as the virtualized transcript places them, each in MessageRow's
+        `.cv-user` column, so the footer is laid as in the pane (under the bubble, at its right edge). */}
     <div style={{ position: "relative", width: 640, height: 720 }}>
       {rows.map((row, index) => (
         <article key={row.id} className="acpmux-row acpmux-user" data-testid={row.id} style={{ top: index * 160 }}>
-          <UserBubble row={row} text={row.text ?? ""} />
+          <div className="cv-user">
+            <UserBubble row={row} text={row.text ?? ""} />
+          </div>
         </article>
       ))}
     </div>

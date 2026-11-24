@@ -45,6 +45,8 @@ await requireBrowserLane("row-slots-actions-browser.test.ts", async () => {
       const note = row.querySelector(".cv-user__pending-state");
       const words = row.querySelector(".cv-user__bubble");
       return {
+        noteRight: note?.getBoundingClientRect().right,
+        slotLeft: slot?.getBoundingClientRect().left ?? Number.NaN,
         copyRight: copy?.getBoundingClientRect().right ?? Number.NaN,
         slotRight: slot?.getBoundingClientRect().right ?? Number.NaN,
         noteLeft: note?.getBoundingClientRect().left,
@@ -73,12 +75,12 @@ await requireBrowserLane("row-slots-actions-browser.test.ts", async () => {
       expect((await drawn("landed-long")).slotRight).toBeCloseTo(landed.slotRight, 0);
     });
 
-    test("the delivery note still starts where the bubble's text starts", async () => {
+    test("the delivery note sits before the end slot, never under its buttons", async () => {
       for (const id of ["pending-short", "pending-long"]) {
         const row = await drawn(id);
-        // One bubble padding in (conversation.css, the pending note's rule), never at the end slot.
-        expect(row.noteLeft!).toBeGreaterThanOrEqual(row.bubbleLeft - 0.5);
-        expect(row.noteLeft!).toBeLessThan(row.bubbleLeft + 24);
+        // The note is `meta`, drawn from the line's start; the end slot keeps the right edge, so the
+        // two never overlap at any text length.
+        expect(row.noteRight!).toBeLessThanOrEqual(row.slotLeft + 0.5);
       }
     });
   });
