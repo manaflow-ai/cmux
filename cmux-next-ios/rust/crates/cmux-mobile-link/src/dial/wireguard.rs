@@ -36,7 +36,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::turn::{TurnCarrier, TurnTransport};
+use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
 };
@@ -263,17 +263,27 @@ impl StunClock {
 /// TCP or TLS attempt too (relay first, as the dial wants a relayed path
 /// ready whatever UDP does), else only once UDP looks blocked. It tells the
 /// clock when it took a TCP or TLS carrier.
-async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Option<TurnCarrier> {
+async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Allocated {
     let TurnSide { mut udp_silent, stream_ready } = side;
     if !eager && udp_silent.wait_for(|silent| *silent).await.map(|_| ()).is_err() {
         // The STUN wait ended without UDP looking blocked.
-        return None;
+        return Allocated::default();
     }
     let turn = TurnCarrier::allocate_with(options, Some(udp_silent), eager).await;
-    if turn.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
+    if turn.carrier.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
         let _ = stream_ready.send(true);
     }
     turn
+}
+
+/// A dial with no TURN allocation and no plain UDP that can work (UDP off,
+/// or STUN never answered) because a proxy refused TURN over TLS: the
+/// proxy's reason, said now, instead of a timeout 25 s later.
+fn refused_by_proxy(udp_useless: bool, allocated: &Allocated) -> Option<DialError> {
+    if !udp_useless || allocated.carrier.is_some() {
+        return None;
+    }
+    allocated.refusal.as_ref().map(|refusal| DialError::Transport(refusal.to_string()))
 }
 
 pub struct WireGuardDialer;
@@ -339,10 +349,14 @@ fn no_plain_udp(options: &DialOptions) -> bool {
 /// [`STUN_SILENT`], beside the rest of the STUN wait, not after it.
 async fn gather_for_answer(socket: &UdpSocket, options: &DialOptions) -> (Gathered, Option<TurnCarrier>) {
     let (stun_side, turn_side) = stun_turn_link();
-    tokio::join!(
+    let (gathered, allocated) = tokio::join!(
         gather_endpoints(socket, options, Some(stun_side)),
         turn_beside(options, no_plain_udp(options), turn_side)
-    )
+    );
+    if let Some(refusal) = &allocated.refusal {
+        tracing::warn!(%refusal, "this Mac's proxy refused TURN over TLS; a phone may not reach it");
+    }
+    (gathered, allocated.carrier)
 }
 
 /// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
@@ -1402,6 +1416,10 @@ impl HybridUnderlay {
         {
             return true;
         }
+        if self.options.drop_wireguard_udp && super::dpi::carries_wireguard(datagram) {
+            super::dpi::count_drop();
+            return true;
+        }
         if self.options.restrict_inbound_udp {
             self.sent_to.insert(target);
         }
@@ -1781,6 +1799,10 @@ impl Underlay for HybridUnderlay {
                     {
                         continue;
                     }
+                    if self.options.drop_wireguard_udp && super::dpi::carries_wireguard(&buffer[..len]) {
+                        super::dpi::count_drop();
+                        continue;
+                    }
                     let origin = Origin { path: UDP_PATH, addr: Some(source) };
                     if self.impaired(&buffer[..len], origin) {
                         continue;
@@ -2100,6 +2122,10 @@ fn start_tunnel(
         turn_dead,
         route_to,
     });
+    session.escalate_when_silent(
+        path_rx.clone(),
+        if spec.dialer { roam::SILENT_TUNNEL_DIALER } else { roam::SILENT_TUNNEL_ANSWER },
+    );
     Ok(Tunnel { session, path: path_rx, peer })
 }
 
@@ -2127,10 +2153,18 @@ impl Dialer for WireGuardDialer {
         Box::pin(async move {
             let socket = bind_udp().map_err(transport_error)?;
             let (stun_side, turn_side) = stun_turn_link();
-            let (gathered, turn) = tokio::join!(
+            let (gathered, allocated) = tokio::join!(
                 gather_endpoints(&socket, options, Some(stun_side)),
                 turn_beside(options, true, turn_side)
             );
+            // No STUN server even resolved (a network whose DNS names only what
+            // its proxy may reach) is no UDP path either.
+            let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
+            let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
+            if let Some(error) = refused_by_proxy(udp_useless, &allocated) {
+                return Err(error);
+            }
+            let turn = allocated.carrier;
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
@@ -2998,7 +3032,7 @@ mod tests {
             gather_endpoints(&socket, options, Some(stun_side)),
             turn_beside(options, eager, turn_side)
         );
-        (gathered, turn, started.elapsed())
+        (gathered, turn.carrier, started.elapsed())
     }
 
     /// A network that drops UDP (a hotel, a guest network): STUN never

@@ -406,6 +406,40 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
     }
 }
 
+/// The upgrade, on a TCP stream that left through the system's proxy for the
+/// service when the settings name one (`CONNECT`, PAC included), with TLS
+/// verified against the OS trust store ([`crate::egress`]): a network whose
+/// only way out is its proxy, or that inspects TLS with a company root,
+/// reaches the service as URLSession does.
+type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn open_socket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    egress: crate::egress::Egress,
+) -> Result<Socket, SignalingError> {
+    let uri = request.uri().clone();
+    let secure = uri.scheme_str() == Some("wss");
+    let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
+    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    let (tcp, via) = crate::egress::connect_tcp(&host, port, secure, &egress)
+        .await
+        .map_err(|error| SignalingError::Connect(error.to_string()))?;
+    if let crate::egress::Via::Proxy(hop) = via {
+        tracing::info!(%hop, host, "signaling through the proxy");
+    }
+    let connector = if secure {
+        let config = crate::egress::tls::client_config(&egress.trust).map_err(SignalingError::Connect)?;
+        tokio_tungstenite::Connector::Rustls(config)
+    } else {
+        tokio_tungstenite::Connector::Plain
+    };
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+        .await
+        .map(|(socket, _)| socket)
+        .map_err(connect_error)
+}
+
 impl SignalingClient {
     /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
@@ -426,7 +460,22 @@ impl SignalingClient {
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
+        Self::connect_via(base_url, token, team_id, device_id, build_space, &crate::egress::Egress::default())
+            .await
+    }
+
+    /// [`Self::connect_in`] leaving this device as `egress` says (tests: a
+    /// given proxy, given roots); the others follow the system's settings.
+    pub async fn connect_via(
+        base_url: &str,
+        token: &str,
+        team_id: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
+    ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
+        let egress = egress.clone();
         let url = signal_url(base_url, team_id, device_id)?;
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
@@ -448,8 +497,8 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(CONNECT_WAIT, tokio_tungstenite::connect_async(request)).await {
-                Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
+            match tokio::time::timeout(CONNECT_WAIT, open_socket(request, egress)).await {
+                Ok(connected) => connected,
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",
                     CONNECT_WAIT.as_secs()
