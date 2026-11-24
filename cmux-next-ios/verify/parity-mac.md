@@ -172,6 +172,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
 | Type, paste, keys, Ctrl-C | composer, direct typing, key bar, paste | works | |
+| Glass refraction over live content (`ask-d547ac77f0`) | native iOS 26 composer glass; terminal scrollback draws above its theme backing | partial | Terminal backing order corrected; fleet visual verification and iPhone handoff pending. Chat, Chief and TabsKit already use native glass. See [refraction verification](glass-refraction.md). |
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |
 | Clear Screen (⇧⌘K) | page menu Clear | works | `clear-history`. |
 | Find, Copy | Files and Links, selection | partial | |
@@ -867,6 +868,7 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Move Workspace Above… / Below… | `set-personal-workspace {index}` / `move-workspace` | a row's menu → Move → **Move Workspace Above…** / **Below…** → a row of the same container | works (live) | |
 | Reveal Workspace in Sidebar | the sidebar scrolls to the row and flashes it | a workspace page's menu **Reveal in Workspaces List** | works (live) | A row behind the Mac filter or in an offline Mac's fold shows first. |
 | Compact Workspace List | the sidebar's one-line rows | Settings → **Compact workspace list** | works (live) | |
+| Needs You Look: Badge / Glow (`notifications.attention.mark`, Leo 2026-11-19: "needs you" as motion, a look customization off by default; Mac branch `lane/needs-you-glow`) | none: a Mac setting its tab strip and sidebar read | Settings → **Needs You look** (Badge, Glow; Badge by default): with Glow, a Needs You or Done workspace row hides its gutter dot (keeping its room) and breathes a halo in the dot's color (16% fill, soft edge, opacity 1 → 0.35) until this phone opens it | partial (code; tests `WorkspaceRowNeedsYouGlowTests`, `AttentionMarkLookTests`; not seen live yet) | The phone's own setting, same values as the Mac's, stored on this iPhone (`cmuxMobile.settings.attentionMark`): the phone does not read or edit Mac settings. Seen is the phone's `seenAt` (opened since the row's last activity); an opened row that still waits shows its dot again, as a selected Mac row does. Steady under Reduce Motion; the breath runs on the render server and stops off screen. The phone's workspace tab chips draw no unread or waiting mark, so there is no tab half to glow; Home's conversation rows keep their dots. |
 | Toggle Editor Minimap | the Mac's code editor | — | not applicable | The phone's file preview is a read-only view with no minimap. |
 | Help: Troubleshooting and Support, Join the cmux Discord, Follow @cmux on X, cmux on GitHub | open the page | Settings → About rows | works | The Mac's `StaticURL` addresses. |
 | Copy Logs | the error journal report | Settings → About → **Copy Logs**: this app's own log (last hour, this launch) with its version | works (live) | Private values stay redacted (OSLog). |
