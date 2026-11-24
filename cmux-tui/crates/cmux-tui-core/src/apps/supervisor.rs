@@ -275,6 +275,8 @@ pub(super) struct Inner {
     pub safe_mode: Option<crate::safe_mode_flag::Flag>,
     /// The crash loop record (`safe_mode.rs`).
     pub launches: super::safe_mode::Launches,
+    /// The safe mode bisect (`safe_mode_bisect.rs`), only while safe mode is on.
+    pub bisect: Option<super::safe_mode_bisect::Bisect>,
     /// Apps whose host failed (an init error, repeated crashes), with why;
     /// cleared when a host of theirs is ready again.
     pub failed: HashMap<String, String>,
@@ -406,6 +408,8 @@ impl Supervisor {
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
         let launches = super::safe_mode::load_launches(config.state_dir.as_deref());
+        let bisect =
+            safe_mode.as_ref().and(super::safe_mode_bisect::load(config.state_dir.as_deref()));
         let last_good = super::rollback::load(config.state_dir.as_deref());
         // Snapshot before startup seeds: an existing install must not change the
         // person's layout on upgrade, but a newly appearing customize app may.
@@ -498,6 +502,7 @@ impl Supervisor {
                 customize_reads_offered: None,
                 safe_mode,
                 launches,
+                bisect,
                 failed: HashMap::new(),
                 local_prints,
                 local_rejected_logged: HashMap::new(),

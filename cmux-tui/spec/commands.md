@@ -1087,6 +1087,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1103,9 +1105,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -1581,6 +1586,14 @@ send back as `known`; with `known`, a reply that holds them all does. `known`
 and `limit` together answer `unchanged` when the client's whole tree is
 current.
 
+A `limit` reply also stops at 64 KiB of rows (at least one row), whatever
+`limit` asks, so a phone's first window costs the same at 10, 100 or 1,000
+workspaces; `total` says how many there are. With `list-workspaces-page-v1`,
+`after: N` (with `limit`) skips the first N workspaces of that order, and every
+page that is not the last carries `next`, the `after` of the page that follows.
+A page that does not start at 0 never carries `tree_revision`. `after` without
+`limit` changes nothing.
+
 A remote device's connection (`set-client-info {remote: true}`) never sees an
 incognito workspace (#31210). Its `limit` page and `total` are taken from the
 workspaces it may see, and once a workspace of the daemon was incognito, its
@@ -1593,6 +1606,7 @@ Params:
 | --- | --- | --- | --- |
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
+| `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
 
 Result:
 
@@ -6697,13 +6711,24 @@ Result: `object{}` or `object{refused:"unknown_run"}`.
 
 Returns the retained notification ledger (at most 256), newest first.
 
-Params: `limit` (usize, default 256).
+Params: `limit` (usize, default 256); `stats` (bool, default false).
 
 Result:
 
 ```text
-object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}], agent_notice_stats?:object}
 ```
+
+With `stats: true` the reply also carries `agent_notice_stats`: how often agent
+notices (source `agent`) were read, and how fast, per kind (`finished`,
+`failed`, `needs_input`, `other`) and over `all`. Each kind has `posted`,
+`read_within_60s`, `read_within_10m`, `read_later`, `never_read` (unread
+10 min after its post), `unread_recent` (unread, younger than 10 min),
+`acted_rate` (read within 10 min over posted minus unread_recent; null when
+none) and `read_ms_p50`/`read_ms_p95` (null when none was read). A read is the
+first console ack or client read the store records. The window is the retained
+ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
+the numbers and the cost stays constant.
 
 ### set-tab-pinned
 
@@ -9747,6 +9772,15 @@ as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
 encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`.
+A connection that declared all three and `terminal-full-screen-frames-v1`
+gets a full-screen program as `agent-cli-lean` frames too, as an agent CLI on
+the alternate screen goes: the alternate screen and the input modes (mouse
+tracking 1000, 1002, 1003 among them) as `output` bytes, a switch of screens
+followed by a keyframe of the screen switched to, frames at most one per
+16.7 ms (one display frame) instead of one per 100 ms, and no `vt-state` or
+PTY bytes, also for a terminal that is full-screen when it attaches. A program
+that repaints its whole screen for each change then sends the cells that
+changed. Agent CLI terminals keep their 100 ms pace.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -9874,6 +9908,55 @@ Example:
 ```json
 {"id":5,"cmd":"read-scrollback","surface":1,"start":40,"count":2}
 {"id":5,"ok":true,"data":{"rows":[{"row":0,"runs":[{"text":"cargo test","fg":null,"bg":null,"attrs":0}]},{"row":1,"runs":[{"text":"ok","fg":"#00ff00","bg":null,"attrs":1}]}],"start":40,"total":83,"epoch":17}}
+```
+
+### terminal-find
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-find` |
+| status | proposed |
+| since | protocol 7 |
+
+Returns one page of Cmd-F matches in a PTY surface's whole retained history (the scrollback and the active area), newest first: the bottom row first, right to left within a line. A soft-wrapped line is searched as one line, so a match can span rows. The terminal's lock is held for one chunk of 512 rows at a time, never for the whole search.
+
+Rows are named by history marker (the row's number counted from the first row the terminal ever retained), so a page's cursor and its matches stay valid while old rows are evicted. A resize reflow renumbers markers and bumps `epoch`; a request whose `epoch` differs restarts at the bottom with `restarted:true`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `query` | `string` | required | Empty matches nothing |
+| `case_sensitive` | `bool` | `false` | Match letter case exactly |
+| `whole_word` | `bool` | `false` | Word boundary on both sides |
+| `regex` | `bool` | `false` | `query` is a Rust `regex` pattern, not a literal |
+| `before` | `uint64` | the bottom | Marker the page ends above (exclusive): the previous page's `next_before` |
+| `epoch` | `uint64` | none | The previous page's `epoch` |
+| `page_rows` | `uint64` | `8192` | About how many rows one page reads; a page always finishes its logical line |
+| `max_matches` | `uint` | `10000` | Clamped to `1..=10000` |
+
+Result:
+
+```text
+object{matches:array<object{start:object{marker:uint64,column:uint16},end:object{marker:uint64,column:uint16},rows_from_bottom:uint64,snippet:string,snippet_start:uint32,snippet_len:uint32}>,next_before:uint64|null,complete:bool,epoch:uint64,renumbered:bool,restarted:bool,interrupted:bool,scanned_rows:uint64,bottom:uint64,rows:uint16,cols:uint16,invalid_pattern?:string}
+```
+
+`start` and `end` are inclusive cells. `rows_from_bottom` is `bottom - start.marker` (1 is the bottom row), which a client mirror with less history maps to its own rows. `snippet_start` and `snippet_len` place the match in `snippet` in UTF-16 units. `next_before` is null once the oldest row was searched. `interrupted` says rows were evicted under the page. An invalid regex answers `ok` with no matches and `invalid_pattern` set.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Example:
+
+```json
+{"id":6,"cmd":"terminal-find","surface":1,"query":"needle"}
+{"id":6,"ok":true,"data":{"matches":[{"start":{"marker":10,"column":9},"end":{"marker":10,"column":14},"rows_from_bottom":10013,"snippet":"the deep needle is here","snippet_start":9,"snippet_len":6}],"next_before":null,"complete":true,"epoch":1,"renumbered":false,"restarted":false,"interrupted":false,"scanned_rows":10023,"bottom":10023,"rows":24,"cols":80}}
 ```
 
 ### wait-for
@@ -11543,7 +11626,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11573,6 +11656,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 

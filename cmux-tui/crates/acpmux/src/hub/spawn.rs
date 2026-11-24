@@ -447,6 +447,29 @@ impl Hub {
                     return Err(joined_declined(&meta.id, "codex", "no_proxy", NO_PROXY));
                 }
             } else {
+                // Off a Cloud image and off a join, a Codex with no way in at all is refused here,
+                // naming the host and the fix, instead of starting and failing every turn
+                // (`codex_signed_out.rs`, hq#21792 event 12). Keychain sign-ins are not read on
+                // macOS, so there no sign-in seen is no proof of none.
+                if !cfg!(target_os = "macos")
+                    && !inputs.owner_cloud_image()
+                    && crate::codex_signed_out::no_way_in(&inputs, &p.argv)
+                {
+                    let codex_home = inputs.codex_home().to_string_lossy().into_owned();
+                    let probe_env = std::collections::BTreeMap::from([
+                        ("CODEX_HOME".to_owned(), codex_home),
+                        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+                    ]);
+                    let program = p.argv.first().map(String::as_str).unwrap_or("codex");
+                    if crate::codex_signed_out::says_not_logged_in(program, &probe_env).await {
+                        let host = crate::hand::pair::hostname();
+                        tracing::warn!(session = %meta.id, %host, code = "codex.no_sign_in", "codex has no sign-in, key or provider on this machine");
+                        return Err(RpcError::invalid_params(crate::codex_signed_out::refusal(
+                            &host,
+                            &meta.harness,
+                        )));
+                    }
+                }
                 match crate::codex_cloud_auth::own_reason(
                     &inputs,
                     crate::codex_cloud_auth::host_resolves,
@@ -863,3 +886,7 @@ mod claude_cloud_tests;
 #[cfg(test)]
 #[path = "spawn_codex_cloud_tests.rs"]
 mod codex_cloud_tests;
+
+#[cfg(all(test, unix, not(target_os = "macos")))]
+#[path = "spawn_codex_signed_out_tests.rs"]
+mod codex_signed_out_tests;

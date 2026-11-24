@@ -9,11 +9,13 @@ fn the_inert_final_test_is_the_list() {
     }
 }
 
-/// The byte walk the ESC-to-ESC form replaces.
+/// The byte walk, one byte at a time: the definition of the neutral run.
 fn walk(data: &[u8], from: usize) -> usize {
     let mut at = from;
     loop {
-        at = find_esc_or_high(data, at);
+        while at < data.len() && data[at] != 0x1b && data[at] < 0x80 {
+            at += 1;
+        }
         if at == data.len() {
             return at;
         }
@@ -83,11 +85,66 @@ fn the_escape_to_escape_scan_ends_where_the_byte_walk_ends() {
             );
         }
         for from in 0..=data.len() {
-            assert_eq!(
-                neutral_run_end(&data, from, true),
-                walk(&data, from),
-                "{data:?} from {from}"
-            );
+            let expected = walk(&data, from);
+            assert_eq!(neutral_run_end(&data, from, true), expected, "{data:?} from {from}");
+            assert_eq!(escape_to_escape(&data, from), expected, "{data:?} from {from}");
+        }
+    }
+}
+
+/// The form the fused walk replaced (ESC to ESC, `memchr` and
+/// `str::from_utf8` a segment), kept to show both end in the same place.
+fn escape_to_escape(data: &[u8], from: usize) -> usize {
+    let mut at = from;
+    loop {
+        let rest = data.get(at..).unwrap_or_default();
+        let esc = memchr::memchr(0x1b, rest).map_or(data.len(), |offset| at + offset);
+        if let Err(error) = std::str::from_utf8(data.get(at..esc).unwrap_or_default()) {
+            return at + error.valid_up_to();
+        }
+        if esc == data.len() {
+            return esc;
+        }
+        let csi = inert_csi_len(data, esc);
+        if csi == 0 {
+            return esc;
+        }
+        at = esc + csi;
+    }
+}
+
+/// The 16-byte scans find the first match at every offset of a block and
+/// in the short tail, from every start, against a plain byte search.
+#[test]
+fn the_wide_scans_find_the_first_match_at_every_position() {
+    let mut state: u64 = 52_643;
+    for len in 0..48usize {
+        for hit in 0..=len {
+            for kind in [0x1bu8, 0x80, 0x9c, 0xff, 0xe6] {
+                let mut data = vec![0u8; len];
+                for byte in &mut data {
+                    state =
+                        state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    // ASCII other than ESC: 0x00..=0x7f without 0x1b.
+                    let ascii = u8::try_from((state >> 57) & 0x7f).unwrap_or(0);
+                    *byte = if ascii == 0x1b { b'a' } else { ascii };
+                }
+                if hit < len {
+                    data[hit] = kind;
+                }
+                for from in 0..=len {
+                    let plain_esc_or_high = data[from..]
+                        .iter()
+                        .position(|byte| *byte == 0x1b || *byte >= 0x80)
+                        .map_or(len, |offset| from + offset);
+                    let plain_high = data[from..]
+                        .iter()
+                        .position(|byte| *byte >= 0x80)
+                        .map_or(len, |offset| from + offset);
+                    assert_eq!(find_esc_or_high(&data, from), plain_esc_or_high, "{data:?} {from}");
+                    assert_eq!(find_high(&data, from), plain_high, "{data:?} {from}");
+                }
+            }
         }
     }
 }
