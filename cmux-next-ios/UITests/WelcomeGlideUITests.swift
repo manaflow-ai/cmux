@@ -18,15 +18,26 @@ final class WelcomeGlideUITests: XCTestCase {
             let app = launch(arguments: appearance(dark))
             let mark = element(app, id: "welcome.wordmark")
             XCTAssertTrue(mark.waitForExistence(timeout: 20), "wordmark missing")
-            // The reveal is 2.4 s (with the launch hold); wait past it.
-            _ = app.staticTexts["__never__"].waitForExistence(timeout: 4)
+            // The canvas is the wordmark element less its 40 pt side padding.
+            let canvas = mark.frame.insetBy(dx: 40, dy: 0)
+            func settled(_ ink: ClosedRange<CGFloat>?) -> Bool {
+                guard let ink else { return false }
+                return ink.lowerBound < canvas.minX + 8 && ink.upperBound > canvas.maxX - 8
+            }
+            // The reveal is 2.4 s plus the launch hold, but its clock advances
+            // with rendered frames, so a loaded simulator plays it slower than
+            // wall time: wait for the settled lockup, up to 12 s.
+            var span = inkSpan(app, in: mark.frame)
+            let deadline = Date().addingTimeInterval(12)
+            while !settled(span), Date() < deadline {
+                _ = app.staticTexts["__never__"].waitForExistence(timeout: 0.5)
+                span = inkSpan(app, in: mark.frame)
+            }
             capture("welcome-\(dark ? "dark" : "light")")
             XCTAssertTrue(element(app, label: "Your Macs, in your pocket").exists, "tagline missing")
             XCTAssertTrue(app.buttons["Continue with Google"].exists, "sign-in rows missing")
             XCTAssertTrue(app.buttons["Continue with email"].exists, "email row missing")
-            // The canvas is the wordmark element less its 40 pt side padding.
-            let canvas = mark.frame.insetBy(dx: 40, dy: 0)
-            let ink = try XCTUnwrap(inkSpan(app, in: mark.frame), "the wordmark draws nothing")
+            let ink = try XCTUnwrap(span, "the wordmark draws nothing")
             XCTAssertLessThan(ink.lowerBound, canvas.minX + 8, "the chevron is not home (ink \(ink), canvas \(canvas))")
             XCTAssertGreaterThan(ink.upperBound, canvas.maxX - 8, "the word is not home (ink \(ink), canvas \(canvas))")
             app.terminate()

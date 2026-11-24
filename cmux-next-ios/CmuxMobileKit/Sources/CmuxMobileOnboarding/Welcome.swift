@@ -184,6 +184,11 @@ public struct WelcomeView: View {
             guard !Task.isCancelled else { return }
         }
         animating = false
+        // Settled for good: the paused timeline's last time could sit in a
+        // blank moment of the reveal (Reduce Motion stops at 0.4 s, in the
+        // cursor's off gap), and turning Reduce Motion off would then redraw
+        // it there with nothing to move it on.
+        WelcomeIntroClock.shared.t = .infinity
         WelcomeIntroClock.shared.logFramePacing()
         openRequestedEmail()
     }

@@ -29,9 +29,16 @@ enum Geist: String, Sendable {
         return .custom(rawValue, size: size, relativeTo: style)
     }
 
+    /// Geist at `size`, or the system font when Geist is not registered
+    /// (a missing resource): CoreText would otherwise substitute some other
+    /// face for the unknown name.
     func ctFont(size: CGFloat) -> CTFont {
         _ = Self.registered
-        return CTFontCreateWithName(rawValue as CFString, size, nil)
+        let font = CTFontCreateWithName(rawValue as CFString, size, nil)
+        guard CTFontCopyPostScriptName(font) as String == rawValue else {
+            return UIFont.systemFont(ofSize: size, weight: self == .semibold ? .semibold : .regular) as CTFont
+        }
+        return font
     }
 }
 
