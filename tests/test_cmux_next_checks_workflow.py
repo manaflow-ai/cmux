@@ -3907,7 +3907,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
         that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
         output stays unavailable, so release-compile still takes over where mac_release sends it."""
-        for client_exit in (69, 75, 124, 2, 3, 137):
+        for client_exit in (69, 124, 2, 3, 137):
             with self.subTest(client_exit=client_exit):
                 result, output, _, summary = self.run_check(client_exit)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
@@ -3918,6 +3918,16 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 self.assertIn(f"exit {client_exit}", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
+
+    def test_a_fleet_that_kept_the_compile_queued_is_a_warning_not_a_red(self):
+        """cmux-ci exit 75 (queued past --queue-timeout) was 652 of 1030 red app compiles in 24 h, each re-run
+        queueing again; the verdict stays unavailable so the Release compile still takes over where asked."""
+        result, output, _, summary = self.run_check(75)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=unavailable", output)
+        self.assertNotIn("verdict=pass", output)
+        self.assertIn("::warning title=Build fleet compile: still queued", result.stdout)
+        self.assertIn("Build fleet app compile: unavailable", summary)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")
