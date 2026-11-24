@@ -111,6 +111,7 @@ pub struct Manifest {
 impl Manifest {
     /// `name`'s manifest in `store`, or `None` when the store holds no such session.
     pub fn load(store: &Store, name: &str) -> Result<Option<Self>> {
+        check_name(name)?;
         let path = store.manifest_path(name);
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
