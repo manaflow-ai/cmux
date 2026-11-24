@@ -184,7 +184,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     // `cmux link init --help`: that action's own lines. Before, `flags` read `--help` as an
     // unknown option and exited 2 (the Cloud and remote command matrix, cmux#48221).
-    if let Some(text) = args.first().filter(|_| asks_help(&args[1..])).and_then(|a| verb_help(a)) {
+    if let Some(text) = args
+        .split_first()
+        .filter(|(_, rest)| asks_help(rest))
+        .and_then(|(action, _)| verb_help(action))
+    {
         print!("{text}");
         return 0;
     }
