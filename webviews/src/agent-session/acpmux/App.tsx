@@ -73,8 +73,8 @@ import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel
 import type { NewTabScreenActions } from "./newtab/NewTabScreen";
 import type { NewTabStartFailure } from "./newtab/StartFailure";
 import { startFailureCause, startFailureCode } from "./startFailure";
-import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen } from "./context/ContextScreen";
+import { HarnessesScreen } from "./lazyScreens";
+import { ContextScreen } from "./lazyScreens";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
