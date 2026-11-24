@@ -24,6 +24,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
+use crate::classes::{Delivery, Sequencer};
 use crate::frame::{Frame, FrameCodec, FrameType};
 
 /// Events queued per channel before the link reader waits for the owner.
@@ -245,6 +246,9 @@ pub struct LivenessDatagrams {
     /// binding): this side's pings go as datagrams at once. Otherwise they
     /// stay in the stream until the first datagram from the peer arrives.
     pub peer_listening: bool,
+    /// The peer listed [`crate::classes::CLASSES_LANE`]: input and state
+    /// channels send their messages as datagrams too (`crate::classes`).
+    pub classes: bool,
 }
 
 fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
@@ -321,6 +325,11 @@ pub struct OpenRequest {
     /// Absent (bulk) on the wire unless `input`; older peers ignore it.
     #[serde(default, skip_serializing_if = "Lane::is_bulk")]
     pub lane: Lane,
+    /// The channel's messages also travel as datagrams, delivered this way
+    /// (`crate::classes`). Only sent to a peer that listed
+    /// [`crate::classes::CLASSES_LANE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
 }
 
 /// `close` payload.
@@ -542,6 +551,16 @@ struct Route {
     /// The channel's sender's closed flag: the peer's close sets it, so a send
     /// in progress stops instead of streaming into a channel the peer dropped.
     closed: Arc<AtomicBool>,
+    /// Puts numbered messages (stream chunks and datagrams) back in order
+    /// for a channel opened with a [`Delivery`].
+    sequencer: Option<Arc<tokio::sync::Mutex<Sequencer>>>,
+}
+
+impl Route {
+    fn new(inbox: Inbox, closed: &Arc<AtomicBool>, delivery: Option<Delivery>) -> Self {
+        let sequencer = delivery.map(|delivery| Arc::new(tokio::sync::Mutex::new(Sequencer::new(delivery))));
+        Self { inbox, closed: Arc::clone(closed), sequencer }
+    }
 }
 
 /// A channel's inbound events on their way to its owner. The link reader
@@ -700,6 +719,10 @@ struct Inner {
     datagrams: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     /// This side's pings go as datagrams: the peer is listening.
     datagram_pings: AtomicBool,
+    /// The peer takes class datagrams (`crate::classes`).
+    classes: AtomicBool,
+    /// Messages delivered from a class datagram ahead of their stream copy.
+    datagram_wins: AtomicU64,
     /// The phone app is in the foreground with a surface on screen
     /// ([`Link::set_foreground_probe`]).
     foreground: watch::Sender<bool>,
@@ -783,6 +806,23 @@ impl Inner {
 
     fn datagram_pings(&self) -> bool {
         self.datagram_pings.load(Ordering::Relaxed)
+    }
+
+    fn classes(&self) -> bool {
+        self.classes.load(Ordering::Relaxed)
+            && self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
+    /// Queue class datagrams to the peer, best effort: a full queue drops them.
+    fn send_class_datagrams(&self, datagrams: Vec<Vec<u8>>) {
+        let Some(sender) = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+            return;
+        };
+        for _ in 0..crate::classes::COPIES {
+            for datagram in &datagrams {
+                let _ = sender.try_send(datagram.clone());
+            }
+        }
     }
 
     /// A pong to `nonce` arrived (in the stream or as a datagram).
@@ -985,6 +1025,8 @@ impl Link {
             pings: Mutex::new(HashMap::new()),
             datagrams: Mutex::new(None),
             datagram_pings: AtomicBool::new(false),
+            classes: AtomicBool::new(false),
+            datagram_wins: AtomicU64::new(0),
             foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
@@ -1080,7 +1122,7 @@ impl Link {
     /// peer is listening, else on the first datagram it sends; in-stream
     /// pings are still answered. A second attach is ignored.
     pub fn attach_liveness_datagrams(&self, lane: LivenessDatagrams) {
-        let LivenessDatagrams { outgoing, incoming, peer_listening } = lane;
+        let LivenessDatagrams { outgoing, incoming, peer_listening, classes } = lane;
         {
             let mut datagrams = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner);
             if self.is_closed() || datagrams.is_some() {
@@ -1091,9 +1133,22 @@ impl Link {
         if peer_listening {
             self.inner.datagram_pings.store(true, Ordering::Relaxed);
         }
+        self.inner.classes.store(classes, Ordering::Relaxed);
         let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
         self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
-        tracing::debug!(role = ?self.inner.role, peer_listening, "liveness datagrams attached");
+        tracing::debug!(role = ?self.inner.role, peer_listening, classes, "liveness datagrams attached");
+    }
+
+    /// Whether input and state channels send their messages as datagrams
+    /// too (the peer listed [`crate::classes::CLASSES_LANE`]).
+    pub fn class_datagrams(&self) -> bool {
+        self.inner.classes()
+    }
+
+    /// Messages this side took from a class datagram ahead of their stream
+    /// copy, since the link opened.
+    pub fn datagram_wins(&self) -> u64 {
+        self.inner.datagram_wins.load(Ordering::Relaxed)
     }
 
     /// The phone app is in the foreground with a terminal or chat on
@@ -1227,12 +1282,37 @@ impl Link {
     /// when the link has one (waiting up to 2 s for a lane that is still
     /// opening), else the main stream ahead of bulk data. The `open` frame
     /// carries the lane, so the peer schedules its replies the same way.
+    ///
+    /// When the peer takes class datagrams, an input-lane channel's messages
+    /// also travel as datagrams, delivered in order ([`Delivery::Ordered`]).
     pub async fn open_on(
         &self,
         service: &str,
         args: serde_json::Value,
         lane: Lane,
     ) -> Result<Channel, LinkError> {
+        let delivery = (lane == Lane::Input).then_some(Delivery::Ordered);
+        self.open_with(service, args, lane, delivery).await
+    }
+
+    /// Open a channel for terminal screen state: each message is a whole
+    /// state, and when the peer takes class datagrams they also travel as
+    /// datagrams and only the newest reaches the reader
+    /// ([`Delivery::Latest`]). Otherwise a main-stream channel.
+    pub async fn open_latest(&self, service: &str, args: serde_json::Value) -> Result<Channel, LinkError> {
+        self.open_with(service, args, Lane::Bulk, Some(Delivery::Latest)).await
+    }
+
+    /// [`Link::open_on`] with its messages also sent as datagrams and
+    /// delivered as `delivery` says, when the peer takes class datagrams.
+    pub async fn open_with(
+        &self,
+        service: &str,
+        args: serde_json::Value,
+        lane: Lane,
+        delivery: Option<Delivery>,
+    ) -> Result<Channel, LinkError> {
+        let delivery = delivery.filter(|_| self.inner.classes());
         let stream = match lane {
             Lane::Bulk => MAIN,
             Lane::Input => {
@@ -1251,14 +1331,14 @@ impl Link {
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);
-        self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed) });
-        let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
+        self.inner.lock_channels().insert(id, Route::new(inbox, &closed, delivery));
+        let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane, delivery })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
             self.inner.lock_channels().remove(&id);
             return Err(error);
         }
-        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed))
+        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed, delivery))
     }
 
     /// The next channel the peer opened, or `None` once the link is closed.
@@ -1333,7 +1413,11 @@ impl Link {
                     if has_lane && (tries < DATAGRAM_PING_ATTEMPTS || !in_stream) =>
                 {
                     // Parked since the first send: no resend wakes the Mac.
-                    if self.inner.parked_until().is_some() {
+                    let park = self.inner.park.borrow();
+                    if matches!(*park, Park::Parked { .. }) {
+                        if keepalive {
+                            return Ok(None);
+                        }
                         continue;
                     }
                     if tries < DATAGRAM_PING_ATTEMPTS {
@@ -1642,11 +1726,19 @@ async fn watch_liveness(link: Link, after: Duration) {
     let probe = |link: &Link| {
         let pinger = link.clone();
         tokio::spawn(async move {
-            let _ = tokio::time::timeout(after, pinger.ping()).await;
+            let _ = tokio::time::timeout(after, pinger.round_trip(true)).await;
         });
     };
     let mut last_probe: Option<Instant> = None;
     loop {
+        // The Mac's park reply is deliberately the last unanswered frame.
+        // Silence only indicates a dead path while we expect the peer to answer.
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            last_probe = None;
+        }
         let now = Instant::now();
         let unanswered = inner.unanswered();
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
@@ -1707,6 +1799,12 @@ async fn foreground_probe(link: Link) {
                 changed = on.changed() => if changed.is_err() { return },
             }
         }
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            continue;
+        }
         // The last probe (when, its nonce) and whether it was resent.
         let mut last: Option<(Instant, u64)> = None;
         let mut resent = false;
@@ -1719,7 +1817,7 @@ async fn foreground_probe(link: Link) {
                 let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
                 at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
             });
-            tokio::select! {
+            let retry = tokio::select! {
                 _ = closed.wait_for(Option::is_some) => return,
                 changed = on.changed() => {
                     if changed.is_err() {
@@ -1730,17 +1828,23 @@ async fn foreground_probe(link: Link) {
                     }
                     continue;
                 }
-                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
-                    resent = true;
-                    if let Some((at, nonce)) = last
-                        && inner.last_received() < at
-                        && !inner.suspect_flag.load(Ordering::Relaxed)
-                    {
-                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
-                    }
-                    continue;
+                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => true,
+                () = tokio::time::sleep_until(tick) => false,
+            };
+            // Serialize each send with set_parked, including a retry already due.
+            let park = inner.park.borrow();
+            if matches!(*park, Park::Parked { .. }) {
+                break;
+            }
+            if retry {
+                resent = true;
+                if let Some((at, nonce)) = last
+                    && inner.last_received() < at
+                    && !inner.suspect_flag.load(Ordering::Relaxed)
+                {
+                    inner.send_datagram(DATAGRAM_PING, nonce, 1);
                 }
-                () = tokio::time::sleep_until(tick) => {}
+                continue;
             }
             let now = Instant::now();
             tick = (tick + FOREGROUND_PROBE).max(now);
@@ -1863,6 +1967,27 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
 /// first one says the peer listens, so this side's pings switch over.
 async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>) {
     while let Some(datagram) = incoming.recv().await {
+        if let Some(fragment) = crate::classes::parse_datagram(&datagram) {
+            if inner.closed_reason().is_some() {
+                return;
+            }
+            inner.received();
+            inner.received_traffic();
+            let channel = fragment.channel;
+            let route = inner
+                .lock_channels()
+                .get(&channel)
+                .and_then(|route| route.sequencer.clone().map(|sequencer| (route.inbox.clone(), sequencer)));
+            let Some((inbox, sequencer)) = route else { continue };
+            let mut sequencer = sequencer.lock().await;
+            let delivered = sequencer.fragment(fragment);
+            if !delivered.is_empty() {
+                inner.datagram_wins.fetch_add(1, Ordering::Relaxed);
+                // Errors (an overflow close) go on the main stream.
+                deliver(&inner, MAIN, channel, &inbox, delivered).await;
+            }
+            continue;
+        }
         let Some((kind, nonce, attempt)) = parse_liveness_datagram(&datagram) else { continue };
         if inner.closed_reason().is_some() {
             return;
@@ -1973,8 +2098,13 @@ async fn read_loop<R>(
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
                 let closed = Arc::new(AtomicBool::new(false));
                 let inbox = Inbox::new(tx, &inner, stream, frame.channel);
-                inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
-                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
+                // Replies are sent as datagrams too only when this side
+                // also has the peer's word that it takes them.
+                let delivery = request.delivery;
+                inner.lock_channels().insert(frame.channel, Route::new(inbox, &closed, delivery));
+                let mirror = delivery.filter(|_| inner.classes());
+                let channel =
+                    Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed, mirror);
                 let accepted = IncomingChannel {
                     service: request.service,
                     args: request.args,
@@ -2012,6 +2142,29 @@ async fn read_loop<R>(
                     }
                 }
             }
+            FrameType::Sequenced => {
+                let channel = frame.channel;
+                let route = inner
+                    .lock_channels()
+                    .get(&channel)
+                    .map(|route| (route.inbox.clone(), route.sequencer.clone()));
+                let Some((inbox, sequencer)) = route else { continue };
+                let Some((seq, last, chunk)) = crate::classes::parse_sequenced(frame.payload) else {
+                    break "read failed: short sequenced frame".to_owned();
+                };
+                let delivered = match &sequencer {
+                    Some(sequencer) => {
+                        let mut sequencer = sequencer.lock().await;
+                        let delivered = sequencer.stream_chunk(seq, last, chunk);
+                        deliver(&inner, stream, channel, &inbox, delivered).await
+                    }
+                    // A channel opened without a delivery: take the chunks as they come.
+                    None => deliver(&inner, stream, channel, &inbox, vec![chunk]).await,
+                };
+                if !delivered {
+                    continue;
+                }
+            }
             FrameType::Close => {
                 let info = serde_json::from_slice::<CloseInfo>(&frame.payload)
                     .unwrap_or_else(|_| CloseInfo::new("closed", ""));
@@ -2029,6 +2182,28 @@ async fn read_loop<R>(
         }
     };
     inner.shut(&reason);
+}
+
+/// Hand `messages` to `channel`'s inbox in order; `false` once the channel is
+/// gone (its owner left, or it held its whole buffer too long and was closed).
+async fn deliver(inner: &Inner, stream: usize, channel: u32, inbox: &Inbox, messages: Vec<Bytes>) -> bool {
+    for message in messages {
+        if inbox.owner_gone() {
+            inner.lock_channels().remove(&channel);
+            return false;
+        }
+        if !inbox.push(ChannelEvent::Data(message)).await {
+            if inner.lock_channels().remove(&channel).is_some() {
+                tracing::warn!(
+                    channel,
+                    "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                );
+                refuse(inner, stream, channel, "overflow", "the channel was not read");
+            }
+            return false;
+        }
+    }
+    true
 }
 
 /// Refuse or end `channel` with a `close` frame on `stream`, ahead of data.
@@ -2081,6 +2256,10 @@ pub struct ChannelSender {
     closed: Arc<AtomicBool>,
     /// Where queued payload bytes are counted, if anywhere.
     meter: Option<Arc<ByteMeter>>,
+    /// Each send is a numbered message, sent as datagrams too
+    /// (`crate::classes`).
+    mirror: bool,
+    next_seq: AtomicU64,
 }
 
 impl ChannelSender {
@@ -2120,6 +2299,14 @@ impl ChannelSender {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
+        let seq = self.mirror.then(|| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        if let Some(seq) = seq
+            && data.len() <= crate::classes::MIRROR_MAX
+            && !self.inner.writes_held.load(Ordering::Acquire)
+        {
+            // Ahead of the stream copy, which may wait for room.
+            self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data));
+        }
         let mut rest = data;
         let mut mark = mark;
         while !rest.is_empty() {
@@ -2128,8 +2315,16 @@ impl ChannelSender {
                 return Err(self.inner.closed_error());
             }
             let size = chunk.len();
-            let mut frame = Frame::new(self.id, FrameType::Data, chunk);
-            if self.inner.writes_held.load(Ordering::Acquire)
+            let mut frame = match seq {
+                Some(seq) => Frame::new(
+                    self.id,
+                    FrameType::Sequenced,
+                    crate::classes::sequenced_payload(seq, rest.is_empty(), &chunk),
+                ),
+                None => Frame::new(self.id, FrameType::Data, chunk),
+            };
+            if frame.kind == FrameType::Data
+                && self.inner.writes_held.load(Ordering::Acquire)
                 && matches!(*self.inner.park.borrow(), Park::Parked { deflate: true, .. })
             {
                 frame.deflate_if_smaller();
@@ -2227,9 +2422,19 @@ impl Channel {
         inner: Arc<Inner>,
         rx: mpsc::Receiver<ChannelEvent>,
         closed: Arc<AtomicBool>,
+        mirror: Option<Delivery>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed, meter: None },
+            sender: ChannelSender {
+                id,
+                stream,
+                class,
+                inner,
+                closed,
+                meter: None,
+                mirror: mirror.is_some(),
+                next_seq: AtomicU64::new(0),
+            },
             receiver: ChannelReceiver { rx, done: false, meter: None },
         }
     }
@@ -2615,16 +2820,20 @@ mod tests {
             service: "echo".into(),
             args: serde_json::json!({}),
             lane: Lane::Bulk,
+            delivery: None,
         })
         .unwrap();
         assert!(bulk.get("lane").is_none());
+        assert!(bulk.get("delivery").is_none());
         let input = serde_json::to_value(OpenRequest {
             service: "daemon".into(),
             args: serde_json::json!({}),
             lane: Lane::Input,
+            delivery: Some(Delivery::Ordered),
         })
         .unwrap();
         assert_eq!(input["lane"], "input");
+        assert_eq!(input["delivery"], "ordered");
         let old: OpenRequest = serde_json::from_str(r#"{"service":"daemon"}"#).unwrap();
         assert_eq!(old.lane, Lane::Bulk);
     }
@@ -3109,6 +3318,30 @@ mod tests {
         assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(info)) if info.code == "done"));
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn foreground_probes_wait_out_a_park() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let sent = Arc::new(AtomicU64::new(0));
+        let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        phone.set_foreground_probe(true);
+        tokio::time::sleep(FOREGROUND_PROBE).await;
+        assert!(phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        dark.send_replace(true);
+        let before = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(36)).await;
+        assert_eq!(sent.load(Ordering::Relaxed), before);
+        assert!(!mac.is_suspect() && !phone.is_suspect());
+
+        dark.send_replace(false);
+        assert!(phone.resume());
+        phone.probe(Duration::from_secs(1)).await.unwrap();
+        let resumed = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(FOREGROUND_PROBE * 2).await;
+        assert!(sent.load(Ordering::Relaxed) > resumed);
+    }
+
     /// A keepalive beat that fired just before the phone parked must not put
     /// its ping on the wire after the park: the Mac takes any ping from a
     /// parked phone as the phone back, and would unpark while the phone
@@ -3377,9 +3610,73 @@ mod tests {
         let (phone_out, mac_in) = wire(drop_first);
         let (mac_out, phone_in) = wire(0);
         (
-            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: mac_listening },
-            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: phone_listening },
+            LivenessDatagrams {
+                outgoing: phone_out,
+                incoming: phone_in,
+                peer_listening: mac_listening,
+                classes: false,
+            },
+            LivenessDatagrams {
+                outgoing: mac_out,
+                incoming: mac_in,
+                peer_listening: phone_listening,
+                classes: false,
+            },
         )
+    }
+
+    /// With class datagrams agreed, an input-lane channel's messages cross
+    /// while the streams are dark, in order and once each, and a
+    /// latest-wins channel shows the newest; the stream copies that follow
+    /// when the network is back are dropped as duplicates.
+    #[tokio::test(start_paused = true)]
+    async fn class_datagrams_cross_a_dark_stream_once_each() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..phone_lane });
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..mac_lane });
+        assert!(phone.class_datagrams() && mac.class_datagrams());
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move {
+                let keys = mac.accept().await.expect("keys");
+                let screen = mac.accept().await.expect("screen");
+                (keys.channel, screen.channel)
+            }
+        });
+        let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+        let mut screen = phone.open_latest("screen", serde_json::json!({})).await.unwrap();
+        let (mut mac_keys, mac_screen) = server.await.unwrap();
+        dark.send_replace(true);
+        for key in 0u8..5 {
+            keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+        }
+        for key in 0u8..5 {
+            match tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3]),
+                other => panic!("key {key}: {other:?}"),
+            }
+        }
+        let (screen_tx, _screen_rx) = mac_screen.split();
+        for state in 0u8..3 {
+            screen_tx.send(Bytes::from(vec![state; 2000])).await.unwrap();
+        }
+        let mut newest = None;
+        while let Ok(Some(ChannelEvent::Data(bytes))) =
+            tokio::time::timeout(Duration::from_millis(100), screen.recv()).await
+        {
+            assert!(newest.is_none_or(|seen| bytes[0] > seen), "older state after a newer one");
+            newest = Some(bytes[0]);
+        }
+        assert_eq!(newest, Some(2), "the newest state arrived while dark");
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+            "a stream copy was delivered twice"
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
+        assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
     }
 
     /// The Mac's stream stalls after one byte (its writes never finish):
@@ -3513,8 +3810,13 @@ mod tests {
         let (phone_out, mac_in) = wire(dark.subscribe(), Some(phone_sent));
         let (mac_out, phone_in) = wire(dark.subscribe(), None);
         (
-            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: true },
-            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true },
+            LivenessDatagrams {
+                outgoing: phone_out,
+                incoming: phone_in,
+                peer_listening: true,
+                classes: false,
+            },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true, classes: false },
         )
     }
 

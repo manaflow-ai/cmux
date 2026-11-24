@@ -351,3 +351,55 @@ fn a_chat_open_in_two_tabs_posts_one_notice_per_turn_and_per_wait() {
     );
     asking.join().unwrap();
 }
+
+/// `list-notifications` with `stats: true` says how often agent notices were read and how fast,
+/// per kind (pursuit research:notifications:2026-11-24): a finish a pane showed at once counts
+/// as read within 60 s, and a wait nobody answered yet as unread and recent.
+#[test]
+fn notice_stats_count_reads_per_kind() {
+    let daemon = machine("notice-stats");
+    let (surface, session) = chat(&daemon);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    acpmux.prompt(&session, "hello there");
+    let done = notice(&daemon, surface, |row| row["acknowledged"] == false);
+    acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": true}));
+    notice(&daemon, surface, |row| row["id"] == done["id"] && row["acknowledged"] == true);
+    acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": false}));
+
+    let asking = {
+        let mut asker = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || asker.prompt(&session, "ask: write the file"))
+    };
+    notice(&daemon, surface, |row| {
+        row["acknowledged"] == false
+            && row["title"].as_str().is_some_and(|t| t.ends_with("needs input"))
+    });
+
+    let listed = daemon.rpc(json!({"id": 9, "cmd": "list-notifications", "stats": true}));
+    let stats = &listed["data"]["agent_notice_stats"];
+    // The reading, for a run with --nocapture.
+    eprintln!("agent_notice_stats: {stats}");
+    let finished = &stats["kinds"]["finished"];
+    assert_eq!(finished["posted"], 1, "{stats}");
+    assert_eq!(finished["read_within_60s"], 1, "{stats}");
+    assert_eq!(finished["acted_rate"], 1.0, "{stats}");
+    assert!(finished["read_ms_p50"].as_u64().is_some_and(|ms| ms <= 60_000), "{stats}");
+    let waiting = &stats["kinds"]["needs_input"];
+    assert_eq!(waiting["posted"], 1, "{stats}");
+    assert_eq!(waiting["unread_recent"], 1, "{stats}");
+    assert_eq!(waiting["acted_rate"], Value::Null, "{stats}");
+    assert_eq!(stats["all"]["posted"], 2, "{stats}");
+
+    // Without `stats` the reply stays as it was.
+    let plain = daemon.rpc(json!({"id": 10, "cmd": "list-notifications"}));
+    assert!(plain["data"].get("agent_notice_stats").is_none(), "{plain}");
+
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let permission = info["result"]["pending"][0]["permissionId"].clone();
+    acpmux.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
+    );
+    asking.join().unwrap();
+}

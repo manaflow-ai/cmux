@@ -437,6 +437,8 @@ impl Translator {
                             _ => text,
                         };
                         self.foreground_done(tool).await;
+                        // A clean result is what a later identical call is stubbed from (dedupe.rs).
+                        self.dedupe_result(tool, is_err, &text).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -585,6 +587,13 @@ impl Translator {
                             == Some(policy_gate::GATE_CALLBACK) =>
                     {
                         out.extend(self.gate_hook(&sid, &rid, &req).await);
+                    }
+                    // Harness magic: a call whose answer is in the context already (dedupe.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(dedupe::DEDUPE_CALLBACK) =>
+                    {
+                        self.dedupe_hook(&rid, &req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
@@ -914,6 +923,8 @@ impl Translator {
                         })));
                     }
                 }
+                // The turn's dedupe counts, on its result while the feature is on.
+                let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -939,7 +950,11 @@ impl Translator {
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
-                    Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
+                    let mut meta = json!({"claude": claude});
+                    if let Some(dedupe) = dedupe_counts {
+                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                    }
+                    Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
                 // No prompt waits: the carried turn's prompt still to come takes it.
                 if waiting.is_empty() {
@@ -972,6 +987,8 @@ impl Translator {
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
+                // What was read before is in the summary at most (dedupe.rs).
+                self.dedupe.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {

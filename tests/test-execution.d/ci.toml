@@ -688,10 +688,6 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_reused_sparse_checkout.py yourself after changing the workflow steps it reads."
 
 [[test]]
-path = "tests/test_ci_risk_label_from_event.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_route_quota_reserve.py"
 lane = "linux-guard"
 

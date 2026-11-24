@@ -85,6 +85,13 @@ impl Translator {
                         if !steer {
                             self.task_plan.lock().await.begin_turn();
                         }
+                        // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
+                        if p.pointer("/prompt/0/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.trim_start().starts_with("/clear"))
+                        {
+                            self.dedupe.reset();
+                        }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
                         if p.pointer("/_meta/carried").and_then(Value::as_bool) == Some(true) {
@@ -628,6 +635,18 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
+    // Harness magic `dedupe` (`dedupe.rs`): no `onFailure`, so a callback that fails lets the call
+    // run.
+    #[cfg(unix)]
+    if super::dedupe::enabled()
+        && let Some(hooks) = request.pointer_mut("/hooks/PreToolUse").and_then(Value::as_array_mut)
+    {
+        hooks.push(json!({
+            "matcher": super::dedupe::DEDUPE_MATCHER,
+            "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
+            "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
+        }));
+    }
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

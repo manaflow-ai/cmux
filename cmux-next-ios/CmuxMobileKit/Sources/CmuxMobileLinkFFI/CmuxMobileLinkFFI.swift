@@ -2026,6 +2026,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func transport()  -> Transport
     
     /**
+     * The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+     * answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+     * them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+     */
+    func tunnelKeys()  -> [String]
+    
+    /**
      * The shown workspace has browser tabs: open the WebRTC media session
      * beside this WireGuard link ahead of the first tab (no-op without one).
      */
@@ -2444,6 +2451,19 @@ open func trafficAgoMs() -> UInt64  {
 open func transport() -> Transport  {
     return try!  FfiConverterTypeTransport_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_transport(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The WireGuard static public keys this link's tunnel handshook with, as `[dialer,
+     * answerer]` (base64), or empty on a link that is not a tunnel. The phone's `auth` signs
+     * them and checks the Mac's identity proof over them (cmux-mobile-host `pairing.rs`, v2).
+     */
+open func tunnelKeys() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_tunnel_keys(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -8949,6 +8969,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 62295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_tunnel_keys() != 29112) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {

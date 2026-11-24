@@ -29,9 +29,10 @@ runs:
 
     # A cache a pull request saves is visible only to that pull request and pushes the base's
     # entries out of the size-capped store (test_ci_pull_request_caches_are_read_only.py), so
-    # pushes seed it and everything else reads. A pull request reads its base branch's entries.
+    # base-branch pushes seed it and everything else reads (lane/* pushes too: they were 13 copies of
+    # one 1 GB key on 2026-11-22). A pull request reads its base branch's entries.
     - name: Cache Playwright's apt packages
-      if: runner.os == 'Linux' && github.event_name == 'push'
+      if: runner.os == 'Linux' && github.event_name == 'push' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: /var/cache/apt/archives/*.deb
@@ -40,7 +41,7 @@ runs:
           playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
           playwright-apt-${{ runner.os }}-${{ runner.arch }}-
     - name: Restore Playwright's apt packages
-      if: runner.os == 'Linux' && github.event_name != 'push'
+      if: runner.os == 'Linux' && !(github.event_name == 'push' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: /var/cache/apt/archives/*.deb

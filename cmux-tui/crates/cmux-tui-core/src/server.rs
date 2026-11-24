@@ -1970,6 +1970,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {

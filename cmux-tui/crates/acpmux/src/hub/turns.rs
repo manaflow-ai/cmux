@@ -201,6 +201,15 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        let mut blocks = blocks;
+        // A check that went red between turns rides the next real prompt, hidden (`verify.rs`).
+        if client != "acpmux"
+            && let Some(text) = super::verify::take_held(&session.id)
+        {
+            blocks.push(
+                json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
@@ -2085,6 +2094,11 @@ impl Hub {
                             o.insert("cancelForced".into(), Value::Bool(true));
                         }
                         o.extend(usage);
+                        // Harness magic's counts for the turn (`claude_stdio/dedupe.rs`).
+                        if let Some(hm) = v.pointer("/_meta/harnessMagic").filter(|m| m.is_object())
+                        {
+                            o.insert("harnessMagic".into(), hm.clone());
+                        }
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
                         }
@@ -2920,6 +2934,11 @@ impl Hub {
         self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
+        // A stop frees its temporary folder (`closed_tmp.rs`); a purge removes it below.
+        #[cfg(unix)]
+        if !purge && !session.replaced.load(Ordering::SeqCst) {
+            self.free_closed_tmp_soon(session);
+        }
         if purge {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.

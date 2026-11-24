@@ -802,6 +802,21 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             Err(error) => Ack::refused(error.message),
         });
     }
+    if op == crate::mesh_relay_config::MOVE_OUT_OP {
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
+        return Some(match result {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(format!("{error:#}")),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {

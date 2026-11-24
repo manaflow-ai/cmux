@@ -3,14 +3,13 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* The draft grows about as tall as Claude Code desktop's before it scrolls (Leo 2026-11-22: "look at
-     how big claude code can grow"): up to 60% of the pane, thirty lines at most. Was twelve lines or
-     40vh (#24984, Lawrence: "too big" then), which capped a pasted page at a third of the pane. Short
-     panes still give up height (bottomStack.css). */
-  max-height: min(
-    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 30) + var(--cmux-control-height, 23px)),
-    60vh
-  );
+  /* The draft grows to Claude desktop's composer cap, then scrolls inside (Leo 2026-11-24, comparing
+     ours with Claude's: follow Claude's max). Claude's prompt stops at 384 px (Tailwind max-h-96); his
+     screenshot of it measured a ~400 pt card in a 1348 pt window, about 30%. #51620 had raised ours to
+     thirty lines or 60% of the pane, which reached about 55% of his pane. One token, shared by every
+     composer field (styles.css --acpmux-composer-max-height); short panes still give up height
+     (bottomStack.css). */
+  max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
