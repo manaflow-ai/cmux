@@ -256,5 +256,31 @@ import UIKit
         #expect(worst <= 0.5, "the end on screen moved \(worst) pt while older rows came in above it")
         #expect(host.follows, "the reader still follows the end")
     }
+
+    // MARK: The Subagents list (#47189 r3: subagents-list-60)
+
+    /// 60 subagents, one of them changing its action: the list evaluates that row, not all 60.
+    @Test func aSubagentChangeEvaluatesItsRowOnly() async {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        let running = ListStressChatScreens.seedSubagents(store, count: 60)
+        #expect(!running.isEmpty)
+        let host = UIHostingController(rootView: NavigationStack { SubagentsScreen(store: store, surface: AgentChatSurface()) })
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.isHidden = false
+        for _ in 0..<6 { await Self.frame(window) }
+        #expect(SubagentRow.bodies > 0, "the rows were drawn")
+        var perChange: [Int] = []
+        for tick in 0..<4 {
+            let before = SubagentRow.bodies
+            store.apply(.subagentUpdate(subagentID: running[0], .toolCall(ACPToolCall(id: "tick-\(tick)", title: "Run step \(tick)",
+                                                                                      kind: .execute))))
+            for _ in 0..<3 { await Self.frame(window) }
+            perChange.append(SubagentRow.bodies - before)
+        }
+        window.isHidden = true
+        #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)")
+    }
 }
 #endif

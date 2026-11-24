@@ -167,24 +167,9 @@ struct SubagentsScreen: View {
         List {
             ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
-                    HStack(spacing: 12) {
-                        SubagentStateGlyph(state: entry.agent.state)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.agent.name).font(.body).lineLimit(1)
-                            Text(subtitle(entry.agent)).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                        Spacer(minLength: 4)
-                        Text(Duration.seconds(entry.agent.duration).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                        // Drill-down affordance, as on every pushed row.
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.leading, CGFloat(entry.depth) * 24)
-                    .frame(minHeight: 52)
-                    .contentShape(.rect)
+                    // RED (this commit only): the row takes a closure, so SwiftUI cannot tell an
+                    // unchanged row from a changed one and evaluates every row on every change.
+                    SubagentRow(agent: entry.agent, depth: entry.depth, subtitle: subtitle)
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -209,6 +194,42 @@ struct SubagentsScreen: View {
         let status = agent.state == .running ? (agent.action ?? "Working") : agent.state.label
         guard let task = agent.task, task != agent.name else { return status }
         return "\(status) · \(task)"
+    }
+}
+
+/// A row of the Subagents list. Its own view, so a change to one subagent evaluates its row,
+/// not every row of the list.
+struct SubagentRow: View {
+    let agent: AgentSubagent
+    let depth: Int
+    let subtitle: (AgentSubagent) -> String
+    #if DEBUG
+    /// Body evaluations (tests: per change, the changed rows only).
+    static var bodies = 0
+    #endif
+
+    var body: some View {
+        #if DEBUG
+        let _ = Self.bodies += 1
+        #endif
+        HStack(spacing: 12) {
+            SubagentStateGlyph(state: agent.state)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.name).font(.body).lineLimit(1)
+                Text(subtitle(agent)).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 4)
+            Text(Duration.seconds(agent.duration).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.tertiary)
+            // Drill-down affordance, as on every pushed row.
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.leading, CGFloat(depth) * 24)
+        .frame(minHeight: 52)
+        .contentShape(.rect)
     }
 }
 
