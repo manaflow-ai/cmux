@@ -26,7 +26,7 @@ mkdir -p "$out"
 bin="${CMUX_MOBILE_PROBE_BIN:-}"
 if [ -z "$bin" ]; then
   (cd "$root/cmux-next-ios/rust" && cargo build --release --locked -q -p cmux-mobile-host --bin cmux-mobile-relay-rtt)
-  bin="$root/cmux-next-ios/rust/target/release/cmux-mobile-relay-rtt"
+  bin="${CARGO_TARGET_DIR:-$root/cmux-next-ios/rust/target}/release/cmux-mobile-relay-rtt"
 fi
 
 umask 077
