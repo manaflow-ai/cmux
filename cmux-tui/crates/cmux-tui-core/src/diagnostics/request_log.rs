@@ -14,7 +14,10 @@
 //!   request ran,
 //! - a hold of the session state lock or the registry lock longer than
 //!   [`crate::diagnostics::LOCK_STALL_THRESHOLD`] (kind `lock`, with the holder's
-//!   source site and thread),
+//!   source site and thread, and `recent`: the daemon's newest flow hops from the
+//!   hold and the [`LOCK_RECENT_BEFORE`] before it, at most [`LOCK_RECENT_HOPS`], each a
+//!   hop name, flow id, terminal id, thread id and `ago_ms` from `cmux_flow_trace`'s flight
+//!   recorder, read with no lock when the hold ends),
 //! - the daemon's start (kind `start`),
 //! - a restart of the session's journal plugin that its supervisor scheduled (kind
 //!   `plugin_restart`: the restarts since the daemon's start, the failures in a row and the wait
@@ -78,6 +81,10 @@ pub(crate) const SLOW_REQUEST_THRESHOLD: Duration = Duration::from_millis(100);
 pub(crate) const FILE_NAME: &str = "slow-requests.jsonl";
 /// The most bytes of one of the two files.
 pub(crate) const FILE_BYTES: u64 = 1 << 20;
+/// Most flow hops a `lock` record carries in `recent`.
+pub(crate) const LOCK_RECENT_HOPS: usize = 32;
+/// How far before a long hold began its record's `recent` hops reach.
+pub(crate) const LOCK_RECENT_BEFORE: Duration = Duration::from_secs(2);
 /// Records that wait for the writer; more are dropped and counted.
 const QUEUE_RECORDS: usize = 256;
 
@@ -369,6 +376,7 @@ enum Entry {
         client: Option<u64>,
         held: Duration,
         waited: Duration,
+        recent: Vec<cmux_flow_trace::RecentEvent>,
     },
     Start(u64, StartInfo),
     PluginRestart {
@@ -517,7 +525,13 @@ impl RequestLog {
             client = Some(data.client);
         });
         let held_ms = u64::try_from(held.as_millis()).unwrap_or(u64::MAX);
+        let mut recent = [cmux_flow_trace::RecentEvent::EMPTY; LOCK_RECENT_HOPS];
+        let count = cmux_flow_trace::dump_recent(
+            &mut recent,
+            Some(held.saturating_add(LOCK_RECENT_BEFORE)),
+        );
         self.submit(Entry::Lock {
+            recent: recent.get(..count).unwrap_or_default().to_vec(),
             at_ms: (self.clock)().saturating_sub(held_ms),
             lock,
             site,
@@ -683,7 +697,7 @@ impl Writer {
                 }
                 request_line(line, &record, stands_for);
             }
-            Entry::Lock { at_ms, lock, site, thread, request, client, held, waited } => {
+            Entry::Lock { at_ms, lock, site, thread, request, client, held, waited, recent } => {
                 open_line(line, "lock", at_ms);
                 let holder = format!("{}:{}", site.file(), site.line());
                 let _ = write!(line, ",\"lock\":\"{lock}\",\"holder\":{}", json_text(&holder));
@@ -694,6 +708,8 @@ impl Writer {
                 }
                 push_ms(line, "held_ms", held);
                 push_ms(line, "wait_ms", waited);
+                line.push_str(",\"recent\":");
+                let _ = cmux_flow_trace::write_json_array(line, &recent);
                 line.push_str("}\n");
             }
             Entry::Start(at_ms, info) => {

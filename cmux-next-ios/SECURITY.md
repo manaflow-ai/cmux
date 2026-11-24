@@ -58,7 +58,7 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 | --- | --- |
 | Executes commands or opens content on local objects? | Yes, by design, and only in these bounded forms. `send` and `send-key` type into a terminal the person already sees in their own workspaces: the phone is a remote keyboard for the owner. `create-terminal`, `new-tab`, `new-pane`, `split`, `new-screen` and `new-workspace` start the person's default shell. Their parameters are limited to size and placement fields (`creation_fields`), so `argv`, `command`, `cwd`, `env` and any other field are refused. The browser commands (`new-browser-tab`, `browser-navigate`, `browser-key`, `browser-insert-text`, `browser-mouse`, ...) drive the Mac's cmux browser tabs. A URL the phone opens must be `http(s)://` or `about:blank` (test `browser_tabs_open_web_pages_only`), so `file:`, `javascript:` and app schemes are refused. This narrowing is in the Rust policy only; the Swift mirror keeps the same command list. There is no `run`, `respawn-*` or `eval` command. |
 | Mutates or destroys objects the session does not own? | The phone's session is the owner's whole daemon, the same set of workspaces the person sees on the Mac, so close, rename, move and select act on the person's own objects. There is no per-object scoping beyond that, and none is needed while admission is same-user only. Frontend projections are the exception: reads and writes are limited to `scope: personal`, `subject_key: ios-device:<phone deviceId>`, so a phone cannot overwrite the Mac's own projection or another phone's. |
-| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
+| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. `terminal-find` searches the same scrollback `read-scrollback` returns, so it reads nothing more; its regex is linear-time with a 2 MiB compiled-size cap, and it holds the terminal for one 512-row chunk at a time, so a phone's query cannot stall the terminal. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
 
 - **Rule 3 (command-bearing parameters):** refused on every creation command
   through the per-command field allowlist (test
@@ -508,7 +508,8 @@ from the admitted `wg-init` / `wg-resp` exchange.
   allocation, and the dial goes on without that path.
 - **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
   credentials, 1 h), never stored, and are the same ones WebRTC uses.
-- **The TeamHub carries no data.** It drops every binary frame and answers
+- **The TeamHub carries no data** (the session's WebSocket relay, below, is a
+  separate object). It drops every binary frame and answers
   `relay_retired` at most once per socket and session every 5 s, naming the
   session. It still admits and forwards signals only between the two
   devices of a session (or to a Mac of the sender's own user), now including
@@ -533,6 +534,45 @@ from the admitted `wg-init` / `wg-resp` exchange.
 | Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
 | Mutates or destroys objects the session does not own? | No. A `wg-endpoints` signal is admitted only within its session and changes only that session's candidate addresses. |
 | Reads local state the remote should not see? | No. The TURN server and the backend see ciphertext and addresses, as with TURN over UDP and the retired relay. |
+
+## Link transport: the WebSocket relay on cmux's host (API 0.17.0, `cnx-link-https-relay`)
+
+The last way a WireGuard link reaches the Mac (PROTOCOL.md "WebSocket
+relay"): WireGuard datagrams in WebSocket messages on the mobile Worker's own
+host, for networks that block UDP and every TURN host, or let only real HTTPS
+through. Like TURN it adds a way for ciphertext to travel, not a way into the
+Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/phone-link-https-relay.md).
+
+- **Confidentiality and integrity stay end to end.** The relay forwards
+  WireGuard datagrams it cannot decrypt or forge: the tunnel accepts only
+  what authenticates under the session's keys from the admitted `wg-init` /
+  `wg-resp` exchange. The Worker sees what a TURN operator sees: ciphertext,
+  sizes, timing, plus the two device ids it already knows from signaling.
+- **Who can join.** Only a device that the caller's own hub (one per user and
+  build space) bound to that session at its first admitted signal, with that
+  user's Stack token; a third device of the same user, another user, or a
+  session id no signal opened gets `403`. Each device gets one socket (a
+  newer join replaces it). The object is named by the verified owner key,
+  space and session id, so two users or two dev builds never share one.
+- **No impersonation.** The relay overwrites the frame's peer field with the
+  sender's authenticated device id; a receiving side drops frames that name
+  anyone but its session's peer. Frames go only to the other party's socket.
+- **Route confirmation stays in the tunnel.** `reach` still travels inside
+  WireGuard, so the relay can never confirm a route (the retired relay's
+  marker was authenticated only by the backend, which is why it went).
+- **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
+  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
+  join (`503 relay_off`); clients then fall back to their other paths and
+  report the relay as off.
+- **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
+  `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
+  Block UDP.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It changes how the tunnel's ciphertext travels, not what the link may do. |
+| Mutates or destroys objects the session does not own? | No. A join admits only the session's two devices, and a `wg-relay` signal is admitted only within its session. |
+| Reads local state the remote should not see? | No. The Worker sees ciphertext, sizes and the two device ids, as TURN sees ciphertext and addresses. |
 
 ## Media lane: browser video as RTP (WebRTC track or WireGuard UDP)
 
@@ -597,6 +637,21 @@ the Mac.
 - **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
+- **Starting an unbound agent tab's chat** (ask-76b8e41001; Leo, 2026-11-18: "you should be able
+  to just start the chat right there"): a New Agent Chat tab the Mac made that nobody wrote in has
+  no session. Its first send on the phone starts the session over `acpmux` (`session/new`, the same
+  start and guard as the phone's New Agent Chat above), then binds the tab to it with
+  `bind-conversation-tab-session`, which is new on the allowlist. The phone starts only a tab
+  recorded for this Mac (`install:` host, or none); a tab whose chat another machine starts is
+  refused on the phone. `unbound_bind_refusal` narrows the command:
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. It records which acpmux session an existing agent tab shows. The phone may send only `surface` (a number), `session` (a short identifier, as above) and `expected_session`, which must be `null`. Any other field is refused, `harness` included: the daemon changes a bound tab's harness when the named session is the tab's own, whatever `expected_session` says, so a phone could relabel a live chat. Without it, binding a tab's own session changes nothing, and the tab keeps the agent the Mac recorded. |
+| Mutates or destroys objects the session does not own? | Only a tab with no chat yet. `expected_session: null` is the daemon's compare-and-swap, so a tab that has a session (the Mac or another phone started one first) refuses with `conversation_tab.session_conflict`, and a phone never takes a chat away from a tab. The daemon also refuses a tab whose chat another machine starts (`machine:` host). |
+| Reads local state the remote should not see? | No new read. The tab then shows a session the phone can already attach to over `acpmux`, the same reach as `new-conversation-tab`'s `agent_session.session`. |
+
+  Tests: `a_phone_binds_only_an_unbound_agent_tab` (policy).
 
 ## `daemon`: terminal agents in the Feed
 
@@ -1321,16 +1376,17 @@ computer, and that prompt was one the person never meant to answer (2026-11-17: 
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
 nothing: it only hides a request from the prompt.
 
-## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
+## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
 `scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
-no trust rule to do it. It reads the tagged Mac's live pairing code from its Mobile Pairing page
-(`cmux.mobilePairing.status` over the tag's own control socket, the pair-e2e route) and hands it to
-the phone's DEBUG launch environment (`CMUX_MOBILE_PAIR_URL`), the same single-use, minutes-long
-code a scan of the Mac's screen would open; it is never printed or logged, and a code is used for
-one phone only. The Mac shows a code only while its person has iPhone connections on and it is
-signed in, and hostd still refuses a phone of another account. It sets no pairing seed, presses
-no Allow, writes no pairing state and turns no setting on.
+no trust rule to do it. The Mac's pairing code (a QR with a single-use pre-approval) is retired
+(2026-11-20): the phone, signed in to the Mac's account, asks as every phone does, and the tagged
+Mac's DEBUG dev auto-approve (above) allows its own tag's phone. The hand-off reads the tagged Mac's
+iPhone-host device id from the Settings page's `iphone` card (`cmux.settings.host.lists` over the
+tag's own control socket) and names it in the phone's DEBUG launch environment
+(`CMUX_MOBILE_FOCUS_MAC`), which only makes that build the team's picked Mac, as a tap in the Macs
+list does; it carries no secret and grants nothing. hostd still refuses a phone of another
+account. It sets no pairing seed, presses no Allow, writes no pairing state and turns no setting on.
 
 A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
 `Library/Application Support/cmux-dogfood/readiness.json` in the app's own container
@@ -1340,7 +1396,7 @@ token, password or key; the checker refuses a receipt with a secret-like field. 
 compile none of it. A launch that resolves signed out writes a signed-out receipt (no account, no
 Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
 `CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
-ships. `--manual-pairing` hands the phone no code at all.
+ships. `--manual-pairing` names no Mac to the phone.
 
 ## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
 
@@ -1391,6 +1447,18 @@ token to that origin, so the origin is allowlisted in each app, not only in the 
     (`<base>/secrets/tunnel.token`, mode 0600). The tunnel must have no private-network routes, so a
     WARP client in the account cannot reach the router directly. The stack's JWKS key id contains its
     tag, so `/.well-known/jwks.json` names the tag.
+  - **Team keys on the VM.** Two team credentials reach every stack's Workers, so a stack's unmerged code
+    can use them, as the hq classic per-tag stacks on the same VM already can:
+    - the Cloudflare TURN key (1Password "Cloudflare TURN Server API Key"), from which each stack's
+      mobile Worker mints the 1 h TURN credentials of `/v1/ice`, as the shared dev Worker does. An up
+      sends it with `op` over SSH stdin to `<base>/secrets/turn.json` (mode 0600). It is sent only when
+      the VM has none or Cloudflare refuses that copy, and it is never printed.
+    - the development Stack project's server key, which the stack's API needs to read a person's teams
+      from Stack. The VM's classic dev backend already keeps it (`/srv/cmux-dev/secrets/runtime.json`),
+      and a stack reads it there only when it names the API's own development project.
+
+    Each reaches its Worker only through a mode-0600 `.dev.vars`, and log tails that a refused start
+    or wake prints have both values removed.
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app

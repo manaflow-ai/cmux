@@ -39,18 +39,21 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
 // The History page menu (pages/shared/PageMenu.tsx) drew the solid popup surface under a border
 // (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-// The suggestion lists, hover action bars and palettes that still drew the solid popup
-// surface a month after that ask, and the header icons' hover preview and the thread minimap's card
-// that drew their own fills (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
-// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"), are named here too, so none goes solid again.
+// The hover previews, suggestion lists, hover action bars, toasts and the thread minimap's card that
+// still drew their own or the solid popup surface a month after that ask (Leo 2026-10-21: "WHERE IS
+// THE GLASS EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named
+// here too, so none goes solid again.
 const REQUIRED_GLASS_CLASSES = new Set([
   "acpmux-omni",
   "page-menu",
+  "acpmux-header-preview",
+  "acpmux-file-search",
+  "acpmux-cols-card",
+  "acpmux-drop-refusal",
   "hm-suggestions",
   "hc-msg-toolbar",
   "hc-msg-more",
   "lg-palette",
-  "acpmux-header-preview",
   "acpmux-minimap__card",
 ]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an

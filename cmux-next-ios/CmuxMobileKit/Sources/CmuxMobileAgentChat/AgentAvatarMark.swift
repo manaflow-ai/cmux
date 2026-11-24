@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxAgentBrands
 import CmuxMobileDesign
 import SwiftUI
@@ -128,3 +129,4 @@ public struct AgentAvatar: View {
         .accessibilityHidden(true)
     }
 }
+#endif

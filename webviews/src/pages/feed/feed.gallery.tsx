@@ -13,6 +13,8 @@ import { FeedPage, rejectText } from "./FeedPage";
 import table from "./generated/strings.json";
 import { manyNotices, MockFeedProvider, sampleFeed, type MockFeedOptions } from "./mockProvider";
 import { FeedStore } from "./store";
+import { HubApprovals } from "./hubApprovals";
+import { MOCK_HUB_CARDS, MOCK_HUB_REFUND, MockHubProvider, type MockHubOptions } from "./mockHub";
 
 const NOW = Date.parse("2026-11-06T15:00:00Z");
 
@@ -25,9 +27,21 @@ type Props = {
   connection?: "github" | "reports";
   query?: string;
   refuse?: boolean;
+  /** Chief's integrations hub approvals (Needs you only). */
+  hub?: MockHubOptions;
 };
 
-function FeedGallery({ hash, items = "sample", options = {}, select, connection, query, refuse }: Props) {
+function FeedGallery({
+  hash,
+  items = "sample",
+  options = {},
+  select,
+  connection,
+  query,
+  refuse,
+  hub: hubOptions,
+}: Props) {
+  const [hub] = useState(() => (hubOptions ? new HubApprovals(new MockHubProvider(hubOptions)) : undefined));
   const [strings] = useState(() => createStrings(table, ["en"]));
   const [store] = useState(() => {
     const seed = items === "empty" ? [] : items === "many" ? manyNotices(NOW, 600) : sampleFeed(NOW);
@@ -57,7 +71,7 @@ function FeedGallery({ hash, items = "sample", options = {}, select, connection,
     <div ref={setHost} style={{ height: "100%" }}>
       {host && (
         <UiProvider container={host}>
-          <FeedPage store={store} strings={strings} />
+          <FeedPage store={store} strings={strings} hub={hub} />
         </UiProvider>
       )}
     </div>
@@ -77,6 +91,7 @@ export default componentEntry<Props>({
     "pages/feed/InboxView.tsx",
     "pages/feed/ListView.tsx",
     "pages/feed/NeedsYouView.tsx",
+    "pages/feed/HubApprovalCard.tsx",
     "pages/feed/ReportsView.tsx",
     "pages/feed/AnswerControls.tsx",
     "pages/feed/parts.tsx",
@@ -147,5 +162,48 @@ export default componentEntry<Props>({
     "needs-you-rows": { note: "Needs you as rows, with the count and N more.", props: { hash: "#/needs-you" } },
     "needs-you-cards": { note: "Needs you as cards with inline answers.", props: { hash: "#/needs-you?style=cards" } },
     "needs-you-bar": { note: "Needs you as one line.", props: { hash: "#/needs-you?style=bar" } },
+    "needs-you-hub-refund": {
+      note: "Chief: one integrations hub approval, a Stripe refund, with Approve and Deny.",
+      props: { hash: "#/needs-you", items: "empty", hub: { cards: [MOCK_HUB_REFUND] } },
+    },
+    "needs-you-hub-several": {
+      note: "Chief: several hub approvals over the Feed's requests; two show and the header counts the rest.",
+      props: { hash: "#/needs-you", hub: { cards: MOCK_HUB_CARDS } },
+    },
+    "needs-you-hub-answered": {
+      note: "Chief: an approved refund shows what it did until the next refresh; the next one still waits.",
+      props: {
+        hash: "#/needs-you",
+        items: "empty",
+        hub: {
+          cards: MOCK_HUB_CARDS.slice(1, 2),
+          lastAnswer: {
+            approvalId: MOCK_HUB_REFUND.approvalId,
+            decision: "approve",
+            card: MOCK_HUB_REFUND,
+            call: { outcomeText: "Approved. It ran (re_3PqK2x).", outcomeTone: "done" },
+          },
+        },
+      },
+    },
+    "needs-you-hub-error": {
+      note: "Chief: the hub refused an answer; the card says so and still answers.",
+      props: {
+        hash: "#/needs-you",
+        items: "empty",
+        hub: {
+          cards: [MOCK_HUB_REFUND],
+          lastAnswer: {
+            approvalId: MOCK_HUB_REFUND.approvalId,
+            decision: "approve",
+            card: MOCK_HUB_REFUND,
+            refused: {
+              code: "hub.approval_not_found",
+              message: "That approval is no longer waiting (it expired or was answered elsewhere).",
+            },
+          },
+        },
+      },
+    },
   },
 });

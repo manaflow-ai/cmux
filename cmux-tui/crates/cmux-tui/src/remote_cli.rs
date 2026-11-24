@@ -64,6 +64,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -115,6 +116,15 @@ fn run_inner(
     if remote_help_requested(rest) {
         let help = remote_help(args.first().map(String::as_str));
         // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        // `cmux remote disconnect --help`: that verb's own help. Before, every `remote <verb>`
+        // printed the whole remote help (the Cloud and remote command matrix).
+        if let Some(text) = (args.first().map(String::as_str) == Some("remote"))
+            .then(|| remote_verb_help(rest))
+            .flatten()
+        {
+            print!("{text}");
+            return Ok(());
+        }
         match args.first().map(String::as_str) {
             Some("remote") => match crate::cli::app_action_help::append("remote", help) {
                 Some(text) => print!("{text}"),
@@ -230,6 +240,16 @@ fn remote_help_requested(args: &[String]) -> bool {
 fn is_inline_secret_option(argument: &str, option: &str) -> bool {
     argument == option
         || argument.strip_prefix(option).is_some_and(|suffix| suffix.starts_with('='))
+}
+
+/// The help of the verb after `remote`: a remote action's own (`remote exec` is `remote-exec`'s),
+/// else the cmux app's `remote <verb>` action's. `None` for no verb or an unknown one.
+fn remote_verb_help(rest: &[String]) -> Option<String> {
+    let verb = rest.first().filter(|word| !word.starts_with('-'))?;
+    if let Some(command) = crate::cli::remote_action_command(verb) {
+        return Some(remote_help(Some(command)).to_owned());
+    }
+    crate::cli::app_action_help::verb_help("remote", verb)
 }
 
 fn remote_help(command: Option<&str>) -> &'static str {
@@ -1504,7 +1524,14 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?, load_config)
+    // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
+    let (way, rest) = ssh_carrier::split_way(args)?;
+    if way != ssh_carrier::Way::SshOnly
+        && let Some((remote, host)) = ssh_carrier::reach(&rest, way)?
+    {
+        return crate::run_tui(Session::Remote(remote), host, None, load_config());
+    }
+    connect_with_flags(direct_ssh_flags(&rest)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {

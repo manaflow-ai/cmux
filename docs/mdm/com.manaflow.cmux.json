@@ -606,6 +606,20 @@
       "title" : "Compress Chats Idle For",
       "type" : "number"
     },
+    "agents.chats.coldSegments" : {
+      "default" : false,
+      "description" : "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+      "title" : "Compress Long Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldSegmentsLevel" : {
+      "default" : 3,
+      "description" : "Higher levels use less disk and take longer to compress.",
+      "maximum" : 19,
+      "minimum" : 1,
+      "title" : "Long Chat Compression Level",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -3076,23 +3090,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
       "items" : {
@@ -4433,9 +4431,15 @@
       "type" : "string"
     },
     "mobile.allowIPhoneConnections" : {
-      "default" : false,
-      "description" : "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+      "default" : true,
+      "description" : "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
       "title" : "Allow iPhone Connections",
+      "type" : "boolean"
+    },
+    "mobile.autoApprovePhones" : {
+      "default" : false,
+      "description" : "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
+      "title" : "Approve Phone Requests Automatically",
       "type" : "boolean"
     },
     "mobile.terminalSizing" : {
@@ -5275,14 +5279,17 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "folder",
+      "default" : "auto",
       "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "folder",
         "auto",
         "glass",
         "solid",
-        "sections"
+        "sections",
+        "chip",
+        "tree",
+        "card"
       ],
       "title" : "Group Background",
       "type" : "string"
@@ -6353,7 +6360,7 @@
       "type" : "boolean"
     },
     "tabs.newTabApp" : {
-      "description" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+      "description" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
       "title" : "New Tab App",
       "type" : "string"
     },
@@ -6502,6 +6509,12 @@
       },
       "title" : "Program Link Rules",
       "type" : "array"
+    },
+    "terminal.predictiveLocalEcho" : {
+      "default" : true,
+      "description" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted.",
+      "title" : "Predictive Local Echo",
+      "type" : "boolean"
     },
     "terminal.term" : {
       "default" : "xterm-256color",

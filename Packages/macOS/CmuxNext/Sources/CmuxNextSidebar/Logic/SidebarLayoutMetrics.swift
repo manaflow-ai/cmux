@@ -227,7 +227,7 @@ nonisolated extension SidebarLayoutOptions {
         if let sessionTree { content.keycap = keycaps[ws.id] }
         if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
         // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree, one
-        // stacked line while folded or with the tree off. A parent of subagents only gets the tree's chevron too;
+        // stacked line while folded, nothing with the tree off. A parent of subagents only gets the tree's chevron too;
         // the layout's tree pass keeps a chevron of its own (a parent of sessions) over this one.
         if !workspacesAsTabs, let subagents = ws.subagents {
             let folded = sessionTree?.collapsed.contains(ws.id) == true && filterMatches == nil
@@ -239,7 +239,7 @@ nonisolated extension SidebarLayoutOptions {
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
         // off by default. The hover card keeps the pull request.
-        if workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
+        if content.titleParts == nil, workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
             content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         } else {
             content.badge = nil
@@ -257,14 +257,11 @@ nonisolated extension SidebarLayoutOptions {
         if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if content.detail != nil, let step = ws.agentStep {
+        if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
-        // over a status or an expanded row's age, and never a line of its own.
-        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
-            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
-        }
+        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
+        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 
@@ -274,6 +271,9 @@ nonisolated extension SidebarLayoutOptions {
             var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
+        }
+        if workspaceRow.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) != nil {
+            return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
         }
         if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)

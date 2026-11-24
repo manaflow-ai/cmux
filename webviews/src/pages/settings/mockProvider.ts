@@ -22,11 +22,12 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
-  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -37,8 +38,9 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -48,11 +50,7 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -64,13 +62,16 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
-  type AgentConfigAgent,
-  type AgentConfigRun,
-  type AgentConfigState,
+  type ComputerUseApproval,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type HubRun,
+  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -78,10 +79,9 @@ import {
   type AgentHooksRun,
   type AgentHooksState,
   type RowNoteData,
-  type AllotmentSet,
-  type AllotmentView,
-  type HubRun,
-  type HubState,
+  type AgentConfigAgent,
+  type AgentConfigRun,
+  type AgentConfigState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
@@ -140,6 +140,9 @@ export type MockOptions = {
   agentSkills?: AgentSkillsState;
   /** Settings > MCP Servers, Claude Code and Codex: turned on (Labs) over the mock's servers. */
   agentMcp?: boolean;
+  /** Writes of these keys the daemon refuses with this reason and details (a json row's
+   * `accepted.problems`, as cmux-config's refusal carries them). */
+  refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -281,6 +284,7 @@ export class MockSettingsProvider {
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
+  private readonly refusals: NonNullable<MockOptions["refusals"]>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -312,6 +316,7 @@ export class MockSettingsProvider {
     if (options.agentMcp) this.agentMcp = { ...this.agentMcp, enabled: true };
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
@@ -2601,6 +2606,8 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
+    const refusal = this.refusals[key];
+    if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
