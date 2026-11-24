@@ -149,7 +149,8 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 # The app's language packs (language_packs.rs): a zstd tar, the reader the cmux-tui binary
-# already links for `cmux customize use pr:N`.
+# already links for `cmux customize use pr:N`, and git installs: the archive of a repository at a
+# commit (apps/git_source.rs).
 tar.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
