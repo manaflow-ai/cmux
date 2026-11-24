@@ -199,6 +199,13 @@ struct CloudChatsConnectFailed: View {
     }
 }
 
+/// What the Cloud chat list's read depends on.
+private struct ListRead: Equatable {
+    let ready: Bool
+    let revision: Int
+    let shown: Int
+}
+
 /// New Chat on a Cloud machine is tappable while its relay connects: a tap before the hub is
 /// ready waits for it and starts the chat then, instead of a grayed, dead button (Leo, 2026-11-24,
 /// back from another app: "the entire thing is somehow grayed out and I can't interact with
@@ -261,6 +268,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
     @State private var shown = CloudChatList.pageSize
+    /// The chats acpmux listed for `shown`, in its order (the Mac's lists read the same one).
+    @State private var listed = CloudChatList.Listed()
 
     var body: some View {
         Group {
@@ -272,9 +281,8 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
-                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(listed.rows, id: \.id) { chat in
+                        ForEach(listed.sessions(in: relay.hub), id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
                                     Text(chat.displayName)
@@ -344,6 +352,14 @@ private struct CloudMachineChatsScreen: View {
                 guard !Task.isCancelled else { return }
                 self.error = "Couldn't connect. Try again."
             }
+        }
+        // acpmux orders and picks the page; a change of the hub's list reads it again (the last
+        // page stays drawn meanwhile, and after a failed read until the next change).
+        .task(id: ListRead(ready: relay?.hub.isReady == true, revision: relay?.hub.listRevision ?? 0, shown: shown)) {
+            guard let hub = relay?.hub, hub.isReady else { return }
+            if !listed.ids.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
+            guard !Task.isCancelled, let page = try? await CloudChatList.newest(hub, shown: shown), !Task.isCancelled else { return }
+            listed = page
         }
         .overlay { if starting || startQueue.queued { CmuxSpinner(label: Text("Starting chat…")) } }
         // A New Chat tap made while the relay connected starts once it is ready.
