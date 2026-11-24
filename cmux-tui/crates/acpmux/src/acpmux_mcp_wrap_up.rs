@@ -211,6 +211,12 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     Ok((Value::Object(shown), notes))
 }
 
+/// The box the call draws, from the call's own input: what `code_mode.rs` records as a folded
+/// call's `shown`, because the answer below does not echo it back (RFD 0087, 2026-11-24).
+pub fn box_of(args: &Value) -> Option<Value> {
+    check(args).ok().map(|(shown, _)| shown)
+}
+
 pub(super) fn call(args: &Value) -> Value {
     let (_, said) = canonical(args);
     match check(args) {
@@ -226,7 +232,20 @@ pub(super) fn call(args: &Value) -> Value {
             } else {
                 format!("{text}\n{}.", notes.join("; "))
             };
-            ok(text, shown)
+            // The answer carries no copy of the recap, ask, actions or facts: every drawer of the
+            // box reads the call's own input (webviews `conversation/wrapUp.ts`,
+            // `wrap_up_suggestion.rs`, `code_mode.rs` through `box_of`), so echoing them back
+            // only spends the agent's context on what it just sent. 91% of a wrap-up answer's
+            // bytes were that echo (RFD 0087, cmuxterm-hq#22593). What is left is what the agent
+            // cannot see from its own call: that the box was drawn, and with what in it; the
+            // trims are named in the text above.
+            let receipt = json!({
+                "drawn": true,
+                "question": shown["ask"].is_string(),
+                "answers": shown["actions"].as_array().map_or(0, Vec::len),
+                "facts": shown.get("learned").and_then(Value::as_array).map_or(0, Vec::len),
+            });
+            ok(text, receipt)
         }
         Err(e) => error_result(e),
     }
@@ -277,7 +296,8 @@ mod tests {
         let longer = "This sentence is forty characters long. ".repeat(40);
         let result = call(&json!({"recap": longer}));
         assert_eq!(result["isError"], false, "{result}");
-        let recap = result["structuredContent"]["recap"].as_str().unwrap();
+        let drawn = box_of(&json!({"recap": longer})).unwrap();
+        let recap = drawn["recap"].as_str().unwrap();
         assert!(recap.ends_with("long.") && recap.chars().count() <= RECAP_CEILING, "{recap}");
         let text = result["content"][0]["text"].as_str().unwrap();
         let note = format!(
@@ -356,7 +376,11 @@ mod tests {
     fn a_string_where_a_list_goes_is_read_as_a_list_and_said_so() {
         let one = call(&json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
         assert_eq!(one["isError"], false, "{one}");
-        assert_eq!(one["structuredContent"]["learned"], json!(["Use pnpm, not npm."]), "{one}");
+        assert_eq!(one["structuredContent"]["facts"], 1, "{one}");
+        assert_eq!(
+            shown(json!({"recap": "Done.", "learned": "Use pnpm, not npm."}))["learned"],
+            json!(["Use pnpm, not npm."])
+        );
         let text = one["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("learned given as one string; read as a list of it"), "{text}");
         let lines = shown(json!({"recap": "Done.", "learned": "Use pnpm.\n\n  Rebase first.\n"}));
@@ -374,8 +398,8 @@ mod tests {
         let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
         let result = call(&json!({"summary": summary}));
         assert_eq!(result["isError"], false, "{result}");
-        assert_eq!(result["structuredContent"]["recap"], summary);
-        assert!(result["structuredContent"].get("trimmed").is_none());
+        assert_eq!(box_of(&json!({"summary": summary})).unwrap()["recap"], summary);
+        assert!(shown(json!({"summary": summary})).get("trimmed").is_none());
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("summary taken as recap"), "{text}");
         assert_eq!(
@@ -389,12 +413,46 @@ mod tests {
         assert!(check(&json!({"summary": "  "})).is_err());
     }
 
+    /// RFD 0087 (cmuxterm-hq#22593), measured over 2,884 wrap_up calls: 91% of the answer's bytes
+    /// were a copy of the call's own input. The answer says the box was drawn and with what in it,
+    /// and carries not one word of the recap, ask, actions or facts back to the agent; `box_of`
+    /// still builds the whole box for the one drawer that reads a result (`code_mode.rs`).
     #[test]
-    fn the_call_answers_with_what_it_showed() {
-        let result = call(&json!({"recap": "Done.", "ask": "Open a PR?"}));
-        assert_eq!(result["isError"], false);
-        assert_eq!(result["structuredContent"]["ask"], "Open a PR?");
+    fn the_answer_says_the_box_was_drawn_and_echoes_none_of_it() {
+        let recap =
+            "Landed the echo cut. The suite is green; the row on hq#15832 is not posted yet.";
+        let ask = "Post the row now?";
+        let args = json!({
+            "recap": recap,
+            "ask": ask,
+            "actions": ["Yes, post it", "Not now"],
+            "learned": ["A wrap-up answer echoed its own input."],
+        });
+        let result = call(&args);
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(
+            result["structuredContent"],
+            json!({"drawn": true, "question": true, "answers": 2, "facts": 1})
+        );
+        let answer = result.to_string();
+        for echoed in [recap, ask, "Yes, post it", "A wrap-up answer echoed its own input."] {
+            assert!(!answer.contains(echoed), "echoed {echoed}: {answer}");
+        }
+        assert!(answer.len() < args.to_string().len(), "{answer}");
         assert!(result["content"][0]["text"].as_str().unwrap().contains("End your turn now"));
+        // Without an ask the answer says so, and a refusal still refuses.
+        let plain = call(&json!({"recap": "Done."}));
+        assert_eq!(
+            plain["structuredContent"],
+            json!({"drawn": true, "question": false, "answers": 0, "facts": 0})
+        );
         assert_eq!(call(&json!({}))["isError"], true);
+        // The box itself is whole for `code_mode.rs`, aliases and trims applied.
+        assert_eq!(
+            box_of(&json!({"summary": " Done. ", "question": "Open?", "options": ["Yes"]}))
+                .unwrap(),
+            json!({"recap": "Done.", "ask": "Open?", "actions": ["Yes"]})
+        );
+        assert!(box_of(&json!({})).is_none());
     }
 }
