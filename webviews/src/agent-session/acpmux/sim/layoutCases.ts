@@ -5,7 +5,7 @@
 // GRACEFULLY ... MATHEMATICALLY, ALL OF THESE SHOULD BE FLAGGABLE").
 //
 // A case is `content × perturbation`, plus a width sweep with no perturbation. The browser lane
-// (test/browser/chat-sim.harness.tsx `runCase`, test/layout-every-case-browser.test.ts) plays each one
+// (test/browser/chat-sim.harness.tsx `runCase`, test/layout-every-case-browser-N.test.ts) plays each one
 // through the real VirtualTranscript with motion on, tracks every row's box on every painted frame with the
 // gallery's box tracker (gallery/shift.ts, judged by followJudge.ts) and flags every move over 1 px that
 // the reader's own act did not cause. `bun scripts/chat-sim.ts --cases` lists the space.

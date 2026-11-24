@@ -220,7 +220,7 @@ export async function runLayoutCase(id: string, host: CaseHost): Promise<LayoutC
       case "planted-jump":
         return judged(step, kind, () => {
           const port = scroller()?.getBoundingClientRect();
-          const row = [...root.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].findLast((element) => {
+          const row = [...root.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].reverse().find((element) => {
             const rect = element.getBoundingClientRect();
             return rect.height > 0 && (!port || (rect.top >= port.top && rect.bottom <= port.bottom));
           });

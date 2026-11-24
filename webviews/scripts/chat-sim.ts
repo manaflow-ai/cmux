@@ -18,7 +18,7 @@
 //   bun scripts/chat-sim.ts --capture HOST/NAME --window "22:05Z-22:11Z" --out /tmp   (a chat on a peer, over the hub)
 //   bun scripts/chat-sim.ts --reported [--update]   (replay each fixture and compare the rows breaking each rule)
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
-//   bun scripts/chat-sim.ts --cases   (the layout-shift case space; test/layout-every-case-browser.test.ts plays it)
+//   bun scripts/chat-sim.ts --cases   (the layout-shift case space; test/layout-every-case-browser-N.test.ts plays it)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
