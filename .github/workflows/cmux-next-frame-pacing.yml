@@ -247,6 +247,21 @@ jobs:
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
+            scripts/cmux-next/bench_arms.py
+            scripts/cmux-next/bench_cli_storm.py
+            scripts/cmux-next/bench_launch.py
+            scripts/cmux-next/bench_page_engine.py
+            scripts/cmux-next/daemon_teardown.py
+            scripts/cmux-next/diff_tab_cells.py
+            scripts/cmux-next/launch_time_profile.py
+            scripts/cmux-next/new_surface_frames.py
+            scripts/cmux-next/new_surface_look.py
+            scripts/cmux-next/new_surface_screen.py
+            scripts/cmux-next/run_end_record.py
+            scripts/cmux-next/safe_log.py
+            scripts/cmux-next/state_wait.py
+            scripts/cmux-next/tag_teardown.py
+            scripts/cmux-next/window_look.py
             scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false

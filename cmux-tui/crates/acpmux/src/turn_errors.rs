@@ -66,6 +66,9 @@ pub fn is_capacity_error(message: &str) -> bool {
         || m.contains("overloaded")
         || m.contains("at capacity")
         || (m.contains("no non-exhausted") && m.contains("account"))
+        // The cmux-platform worker gateway's own ceiling (2026-11-23): "502 the gateway is at
+        // its call limit; retry". Capacity, not a dropped connection: it is waited out.
+        || m.contains("at its call limit")
 }
 
 /// An HTTP gateway failure is independent of account credentials.
@@ -340,6 +343,7 @@ mod tests {
         "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
+        "API Error: 502 the gateway is at its call limit; retry",
         "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
         "Selected model is at capacity.",
         "Selected model is at capacity. overloaded",

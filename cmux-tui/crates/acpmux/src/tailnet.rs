@@ -20,8 +20,6 @@ use wait_timeout::ChildExt;
 
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod embedded;
-#[cfg(all(unix, feature = "tailnet"))]
-pub(crate) mod embedded_service;
 
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).
@@ -193,6 +191,15 @@ impl Tailnet {
     pub fn status(&self) -> anyhow::Result<Status> {
         let raw = self.run(&["status", "--json"])?;
         parse_status(&raw)
+    }
+
+    /// Publishes `127.0.0.1:<port>` over HTTPS on this node's tailnet name (port 443), in the
+    /// background (`tailscale serve --bg`): tailscaled holds the certificate and the proxy, so
+    /// the daemon's loopback listener never has to bind a network address. It replaces what
+    /// `tailscale serve` already shows on 443.
+    pub fn serve_https_to_loopback(&self, port: u16) -> anyhow::Result<()> {
+        let target = format!("http://127.0.0.1:{port}");
+        self.run(&["serve", "--bg", "--https=443", &target]).map(|_| ())
     }
 
     pub fn whois(&self, ip: IpAddr) -> anyhow::Result<Identity> {

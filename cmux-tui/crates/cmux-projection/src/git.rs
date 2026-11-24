@@ -21,11 +21,14 @@ use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout};
 
 use cmux_process::{Child, Command, Stdio};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::time::{Duration, Instant};
 
 use sha1::{Digest as _, Sha1};
 
 use crate::manifest::{Item, Kind, Manifest};
+#[cfg(any(target_os = "linux", test))]
+use crate::sparse::Sparse;
 use crate::{Fetch, FetchError};
 
 /// What one manifest entry's bytes are.
@@ -638,6 +641,59 @@ impl Worktree {
         Ok(Self { admin })
     }
 
+    /// Whether the worktree at `admin` already has `sparse` as its patterns (no `--sparse` and no
+    /// `info/sparse-checkout` count as the same), so an index written for other patterns is
+    /// written again.
+    #[must_use]
+    #[cfg(any(target_os = "linux", test))]
+    pub fn sparse_matches(admin: &Path, sparse: Option<&Sparse>) -> bool {
+        let held = std::fs::read_to_string(admin.join("info").join("sparse-checkout")).ok();
+        held.as_deref() == sparse.map(Sparse::text)
+    }
+
+    /// Records `sparse` as this worktree's sparse patterns the way `git sparse-checkout set
+    /// --no-cone` does: the patterns in `info/sparse-checkout`, `core.sparseCheckout=true` and
+    /// `core.sparseCheckoutCone=false` in the worktree's own config. None turns sparse off again.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn set_sparse(&self, git_dir: &Path, sparse: Option<&Sparse>) -> anyhow::Result<()> {
+        let file = self.admin.join("info").join("sparse-checkout");
+        let config = self.admin.join("config.worktree");
+        let Some(sparse) = sparse else {
+            if file.exists() {
+                std::fs::remove_file(&file)?;
+            }
+            for key in ["core.sparseCheckout", "core.sparseCheckoutCone"] {
+                let mut unset = Command::new("git");
+                unset.arg("config").arg("--file").arg(&config).args(["--unset", key]);
+                // Exit 5 (no such key) is the state wanted.
+                let _ = output(unset);
+            }
+            return Ok(());
+        };
+        let mut command = git(git_dir);
+        command.args(["config", "--bool", "extensions.worktreeConfig"]);
+        anyhow::ensure!(
+            output(command).is_ok_and(|out| out.starts_with(b"true")),
+            "--sparse needs the worktree's own config: run `git --git-dir {} config \
+             extensions.worktreeConfig true` first",
+            git_dir.display()
+        );
+        std::fs::create_dir_all(self.admin.join("info"))?;
+        write_if_changed(&file, sparse.text().as_bytes())?;
+        for (key, value) in [("core.sparseCheckout", "true"), ("core.sparseCheckoutCone", "false")]
+        {
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", key]);
+            if output(read).is_ok_and(|out| out.strip_suffix(b"\n") == Some(value.as_bytes())) {
+                continue;
+            }
+            let mut set = Command::new("git");
+            set.arg("config").arg("--file").arg(&config).args([key, value]);
+            output(set)?;
+        }
+        Ok(())
+    }
+
     /// The `.git` file's text for this worktree.
     #[must_use]
     pub fn gitfile(admin: &Path) -> String {
@@ -732,49 +788,114 @@ impl ObjectReader {
 const RECENT_FILES: usize = 64;
 const RECENT_BYTES: usize = 64 * 1024 * 1024;
 
+/// How long a pooled `git cat-file --batch` may sit unused, and the recent blobs stay held, before
+/// the mount gives that memory back. Each process keeps its own delta-base cache and heap (tens of
+/// MB, some past 150 MB), and a pool grows to the busiest moment's concurrency (16 on a lane VM
+/// after one build), so a mount nobody reads kept about 600 MB until it was unmounted. An agent's
+/// checkout sits idle most of its life: that memory is what packs more agents on a host.
+const IDLE: Duration = Duration::from_secs(30);
+/// How often the reaper looks.
+const SWEEP: Duration = Duration::from_secs(10);
+
+struct Pooled {
+    cat: CatFile,
+    used: Instant,
+}
+
+/// What [`GitBlobs`] holds between reads, shared with its reaper thread by a weak handle.
+struct Held {
+    /// Most recently used last: a read takes from the end, so the oldest age out first.
+    pool: Mutex<Vec<Pooled>>,
+    recent: Mutex<VecDeque<(u32, Arc<Vec<u8>>)>>,
+    last_read: Mutex<Instant>,
+}
+
+impl Held {
+    /// Ends every pooled process unused for `idle` (dropping it closes its stdin, and git exits),
+    /// and drops the recent blobs when the mount was not read for `idle`.
+    fn sweep(&self, now: Instant, idle: Duration) {
+        let ended: Vec<Pooled> = {
+            let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
+            let (old, fresh): (Vec<_>, Vec<_>) =
+                pool.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
+            *pool = fresh;
+            old
+        };
+        drop(ended);
+        let quiet = now.saturating_duration_since(
+            *self.last_read.lock().unwrap_or_else(PoisonError::into_inner),
+        ) >= idle;
+        if quiet {
+            let gone =
+                std::mem::take(&mut *self.recent.lock().unwrap_or_else(PoisonError::into_inner));
+            drop(gone);
+        }
+    }
+}
+
 /// A projection's bytes from the host's git object store: a pool of `git cat-file --batch`
-/// processes and the last few blobs read. Nothing is copied to disk.
+/// processes and the last few blobs read. Nothing is copied to disk. Both are given back after
+/// [`IDLE`] unused, by a thread that ends with the mount.
 pub struct GitBlobs {
     git_dir: PathBuf,
     sources: Vec<Source>,
-    pool: Mutex<Vec<CatFile>>,
-    recent: Mutex<VecDeque<(u32, std::sync::Arc<Vec<u8>>)>>,
+    held: Arc<Held>,
 }
 
 impl GitBlobs {
     #[must_use]
     pub fn new(git_dir: &Path, sources: Vec<Source>) -> Self {
-        Self {
-            git_dir: git_dir.to_owned(),
-            sources,
+        let held = Arc::new(Held {
             pool: Mutex::new(Vec::new()),
             recent: Mutex::new(VecDeque::new()),
-        }
+            last_read: Mutex::new(Instant::now()),
+        });
+        let weak: Weak<Held> = Arc::downgrade(&held);
+        // Without the thread (spawn refused) the mount still works; it only keeps its memory.
+        let _ = std::thread::Builder::new().name("projection-reaper".into()).spawn(move || {
+            loop {
+                std::thread::sleep(SWEEP);
+                let Some(held) = weak.upgrade() else { return };
+                held.sweep(Instant::now(), IDLE);
+            }
+        });
+        Self { git_dir: git_dir.to_owned(), sources, held }
     }
 
-    fn bytes(&self, entry: u32) -> Result<std::sync::Arc<Vec<u8>>, FetchError> {
+    /// How many `git cat-file` processes wait in the pool (tests).
+    #[cfg(test)]
+    fn pooled(&self) -> usize {
+        self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
+    fn bytes(&self, entry: u32) -> Result<Arc<Vec<u8>>, FetchError> {
+        *self.held.last_read.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
         {
-            let recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+            let recent = self.held.recent.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some((_, bytes)) = recent.iter().find(|(at, _)| *at == entry) {
                 return Ok(bytes.clone());
             }
         }
         let bytes = match self.sources.get(entry as usize) {
             Some(Source::Blob(oid)) => {
-                let taken = self.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
+                let taken = self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
                 let mut cat = match taken {
-                    Some(cat) => cat,
+                    Some(pooled) => pooled.cat,
                     None => CatFile::spawn(&self.git_dir).map_err(|_| FetchError::Failed)?,
                 };
                 let bytes = cat.blob(oid)?;
-                self.pool.lock().unwrap_or_else(PoisonError::into_inner).push(cat);
+                self.held
+                    .pool
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(Pooled { cat, used: Instant::now() });
                 bytes
             }
             Some(Source::Bytes(bytes)) => bytes.clone(),
             _ => return Err(FetchError::Failed),
         };
-        let bytes = std::sync::Arc::new(bytes);
-        let mut recent = self.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        let bytes = Arc::new(bytes);
+        let mut recent = self.held.recent.lock().unwrap_or_else(PoisonError::into_inner);
         recent.push_front((entry, bytes.clone()));
         let mut total = 0;
         let mut keep = 0;

@@ -51,7 +51,7 @@ where
     .await
 }
 
-async fn handle_with_consent<F, Fut, C>(
+pub(crate) async fn handle_with_consent<F, Fut, C>(
     ctx: &Ctx<'_>,
     action: &str,
     p: &Value,
