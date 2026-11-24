@@ -9,7 +9,7 @@ fn sh(dir: &Path, args: &[&str]) {
 
 /// A checkout with a committed tree, an uncommitted edit and an untracked file (both in the
 /// snapshot a fork starts from), and a gitignored file (never carried).
-pub(super) fn checkout() -> tempfile::TempDir {
+pub(crate) fn checkout() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path();
     sh(p, &["init", "-q", "-b", "main"]);
@@ -31,7 +31,7 @@ pub(super) fn checkout() -> tempfile::TempDir {
 }
 
 /// Copy a checkout as a fork's disk would be: every byte and mode, `.git` included.
-pub(super) fn fork_of(src: &Path) -> tempfile::TempDir {
+pub(crate) fn fork_of(src: &Path) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let ok = std::process::Command::new("cp")
         .arg("-a")
@@ -46,7 +46,7 @@ pub(super) fn fork_of(src: &Path) -> tempfile::TempDir {
 
 /// What a sub-agent does on its fork: delete a file, rename one, set an executable bit, edit a
 /// binary, add a new executable, edit a file the parent had changed but not committed.
-pub(super) fn work_on(p: &Path) {
+pub(crate) fn work_on(p: &Path) {
     std::fs::remove_file(p.join("gone.txt")).unwrap();
     std::fs::rename(p.join("old_name.rs"), p.join("new_name.rs")).unwrap();
     std::fs::set_permissions(p.join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -59,7 +59,7 @@ pub(super) fn work_on(p: &Path) {
 }
 
 /// Every file under `p` but `.git`: its bytes and its executable bit.
-pub(super) fn files(p: &Path) -> BTreeMap<String, (Vec<u8>, bool)> {
+pub(crate) fn files(p: &Path) -> BTreeMap<String, (Vec<u8>, bool)> {
     let mut out = BTreeMap::new();
     let mut stack = vec![p.to_owned()];
     while let Some(dir) = stack.pop() {

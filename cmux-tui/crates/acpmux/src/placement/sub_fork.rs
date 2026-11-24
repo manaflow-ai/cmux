@@ -673,4 +673,4 @@ pub fn apply(checkout: &Path, patch: &[u8]) -> Result<usize, String> {
 
 #[cfg(test)]
 #[path = "sub_fork_tests.rs"]
-pub(super) mod tests;
+pub(crate) mod tests;
