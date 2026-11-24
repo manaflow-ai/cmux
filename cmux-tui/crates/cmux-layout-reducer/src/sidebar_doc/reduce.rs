@@ -792,10 +792,13 @@ fn place_run(
                     })
                 });
             let after = after.map_or(Value::Null, |(_, id)| Value::String(id.clone()));
-            let mut place = serde_json::json!({ "section": item.section, "after": after });
+            let mut place = serde_json::Map::new();
+            place.insert("section".into(), Value::String(item.section.clone()));
+            place.insert("after".into(), after);
             if let Some(parent) = &item.parent {
-                place["parent"] = Value::String(parent.clone());
+                place.insert("parent".into(), Value::String(parent.clone()));
             }
+            let place = Value::Object(place);
             (item.id.clone(), place)
         })
         .collect();
