@@ -175,9 +175,9 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
   const t = useT();
   const look = usePasteLoadingLook();
   const ratio = useDraftRatio(chip[localDraftShape]);
-  if (ratio === 0) return null;
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const still = useStillUploading(chip, name);
+  if (ratio === 0) return null;
   const remove = onCancel && (
     <button
       type="button"
