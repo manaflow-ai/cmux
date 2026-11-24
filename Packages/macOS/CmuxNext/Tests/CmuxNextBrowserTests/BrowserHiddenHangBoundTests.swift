@@ -108,13 +108,13 @@ struct BrowserExitRecoveryHangTests {
 
     @Test func aRendererEndedForHangReloadsOnceWhenShown() {
         var recovery = BrowserExitRecovery()
-        // `#expect` cannot call a mutating method on its argument: take each answer first.
+        // `#expect` takes no mutating call (its operand is immutable): take each answer first.
         let ended = recovery.endedForHang(now: start)
         let reloads = recovery.takeReload(now: start)
-        let reloadsAgain = recovery.takeReload(now: start)
+        let again = recovery.takeReload(now: start)
         #expect(ended)
         #expect(reloads)
-        #expect(!reloadsAgain, "it reloads once")
+        #expect(!again, "it reloads once")
     }
 
     @Test func aPageThatHangsAgainRightAfterItsReloadWaitsForThePerson() {
