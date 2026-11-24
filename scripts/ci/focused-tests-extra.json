@@ -8,6 +8,7 @@
     {"prefix": "cmux-tui/crates/cmux-tui/src/cli/", "python": ["tests/test_short_timeout_guard.py"]},
     {"prefix": "cmux-tui/crates/cmux-tui/src/main.rs", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "scripts/cmux-next/", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
+    {"prefix": "scripts/cmux-next/media/tours/", "python": ["tests/test_cmux_next_tour.py"]},
     {"prefix": "scripts/fleet-", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "scripts/measure/", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "webviews/src/agent-session/", "python": ["tests/test_short_timeout_guard.py"]}
