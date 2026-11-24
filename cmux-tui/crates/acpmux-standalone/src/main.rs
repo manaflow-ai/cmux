@@ -8,6 +8,14 @@
 //! Linux musl leg that recompile was 209 s of the acpmux group's 213 s (run
 //! 43497362002).
 
+// mimalloc on Linux (RFD 0156). The Linux packages are static musl builds, and musl's malloc
+// never handed freed pages back: a daemon up 12 h on a lane VM held 2.5 GB in 9,818 anonymous
+// regions, its live heap flat, and malloc_quiet_trim.rs trims glibc only. mimalloc purges freed
+// pages itself (`purge_delay`, 10 ms).
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> anyhow::Result<()> {
     // Before anything reads `acpmux::hub::build()`. It only sets a OnceLock:
     // still one thread when `process_main` runs.
