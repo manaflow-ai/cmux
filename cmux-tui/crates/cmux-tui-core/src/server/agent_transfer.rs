@@ -107,6 +107,11 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// `credentials {env}` on `agent-transfer-finish`: the owner's login for the moved chat's agent
+/// (`agent-session-start`'s `credentials`), which a new Cloud machine has none of. Held on the chat
+/// before its queue runs, so the turn the move continues starts signed in. An older daemon refuses
+/// the field, so the pump sends it only to a target that lists this.
+pub const AGENT_TRANSFER_CREDENTIALS_CAPABILITY: &str = "agent-transfer-credentials-v1";
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
@@ -382,6 +387,11 @@ struct FinishParams {
     /// As the receive's.
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
+    /// The owner's login for the chat's agent ([`AGENT_TRANSFER_CREDENTIALS_CAPABILITY`]): taken
+    /// only as `agent-session-credentials` takes one
+    /// ([`agent_session_start::credentials_admitted`]). Never printed or recorded.
+    #[serde(default)]
+    credentials: Option<agent_session_start::StartCredentials>,
 }
 
 #[derive(Deserialize)]
@@ -485,6 +495,8 @@ enum Refusal {
     TeamVmBlocked,
     /// `agent-session-start`'s code: a Cloud VM of unknown kind.
     HostUnverified,
+    /// `agent-session-credentials`' code: a login is taken only from the owner on their own VM.
+    OwnerOnly,
 }
 
 impl Refusal {
@@ -503,6 +515,7 @@ impl Refusal {
             Self::Refused => "agent_transfer.refused",
             Self::TeamVmBlocked => "agent_session.team_vm_blocked",
             Self::HostUnverified => "agent_session.host_unverified",
+            Self::OwnerOnly => "agent_session.owner_only",
         }
     }
 
@@ -523,6 +536,7 @@ impl Refusal {
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it takes no moved chat"
             }
+            Self::OwnerOnly => "only the owner's app on the owner's own Cloud VM sends a login",
         }
     }
 }
@@ -686,6 +700,7 @@ enum Prepared {
         cwd: String,
         name: Option<String>,
         epoch: u64,
+        credentials: Option<agent_session_start::StartCredentials>,
     },
     Begin {
         session: String,
@@ -747,9 +762,17 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             let epoch = transfers.receive_epoch(&receive_id).ok_or(Refusal::UnknownReceive)?;
             Prepared::Write { receive_id, path, offset, data, epoch }
         }
-        Verb::Finish(FinishParams { receive_id, name, vm_kind }) => {
+        Verb::Finish(FinishParams { receive_id, name, vm_kind, credentials }) => {
             if name.as_deref().is_some_and(|name| !is_chat_name(name)) {
                 return Err(Refusal::BadRequest.into());
+            }
+            if credentials.as_ref().is_some_and(|c| !c.valid()) {
+                return Err(Refusal::BadRequest.into());
+            }
+            if credentials.is_some()
+                && !agent_session_start::credentials_admitted(mux, client, &vm_kind)
+            {
+                return Err(Refusal::OwnerOnly.into());
             }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
             let epoch = transfers.receive_epoch(&receive_id).ok_or(Refusal::UnknownReceive)?;
@@ -760,7 +783,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
                 return Err(refusal.into());
             }
-            Prepared::Finish { receive_id, cwd, name, epoch }
+            Prepared::Finish { receive_id, cwd, name, epoch, credentials }
         }
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
@@ -952,13 +975,16 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let answer = call("_acpmux/transfer_write", params, CALL_TIMEOUT)?;
             Ok(json!({"next": answer.field("next")}))
         }
-        Prepared::Finish { receive_id, cwd, name, epoch } => {
+        Prepared::Finish { receive_id, cwd, name, epoch, credentials } => {
             let mut params = json!({"receiveId": receive_id, "cwd": cwd});
             if epoch != 0 {
                 params.insert("epoch", json!(epoch));
             }
             if let Some(name) = name {
                 params.insert("name", json!(name));
+            }
+            if let Some(credentials) = credentials {
+                params.insert("credentials", credentials.wire());
             }
             // Only once acpmux is reached: a finish that never ran leaves
             // the receive askable.
