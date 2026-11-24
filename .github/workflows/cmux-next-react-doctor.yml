@@ -74,12 +74,25 @@ jobs:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-react-doctor.yml --labels "$LABELS"
 
+  # One scan per 30-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge: the push scans
+  # every project at its tip, so the window's run covers every merge since the last one. 6,496 runner-minutes a day
+  # ran here on pushes alone (731 runs, timing feed 2026-11-23T10Z..11-24T10Z, about 1,015 merges); about 48 runs a
+  # day now. A red is seen within about 30 minutes plus the gap to the next push plus the scan, and base-red-watch
+  # bisects it over the covered range. Pull requests and dispatches are unchanged (the coalesce job is skipped on
+  # them). vars.NEXT_REACT_DOCTOR_COALESCE = '0' scans every push again.
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-react-doctor
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.NEXT_REACT_DOCTOR_COALESCE) == '0' }}
+
   react-doctor:
     name: React Doctor (changed React projects)
-    needs: fast-check-route
+    needs: [fast-check-route, coalesce]
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: ${{ !cancelled() && needs.fast-check-route.outputs.react_doctor != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && needs.fast-check-route.outputs.react_doctor != 'false' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
