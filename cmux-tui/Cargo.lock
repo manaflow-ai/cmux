@@ -1413,6 +1413,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cmux-cloud-config",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "crossterm",

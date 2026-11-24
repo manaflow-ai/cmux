@@ -374,6 +374,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | Host | Kind | What for |
 |---|---|---|
 | `command.io` | not-a-host | an error code for a custom command's file error |
+| `acpmux.io` | not-a-host | an error code for a failed write to the local acpmux socket in the SSH benchmark |
 | `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
 | `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
