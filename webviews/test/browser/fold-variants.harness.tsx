@@ -410,15 +410,14 @@ async function run(
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
       if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
-      // An `open` reader action scrolls nothing: it takes the plain branch below.
-      if (step.type === "reader" && stray && !("open" in step.reader)) {
+      // This harness draws no "Worked for" to open: a reader's `open` step scrolls nothing here.
+      const reader = step.type === "reader" && !("open" in step.reader) ? step.reader : undefined;
+      if (reader && stray) {
         if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
-        await wheelScroll(step.reader);
-      } else if (step.type === "reader") {
+        await wheelScroll(reader);
+      } else if (reader) {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const reader = step.reader;
-        // An `open` reader action (opening a "Worked for") does not scroll.
-        if (scroller && !("open" in reader))
+        if (scroller)
           scroller.scrollTop =
             "scrollBy" in reader
               ? scroller.scrollTop + reader.scrollBy

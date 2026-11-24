@@ -8,7 +8,7 @@
 // person's steers (mid-stream, mid-tool, mid-fold), how the turn ends (mid-stream, mid-fold, after a recap,
 // or settled), the recap and its length, the reader at the bottom or scrolled up, and the split size.
 // The same seed always gives the same chat (test/fold-fuzz-scenario.test.ts), so a failing seed replays.
-import { sim, type SimScenario, type SimStep, type ReaderAction } from "../../src/agent-session/acpmux/sim/script";
+import { sim, type ReaderAction, type SimScenario, type SimStep } from "../../src/agent-session/acpmux/sim/script";
 
 /// mulberry32: a small, fast, seedable PRNG; the generator draws every choice from it in a fixed order.
 export function rng(seed: number) {
@@ -71,7 +71,7 @@ export type FuzzSpec = {
   split: Split;
   /** Earlier turns above the one that folds. */
   history: number;
-  /** hq#18554's axes (`fuzzAxes`). */
+  /** hq#18554 ask 3's axes (`fuzzAxes`), drawn from their own stream. */
   axes: FuzzAxes;
 };
 
@@ -409,9 +409,9 @@ export function strayScenario(seed: number): FuzzScenario & { sweepFrom: number 
     const label =
       "scroll" in action
         ? `reader scroll ${action.scroll}`
-        : "scrollBy" in action
-          ? `reader scrollBy ${action.scrollBy}`
-          : `reader open ${action.open}`;
+        : "open" in action
+          ? `reader open ${action.open}`
+          : `reader scrollBy ${action.scrollBy}`;
     steps.push({ type: "reader", at, label, reader: action });
   };
   const sweepFrom = steps.length;
