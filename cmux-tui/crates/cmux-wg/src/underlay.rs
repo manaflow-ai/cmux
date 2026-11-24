@@ -20,6 +20,8 @@ use std::time::Duration;
 use cmux_transport::PathId;
 
 use crate::pacing::Priority;
+use crate::underlay_batch::STAGE_LIMIT;
+pub use crate::underlay_batch::{ReceiveBatch, SendBatch};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::time::{Instant, Sleep};
@@ -38,6 +40,12 @@ const INTERFACE_RETRY_MAX: Duration = Duration::from_millis(50);
 /// taken as gone: the oldest datagram is dropped so newer ones (a handshake,
 /// a keepalive) are not stuck behind it forever. TCP retransmits.
 const INTERFACE_RETRY_LIMIT: u32 = 64;
+/// How long a path sends one datagram at a time after its socket refused
+/// one. A batch is handed over at the end of a pass, so the driver learns of
+/// a full socket only after the pass gave it everything; one at a time it
+/// learns at the first refusal and stops feeding, which keeps a saturated
+/// uplink's backlog in the driver's priority queues (`tests/kernel_queue.rs`).
+const UNBATCHED_AFTER_REFUSAL: Duration = Duration::from_secs(1);
 
 /// Receive buffer requested for a tunnel's UDP socket (wireguard-go's
 /// `socketBufferSize`). smoltcp sends a whole window at once, and the peer
@@ -204,6 +212,36 @@ pub trait DatagramSocket: Send + 'static {
     /// as it allows. Best effort: a refusal keeps the default. A socket
     /// with no kernel buffer (a simulated one) has nothing to grow.
     fn grow_receive_buffer(&self) {}
+
+    /// Send `batch[from..]` in order, as many as one call takes. Returns how
+    /// many left (at least one), or the first one's refusal. The default
+    /// sends one; a kernel socket on Linux sends up to 64 messages with one
+    /// `sendmmsg`, a run to one address as one GSO message.
+    fn try_send_batch(&mut self, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        let Some((datagram, target)) = batch.get(from) else { return Ok(0) };
+        self.try_send_to(datagram, target).map(|_| 1)
+    }
+
+    /// Read what waits into `batch` (empty on entry), at least one
+    /// datagram, registering for readiness when none does. The default reads
+    /// one; a kernel socket on Linux reads many with one `recvmmsg`.
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut Context<'_>,
+        batch: &mut ReceiveBatch,
+    ) -> Poll<io::Result<()>> {
+        let mut buffer = vec![0u8; 1 << 16];
+        self.poll_recv_from(cx, &mut buffer).map_ok(|(len, from)| {
+            batch.push(buffer.get(..len).unwrap_or_default(), from);
+        })
+    }
+
+    /// As [`poll_recv_batch`](DatagramSocket::poll_recv_batch), without
+    /// registering: `WouldBlock` when nothing waits, and always for a
+    /// socket that can only be polled.
+    fn try_recv_batch(&mut self, _batch: &mut ReceiveBatch) -> io::Result<()> {
+        Err(io::ErrorKind::WouldBlock.into())
+    }
 }
 
 impl DatagramSocket for UdpSocket {
@@ -256,6 +294,48 @@ impl DatagramSocket for UdpSocket {
             return;
         }
         let _ = set(libc::SO_RCVBUF);
+        // Every read goes through `recv_batch`, which splits what GRO joins.
+        #[cfg(target_os = "linux")]
+        crate::underlay_batch::linux::enable_gro(self.as_raw_fd());
+    }
+
+    #[cfg(target_os = "linux")]
+    fn try_send_batch(&mut self, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        let fd = self.as_raw_fd();
+        self.try_io(tokio::io::Interest::WRITABLE, || {
+            crate::underlay_batch::linux::send(fd, batch, from)
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut Context<'_>,
+        batch: &mut ReceiveBatch,
+    ) -> Poll<io::Result<()>> {
+        loop {
+            std::task::ready!(self.poll_recv_ready(cx))?;
+            match self.try_recv_batch(batch) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                result => return Poll::Ready(result),
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn try_recv_batch(&mut self, batch: &mut ReceiveBatch) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
+        let fd = self.as_raw_fd();
+        self.try_io(tokio::io::Interest::READABLE, || crate::underlay_batch::linux::recv(fd, batch))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn try_recv_batch(&mut self, batch: &mut ReceiveBatch) -> io::Result<()> {
+        let mut buffer = vec![0u8; 1 << 16];
+        let (len, from) = UdpSocket::try_recv_from(self, &mut buffer)?;
+        batch.push(buffer.get(..len).unwrap_or_default(), from);
+        Ok(())
     }
 }
 
@@ -266,6 +346,13 @@ pub struct SocketPath<S> {
     socket: S,
     peer: Option<SocketAddr>,
     pending: VecDeque<(Vec<u8>, SocketAddr)>,
+    /// Datagrams of this pass, sent together at its flush (or once
+    /// [`STAGE_LIMIT`] wait). Only staged while nothing is pending.
+    staged: SendBatch,
+    /// Datagrams the last batched read took and the driver has not had.
+    received: ReceiveBatch,
+    /// Until when sends go one at a time ([`UNBATCHED_AFTER_REFUSAL`]).
+    unbatched_until: Option<Instant>,
     /// Armed after the interface refused a datagram.
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
@@ -293,6 +380,9 @@ impl<S: DatagramSocket> SocketPath<S> {
             socket,
             peer,
             pending: VecDeque::new(),
+            staged: SendBatch::default(),
+            received: ReceiveBatch::default(),
+            unbatched_until: None,
             retry: None,
             retry_after: INTERFACE_RETRY_MIN,
             refusals: 0,
@@ -324,13 +414,58 @@ impl<S: DatagramSocket> SocketPath<S> {
             }
             return;
         }
-        match self.socket.try_send_to(datagram, peer) {
-            Ok(_) => {}
-            Err(error) if refusal(&error).is_some() => {
-                self.pending.push_back((datagram.to_vec(), peer));
+        if self.unbatched_until.is_some_and(|until| Instant::now() < until) {
+            match self.socket.try_send_to(datagram, peer) {
+                Ok(_) => {}
+                Err(error) if refusal(&error).is_some() => {
+                    self.refused();
+                    self.pending.push_back((datagram.to_vec(), peer));
+                }
+                Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
             }
-            Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
+            return;
         }
+        self.unbatched_until = None;
+        self.staged.push(datagram, peer);
+        if self.staged.len() >= STAGE_LIMIT {
+            self.send_staged();
+        }
+    }
+
+    fn refused(&mut self) {
+        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
+    }
+
+    /// Send what this pass staged, in as few calls as the socket allows; what
+    /// the socket refuses waits in `pending`, in order, for writability.
+    fn send_staged(&mut self) {
+        let mut from = 0;
+        while from < self.staged.len() {
+            match self.socket.try_send_batch(&self.staged, from) {
+                Ok(0) => break,
+                Ok(sent) => from += sent,
+                Err(error) if refusal(&error).is_some() => {
+                    self.refused();
+                    break;
+                }
+                Err(error) => {
+                    if let Some((_, peer)) = self.staged.get(from) {
+                        eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    }
+                    from += 1;
+                }
+            }
+        }
+        self.pending.extend(self.staged.drain_from(from));
+    }
+
+    /// The next datagram already read, or one read now without waiting:
+    /// `WouldBlock` when none waits.
+    pub(crate) fn try_recv(&mut self, buffer: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        if self.received.is_empty() {
+            self.socket.try_recv_batch(&mut self.received)?;
+        }
+        self.received.pop_into(buffer).ok_or_else(|| io::ErrorKind::WouldBlock.into())
     }
 }
 
@@ -354,12 +489,21 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 Ok(_) => {
                     self.pending.pop_front();
                 }
-                Err(error) if refusal(&error).is_some() => break,
+                Err(error) if refusal(&error).is_some() => {
+                    self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
+                    break;
+                }
                 Err(error) => {
                     eprintln!("wireguard UDP send to {peer} failed: {error}");
                     self.pending.pop_front();
                 }
             }
+        }
+        if self.pending.is_empty() {
+            self.send_staged();
+        } else {
+            // Behind what the socket refused, in order.
+            self.pending.extend(self.staged.drain_from(0));
         }
     }
 
@@ -392,8 +536,11 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 }
                 Err(error) => match refusal(&error) {
                     // Readiness was stale; the next poll registers interest.
-                    Some(Refusal::SocketFull) => {}
+                    Some(Refusal::SocketFull) => {
+                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
+                    }
                     Some(Refusal::InterfaceFull) => {
+                        self.unbatched_until = Some(Instant::now() + UNBATCHED_AFTER_REFUSAL);
                         self.refusals += 1;
                         if self.refusals >= INTERFACE_RETRY_LIMIT {
                             eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
@@ -414,10 +561,16 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
-        self.socket.poll_recv_from(cx, buffer).map_ok(|(len, source)| Received {
-            len,
-            origin: Origin { path: PathId(0), addr: Some(source) },
-        })
+        loop {
+            if let Some((len, source)) = self.received.pop_into(buffer) {
+                let origin = Origin { path: PathId(0), addr: Some(source) };
+                return Poll::Ready(Ok(Received { len, origin }));
+            }
+            if !self.received.is_empty() {
+                continue; // one too long for `buffer`, dropped
+            }
+            std::task::ready!(self.socket.poll_recv_batch(cx, &mut self.received))?;
+        }
     }
 
     fn authenticated(&mut self, origin: Origin) {

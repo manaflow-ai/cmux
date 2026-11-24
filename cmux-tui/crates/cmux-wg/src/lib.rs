@@ -61,6 +61,7 @@ mod ultra_auto;
 mod ultra_hello;
 mod ultra_rs;
 mod underlay;
+mod underlay_batch;
 mod watchdog;
 mod wire;
 
