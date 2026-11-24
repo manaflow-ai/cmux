@@ -542,7 +542,7 @@ pub fn kept_json(kept: &crate::vault::kept::Kept) -> Value {
 pub fn audit_cmd(json_out: bool) -> Result<()> {
     use crate::vault::reach::{self, Class};
     use std::io::Write as _;
-    let report = reach::Roots::live().and_then(|roots| reach::audit(&roots));
+    let report = reach::Roots::live().and_then(|roots| reach::audit(&roots, reach::live_processes));
     let code = match &report {
         Ok(r) if r.green() => 0,
         Ok(_) => 1,

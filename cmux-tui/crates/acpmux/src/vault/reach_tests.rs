@@ -9,15 +9,13 @@ struct Box {
 fn scratch() -> Box {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path();
-    for sub in ["proc", "home", "acpmux", "root"] {
+    for sub in ["home", "acpmux", "root"] {
         fs::create_dir_all(base.join(sub)).unwrap();
     }
     let roots = Roots {
-        proc: base.join("proc"),
         home: base.join("home"),
         acpmux_home: base.join("acpmux"),
         root: base.join("root"),
-        uid: unsafe { libc::geteuid() },
         claude_config: None,
     };
     Box { _dir: dir, roots }
@@ -28,15 +26,13 @@ fn put(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
-fn process(b: &Box, pid: u32, comm: &str, env: &[&str]) {
-    let dir = b.roots.proc.join(pid.to_string());
-    put(&dir.join("comm"), format!("{comm}\n").as_bytes());
-    let mut bytes = Vec::new();
-    for pair in env {
-        bytes.extend_from_slice(pair.as_bytes());
-        bytes.push(0);
-    }
-    put(&dir.join("environ"), &bytes);
+fn proc(pid: u32, role: &'static str, env: &[(&str, &str)]) -> Proc {
+    let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    Proc { pid, role, env: Some(env) }
+}
+
+fn none() -> io::Result<Vec<Proc>> {
+    Ok(Vec::new())
 }
 
 fn whats(report: &Report, class: Class) -> Vec<String> {
@@ -48,21 +44,18 @@ const VALUE: &str = "do-not-print-this-value";
 #[test]
 fn only_the_owner_login_is_green() {
     let b = scratch();
-    process(
-        &b,
-        10,
-        "acpmux",
-        &["HOME=/home/cmux", "PATH=/usr/bin", "ACPMUX_LAUNCH_CREDENTIAL=CLAUDE_CODE_OAUTH_TOKEN"],
-    );
-    process(
-        &b,
-        11,
-        "claude",
-        &[&format!("CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-{VALUE}"), "TERM=xterm"],
-    );
+    let token = format!("sk-ant-oat01-{VALUE}");
+    let procs = vec![
+        proc(
+            10,
+            "daemon",
+            &[("PATH", "/usr/bin"), ("ACPMUX_LAUNCH_CREDENTIAL", "CLAUDE_CODE_OAUTH_TOKEN")],
+        ),
+        proc(11, "agent", &[("CLAUDE_CODE_OAUTH_TOKEN", &token), ("TERM", "xterm")]),
+    ];
     put(&b.roots.home.join(".claude/.credentials.json"), b"{}");
     put(&b.roots.at(INSTALL_RECEIPTS[0]), b"{}");
-    let report = audit(&b.roots).unwrap();
+    let report = audit(&b.roots, || Ok(procs)).unwrap();
     assert!(report.green(), "{:?}", report.items);
     assert_eq!(report.processes, 2);
     assert!(whats(&report, Class::Login).contains(&"env:CLAUDE_CODE_OAUTH_TOKEN".to_owned()));
@@ -71,31 +64,30 @@ fn only_the_owner_login_is_green() {
 #[test]
 fn every_other_secret_is_a_named_finding_and_no_value_is_kept() {
     let b = scratch();
-    process(
-        &b,
+    let (ghp, cmm) = (format!("ghp_{VALUE}"), format!("cmm_{VALUE}"));
+    let procs = vec![proc(
         20,
-        "claude",
-        &[
-            &format!("GITHUB_TOKEN={VALUE}"),
-            &format!("DB_PASSWORD={VALUE}"),
-            &format!("INNOCENT=ghp_{VALUE}"),
-            &format!("ALSO=cmm_{VALUE}"),
-        ],
-    );
+        "agent",
+        &[("GITHUB_TOKEN", VALUE), ("DB_PASSWORD", VALUE), ("INNOCENT", &ghp), ("ALSO", &cmm)],
+    )];
     put(&b.roots.at(OLD_LOGIN_SYNC), VALUE.as_bytes());
     put(&b.roots.at(GATEWAY_TOKEN), VALUE.as_bytes());
     put(&b.roots.at(INSTALL_KEYS[0]), VALUE.as_bytes());
+    let machine_env = crate::login_env::machine_env_path(&b.roots.home);
+    put(&machine_env, format!("export STRIPE_SECRET='{VALUE}'\nexport EDITOR='vi'\n").as_bytes());
     put(
-        &b.roots.home.join(MACHINE_ENV[0]),
-        format!("export STRIPE_SECRET='{VALUE}'\nexport EDITOR='vi'\n").as_bytes(),
+        &machine_env.with_file_name(MACHINE_SECRETS),
+        format!("OPENROUTER_KEY={VALUE}\n").as_bytes(),
     );
+    put(&machine_env.with_file_name(TEAM_LOGIN), VALUE.as_bytes());
     put(&b.roots.home.join(".ssh/id_ed25519"), VALUE.as_bytes());
     put(&b.roots.home.join(".ssh/id_ed25519.pub"), b"ssh-ed25519 AAAA");
+    put(&b.roots.home.join(".git-credentials"), VALUE.as_bytes());
     put(
         &b.roots.acpmux_home.join("vault-state.json"),
         format!(r#"{{"env":{{"NPM_TOKEN":{{"fingerprint":"{VALUE}"}}}}}}"#).as_bytes(),
     );
-    let report = audit(&b.roots).unwrap();
+    let report = audit(&b.roots, || Ok(procs)).unwrap();
     assert!(!report.green());
     let leaks = whats(&report, Class::Leak);
     for want in [
@@ -104,15 +96,18 @@ fn every_other_secret_is_a_named_finding_and_no_value_is_kept() {
         "env:INNOCENT",
         "env:ALSO",
         "env:STRIPE_SECRET",
+        "env:OPENROUTER_KEY",
         "vault:NPM_TOKEN",
     ] {
-        assert!(leaks.contains(&want.to_owned()), "{want} missing from {leaks:?}");
+        assert!(leaks.iter().any(|w| w == want), "{want} missing from {leaks:?}");
     }
     for path in [OLD_LOGIN_SYNC, GATEWAY_TOKEN, INSTALL_KEYS[0]] {
         let want = format!("file:{}", b.roots.at(path).display());
         assert!(leaks.contains(&want), "{want} missing from {leaks:?}");
     }
-    assert!(leaks.iter().any(|w| w.ends_with(".ssh/id_ed25519")));
+    for tail in [".ssh/id_ed25519", ".git-credentials", TEAM_LOGIN] {
+        assert!(leaks.iter().any(|w| w.ends_with(tail)), "{tail} missing from {leaks:?}");
+    }
     assert!(!leaks.iter().any(|w| w.ends_with(".pub") || w.contains("EDITOR")));
     let printed = serde_json::to_string(&report).unwrap();
     assert!(!printed.contains(VALUE), "a value reached the report");
@@ -122,9 +117,9 @@ fn every_other_secret_is_a_named_finding_and_no_value_is_kept() {
 fn the_gateway_token_is_machine_identity_only_when_opted_in() {
     let b = scratch();
     put(&b.roots.at(GATEWAY_TOKEN), VALUE.as_bytes());
-    put(&b.roots.home.join(GATEWAY_MARKER), b"");
+    put(&cmux_host::cloud::gateway_token::marker(&b.roots.home), b"");
     put(&b.roots.acpmux_home.join("machine-credential.json"), VALUE.as_bytes());
-    let report = audit(&b.roots).unwrap();
+    let report = audit(&b.roots, none).unwrap();
     assert!(report.green(), "{:?}", report.items);
     assert_eq!(whats(&report, Class::Machine).len(), 2);
 }
@@ -139,26 +134,23 @@ fn an_install_key_the_work_user_cannot_read_is_not_reachable() {
     let key = b.roots.at(INSTALL_KEYS[0]);
     put(&key, VALUE.as_bytes());
     fs::set_permissions(&key, fs::Permissions::from_mode(0o000)).unwrap();
-    assert!(audit(&b.roots).unwrap().green());
+    assert!(audit(&b.roots, none).unwrap().green());
 }
 
 #[test]
 fn it_fails_closed_when_it_cannot_list_processes_or_read_state() {
     let b = scratch();
-    let gone = Roots { proc: b.roots.proc.join("missing"), ..clone(&b.roots) };
-    assert!(audit(&gone).is_err());
+    assert!(audit(&b.roots, || Err(io::Error::other("no daemon"))).is_err());
     put(&b.roots.acpmux_home.join("vault-state.json"), b"not json");
-    assert!(audit(&b.roots).is_err());
+    assert!(audit(&b.roots, none).is_err());
 }
 
 #[test]
-fn other_users_processes_are_not_reachable() {
+fn a_process_whose_env_cannot_be_read_is_counted_not_skipped() {
     let b = scratch();
-    process(&b, 30, "cmux-host", &[&format!("SECRET_KEY={VALUE}")]);
-    let other = Roots { uid: b.roots.uid.wrapping_add(1), ..clone(&b.roots) };
-    let report = audit(&other).unwrap();
-    assert_eq!(report.processes, 0);
-    assert!(report.green());
+    let procs = vec![Proc { pid: 30, role: "agent", env: None }];
+    let report = audit(&b.roots, || Ok(procs)).unwrap();
+    assert_eq!(report.unreadable, 1);
 }
 
 #[test]
@@ -167,15 +159,4 @@ fn shapes() {
     assert!(secret_shaped("x", b"sk-abc"));
     assert!(!secret_shaped("ACPMUX_LAUNCH_CREDENTIAL", b"CLAUDE_CODE_OAUTH_TOKEN"));
     assert!(!secret_shaped("PATH", b"/usr/bin"));
-}
-
-fn clone(r: &Roots) -> Roots {
-    Roots {
-        proc: r.proc.clone(),
-        home: r.home.clone(),
-        acpmux_home: r.acpmux_home.clone(),
-        root: r.root.clone(),
-        uid: r.uid,
-        claude_config: r.claude_config.clone(),
-    }
 }

@@ -1,7 +1,8 @@
 //! What a Cloud chat's daemon and agents can reach after it moves to its VM (AutoCloud proof plan R10: "the moved
 //! chat carries the owner's login and nothing else"). `acpmux machine vault audit` runs it as the work user, the
-//! user the daemon and its agents run as, so "reachable" means reachable by that user: every process of that
-//! user's environment (`/proc/PID/environ`, which any same-user process can read) and the credential files below.
+//! user the daemon and its agents run as, so "reachable" means reachable by that user: the environment of this
+//! machine's acpmux daemon (`daemon.pid`) and of every process under it (its agent hosts and harnesses, read one
+//! pid at a time through `agent_host::tree`, no listing of its own), and the credential files below.
 //!
 //! It prints names and paths only, never a value: a value is looked at only to see whether it starts like a
 //! credential (`cmm_`, `sk-`, `ghp_`), and is dropped without being copied or logged. It fails closed: a folder or
@@ -37,26 +38,25 @@ pub const LOGIN_NAMES: [&str; 4] = crate::agent_credentials::NAMES;
 const NOT_SECRET: [&str; 2] = [crate::agent_credentials::MARKER, "SSH_AUTH_SOCK"];
 const NAME_WORDS: [&str; 5] = ["TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL"];
 const VALUE_PREFIXES: [&str; 3] = ["cmm_", "sk-", "ghp_"];
-/// Read at most this much of one process's environment (a Linux environ is capped well below it).
-const MAX_ENVIRON: u64 = 1 << 20;
 const MAX_STATE: u64 = 4 << 20;
 
-pub const GATEWAY_TOKEN: &str = "/run/cmux-inference-gateway/token";
-pub const GATEWAY_MARKER: &str = ".config/cmux/inference-gateway/enabled";
+pub const GATEWAY_TOKEN: &str = cmux_host::cloud::gateway_token::TOKEN_FILE;
 pub const INSTALL_KEYS: [&str; 1] = ["/var/lib/cmux/install/platform-scope-key.json"];
 pub const INSTALL_RECEIPTS: [&str; 2] =
     ["/var/lib/cmux/install/platform-scope-identity.json", "/var/lib/cmux/install/identity.json"];
 pub const OLD_LOGIN_SYNC: &str = "/var/lib/cmux/harness-login-sync.json";
-pub const MACHINE_ENV: [&str; 2] = [".config/cmux/machine.env", ".config/cmux/machine-secrets.env"];
+/// Beside `machine.env`: the secrets file it sources (cmux-remote `secrets/files.rs`).
+pub const MACHINE_SECRETS: &str = "machine-secrets.env";
+/// Beside `machine.env`: a shared team Claude login (cloud-journey's sign-in probe reads it).
+pub const TEAM_LOGIN: &str = "claude-team/.credentials.json";
 pub const LOGIN_FILES: [&str; 2] = [".claude/.credentials.json", ".codex/auth.json"];
-pub const OTHER_FILES: [&str; 7] = [
+pub const OTHER_FILES: [&str; 6] = [
     ".git-credentials",
     ".netrc",
     ".config/gh/hosts.yml",
     ".aws/credentials",
     ".docker/config.json",
     ".npmrc",
-    ".config/cmux/claude-team/.credentials.json",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -98,18 +98,38 @@ impl Report {
     }
 }
 
+/// One process the audit reads: the daemon or a process under it, and the environment it was
+/// started with (`None`: it ended, or it is another user's).
+pub struct Proc {
+    pub pid: u32,
+    pub role: &'static str,
+    pub env: Option<Vec<(String, String)>>,
+}
+
+/// This machine's acpmux daemon and every process under it. Fails closed with no running daemon:
+/// after a move there must be one, and an audit of nothing is no pass.
+pub fn live_processes() -> io::Result<Vec<Proc>> {
+    use crate::agent_host::tree;
+    let daemon = crate::cli::process_owner::daemon_pid()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no acpmux daemon.pid"))?;
+    let env = tree::environ(daemon).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "the acpmux daemon is not running or not readable")
+    })?;
+    let mut out = vec![Proc { pid: daemon, role: "daemon", env: Some(env) }];
+    for p in tree::descendants(&[daemon]) {
+        out.push(Proc { pid: p.pid, role: "agent", env: tree::environ(p.pid) });
+    }
+    Ok(out)
+}
+
 /// Where to look; [`Roots::live`] on a machine, a scratch tree in tests.
 pub struct Roots {
-    /// `/proc`.
-    pub proc: PathBuf,
     /// The work user's home.
     pub home: PathBuf,
     /// `$ACPMUX_HOME`.
     pub acpmux_home: PathBuf,
     /// Prefixed to every absolute machine path (`/` live).
     pub root: PathBuf,
-    /// The user whose processes count.
-    pub uid: u32,
     /// `$CLAUDE_CONFIG_DIR`, when set.
     pub claude_config: Option<PathBuf>,
 }
@@ -121,11 +141,9 @@ impl Roots {
             .filter(|p| p.is_absolute())
             .ok_or_else(|| io::Error::other("HOME is not an absolute path"))?;
         Ok(Roots {
-            proc: PathBuf::from("/proc"),
             home,
             acpmux_home: crate::config::home(),
             root: PathBuf::from("/"),
-            uid: unsafe { libc::geteuid() },
             claude_config: std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
         })
     }
@@ -149,79 +167,33 @@ fn env_class(name: &str) -> Class {
 }
 
 /// Runs the audit. `Err` is a fail-closed error: the audit could not see what it must.
-pub fn audit(roots: &Roots) -> io::Result<Report> {
+pub fn audit(roots: &Roots, procs: impl FnOnce() -> io::Result<Vec<Proc>>) -> io::Result<Report> {
     let started = std::time::Instant::now();
     let mut report = Report::default();
     let mut items = BTreeSet::new();
-    scan_processes(roots, &mut report, &mut items)?;
+    read_processes(procs()?, &mut report, &mut items);
     scan_files(roots, &mut items)?;
     report.items = items.into_iter().collect();
     report.elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
     Ok(report)
 }
 
-fn scan_processes(
-    roots: &Roots,
-    report: &mut Report,
-    items: &mut BTreeSet<Item>,
-) -> io::Result<()> {
-    use std::os::unix::fs::MetadataExt as _;
-    for entry in std::fs::read_dir(&roots.proc)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(pid) =
-            name.to_str().filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-        else {
-            continue;
-        };
-        let dir = entry.path();
-        let meta = match std::fs::metadata(&dir) {
-            Ok(m) => m,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
-        };
-        if meta.uid() != roots.uid {
-            continue;
-        }
+fn read_processes(procs: Vec<Proc>, report: &mut Report, items: &mut BTreeSet<Item>) {
+    for p in procs {
         report.processes += 1;
-        let mut env = zeroize::Zeroizing::new(Vec::new());
-        match std::fs::File::open(dir.join("environ"))
-            .and_then(|f| f.take(MAX_ENVIRON).read_to_end(&mut env))
-        {
-            Ok(_) => {}
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-                ) =>
-            {
-                report.unreadable += 1;
-                continue;
-            }
-            Err(e) if e.raw_os_error() == Some(libc::ESRCH) => {
-                report.unreadable += 1;
-                continue;
-            }
-            Err(e) => return Err(e),
-        }
-        let comm = std::fs::read_to_string(dir.join("comm")).unwrap_or_default();
-        let at = format!("pid {pid} ({})", comm.trim());
-        for pair in env.split(|b| *b == 0).filter(|p| !p.is_empty()) {
-            let (name, value) = match pair.iter().position(|b| *b == b'=') {
-                Some(i) => (&pair[..i], &pair[i + 1..]),
-                None => (pair, &[][..]),
-            };
-            let name = String::from_utf8_lossy(name);
-            if secret_shaped(&name, value) {
-                items.insert(Item {
-                    class: env_class(&name),
-                    what: format!("env:{name}"),
-                    at: at.clone(),
-                });
+        let Some(env) = p.env else {
+            report.unreadable += 1;
+            continue;
+        };
+        let at = format!("pid {} ({})", p.pid, p.role);
+        for (name, value) in env {
+            let value = zeroize::Zeroizing::new(value);
+            if secret_shaped(&name, value.as_bytes()) {
+                let what = format!("env:{name}");
+                items.insert(Item { class: env_class(&name), what, at: at.clone() });
             }
         }
     }
-    Ok(())
 }
 
 /// `Ok(true)`: the work user can open it for reading. `Ok(false)`: not there, or not allowed.
@@ -269,7 +241,7 @@ fn scan_files(roots: &Roots, items: &mut BTreeSet<Item>) -> io::Result<()> {
     }
     let gateway = roots.at(GATEWAY_TOKEN);
     if readable(&gateway)? {
-        let opted_in = exists(&roots.home.join(GATEWAY_MARKER))?;
+        let opted_in = exists(&cmux_host::cloud::gateway_token::marker(&roots.home))?;
         let (class, why) = if opted_in {
             (Class::Machine, "gateway token, opted in")
         } else {
@@ -304,8 +276,12 @@ fn scan_files(roots: &Roots, items: &mut BTreeSet<Item>) -> io::Result<()> {
             at: "vault-state.json".to_owned(),
         });
     }
-    for rel in MACHINE_ENV {
-        let path = roots.home.join(rel);
+    let machine_env = crate::login_env::machine_env_path(&roots.home);
+    let team_login = machine_env.with_file_name(TEAM_LOGIN);
+    if readable(&team_login)? {
+        file(items, Class::Leak, &team_login, "shared team login, not the owner's");
+    }
+    for path in [machine_env.clone(), machine_env.with_file_name(MACHINE_SECRETS)] {
         for name in env_file_names(&path)? {
             if secret_shaped(&name, b"") {
                 let at = path.display().to_string();
