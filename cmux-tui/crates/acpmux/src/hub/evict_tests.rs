@@ -142,12 +142,17 @@ async fn a_replay_or_newest_window_brings_an_evicted_chat_back() {
 
 #[tokio::test]
 async fn an_evicted_chat_counts_live_or_closed_as_it_did_in_memory() {
-    let hub = hub_with(3);
-    let open = hub.session_get("s1").unwrap();
-    hub.set_status(&open, NotWaiting::Idle);
-    hub.update_live_session_index(&open);
-    open.hibernated_at.store(1, Ordering::SeqCst);
-    drop(open);
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    for (i, status) in ["closed", "idle", "closed"].into_iter().enumerate() {
+        let mut meta = meta(&format!("s{i}"), &format!("chat-{i}"), 10 + i as u64);
+        meta.status = serde_json::from_value(json!(status)).unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.insert_test_session(meta);
+        // An idle chat with no agent is hibernated (`idle.rs`).
+        session.hibernated_at.store(1, Ordering::SeqCst);
+    }
+    hub.warm_list_order_for_test();
     std::thread::sleep(std::time::Duration::from_millis(2));
     let before = hub.session_counts();
     assert_eq!(before, (3, 1), "one idle chat, two closed");
