@@ -95,6 +95,11 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
 /// interval, and a reconnect with jittered backoff whenever it drops. While
 /// a socket is open nothing else wakes it but frames and the ping.
 public final class DeviceHubSocket: Sendable {
+    /// A WebSocket upgrade or its first ping can stay pending when the network stack never
+    /// completes the request. Bound each attempt so a device listing can retry instead of
+    /// remaining in ``DeviceHub/devicesListed``'s finding state forever.
+    public static let connectTimeout: Duration = .seconds(15)
+
     public enum State: Sendable, Equatable {
         case disconnected
         case connecting
@@ -124,12 +129,16 @@ public final class DeviceHubSocket: Sendable {
     let pingInterval: Duration
     let backoff: Backoff
     let clock: any Clock<Duration>
+    let connectTimeout: Duration
 
     public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(30),
-                backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)), clock: any Clock<Duration> = ContinuousClock()) {
+                backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
+                connectTimeout: Duration = DeviceHubSocket.connectTimeout,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.connector = connector
         self.pingInterval = pingInterval
         self.backoff = backoff
+        self.connectTimeout = connectTimeout
         self.clock = clock
     }
 
@@ -143,7 +152,7 @@ public final class DeviceHubSocket: Sendable {
             var failure = "the socket closed"
             var closeCode: Int?
             do {
-                let connection = try await connector.connect()
+                let connection = try await connect()
                 await handler(.state(.connected))
                 backoff.reset()
                 do { try await serve(connection, handler) } catch {
@@ -164,6 +173,34 @@ public final class DeviceHubSocket: Sendable {
             do { try await backoff.wait(owner: "device-hub.socket", clock: clock) } catch { break }
         }
         await handler(.state(.disconnected))
+    }
+
+    /// Bounds a connector that never completes its upgrade or first-pong wait. Connector
+    /// implementations are cancellation-aware, so the losing operation is stopped when the
+    /// deadline wins or the socket task is cancelled.
+    private func connect() async throws -> any DeviceHubSocketConnection {
+        // concurrency-allow: DeviceHubSocketConnector implementations cancel their in-flight
+        // URLSession or remote-channel operation when this task is cancelled.
+        try await withThrowingTaskGroup(of: (any DeviceHubSocketConnection).self) { group in
+            group.addTask { try await self.connector.connect() }
+            group.addTask {
+                // wakeup-allow: one-shot deadline for a socket connection attempt.
+                try await self.clock.sleep(for: self.connectTimeout)
+                throw DeviceHubError.transport("socket connect timed out after \(self.connectTimeout)")
+            }
+            let first: (any DeviceHubSocketConnection)?
+            do { first = try await group.next() } catch {
+                group.cancelAll()
+                throw error
+            }
+            group.cancelAll()
+            // A connection that opened as the deadline fired (or after the winner) is closed, never leaked.
+            while !group.isEmpty {
+                if let late = try? await group.next() { late.close() }
+            }
+            guard let first else { throw DeviceHubError.transport("socket connect ended without a result") }
+            return first
+        }
     }
 
     /// The state a server close code ends the socket in, with no reconnect (PROTOCOL.md,
