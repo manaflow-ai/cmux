@@ -479,8 +479,8 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  margin-top: 6px;
+  gap: 4px 12px;
+  margin-top: 4px;
 }
 
 .cloud-past-due-text {
