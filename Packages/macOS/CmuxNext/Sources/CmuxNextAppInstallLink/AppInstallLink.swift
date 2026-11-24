@@ -18,10 +18,27 @@ public struct AppInstallLink {
     /// The CLI fetches the repository at the pinned commit; an extension's card waits on the person.
     private static let timeout: Duration = .seconds(240)
 
-    /// Whether `url` is an install link for this build's scheme (or the `cmux` scheme cmux.com writes).
+    /// Whether `url` is an install link for this build's scheme (or the `cmux` scheme cmux.com writes):
+    /// `apps/install` (an extension, theme or snippet) or `setups/install` (a setup repo).
     public static func matches(_ url: URL, linkScheme: String) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == linkScheme.lowercased() || scheme == "cmux" else { return false }
-        return url.host()?.lowercased() == "apps"
+        return Kind(url) != nil
+    }
+
+    /// Which install a link names, and the CLI words for it.
+    private enum Kind {
+        case apps, setups
+        init?(_ url: URL) {
+            switch url.host()?.lowercased() {
+            case "apps": self = .apps
+            case "setups": self = .setups
+            default: return nil
+            }
+        }
+        /// `cmux apps install-link` or `cmux setup install-link`, which check the link.
+        var link: [String] { self == .apps ? ["apps", "install-link"] : ["setup", "install-link"] }
+        /// The install the person's yes runs on the pinned reference.
+        var install: [String] { self == .apps ? ["apps", "install"] : ["setup", "install"] }
     }
 
     /// Runs the link through `bundled`, showing its progress, card and outcome in `window`.
@@ -31,8 +48,9 @@ public struct AppInstallLink {
     }
 
     private static func install(_ link: String, bundled: BundledExecutable, window: NSWindow?) async {
+        guard let kind = URL(string: link).flatMap(Kind.init) else { return }
         guard let cli = await bundled.resolve() else { return show(AppInstallLinkStrings.noCLI, in: window, duration: .seconds(12)) }
-        guard let first = await BundledCLIRun.run(cli, ["apps", "install-link", link, "--json"], timeout: timeout) else {
+        guard let first = await BundledCLIRun.run(cli, kind.link + [link, "--json"], timeout: timeout) else {
             return show(AppInstallLinkStrings.failed(AppInstallLinkStrings.didNotFinish), in: window, duration: .seconds(12))
         }
         if first.status == 0 { return show(summary(first.stdout), in: window, duration: .seconds(8)) }
@@ -46,13 +64,14 @@ public struct AppInstallLink {
         let answer = await CmuxDialogCenter.shared.present(spec, in: window.map { .window($0) } ?? .app)
         guard answer.button == "install" else { return }
         show(AppInstallLinkStrings.reading, in: window, duration: timeout)
-        guard let second = await BundledCLIRun.run(cli, ["apps", "install", consent.reference, "--yes"], timeout: timeout) else {
+        guard let second = await BundledCLIRun.run(cli, kind.install + [consent.reference, "--yes"], timeout: timeout) else {
             return show(AppInstallLinkStrings.failed(AppInstallLinkStrings.didNotFinish), in: window, duration: .seconds(12))
         }
         show(second.status == 0 ? summary(second.stdout) : AppInstallLinkStrings.failed(reason(second)), in: window, duration: .seconds(10))
     }
 
-    /// The CLI's `community.needs_consent` refusal: the card it would print, and the pinned reference.
+    /// The CLI's `community.needs_consent` (`details.card`) or `setup.needs_consent` (`details.text`)
+    /// refusal: the card it would print, and the pinned reference.
     private struct Consent {
         let lines: [String]
         let reference: String
@@ -60,9 +79,10 @@ public struct AppInstallLink {
         init?(_ stderr: Data) {
             guard let line = BundledCLIRun.lastLine(stderr),
                   let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  object["code"] as? String == "community.needs_consent",
+                  let code = object["code"] as? String, code == "community.needs_consent" || code == "setup.needs_consent",
                   let details = object["details"] as? [String: Any],
-                  let card = details["card"] as? String, let reference = details["reference"] as? String,
+                  let card = (code == "setup.needs_consent" ? details["text"] : details["card"]) as? String,
+                  let reference = details["reference"] as? String,
                   !reference.isEmpty, !reference.hasPrefix("-") else { return nil }
             lines = card.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             self.reference = reference
@@ -74,7 +94,7 @@ public struct AppInstallLink {
     private static func summary(_ stdout: Data) -> String {
         let text = String(decoding: stdout, as: UTF8.self)
         if let object = try? JSONSerialization.jsonObject(with: stdout) as? [String: Any] {
-            let receipt = object["receipt"] as? [String: Any]
+            let receipt = (object["receipt"] ?? object["installed"]) as? [String: Any]
             let name = (receipt?["name"] ?? object["name"] ?? object["id"]) as? String
             return AppInstallLinkStrings.installed(name ?? "")
         }

@@ -23,6 +23,9 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var panEnded: () -> Void = {}
     /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
     var wheelSent: () -> Void = {}
+    /// A wheel's `dy` (points): the part that still goes to the app after
+    /// the session painted what it holds (``TerminalSession/panHeldRows(_:)``).
+    var panHeld: (CGFloat) -> CGFloat = { $0 }
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
@@ -93,7 +96,11 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
 
     private func send(_ wheel: TerminalTUIScroll.Wheel?) {
         guard let wheel, let surface, isEnabled() else { return }
-        surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
+        let dy = wheel.dy == 0 ? 0 : panHeld(wheel.dy)
+        // Painted on the phone: nothing for the app (a fling's end still
+        // closes Ghostty's momentum phase, with no rows).
+        if dy == 0, wheel.dy != 0, wheel.momentum != .ended { return }
+        surface.scrollWheel(at: anchor, deltaY: dy, momentum: wheel.momentum)
         tapClick.scrolled(at: CACurrentMediaTime())
         wheelSent()
     }
