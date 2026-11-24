@@ -1,6 +1,7 @@
 // AcpmuxPane's turn rows and turn actions (RFD 0046 step 2.5): the bodies of its `turnRowsShown` and
 // `turnActions` memos, moved out of App.tsx as they were. The memos, their deps arrays and every
 // hook stay in AcpmuxPane; these are plain functions over the values it closes over.
+import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
@@ -42,6 +43,8 @@ import { trayWaitAgents, turnViewFrom, type TurnView } from "../conversation/tur
 import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
+import { sessionLink } from "../links";
+import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
@@ -101,6 +104,8 @@ export interface TurnActionsDeps {
   /// CMUX-682); the chat already said why, or the click opened setup.
   holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
+  /// Why the shown chat takes no answer, when `restartChat` is undefined (subagents/restart.ts).
+  answerBlock?: AnswerBlock;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
   runningBranchSessions: ReadonlySet<string>;
@@ -307,6 +312,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     showCall,
     holdsRetry,
     restartChat,
+    answerBlock,
     queuedMessageActionsRef,
     stableBranches,
     runningBranchSessions,
@@ -491,6 +497,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // Where it cannot send, the card says why (NextStepCard.tsx), in the typed answer's row.
+    ...(!restartChat && answerBlock && { answerBlock }),
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,
@@ -502,6 +510,26 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             ? answerThrough(callNative)(text)
             : Promise.reject(new Error(CHAT_CHANGED))
       )(restartChat),
+    }),
+    // Connect GitHub (githubConnect.ts, a GitHub call that found no connection for this chat): the
+    // app's `accounts.githubConnect` with the call's repository and this chat's link, which GitHub's
+    // return opens; then Continue, with Continue's reach. A Connect the app did not run rejects with
+    // its reason, for the card.
+    ...(restartChat && {
+      githubConnect: ((owner: string): GitHubConnectOffer => ({
+        connect: (repo) => {
+          const returnTo = sessionLink(owner);
+          return callNative("action.run", {
+            id: GITHUB_CONNECT_ACTION,
+            ...(repo && { repo }),
+            ...(returnTo && { returnTo }),
+          }).then(() => undefined);
+        },
+        continue: () =>
+          restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+            ? resumeThrough(callNative)()
+            : Promise.resolve(),
+      }))(restartChat),
     }),
     // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
     // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
