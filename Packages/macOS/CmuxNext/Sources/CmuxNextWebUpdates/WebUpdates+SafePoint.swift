@@ -24,7 +24,8 @@ extension WebUpdates {
     /// and the checks after it run right before the reload, so a page that got busy (or started
     /// loading) after its first answer holds itself, and only itself.
     func look() async {
-        guard let target = pending, !looking else { return }
+        guard let pending, !looking else { return }
+        let target = target(pending)
         looking = true
         defer { looking = false }
         let generation = pendingGeneration

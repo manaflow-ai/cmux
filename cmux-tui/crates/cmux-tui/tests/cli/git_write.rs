@@ -806,15 +806,34 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     fs::write(repo.join(".env"), "SECRET=1\n").unwrap();
     let main = fs::canonicalize(&repo).unwrap();
 
-    // The reply comes before setup runs; the read follows it to the end.
+    // The repository's setup waits for the person: nothing is copied or run
+    // until they approve the recipe they can read.
     let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "s1"];
     let created = git_cli(&server, &repo, &args);
     assert_success(&created);
     let value = json_output(&created)["value"].clone();
-    assert_eq!(value["setup"]["state"], "copying", "{value}");
+    assert_eq!(value["setup"]["state"], "awaiting_approval", "{value}");
     let port = value["setup"]["port"].as_u64().expect("a port");
     assert!(port >= 40_000, "{value}");
     let worktree = home.join(".cmux/worktrees/project/chat");
+    let waiting = finished_setup(&server, &worktree);
+    assert_eq!(waiting["run"]["state"], "awaiting_approval", "{waiting}");
+    assert!(!worktree.join(".env").exists(), "files were copied before the approval");
+    assert!(!worktree.join("setup-ran.txt").exists(), "setup ran before the approval");
+    let fingerprint = waiting["recipe"]["approval"]["fingerprint"].as_str().unwrap().to_string();
+    assert_eq!(waiting["recipe"]["approval"]["approved"], false, "{waiting}");
+    assert_eq!(value["setup"]["approval"], fingerprint.as_str(), "{value}");
+
+    // Running it needs the answer, for the recipe that was read.
+    let unanswered = git_cli(&server, &worktree, &["worktree", "setup", "run"]);
+    assert!(!unanswered.status.success(), "setup ran with no approval");
+    assert!(String::from_utf8_lossy(&unanswered.stderr).contains("approval_required"));
+    let stale = git_cli(&server, &worktree, &["worktree", "setup", "run", "--approve", "0000"]);
+    assert!(!stale.status.success(), "setup ran for another recipe");
+    assert!(String::from_utf8_lossy(&stale.stderr).contains("recipe_changed"));
+    let approved =
+        git_cli(&server, &worktree, &["worktree", "setup", "run", "--approve", &fingerprint]);
+    assert_success(&approved);
     let read = finished_setup(&server, &worktree);
     assert_eq!(read["run"]["state"], "succeeded", "{read}");
     assert_eq!(read["run"]["exit_code"], 0, "{read}");
@@ -833,13 +852,14 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     let more = git_cli(&server, &worktree, &["worktree", "setup", "--since", &end]);
     assert_eq!(json_output(&more)["run"]["output"], "", "{}", json_output(&more));
 
-    // A second worktree gets other ports.
+    // A second worktree gets other ports, and the approved recipe runs at once.
     let other = git_cli(
         &server,
         &repo,
         &["worktree", "create", "--name", "other", "--idempotency-key", "s2"],
     );
     assert_success(&other);
+    assert_eq!(json_output(&other)["value"]["setup"]["state"], "copying");
     let other_port = json_output(&other)["value"]["setup"]["port"].as_u64().unwrap();
     assert_ne!(other_port, port);
     finished_setup(&server, &home.join(".cmux/worktrees/project/other"));
@@ -856,19 +876,55 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     assert_eq!(fs::read_to_string(repo.join("teardown-ran.txt")).unwrap(), "bye\n");
     assert!(!worktree.exists());
 
-    // A failing setup keeps the worktree and says how it failed.
-    fs::write(repo.join(".cmux/worktree.toml"), "setup = 'echo broke; exit 3'\n").unwrap();
+    // A changed recipe asks again. A failing setup keeps the worktree, says
+    // how it failed, and can be run again.
+    fs::write(
+        repo.join(".cmux/worktree.toml"),
+        "setup = 'echo broke; exit 3'\nteardown = 'echo bye > \"$CMUX_ROOT_PATH/second.txt\"'\n",
+    )
+    .unwrap();
     let failing = git_cli(
         &server,
         &repo,
         &["worktree", "create", "--name", "bad", "--idempotency-key", "s4"],
     );
     assert_success(&failing);
+    assert_eq!(json_output(&failing)["value"]["setup"]["state"], "awaiting_approval");
     let bad = home.join(".cmux/worktrees/project/bad");
+    let waiting = finished_setup(&server, &bad);
+    let changed = waiting["recipe"]["approval"]["fingerprint"].as_str().unwrap().to_string();
+    assert_ne!(changed, fingerprint, "another recipe needs another answer");
+
+    // A teardown nobody approved does not run.
+    let removed = git_cli(
+        &server,
+        &repo,
+        &["worktree", "remove", "--path", bad.to_str().unwrap(), "--idempotency-key", "s5"],
+    );
+    assert_success(&removed);
+    assert_eq!(json_output(&removed)["value"]["teardown"]["state"], "not_approved");
+    assert!(!repo.join("second.txt").exists(), "an unapproved teardown ran");
+
+    let failing = git_cli(
+        &server,
+        &repo,
+        &["worktree", "create", "--name", "bad", "--idempotency-key", "s6"],
+    );
+    assert_success(&failing);
+    let run = git_cli(&server, &bad, &["worktree", "setup", "run", "--approve", &changed]);
+    assert_success(&run);
     let read = finished_setup(&server, &bad);
     assert_eq!(read["run"]["state"], "failed", "{read}");
     assert_eq!(read["run"]["exit_code"], 3, "{read}");
     assert!(read["run"]["output"].as_str().unwrap().contains("broke"), "{read}");
     assert!(bad.join(".git").exists());
+    let retry = git_cli(&server, &bad, &["worktree", "setup", "run"]);
+    assert_success(&retry);
+    let read = finished_setup(&server, &bad);
+    assert_eq!(read["run"]["state"], "failed", "{read}");
+    let output = read["run"]["output"].as_str().unwrap();
+    assert!(output.contains("--- Setup started again ---"), "{read}");
+    // Each run prints its command (`$ echo broke; exit 3`) and the line it wrote.
+    assert_eq!(output.lines().filter(|line| *line == "broke").count(), 2, "{read}");
     let _ = fs::remove_dir_all(root);
 }

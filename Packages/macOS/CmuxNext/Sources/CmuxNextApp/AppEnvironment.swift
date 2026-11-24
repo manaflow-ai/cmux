@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextTerminal
@@ -33,6 +34,9 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
+    /// `CMUX_NEXT_LAUNCH_DISPLAY`: the display shell windows open on (`LaunchDisplay`), the
+    /// built-in one by default in a tagged dev build (#51115); nil keeps the usual placement.
+    var launchDisplay: LaunchDisplay?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
@@ -119,11 +123,19 @@ struct AppEnvironment: Sendable {
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            launchDisplay: launchDisplay(environment, build: launch.build),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
+    }
+
+    /// `CMUX_NEXT_LAUNCH_DISPLAY` for `build`: a tagged DEV build defaults to the built-in display (#51115).
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`, whose bundle id carries a tag too), RC, staging and
+    /// release keep the usual placement unless the variable asks.
+    nonisolated static func launchDisplay(_ environment: [String: String], build: BuildIdentity) -> LaunchDisplay? {
+        LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: build.kind == .dev && build.tag != nil)
     }
 
     /// The per-terminal `env` provider every local spawn path uses (daemon

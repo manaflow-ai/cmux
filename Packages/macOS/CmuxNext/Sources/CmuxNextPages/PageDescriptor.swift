@@ -201,7 +201,7 @@ public extension PageDescriptor {
     static let cloud = PageDescriptor(
         id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
-        actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
+        actions: ["cloudPreviewShare", "cloudPreviewRevoke", "billing.openPortal"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
             // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
@@ -248,10 +248,12 @@ public extension PageDescriptor {
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
     /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
     /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
-    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``). A click on Open is the
+    /// person's own `app.open` (`gestureActions`): it opens the app as their Cmd-T would, where a page
+    /// script's run gets no view change (a real build: the Clock's Open opened nothing).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open", "openSettings"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;

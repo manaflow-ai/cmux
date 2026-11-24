@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zlib
 
@@ -1044,6 +1045,39 @@ class CaptureStatesTests(unittest.TestCase):
             for name in ("one", "two"):
                 result = json.loads((out / name / "result.json").read_text())
                 self.assertIn("Info.plist", result["errors"][0])
+
+    def test_a_step_settles_on_two_matching_snapshots_with_no_hold(self):
+        spec = importlib.util.spec_from_file_location("capture_states_settle", GATE / "capture_states.py")
+        capture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(capture)
+
+        class App:
+            def __init__(self, frames):
+                self.frames, self.reads, self.calls = list(frames), 0, []
+
+            def request(self, method, params, timeout=None):
+                self.calls.append(method)
+                if method == "debug.window_snapshot":
+                    picture = self.frames[min(self.reads, len(self.frames) - 1)]
+                    self.reads += 1
+                    Path(params["path"]).write_bytes(picture)
+                return {}
+
+        # A still picture: two reads end it, whatever the step's `wait` (6 s used to mean 25 reads).
+        app = App([b"still"])
+        started = time.monotonic()
+        record = capture.run_step(app, {"title": "seed", "rpc": {"method": "debug.showcase.seed"}, "wait": 6})
+        self.assertEqual(record["status"], "ok")
+        self.assertEqual(app.reads, 2)
+        self.assertLess(time.monotonic() - started, 1.0)
+        # A picture still changing is read until two match.
+        app = App([b"a", b"b", b"c", b"c"])
+        self.assertTrue(capture.picture_settled(app, "the window", timeout=5))
+        self.assertEqual(app.reads, 4)
+        # `wait: 0` skips the settle.
+        app = App([b"still"])
+        capture.run_step(app, {"title": "now", "rpc": {"method": "debug.fine"}, "wait": 0})
+        self.assertEqual(app.reads, 0)
 
     def test_a_bad_state_file_is_refused(self):
         with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
