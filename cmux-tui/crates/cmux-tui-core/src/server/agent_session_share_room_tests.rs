@@ -2268,3 +2268,6 @@ fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
     assert!(origin("https://room.example.com").is_some());
     assert!(origin(&format!("https://{}.com", "a".repeat(MAX_ROOM_URL_BYTES))).is_none());
 }
+
+#[path = "agent_session_share_latency_tests.rs"]
+mod latency;

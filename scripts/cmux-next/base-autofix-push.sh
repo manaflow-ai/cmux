@@ -193,6 +193,29 @@ held=""
 # moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
 held_exit=0
 trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
+# The action catalog's swift_parity test in checkout DIR. land.sh injects its write token through
+# git's config environment. Cargo executes build scripts/tests: none may inherit publication
+# credentials. The parent retains its authentication for fetch/push; only this check runs without it.
+action_parity() { # <dir>
+  (
+    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
+      [[ -z "$auth_var" ]] || unset "$auth_var"
+    done
+    cd "$1"
+    cargo test --locked --manifest-path "$1/cmux-tui/Cargo.toml" -p cmux-action-catalog --test swift_parity
+  )
+}
+# The same check at commit REV, in a throwaway worktree that builds into this checkout's target dir.
+action_parity_at() { # <rev>
+  local dir status=0
+  dir="$(mktemp -d)"
+  git worktree add --quiet --detach "$dir/tree" "$1" || { rm -rf "$dir"; return 0; }
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" action_parity "$dir/tree" || status=$?
+  git worktree remove --force "$dir/tree" >/dev/null 2>&1 || true
+  rm -rf "$dir"
+  return "$status"
+}
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
 # The compile gate's verdicts in this push ("pass|fail PATCH_ID" lines), and the Swift files it held this attempt.
@@ -467,20 +490,24 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
   # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
   # loop: a green result for the old candidate does not cover the next one.
-  if ! (
-    # land.sh injects its write token through git's config environment. Cargo executes
-    # build scripts/tests: none may inherit publication credentials. The parent retains
-    # its authentication for fetch/push; only this check runs without it.
-    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
-    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
-      [[ -z "$auth_var" ]] || unset "$auth_var"
-    done
-    cargo test --locked --manifest-path "$(git rev-parse --show-toplevel)/cmux-tui/Cargo.toml" \
-      -p cmux-action-catalog --test swift_parity
-  ); then
-    echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
-    echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
-    exit 1
+  if ! action_parity "$(git rev-parse --show-toplevel)"; then
+    # A parity red the base tip already has, on a repair that writes none of the check's inputs, is
+    # not this repair's: it lands anyway. Refusing it kept a stale cmux-next-ios/rust/Cargo.lock on
+    # feat-cmux-next for 54 minutes on 2026-11-23 (run 45101521205: the lock was fixed, and the
+    # whole repair was dropped for the base's own swift_parity red).
+    # The test's own affected-reads line names its inputs; this default is that line on 2026-11-23.
+    parity_reads="$(sed -n 's#^ *// affected-reads: ##p' \
+      "$(git rev-parse --show-toplevel)/cmux-tui/crates/cmux-action-catalog/tests/swift_parity.rs" 2>/dev/null | head -1 || true)"
+    parity_reads="${parity_reads:-plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog}"
+    # shellcheck disable=SC2086 # parity_reads is a list of paths
+    if git diff --quiet "$tip" HEAD -- $parity_reads cmux-tui/Cargo.lock cmux-tui/Cargo.toml \
+      && ! action_parity_at "$tip"; then
+      echo "::warning::swift_parity fails at the base tip ${tip:0:12} too, and this repair writes none of its inputs; pushing the repair anyway. The base red is its own fix."
+    else
+      echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+      echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+      exit 1
+    fi
   fi
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then

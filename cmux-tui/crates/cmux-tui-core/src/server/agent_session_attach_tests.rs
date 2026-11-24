@@ -32,6 +32,8 @@ pub(super) struct FakeAcpmux {
     pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
+    /// Every connection taken so far ([`FakeAcpmux::streams`]).
+    all: Vec<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -65,7 +67,15 @@ impl FakeAcpmux {
                 std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
             }
         });
-        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+        Self {
+            directory,
+            socket,
+            frames,
+            connections,
+            current: None,
+            all: Vec::new(),
+            transfer_blocked,
+        }
     }
 
     /// Models an acpmux watcher abort, independently of any cmux transfer request.
@@ -129,9 +139,32 @@ impl FakeAcpmux {
 
     fn connection(&mut self) -> &mut UnixStream {
         if self.current.is_none() {
-            self.current = Some(self.connections.recv_timeout(WAIT).expect("a connection"));
+            let stream = self.connections.recv_timeout(WAIT).expect("a connection");
+            self.all.push(stream.try_clone().unwrap());
+            self.current = Some(stream);
         }
         self.current.as_mut().unwrap()
+    }
+
+    /// A handle on every connection the daemon opened to this fake so far, for a writer that may
+    /// run on another thread. acpmux sends a session's records to each of its attachments, and
+    /// each guest relay of a share is one ([`FakeAcpmux::notify`] reaches only the first).
+    pub(super) fn streams(&mut self) -> Vec<UnixStream> {
+        while let Ok(stream) = self.connections.try_recv() {
+            if self.current.is_none() {
+                self.current = stream.try_clone().ok();
+            }
+            self.all.push(stream);
+        }
+        self.all.iter().filter_map(|stream| stream.try_clone().ok()).collect()
+    }
+
+    /// [`FakeAcpmux::notify`] on every connection so far (one the daemon closed is skipped).
+    pub(super) fn notify_all(&mut self, method: &str, params: Value) {
+        let line = format!("{}\n", json!({"jsonrpc":"2.0","method":method,"params":params}));
+        for mut stream in self.streams() {
+            let _ = stream.write_all(line.as_bytes());
+        }
     }
 
     pub(super) fn notify(&mut self, method: &str, params: Value) {

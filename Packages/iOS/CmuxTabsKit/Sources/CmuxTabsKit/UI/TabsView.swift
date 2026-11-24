@@ -150,9 +150,97 @@ struct TabsScreen<Source: TabsDataSource>: View {
                            noBack: activeTab?.features.contains(.history) != true)
     }
 
+    // body, trackedScreen and screen split one modifier chain Swift could
+    // not type-check in reasonable time (App Review gate run 45169372292).
     var body: some View {
+        trackedScreen
+        .onAppear {
+            zoomDriver.onSettle = { phase in
+                if phase == .page {
+                    zoomTabId = nil
+                    queuedOpen = nil
+                    chrome.expand(tap: true, theme)
+                }
+                if phase == .overview, let id = queuedOpen {
+                    queuedOpen = nil
+                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
+                }
+            }
+        }
+        #if DEBUG
+        // Screenshot harness: use the same action and menu as a toolbar tap.
+        // The single delay is bounded and cancelled when this screen disappears.
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
+            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
+            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
+            openMenu()
+        }
+        #endif
+        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
+            guard let wanted, wanted != zoomState.headingToOverview else { return }
+            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
+        }
+        .onChange(of: zoomState.phase) { _, phase in
+            if phase == .page || phase == .overview { newTabZoomID = nil }
+            if phase != .overview { activeChangedOnGrid = false }
+        }
+        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
+        .onChange(of: zoomState.headingToOverview) { _, heading in
+            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
+        }
+        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
+            // Closing the last tab opens a fresh one, as Safari does.
+            guard empty, let option = source.newTabOptions.first else { return }
+            if !overviewVisible {
+                Task { _ = await source.createTab(option) }
+            } else if zoomState.phase == .overview {
+                // Safari never leaves an empty grid: a fresh tab grows in
+                // at once (0.95 -> 1 in about 200 ms).
+                newTab(option, zoom: .lastTabClosed)
+            }
+        }
+    }
+
+    /// The layers with the size, phase and selection trackers.
+    private var trackedScreen: some View {
+        screen
+        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
+        .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        // Leaving the foreground cancels the touches without ending their
+        // gestures: a swipe up left part-way would keep the bar untouchable.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { releaseCancelledSwipeUp() }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
+            if top >= 0 { gridTop = top }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
+            if bottom >= 0 { gridBottom = bottom }
+        }
+        .onChange(of: zoomState.phase == .overview) { _, onGrid in
+            if onGrid {
+                if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
+            } else if let id = staticCardID {
+                staticCardID = nil
+                source.resumeLiveContent(id)
+            }
+        }
+        // A tab that becomes active on the settled grid (the active one was
+        // closed) is offered as a static card too, so it rides the reflow
+        // with the other cards instead of appearing as the live page.
+        .onChange(of: activeID) { old, new in
+            if zoomState.phase == .overview { activeChangedOnGrid = true }
+            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
+            if let old, old == staticCardID { source.resumeLiveContent(old) }
+            staticCardID = source.showStaticCard(for: new) ? new : nil
+        }
+    }
+
+    private var screen: some View {
         let layout = toolbarLayout
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
@@ -254,83 +342,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
-        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
-        .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
-        .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
-        // Leaving the foreground cancels the touches without ending their
-        // gestures: a swipe up left part-way would keep the bar untouchable.
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { releaseCancelledSwipeUp() }
-        }
-        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
-            if top >= 0 { gridTop = top }
-        }
-        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
-            if bottom >= 0 { gridBottom = bottom }
-        }
-        .onChange(of: zoomState.phase == .overview) { _, onGrid in
-            if onGrid {
-                if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
-            } else if let id = staticCardID {
-                staticCardID = nil
-                source.resumeLiveContent(id)
-            }
-        }
-        // A tab that becomes active on the settled grid (the active one was
-        // closed) is offered as a static card too, so it rides the reflow
-        // with the other cards instead of appearing as the live page.
-        .onChange(of: activeID) { old, new in
-            if zoomState.phase == .overview { activeChangedOnGrid = true }
-            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
-            if let old, old == staticCardID { source.resumeLiveContent(old) }
-            staticCardID = source.showStaticCard(for: new) ? new : nil
-        }
-        .onAppear {
-            zoomDriver.onSettle = { phase in
-                if phase == .page {
-                    zoomTabId = nil
-                    queuedOpen = nil
-                    chrome.expand(tap: true, theme)
-                }
-                if phase == .overview, let id = queuedOpen {
-                    queuedOpen = nil
-                    if source.tabs.contains(where: { $0.id == id }) { closeOverview(selecting: id) }
-                }
-            }
-        }
-        #if DEBUG
-        // Screenshot harness: use the same action and menu as a toolbar tap.
-        // The single delay is bounded and cancelled when this screen disappears.
-        .task {
-            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
-            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
-            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
-            openMenu()
-        }
-        #endif
-        .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
-            guard let wanted, wanted != zoomState.headingToOverview else { return }
-            if wanted { openOverview() } else { closeOverview(selecting: activeID) }
-        }
-        .onChange(of: zoomState.phase) { _, phase in
-            if phase == .page || phase == .overview { newTabZoomID = nil }
-            if phase != .overview { activeChangedOnGrid = false }
-        }
-        .onAppear { cardSwipes.isListed = { id in source.tabs.contains { $0.id == id } } }
-        .onChange(of: zoomState.headingToOverview) { _, heading in
-            if let binding = isShowingOverview, binding.wrappedValue != heading { binding.wrappedValue = heading }
-        }
-        .onChange(of: tabs.isEmpty, initial: true) { _, empty in
-            // Closing the last tab opens a fresh one, as Safari does.
-            guard empty, let option = source.newTabOptions.first else { return }
-            if !overviewVisible {
-                Task { _ = await source.createTab(option) }
-            } else if zoomState.phase == .overview {
-                // Safari never leaves an empty grid: a fresh tab grows in
-                // at once (0.95 -> 1 in about 200 ms).
-                newTab(option, zoom: .lastTabClosed)
-            }
-        }
     }
 
     /// The tab grid, kept mounted (hidden) so opening it does not pay for

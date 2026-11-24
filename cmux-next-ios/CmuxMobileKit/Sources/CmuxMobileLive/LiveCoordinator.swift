@@ -147,6 +147,10 @@ public final class LiveCoordinator {
     /// The session each provisional chat's kept records name, once read from disk
     /// (``PendingAgentSource``): the rebuild opens it even if the cache's memory let the entry go.
     @ObservationIgnored var keptSessionIDs: [String: String] = [:]
+    /// The loading chat source of each tab whose Mac has not sent its tree yet: the prompts it
+    /// holds go to the tab's real source once that is built (``handOverHeldPrompts(key:to:)``).
+    /// Held strongly: the store that owned it is dropped before the new one asks for its source.
+    @ObservationIgnored var pendingSources: [String: PendingAgentSource] = [:]
     /// The account was deleted: sign-out keeps nothing of it.
     @ObservationIgnored public internal(set) var accountDeleted = false
     /// Signed out: nothing more is saved for the account.
@@ -280,7 +284,7 @@ public final class LiveCoordinator {
         store.macData = [:]
         store.macConnection = [:]
         store.teamDataState = .loading
-        AgentSessionDirectory.shared.makeSource = { [weak self] summary in
+        let buildSource: (AgentSessionSummary) -> any AgentSessionSource = { [weak self] summary in
             guard let self else { return UnboundAgentSource(summary: summary, macName: nil) }
             // The tab's own Mac (tab ids repeat across Macs); a chat of a Mac
             // whose link is closed opens it, and is rebuilt once its tree lists the tab.
@@ -317,7 +321,7 @@ public final class LiveCoordinator {
                     guard self?.sourcedSessions[key]?.provisional == true, let owner, owner.tree == nil else { return }
                     self?.keptSessionIDs[key] = sessionID
                     self?.sourcedSessions[key] = nil
-                    AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
+                    self?.chatSessionChanged(id: summary.id, macID: summary.macID)
                 }
             }
             let session = owner?.tree?.agentTabs[summary.id]?.session
@@ -327,10 +331,45 @@ public final class LiveCoordinator {
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
+        AgentSessionDirectory.shared.makeSource = { [weak self] summary in
+            let source = buildSource(summary)
+            self?.handOverHeldPrompts(key: AgentSessionDirectory.key(id: summary.id, macID: summary.macID), to: source)
+            return source
+        }
         restoreSnapshot()
         // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
         if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
+    }
+
+    /// A tab's new chat source: a loading one keeps the earlier loading source's held prompts; a
+    /// real one gets them, sent in order after its store subscribes (a send while the chat
+    /// loaded is not bounced back with "Send again"; the real source holds it for a blip as
+    /// usual, and returns it to the composer with why if the Mac stays away).
+    func handOverHeldPrompts(key: String, to source: any AgentSessionSource) {
+        let earlier = pendingSources.removeValue(forKey: key)
+        let held = earlier?.takeHeld() ?? []
+        if let pending = source as? PendingAgentSource {
+            pendingSources[key] = pending
+            for (intent, at) in held { pending.hold(intent, since: at) }
+            return
+        }
+        guard !held.isEmpty else { return }
+        Task { @MainActor in
+            for (intent, _) in held { source.send(intent) }
+        }
+    }
+
+    /// The tab's chat opens on another source (the Mac's tree bound it, its kept records were
+    /// read): its store is built again from `makeSource`. A chat still holding prompts sent while
+    /// it loaded gets that store now, not when it is next opened: the prompts go to its new
+    /// source (sent, or back in its composer with why) instead of expiring into a store that
+    /// is gone, which would lose them.
+    func chatSessionChanged(id: String, macID: String) {
+        AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
+        let key = AgentSessionDirectory.key(id: id, macID: macID)
+        guard let pending = pendingSources[key], !pending.held.isEmpty else { return }
+        _ = AgentSessionDirectory.shared.store(for: pending.summary)
     }
 
     /// The Mac's acpmux source for `session`; one that drops a kept copy too old to catch up from
@@ -760,6 +799,7 @@ public final class LiveCoordinator {
         // something named it (`touch`), then closes.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
+        for (id, session) in sessions { session.link.onScreen = showing.contains(id) }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:
         // the cap never closes it for that.
         let ranked = macs.map { mac -> MacDevice in
@@ -1008,6 +1048,7 @@ public final class LiveCoordinator {
         restTask = nil
         transcriptCache = nil
         keptSessionIDs = [:]
+        pendingSources = [:]
         ChiefSources.shared.stop()
         incidents.stop()
         networkTask?.cancel()
@@ -1149,16 +1190,57 @@ final class PendingAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// Nothing to send to yet: the draft comes back with why.
+    /// How long a prompt waits for the chat's real source before it comes back to the composer:
+    /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
+    /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
+    /// stuff to shut the fuck up and load faster").
+    var holdWindow: Duration = .seconds(10)
+    /// Prompts sent before the chat loaded, oldest first, with when each was sent.
+    private(set) var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+
+    /// A prompt is held for the chat's real source (``takeHeld()``); anything else has nothing
+    /// to act on yet and says why.
     func send(_ intent: AgentClientIntent) {
-        let reason = "Connecting to \(summary.macName)… Send again once the chat loads."
-        let event: AgentSessionEvent
-        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
-            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
-        } else {
-            event = .clientError(reason)
+        hold(intent, since: ContinuousClock.now)
+    }
+
+    /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
+    /// keeps its first send's time, so the hold is one window in all).
+    func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
+        guard case .prompt = intent else {
+            let reason = "Connecting to \(summary.macName)…"
+            for continuation in continuations { continuation.yield(.clientError(reason)) }
+            return
         }
-        for continuation in continuations { continuation.yield(event) }
+        held.append((intent, at))
+        let wait = max(.zero, holdWindow - (ContinuousClock.now - at))
+        Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            self?.expire(sentAt: at)
+        }
+    }
+
+    /// The held prompts with their send times, for the chat's next source (the coordinator, as
+    /// it builds it). They are no longer this source's to return.
+    func takeHeld() -> [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        defer { held = [] }
+        return held
+    }
+
+    /// The prompt sent at `sentAt` waited out the window: it and every prompt after it come back
+    /// to the composer (none goes after an earlier one that did not), as `AcpmuxSessionSource` does.
+    func expire(sentAt: ContinuousClock.Instant) {
+        guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
+        let dropped = held[index...]
+        held.removeSubrange(index...)
+        let seconds = max(1, Int(holdWindow.components.seconds))
+        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        for (intent, _) in dropped {
+            guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
+            for continuation in continuations {
+                continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
+            }
+        }
     }
 }
 
@@ -1189,10 +1271,17 @@ final class UnboundAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// A prompt can't start the chat from the phone: say why again.
+    /// A prompt can't start the chat from the phone: say why again, and give the prompt back to
+    /// the composer (one held while the chat loaded comes here once the tree says it is unbound).
     func send(_ intent: AgentClientIntent) {
         let message = Self.notStarted(agent: summary.agentName, mac: macName)
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        let event: AgentSessionEvent
+        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: message)
+        } else {
+            event = .clientError(message)
+        }
+        for continuation in continuations { continuation.yield(event) }
     }
 
     var artifactSource: any ArtifactSource {

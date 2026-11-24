@@ -223,3 +223,74 @@ struct FeedSnapshotEdit: Equatable {
         tail = buffer
     }
 }
+
+/// The pinned group at the top of the whole Feed: the asks still waiting on the person, which
+/// `FeedStore.pinningNeedsYou` puts before every other event. The list labels the group
+/// ("Needs you · 2") so the place where time order starts again is clear.
+enum FeedPinnedGroup {
+    /// How many rows of `items` (in list order) are the pinned group. Only the whole Feed has
+    /// one: a filtered Feed is a single list in time order, and its chip already names it.
+    static func count(_ items: [FeedItem], filter: FeedFilter) -> Int {
+        guard filter == .all else { return 0 }
+        return items.prefix(while: \.needsYou).count
+    }
+
+    /// The group's label: the chip's name and how many asks wait.
+    static func title(_ count: Int) -> String { "\(FeedFilter.needsYou.rawValue) · \(count)" }
+}
+
+/// One row order turned into another by moving a few rows (`movers`: an ask that was answered
+/// leaves the pinned group for its place in time, one that opened again goes back), with
+/// inserts and removals beside them; nil when any other row changes place too (a re-sort) or
+/// too many move at once to follow by eye. The list applies the steps to its snapshot and
+/// animates them, so the answered ask travels to its place instead of the list being rebuilt.
+struct FeedMoveEdit: Equatable {
+    enum Step: Equatable {
+        /// Put a shown row before `before` (nil: after the last row).
+        case move(String, before: String?)
+        /// Put a new row before `before` (nil: after the last row).
+        case insert(String, before: String?)
+    }
+
+    var removed: [String]
+    /// From the last row to the first: each step's `before` row is already in its place.
+    var steps: [Step]
+
+    init?(old: [String], new: [String], movers: Set<String>, limit: Int = 4) {
+        let oldSet = Set(old), newSet = Set(new)
+        let moving = movers.filter { oldSet.contains($0) && newSet.contains($0) }
+        guard !moving.isEmpty, moving.count <= limit else { return nil }
+        let stays: (String) -> Bool = { !moving.contains($0) }
+        guard old.filter({ newSet.contains($0) && stays($0) }) == new.filter({ oldSet.contains($0) && stays($0) }) else { return nil }
+        removed = old.filter { !newSet.contains($0) }
+        steps = []
+        var after: String?
+        for id in new.reversed() {
+            if moving.contains(id) {
+                steps.append(.move(id, before: after))
+            } else if !oldSet.contains(id) {
+                steps.append(.insert(id, before: after))
+            }
+            after = id
+        }
+    }
+
+    /// The steps applied to `old` (what the list does to its snapshot).
+    func applied(to old: [String]) -> [String] {
+        let gone = Set(removed)
+        var order = old.filter { !gone.contains($0) }
+        func place(_ id: String, before: String?) {
+            if let before, let index = order.firstIndex(of: before) { order.insert(id, at: index) } else { order.append(id) }
+        }
+        for step in steps {
+            switch step {
+            case .move(let id, let before):
+                order.removeAll { $0 == id }
+                place(id, before: before)
+            case .insert(let id, let before):
+                place(id, before: before)
+            }
+        }
+        return order
+    }
+}

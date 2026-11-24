@@ -187,6 +187,8 @@ public final class AgentPaneView: NSView {
     var holdsPageAway = false {
         didSet { page?.drawsWhileAway = holdsPageAway }
     }
+    /// The picture of the chat held over its page while the page reloads in place (`AgentPaneView+ReloadCover`).
+    var reloadCover: AgentPaneReloadCover?
     /// A paint hold has the page drawn outside the window until the hold ends (``drawUnseenForPaintHold()``).
     var drawsUnseenForHold = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
@@ -305,6 +307,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        WebBundleServedViews.shared.coverReloads(of: webView, with: self) // a web update swaps in under a picture
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }

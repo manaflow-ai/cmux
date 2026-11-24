@@ -68,6 +68,25 @@ pub struct RollingSummary {
     pub at: u64,
 }
 
+/// The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude
+/// Code's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The
+/// pane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: "plan pane
+/// that stays during the build"); a newer approval replaces it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovedPlan {
+    /// The plan as approved, Markdown: the person's edit when they made one.
+    pub markdown: String,
+    /// The person edited the plan before approving it.
+    pub edited: bool,
+    /// The plan approval it answered.
+    pub permission_id: String,
+    /// The chat's turn count when it was approved.
+    pub turn: u64,
+    /// When it was approved, Unix ms.
+    pub at: u64,
+}
+
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -521,6 +540,9 @@ pub struct SessionMeta {
     /// first turn that makes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rolling_summary: Option<RollingSummary>,
+    /// The plan the person last approved (`hub/plan_build.rs` `approved_plan`); None until one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_plan: Option<ApprovedPlan>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -555,6 +577,12 @@ pub struct SessionMeta {
     /// such a prompt again. Kept on disk with the rest of its meta.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub throwaway: bool,
+    /// The key its creator sent with its `session/new` (`_meta.acpmux.createKey`,
+    /// `hub/create_key.rs`): a create sent again with that key, after a daemon restart closed
+    /// the connection before the reply, answers with this session instead of making another.
+    /// Kept on disk, so the next daemon finds it too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_key: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its

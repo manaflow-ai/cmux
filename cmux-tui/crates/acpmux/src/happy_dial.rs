@@ -62,18 +62,13 @@ where
         // Wait for an attempt to end, or for the stagger when another address remains.
         let wait = tokio::time::sleep(stagger);
         tokio::pin!(wait);
-        loop {
-            tokio::select! {
-                Some(result) = running.next() => match result {
-                    Ok(connected) => return Ok(connected),
-                    Err(error) => {
-                        last_error = Some(error);
-                        break;
-                    }
-                },
-                () = &mut wait, if pending.len() > 0 => break,
-                else => break,
-            }
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(connected) => return Ok(connected),
+                Err(error) => last_error = Some(error),
+            },
+            () = &mut wait, if pending.len() > 0 => {}
+            else => {}
         }
     }
 }

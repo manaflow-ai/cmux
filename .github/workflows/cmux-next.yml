@@ -207,6 +207,11 @@ on:
       - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/instrument/**
+      - scripts/cmux-next/gen-instrument-tokens.py
+      - tests/test_instrument_tokens.py
+      - schemas/design-scale/design-scale.json
+      - schemas/surface-roles/surface-roles.json
       - schemas/layout-grid/layout-grid.json
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
@@ -339,6 +344,7 @@ on:
       - scripts/write-app-symbol-map.py
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
+      - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -581,6 +587,11 @@ on:
       - tests/test_ui_font.py
       - scripts/cmux-next/check-fixture-host-names.py
       - tests/test_cmux_next_fixture_host_names.py
+      - schemas/instrument/**
+      - scripts/cmux-next/gen-instrument-tokens.py
+      - tests/test_instrument_tokens.py
+      - schemas/design-scale/design-scale.json
+      - schemas/surface-roles/surface-roles.json
       - schemas/layout-grid/layout-grid.json
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
@@ -693,6 +704,7 @@ on:
       - scripts/write-app-symbol-map.py
       - scripts/gh-merge-green  # tests/test_base_red_excuse.py
       - scripts/install-axe-ci.sh  # tests/test_base_red_excuse.py
+      - .github/post-merge-batch.json  # scripts/ci/base_red_excuse.py
   # Why: docs/ci/cmux-next-workflow-notes.md#note-366
   workflow_dispatch:
     inputs:
@@ -784,22 +796,7 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.same_tree_sha == '' && inputs.dev_daily != true && github.ref != 'refs/heads/feat-cmux-next' && !startsWith(github.ref, 'refs/heads/next-batch/') && format('cmux-next-dispatch-{0}', github.ref) || format('cmux-next-{0}', github.event.pull_request.number || github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && inputs.same_tree_sha == '' && inputs.dev_daily != true && github.ref != 'refs/heads/feat-cmux-next' && !startsWith(github.ref, 'refs/heads/next-batch/') }}
 
-# The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
-# Trusted runs (a same-repository pull request, a push or a dispatch) stay on
-# vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
-# are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
-# Manual reruns stay minis-first. The rescue re-admits a queued run after the
-# five-minute queue alarm: placement first uses a free owned GUI/session Mac,
-# then the workflow's Blacksmith macOS route. macos-placement records idle
-# side runners with the main picker's idle_placement() and publishes free role
-# labels for the bot retry, so a job does not keep a shared concurrency slot
-# on a busy Blacksmith label indefinitely. When a job takes the side label, macos-placement uploads the
-# owned-pool-watch marker:
-# ci-owned-pool-rescue.yml's sweeper on main adopts the run
-# (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
-# queued or refuses. Bot attempt 2 and later drop the stale placement output
-# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order; a
-# person's re-run stays on the side label.
+# Why: docs/ci/cmux-next-workflow-notes.md#note-553
 jobs:
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # Why: docs/ci/cmux-next-workflow-notes.md#note-11
@@ -1971,6 +1968,13 @@ jobs:
         continue-on-error: true
         run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
 
+      # Instrument's one token file (schemas/instrument/instrument.json): today's values still match their
+      # sources, and the pending list only shrinks (pending-baseline.json).
+      - name: Instrument tokens
+        id: instrument-tokens
+        continue-on-error: true
+        run: python3 -I tests/test_instrument_tokens.py && python3 -I scripts/cmux-next/gen-instrument-tokens.py --check
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-28
       - name: UI font (the system font)
         id: ui-font
@@ -2354,6 +2358,7 @@ jobs:
             ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
+            ${{ steps.instrument-tokens.outcome }}|Instrument tokens
             ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.motion-tokens.outcome }}|Motion and colour tokens

@@ -82,10 +82,7 @@ const REPLY_WORDS = (flag("--reply-words") ?? "2000,20000").split(",").map(Numbe
 const REPLY_SETTLE_MS = 1500;
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
-if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
-  throw new Error(
-    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
-  );
+if (PROFILE && ENGINES.includes("webkit")) throw new Error("--profile reads Chromium's DevTools protocol");
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
@@ -119,6 +116,8 @@ const ARM_METRICS = [
   "to_frame_p95",
   "to_frame_max",
   "to_listener_p95",
+  "to_paint_p95",
+  "to_paint_p99",
   "to_work_p50",
   "to_work_p95",
   "script_ms",
@@ -286,6 +285,19 @@ async function measure(
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
+      const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
+      const typing = cdp && {
+        start: async () => {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+          await cdp.send("Profiler.start");
+        },
+        stop: async () => {
+          const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+          printProfile(length, profile);
+        },
+      };
       try {
         return {
           engine,
@@ -297,6 +309,7 @@ async function measure(
             gap: GAP_MS,
             stream: STREAM,
             toolLines: TOOL_LINES,
+            typing: typing || undefined,
           })),
         };
       } finally {

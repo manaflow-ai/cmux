@@ -335,6 +335,11 @@ PARTS = [
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
+    # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
+    # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -406,6 +411,8 @@ ROW_PARTS = [
     (r"^webui\.million_event_chat\.", "web-ui-million"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.sim_ladder\.", "web-ui-ladder"),
+    (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
@@ -1235,6 +1242,10 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-ladder":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-ladder"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-fidelity":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-fidelity"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
@@ -2415,6 +2426,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
             ok = has_path(sha, f"{FLAT_100K_BENCH}")
+        elif need == "web-ui-ladder":
+            ok = has_path(sha, f"{SIM_LADDER_BENCH}")
         elif need == "web-ui-scroll-up":
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
@@ -2516,6 +2529,7 @@ UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"

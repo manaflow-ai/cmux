@@ -324,6 +324,7 @@
         "appearance.titleAreaContrast",
         "appearance.twoTone",
         "appearance.cornerFlush",
+        "appearance.tabShape",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",

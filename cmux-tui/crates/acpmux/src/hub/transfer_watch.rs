@@ -8,7 +8,8 @@
 //!   `_acpmux/transfer_forget {transferId, sessionId}`, which drops any receive of the move
 //!   there and refuses any later one (a late `transfer_receive` or `transfer_finish` fails), and
 //!   says whether the chat landed (a target on another machine, `to-ssh`, through an ssh
-//!   forward of its socket). It landed: the
+//!   forward of its socket; one only the team hub reaches, `to-hub`, with op `move_forget`
+//!   through the hub, `transfer_pull.rs`). It landed: the
 //!   move commits. It did not: the move aborts. A target that cannot answer, or a move with no
 //!   target named, keeps the chat frozen, and the source asks again after another lease.
 //!
@@ -290,7 +291,13 @@ impl Hub {
             }
         }
         let ssh = std::fs::read_to_string(dir.join("to-ssh")).ok();
+        let hub = std::fs::read_to_string(dir.join(super::transfer_pull::TO_HUB)).ok();
         let landed = match (std::fs::read_to_string(dir.join("to")), ssh) {
+            // A machine only the team hub reaches: asked with op `move_forget` there.
+            _ if hub.is_some() => {
+                let daemon = hub.as_deref().unwrap_or_default().trim();
+                self.ask_hub_forget(daemon, &session.id, transfer_id).await
+            }
             (Ok(socket), None) => {
                 ask_target(Path::new(socket.trim()), &session.id, transfer_id).await
             }

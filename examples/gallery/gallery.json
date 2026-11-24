@@ -25,6 +25,7 @@
     {"kind": "look", "path": "looks/nature", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
     {"kind": "look", "path": "looks/lumen", "surfaces": ["settings", "theme-file", "agent-pane-css"]},
     {"kind": "look", "path": "looks/material", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
+    {"kind": "look", "path": "looks/plush", "surfaces": ["settings", "theme-file", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/paper", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
     {"kind": "look", "path": "looks/prism", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/shadcn", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},

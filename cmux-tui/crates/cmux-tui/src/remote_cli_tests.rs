@@ -1027,6 +1027,7 @@ fn enrollment_startup_covers_invitation_and_approval_windows() {
         route_hints: vec![],
         relay_access: vec![],
         approval_required: true,
+        via_machine: None,
     };
 
     assert!(
@@ -3075,6 +3076,7 @@ fn summary_invitation(route_hints: Vec<String>) -> EnrollmentInvitation {
         route_hints,
         relay_access: Vec::new(),
         approval_required: true,
+        via_machine: None,
     }
 }
 
@@ -3130,4 +3132,87 @@ fn a_route_without_a_scheme_says_how_to_write_one() {
     assert!(error.contains("ws://HOST:PORT/"), "{error}");
     assert!(error.contains("cmux remote known-daemons"), "{error}");
     assert!(parse_route("ws://127.0.0.1:47911/v1/link", "route").is_ok());
+}
+
+const HUB_KEY: &str = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+
+fn loopback_invitation_uri(via_machine: Option<&str>) -> String {
+    use base64::Engine;
+    let daemon = cmux_remote::crypto::StaticIdentity::generate().unwrap().public_key();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    EnrollmentInvitation {
+        version: 1,
+        id: "invite".into(),
+        secret: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([9u8; 32]),
+        daemon_public_key: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(daemon),
+        daemon_fingerprint: cmux_remote::crypto::public_key_fingerprint(&daemon),
+        daemon_name: "agent-remote".into(),
+        expires_at_unix: now + 600,
+        route_hints: vec!["ws://127.0.0.1:7781/".into()],
+        relay_access: vec![],
+        approval_required: true,
+        via_machine: via_machine.map(Into::into),
+    }
+    .to_uri()
+    .unwrap()
+}
+
+fn invitation_answer(uri: String) -> AdminResponse {
+    AdminResponse { ok: true, result: Some(serde_json::json!({ "uri": uri })), error: None }
+}
+
+fn answered_uri(response: &AdminResponse) -> String {
+    response.result.as_ref().and_then(|r| r.get("uri")).and_then(Value::as_str).unwrap().to_owned()
+}
+
+/// `enroll create` on a machine joined to a hub hands out an invitation that carries its node
+/// key, so redeeming it elsewhere needs no `--via-machine` (found live: its only route hint was
+/// the minting machine's loopback daemon).
+#[test]
+fn a_created_invitation_carries_the_machines_hub_route() {
+    let mut response = invitation_answer(loopback_invitation_uri(None));
+    carry_hub_route(&mut response, Some(HUB_KEY)).unwrap();
+    let invitation = EnrollmentInvitation::from_uri(&answered_uri(&response)).unwrap();
+    assert_eq!(invitation.via_machine.as_deref(), Some(HUB_KEY));
+    assert_eq!(invitation.route_hints, ["ws://127.0.0.1:7781/"]);
+
+    // An unjoined machine, or a daemon that named one already, leaves the invitation as it is.
+    let plain = loopback_invitation_uri(None);
+    let mut response = invitation_answer(plain.clone());
+    carry_hub_route(&mut response, None).unwrap();
+    assert_eq!(answered_uri(&response), plain);
+    let other = "ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA=";
+    let named = loopback_invitation_uri(Some(other));
+    let mut response = invitation_answer(named.clone());
+    carry_hub_route(&mut response, Some(HUB_KEY)).unwrap();
+    assert_eq!(answered_uri(&response), named);
+    // A refused create has no URI to change.
+    let mut refused = AdminResponse { ok: false, result: None, error: Some("no".into()) };
+    carry_hub_route(&mut refused, Some(HUB_KEY)).unwrap();
+}
+
+/// Redeeming picks the invitation's (or the known daemon's) hub route when none is given, except
+/// on the very machine it names, whose loopback daemon answers directly.
+#[test]
+fn redeeming_takes_the_carried_hub_route_unless_it_is_this_machine() {
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), None).as_deref(), Some(HUB_KEY));
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), Some("other")).as_deref(), Some(HUB_KEY));
+    assert_eq!(implied_hub_route(Some(HUB_KEY.into()), Some(HUB_KEY)), None);
+    assert_eq!(implied_hub_route(None, Some(HUB_KEY)), None);
+    // An old invitation (no `via_machine`) carries none, as before.
+    let old = EnrollmentInvitation::from_uri(&loopback_invitation_uri(None)).unwrap();
+    assert_eq!(implied_hub_route(old.via_machine, None), None);
+}
+
+#[test]
+fn enroll_create_takes_a_via_machine_node_key() {
+    let args = |rest: &[&str]| {
+        std::iter::once("create").chain(rest.iter().copied()).map(String::from).collect::<Vec<_>>()
+    };
+    let parsed = parse_enroll_admin_args(&args(&["--via-machine", HUB_KEY])).unwrap();
+    assert_eq!(parsed.via_machine.as_deref(), Some(HUB_KEY));
+    assert!(parse_enroll_admin_args(&args(&["--via-machine", "cmux16"])).is_err());
+    assert!(parse_enroll_admin_args(&args(&["--via-machine"])).is_err());
+    let pending = ["pending", "--via-machine", HUB_KEY].map(String::from);
+    assert!(parse_enroll_admin_args(&pending).is_err());
 }

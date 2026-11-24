@@ -17,8 +17,9 @@
      that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
      test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
   --ui-px: calc(1px * var(--cmux-interface-scale, 1));
-  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
-  --ui-popup-radius: var(--ds-radius-popup, 8px);
+  /* The floating role's corner (schemas/design-roles: popover, and menu below), the native GlassMenu's
+     too. A popup that draws another corner sets --ui-popup-radius on itself. */
+  --ui-popup-radius: var(--role-popover-radius, 8px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
@@ -48,6 +49,10 @@
   /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
      (newtab/noEntry.css), as it does --ui-popup-open. */
   --ui-dialog-open: var(--cmux-motion-standard, 180ms);
+}
+/* A menu takes the menu role's corner (schemas/design-roles), the same step as a popover's today. */
+:where(.ui-popup.ui-menu, .ui-popup.ui-context-menu) {
+  --ui-popup-radius: var(--role-menu-radius, 8px);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
@@ -184,13 +189,13 @@
    same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
    popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
-  --ui-dialog-padding: var(--ds-space-5);
+  --ui-dialog-padding: var(--role-dialog-inset);
   --glass-tint: var(--transient-surface-veil);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
+  border-radius: calc(var(--role-control-radius) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
 /* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not

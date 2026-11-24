@@ -367,6 +367,11 @@ public final class DesignSettings {
     public var cornerFlush: CornerFlush? {
         didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.tabShape`: how blocky the tabs of every tab bar and the sidebar's rows are (``TabShape``): block (the
+    /// default) or rounded; a change repaints, as the tone does. The gooey look is `appearance.cornerFlush` flush-goo.
+    public var tabShape: TabShape = .block {
+        didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

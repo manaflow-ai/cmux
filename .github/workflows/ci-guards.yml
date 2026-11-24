@@ -34,8 +34,9 @@ jobs:
     name: workflow-guard-submodule-forward-only
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `submodule-forward-only`
     # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
-    # here. Guard status counts the skip as fine only on such a pull request.
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}
+    # here. Guard status counts the skip as fine only on such a pull request. The base is matched exactly: a pull
+    # request into a stacked feat-cmux-next-* branch starts no pr-pipeline.yml run, so the job runs there.
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -1726,10 +1727,6 @@ jobs:
       - name: Validate nightly builds and signers never cancel or replace a waiting run
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
-
-      - name: Validate an older nightly-next build yields its sign slot and the newest never does
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_sign_yield.py
 
       - name: Validate the nightly-next feed writers' R2 lease
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

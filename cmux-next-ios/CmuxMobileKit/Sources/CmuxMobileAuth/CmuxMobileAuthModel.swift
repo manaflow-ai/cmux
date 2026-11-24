@@ -496,15 +496,25 @@ public final class CmuxMobileAuthModel {
     }
 
     /// Joins a team from a Stack invitation link (`...?code=...`) and refreshes
-    /// the team list.
-    public func joinTeam(inviteLink: String) async throws {
+    /// the team list. Returns the team the refreshed list gained (nil in mock
+    /// mode, or when the list did not change, as when the refresh failed).
+    /// Stack's refusal reads through ``TeamInviteFailure``.
+    @discardableResult
+    public func joinTeam(inviteLink: String) async throws -> AppStore.AccountTeam? {
         let trimmed = inviteLink.trimmingCharacters(in: .whitespacesAndNewlines)
         let code = URLComponents(string: trimmed)?.queryItems?.first { $0.name == "code" }?.value ?? trimmed
         guard !code.isEmpty else { throw AuthError.invalidCode }
-        if isMock { return }
+        if isMock { return nil }
         guard let stack, let coordinator else { throw AuthError.unauthorized }
+        let before = Set(teams.map(\.id))
         try await stack.acceptTeamInvitation(code: code)
         await coordinator.refreshTeams()
+        return Self.joinedTeam(before: before, after: teams)
+    }
+
+    /// The team in `after` whose id `before` lacks: the one an accepted invite added.
+    static func joinedTeam(before: Set<String>, after: [AppStore.AccountTeam]) -> AppStore.AccountTeam? {
+        after.first { !before.contains($0.id) }
     }
 
     /// Errors from invite-link creation.

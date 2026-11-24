@@ -61,6 +61,60 @@ pub use roam::{
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
+/// Overlay UDP port of the link's liveness datagrams (its pings and pongs,
+/// [`crate::link::LivenessDatagrams`]), next to the link's 7420, roaming's
+/// 7421 and the media lane's 7422. 7424 is taken by the terminal viewport
+/// diffs (lane ios-terminal-projection-parity, settled 2026-11-22).
+pub const LIVENESS_PORT: u16 = 7423;
+/// Liveness datagrams queued to the tunnel before new ones drop.
+const LIVENESS_QUEUE: usize = 64;
+
+/// Bind the liveness port and carry its datagrams to and from the link:
+/// to `peer_ip` only, in the tunnel's interactive class (ahead of the
+/// link's TCP), and only datagrams from `peer_ip` back. `None` when the
+/// port cannot be bound: the link's pings stay in its stream.
+async fn open_liveness(
+    net: &WgNet,
+    peer_ip: Ipv4Addr,
+    peer_listening: bool,
+) -> Option<crate::link::LivenessDatagrams> {
+    let mut socket = match net.bind_datagram(LIVENESS_PORT).await {
+        Ok(socket) => socket,
+        Err(error) => {
+            tracing::info!(%error, "no liveness datagrams on this tunnel; pings stay in the stream");
+            return None;
+        }
+    };
+    let peer = SocketAddr::new(IpAddr::V4(peer_ip), LIVENESS_PORT);
+    let (outgoing, mut out) = mpsc::channel::<Vec<u8>>(LIVENESS_QUEUE);
+    let (inbound, incoming) = mpsc::channel(LIVENESS_QUEUE);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                datagram = out.recv() => {
+                    // The link closed.
+                    let Some(datagram) = datagram else { return };
+                    let answer = crate::link::is_liveness_answer(&datagram);
+                    if let Err(cmux_wg::WgError::Shutdown) =
+                        socket.send_liveness(&datagram, peer, answer).await
+                    {
+                        return;
+                    }
+                }
+                received = socket.recv_from() => {
+                    // The tunnel is gone.
+                    let Some((payload, from)) = received else { return };
+                    if from.ip() == peer.ip() {
+                        // Unreliable by design: a reader behind drops one.
+                        let _ = inbound.try_send(payload);
+                    }
+                }
+            }
+        }
+    });
+    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening })
+}
+
 /// How long the input lane's second connection may take before input stays
 /// on the main stream.
 const LANE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -667,6 +721,7 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
+
 struct HybridUnderlay {
     socket: UdpSocket,
     options: DialOptions,
@@ -773,6 +828,9 @@ struct HybridUnderlay {
     learned: Vec<SocketAddr>,
     /// The selector's quiet route was replayed through the relays.
     suspect_replayed: bool,
+    /// What is being sent answers the peer's liveness ping: nothing comes
+    /// back for it, so it does not start the route's silence watch.
+    answering: bool,
     /// Test support (`DialOptions::impair_inbound`): received datagrams
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
@@ -855,6 +913,7 @@ impl HybridUnderlay {
             last_turn_source: None,
             learned: Vec::new(),
             suspect_replayed: false,
+            answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
         };
@@ -1345,6 +1404,9 @@ impl HybridUnderlay {
         if self.options.restrict_inbound_udp {
             self.sent_to.insert(target);
         }
+        if let Some(on_sent) = self.options.on_udp_sent {
+            on_sent(&target, datagram.len());
+        }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
             Ok(_) => true,
@@ -1550,7 +1612,9 @@ impl HybridUnderlay {
             }
             self.publish_path();
             if self.send_route(route, datagram, class) {
-                self.paths.sent(route, now);
+                if !self.answering {
+                    self.paths.sent(route, now);
+                }
                 if class != SendClass::Control {
                     self.paths.sent_data(now);
                 }
@@ -1569,7 +1633,9 @@ impl HybridUnderlay {
                 self.suspect_replayed = true;
                 self.replay_on_relays();
             }
-            self.paths.sent_everywhere(now);
+            if !self.answering {
+                self.paths.sent_everywhere(now);
+            }
             self.spray(datagram, None);
             self.send_turn_targets(datagram, class);
             return true;
@@ -1644,6 +1710,16 @@ impl Underlay for HybridUnderlay {
         self.record(datagram, class);
         self.transmit(datagram, class);
         self.note_initiation(datagram, class);
+    }
+
+    /// A liveness ping or pong: on the routes data takes, but not kept for
+    /// a replay (the link resends its pings), and a pong starts no
+    /// silence watch.
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.drain_control();
+        self.answering = answer;
+        self.transmit(datagram, SendClass::Input);
+        self.answering = false;
     }
 
     /// A probe on one of the selector's paths goes on its route only. A
@@ -2062,7 +2138,12 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: super::offered_lanes(options, options.video_lane, options.webrtc_media),
+                        lanes: {
+                            let mut lanes =
+                                super::offered_lanes(options, options.video_lane, options.webrtc_media);
+                            lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                            lanes
+                        },
                         relayed,
                         relayed_tls,
                         version: WG_VERSION,
@@ -2073,6 +2154,7 @@ impl Dialer for WireGuardDialer {
             let agreed;
             let video_agreed;
             let webrtc_media_agreed;
+            let liveness_agreed;
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
@@ -2090,6 +2172,7 @@ impl Dialer for WireGuardDialer {
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                             agreed = super::input_lane_agreed(options, &lanes);
+                            liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
                             video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                             webrtc_media_agreed =
                                 video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2159,6 +2242,8 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            // The Mac listed the lane once its port was bound: it listens.
+            let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
             let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
             let stream = net.connect(link_addr).await.map_err(transport_error)?;
             // The input lane: a second TCP stream to the same port, opened
@@ -2188,6 +2273,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 media,
                 webrtc_media,
+                liveness,
             })
         })
     }
@@ -2271,6 +2357,13 @@ impl Dialer for WireGuardDialer {
                 tunnel.session.retry_missing_turn();
             }
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
+            // Listed back only once bound. The phone binds its end after this
+            // answer, so this side's pings switch over on its first datagram.
+            let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
+                open_liveness(&net, peer_ip, false).await
+            } else {
+                None
+            };
             // The media lane: listed back only once its port is bound, so a
             // phone never expects a lane this side cannot serve.
             let media = if video_wanted {
@@ -2307,7 +2400,14 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
-                        lanes: super::offered_lanes(options, media.is_some(), webrtc_media_wanted),
+                        lanes: {
+                            let mut lanes =
+                                super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
+                            if liveness.is_some() {
+                                lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                            }
+                            lanes
+                        },
                         relayed: own_relayed,
                         relayed_tls: own_relayed_tls,
                         version: WG_VERSION,
@@ -2340,6 +2440,7 @@ impl Dialer for WireGuardDialer {
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
+                liveness,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)
@@ -2555,6 +2656,53 @@ mod tests {
             .expect("the spray reaches the learned address")
             .unwrap();
         assert_eq!(&buffer[..len], b"stream datagram");
+    }
+
+    /// A liveness pong expects nothing back, so the quiet after it does not
+    /// make the route suspect; a ping, like data, does.
+    #[tokio::test]
+    async fn a_liveness_answer_arms_no_silence_watch() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mapped = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[mapped.to_string()],
+                peer_relayed: &[],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let start = Instant::now();
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        assert_eq!(underlay.paths.current(), Some(Route { carrier: Carrier::Udp, addr: mapped }));
+        // Settle the route: every probe answered, so its next one is an
+        // interval away.
+        let mut at = start;
+        for _ in 0..40 {
+            at += Duration::from_millis(100);
+            for (path, probe) in underlay.poll_probes(at).pings {
+                underlay.on_pong(path, probe, at + Duration::from_millis(1));
+            }
+        }
+        underlay.socket.writable().await.unwrap();
+        underlay.send_liveness(b"pong", true);
+        let due = underlay.poll_probes(at + Duration::from_millis(300)).pings;
+        assert!(due.is_empty(), "a pong starts no silence watch: {due:?}");
+        underlay.send_liveness(b"ping", false);
+        let due = underlay.poll_probes(at + Duration::from_millis(600)).pings;
+        assert!(!due.is_empty(), "the quiet after a ping probes the route at once");
     }
 
     /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7

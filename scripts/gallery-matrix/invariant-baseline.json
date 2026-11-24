@@ -963,16 +963,7 @@
     "agent-pane.effort-track#keyboard": [],
     "agent-pane.effort-track#picked-max": [],
     "agent-pane.effort-track#picked-medium": [],
-    "agent-pane.empty-state#closed": [],
-    "agent-pane.empty-state#no-project": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#open": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.empty-state#search": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
+    "agent-pane.empty-state#plain": [],
     "agent-pane.environment-save#granted": [],
     "agent-pane.environment-save#granted-hover": [],
     "agent-pane.environment-save#refused": [],

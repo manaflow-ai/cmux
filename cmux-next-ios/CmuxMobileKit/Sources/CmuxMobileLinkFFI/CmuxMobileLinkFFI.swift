@@ -1646,6 +1646,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func probe(timeoutMs: UInt32) async throws  -> UInt32?
     
     /**
+     * How long a probe may wait for its pong on this link: `floor_ms`, or
+     * three smoothed round trips when longer (at most 5 s). The standby loop
+     * uses it, so a 1 s round trip does not time out every probe.
+     */
+    func probeTimeoutMs(floorMs: UInt32)  -> UInt32
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -1658,6 +1665,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * ...), in milliseconds since the network changed; empty before any.
      */
     func roamTimings()  -> [TimingMark]
+    
+    /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+    func setForegroundProbe(on: Bool) 
     
     /**
      * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
@@ -1959,6 +1974,20 @@ open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
 }
     
     /**
+     * How long a probe may wait for its pong on this link: `floor_ms`, or
+     * three smoothed round trips when longer (at most 5 s). The standby loop
+     * uses it, so a 1 s round trip does not time out every probe.
+     */
+open func probeTimeoutMs(floorMs: UInt32) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_probe_timeout_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(floorMs),$0
+    )
+})
+}
+    
+    /**
      * Milliseconds since the link last received any frame from the Mac.
      * Any frame proves the link alive as a probe's pong would, so the app's
      * heartbeat probes only a link quiet for a whole beat.
@@ -1982,6 +2011,20 @@ open func roamTimings() -> [TimingMark]  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+open func setForegroundProbe(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_set_foreground_probe(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),$0
+    )
+}
 }
     
     /**
@@ -6419,10 +6462,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe_timeout_ms() != 8844) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_set_foreground_probe() != 19184) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {

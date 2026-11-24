@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1213,6 +1213,10 @@ class WebUiTests(unittest.TestCase):
 
     def test_the_chat_100k_flat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-flat"))
+        self.assertEqual(cron.part_for_row("webui.sim_ladder.ratio_max@linux"), "web-ui-ladder")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-ladder")["suite"][0][-1], "sim-ladder")
+        self.assertEqual(cron.part_for_row("webui.sim_fidelity.divergence_max@linux"), "web-ui-fidelity")
+        self.assertEqual(cron.linux_bench_runs("/r", "web-ui-fidelity")["suite"][0][-1], "sim-fidelity")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.ratio_max@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.long_x20.renderer_mb@linux"), "web-ui-flat")
         self.assertEqual(cron.part_for_row("webui.chat_100k_flat.grown_many.ratio_max@linux"), "web-ui-flat-grown")

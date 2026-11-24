@@ -451,8 +451,15 @@ impl Hub {
             Some(base) => Some(self.check_base(chat, base)?),
             None => None,
         };
-        let written = private_stage(&dir, &staged.join("events"))
-            .and_then(|()| self.write_staged(&bundle.join("events"), &segment, chat, base));
+        // A stage a hub move made (`transfer_hub_precopy.rs`) has its records rewritten for the
+        // control it will run under, as a guarded import rewrites a bundle's.
+        let control = super::super::transfer_hub_precopy::stage_control(&dir);
+        if control.is_some() && base.is_some() {
+            return Err(transfer_error("stage", "a guarded stage is of the whole prefix"));
+        }
+        let written = private_stage(&dir, &staged.join("events")).and_then(|()| {
+            self.write_staged(&bundle.join("events"), &segment, chat, base, control)
+        });
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
@@ -462,8 +469,11 @@ impl Hub {
             ));
         }
         index_staged(&dir.join("store"), chat);
-        let staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
-                            "token": field(&manifest, "token")});
+        let mut staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
+                                "token": field(&manifest, "token")});
+        if let Some(control) = control {
+            staged.set("control", json!(control.as_str()));
+        }
         crate::home_fs::write(dir.join("staged.json"), staged.to_string())
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let _ = crate::home_fs::remove_dir_all(&bundle);
@@ -478,6 +488,7 @@ impl Hub {
         stage_id: &str,
         manifest: &Value,
         dir: &Path,
+        control: Option<Control>,
     ) -> Result<(), RpcError> {
         let stage = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
         let staged = read_json(&stage.join("staged.json"));
@@ -487,6 +498,8 @@ impl Hub {
                 && s["afterSeq"] == prefix["afterSeq"]
                 && s["token"].is_string()
                 && s["token"] == prefix["token"]
+                // Rewritten for the control it is taken under, or for none.
+                && s["control"].as_str() == control.map(Control::as_str)
         });
         if !matches {
             return Err(transfer_error("unstaged", "no staged prefix here matches this move")
@@ -641,6 +654,7 @@ impl Hub {
         out: &Path,
         chat: &str,
         base: Option<u64>,
+        control: Option<Control>,
     ) -> anyhow::Result<(u64, u64)> {
         use std::io::{BufRead as _, Write as _};
         let mut files: Vec<PathBuf> = std::fs::read_dir(events)
@@ -661,8 +675,11 @@ impl Hub {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let rec: EventRecord = serde_json::from_str(&line)
+                let mut rec: EventRecord = serde_json::from_str(&line)
                     .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
+                if let Some(control) = control {
+                    super::super::transfer_guard::guarded_record(&mut rec, control);
+                }
                 anyhow::ensure!(rec.seq > last || count == 0, "seq {} follows {last}", rec.seq);
                 serde_json::to_writer(&mut writer, &rec)?;
                 writer.write_all(b"\n")?;

@@ -323,6 +323,9 @@ export class SubagentFold {
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
+  /// When each subagent was last heard from (any record of it, or one of its own events): where an
+  /// end acpmux recovered after the fact goes when its record names no time (``recoveredEnd``).
+  private readonly heard = new Map<string, number>();
   /// Each subagent's newest tool call, and every call it made: an update to an older one does not
   /// take its action back.
   private readonly latestCall = new Map<string, string>();
@@ -1139,6 +1142,14 @@ export class SubagentFold {
     this.named.add(change.id);
     if (typeof change.parent === "string") this.named.add(change.parent);
     if (this.isChat(change.id)) return;
+    // An end acpmux wrote after the fact (a daemon rebuilding the chat, a harness gone, a long
+    // silence: acpmux `subagents::expiry`) is history, not news. One for a subagent this fold never
+    // met ends a run older than what it read: it draws nothing, neither a new group nor a line in
+    // the turn the person is reading (Leo, 2026-11-22, on 20+ "Subagent disconnected" lines after a
+    // restart: "and more bullshit somehow happened here").
+    const recovered = recoveredEnd(change);
+    if (recovered && !this.agents.has(change.id)) return;
+    if (!recovered) this.heard.set(change.id, Math.max(event.at, this.heard.get(change.id) ?? 0));
     if (authoritative || change.__rootRepair) this.forgetPending(change.id);
     if (typeof change.toolCallId === "string") {
       this.spawnCalls.add(change.toolCallId);
@@ -1202,7 +1213,9 @@ export class SubagentFold {
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     // New tokens or tool uses are work: a progress report that only repeats them is not.
-    if (spawn || agent.tokens !== before[0] || agent.toolUses !== before[1]) this.noteActivity(agent, event.at);
+    // An end acpmux recovered after the fact is not work done when it was written.
+    if (!recovered && (spawn || agent.tokens !== before[0] || agent.toolUses !== before[1]))
+      this.noteActivity(agent, event.at);
     // Optional orchestration fields may be removed explicitly when a resumed harness no longer
     // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
     for (const key of ["model", "effort", "lastMessage"] as const) {
@@ -1241,14 +1254,21 @@ export class SubagentFold {
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
     applyResume(agent, change);
-    const state = text(change.state);
+    // A recovered end ends only a run the fold still reads as running: one that already ended live
+    // keeps the end its harness gave it.
+    let state = recovered && agent.state !== "running" ? undefined : text(change.state);
+    // A recovered end of a run whose end already reached the chat (its task notification, weighed:
+    // `reaction`) finished or failed as that said, whatever an older acpmux wrote ("disconnected"
+    // before it read Claude's task notifications).
+    if (recovered && state === "disconnected" && agent.reaction && !agent.reaction.interim)
+      state = agent.reaction.weight === "failure" ? "failed" : "completed";
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.
     if (state && state !== "running" && spawn) this.ended.add(agent.id);
     else if (state === "running" && spawn) this.ended.delete(agent.id);
     if (state && state !== agent.state && !(state === "running" && !spawn && this.ended.has(agent.id))) {
       agent.state = state;
-      agent.endedAt = state === "running" ? undefined : event.at;
+      agent.endedAt = state === "running" ? undefined : recovered ? this.recoveredAt(agent, change) : event.at;
       this.settleReason(agent);
     }
     // A subagent that runs again, or finished, gave nothing up.
@@ -1319,8 +1339,19 @@ export class SubagentFold {
     else if (kind === "tool_call" || status !== undefined) this.openCalls.add(key);
   }
 
+  /// When a recovered end says `agent` ended: the time acpmux recorded (its task notification, else
+  /// its last own event), else when this fold last heard of it, never the record's own time (when
+  /// acpmux got round to writing it). Its start moves back to the one acpmux knew, when earlier.
+  private recoveredAt(agent: Subagent, change: any): number {
+    const started = count(change.startedAt);
+    if (started !== undefined && started > 0 && started < agent.startedAt) agent.startedAt = started;
+    const at = count(change.endedAt) || this.heard.get(agent.id) || agent.startedAt;
+    return Math.max(at, agent.startedAt);
+  }
+
   /// `agent` did something at `at`: it is quiet from then, unless one of its calls is open.
   private noteActivity(agent: Subagent, at: number): void {
+    this.heard.set(agent.id, Math.max(at, this.heard.get(agent.id) ?? 0));
     const prefix = `${agent.id}\u0000`;
     let open = false;
     for (const key of this.openCalls)
@@ -1505,6 +1536,15 @@ function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
 function isTerminal(status: unknown): boolean {
   return ["completed", "failed", "stopped", "cancelled", "timed_out", "timed-out", "timeout"].includes(String(status));
 }
+
+/// Why acpmux ended a subagent after the fact (`subagents::expiry`): its harness exited, it was
+/// silent past the bound, or Claude Code's task list dropped it.
+const RECOVERED_REASONS = new Set(["harness_exit", "aged_out", "task_gone"]);
+
+/// Whether `change` is an end acpmux recovered after the fact, not one the harness reported live.
+const recoveredEnd = (change: any): boolean =>
+  change?.recovered === true ||
+  (typeof change?.reason === "string" && RECOVERED_REASONS.has(change.reason) && change.state !== "running");
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const count = (value: unknown) =>

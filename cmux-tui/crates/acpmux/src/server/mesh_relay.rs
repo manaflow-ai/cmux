@@ -760,6 +760,21 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
         return Some(Ack::refused("unsupported control body version"));
     }
+    // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
+    // is the daemon the hub stamped, never one the body names. The hook admitted only this
+    // machine's own person, with `move` listed (`mesh_relay_config.rs`).
+    if matches!(op, crate::mesh_relay_config::MOVE_OP | crate::mesh_relay_config::MOVE_FORGET_OP) {
+        let source = message.from.daemon_id.as_deref().unwrap_or_default();
+        let answered = if op == crate::mesh_relay_config::MOVE_OP {
+            hub.transfer_pull_op(source, message.from.host.as_deref(), &body).await
+        } else {
+            hub.transfer_pull_forget(&body).await
+        };
+        return Some(match answered {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(error.message),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {

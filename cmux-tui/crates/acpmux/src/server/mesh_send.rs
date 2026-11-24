@@ -52,6 +52,18 @@ fn recipient(target: &str) -> Target {
     }
 }
 
+/// Whom `target` names at the hub, as [`recipient`] says, but a chat the hub lists by its
+/// handle (`HOST/Mango`, `Mango`) by its machine and id: the hub matches names only, and a
+/// handle is no name there (`Hub::mesh_book_handle`).
+fn recipient_in(hub: &Hub, target: &str) -> Target {
+    if !target.starts_with('@')
+        && let Some((host, id)) = hub.mesh_book_handle(target)
+    {
+        return Target { session_id: Some(id), host: Some(host), ..Target::default() };
+    }
+    recipient(target)
+}
+
 /// Whom the relay reaches for `target` while its peer's link is down: the session the peer's
 /// last list named, by its id alone (the hub matches every field it is given, and the host the
 /// hub knows is the peer's own machine name, which need not be the name this daemon gives it). A
@@ -220,7 +232,7 @@ fn message(
     let carried = carried(request, target)?;
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
-        to: recipient(target),
+        to: recipient_in(hub, target),
         from: sender(hub, caller, carried.named, carried.claim),
         kind: Kind::Prompt,
         op: None,
@@ -368,7 +380,7 @@ pub(super) async fn send(
     let inline = carried.inline;
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
-        to: recipient(target),
+        to: recipient_in(hub, target),
         from: sender(hub, caller, carried.named, carried.claim),
         kind: Kind::Prompt,
         op: None,
@@ -545,6 +557,55 @@ mod tests {
         );
         let to = recipient("machine-b/own-e2e");
         assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
+    }
+
+    /// A send or prompt to a chat the hub lists, named by its given handle (`HOST/Mango`,
+    /// `Mango`), goes to its machine by id: the hub and the far daemon match names only. A name
+    /// still goes as a name. Leo, 2026-11-23: "the send/recieve messages are still only the
+    /// older names".
+    #[tokio::test]
+    async fn a_handle_the_hub_lists_is_sent_to_by_id() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+        let book = crate::mesh::AddressBook {
+            daemons: vec![crate::mesh::BookDaemon {
+                daemon_id: "d-b".into(),
+                host: "machine-b".into(),
+                user: "person-1".into(),
+                last_seen_at: 5,
+            }],
+            sessions: vec![crate::mesh::BookSession {
+                name: "claude-sr2-coord-old".into(),
+                session_id: id.into(),
+                host: "machine-b".into(),
+                daemon_id: "d-b".into(),
+                harness: "claude".into(),
+                state: "idle".into(),
+                handle: Some("Mango".into()),
+                ..Default::default()
+            }],
+        };
+        hub.apply_mesh_book(book, "person-1", Some("d-a"));
+        for key in ["machine-b/Mango", "Mango"] {
+            let to = recipient_in(&hub, key);
+            assert_eq!(
+                (to.session_id.as_deref(), to.name.as_deref(), to.host.as_deref()),
+                (Some(id), None, Some("machine-b")),
+                "{key}"
+            );
+            assert_eq!(
+                super::super::mesh_relay::read::hub_prompt_target(&hub, key),
+                Some(format!("machine-b/{id}")),
+                "{key}"
+            );
+        }
+        let to = recipient_in(&hub, "machine-b/claude-sr2-coord-old");
+        assert_eq!(to.name.as_deref(), Some("claude-sr2-coord-old"));
+        assert_eq!(recipient_in(&hub, "machine-b/Kiwi").name.as_deref(), Some("Kiwi"));
     }
 
     /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0

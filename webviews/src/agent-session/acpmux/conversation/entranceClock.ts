@@ -21,7 +21,7 @@
 // the frame or posted task.
 
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
-const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
+const ENTRANCES = new Set(["cv-enter", "cv-enter-fade", "cv-recap-rise", "cv-recap-unfurl", "cv-recap-bead"]);
 
 type Frames = {
   request: (run: () => void) => number;

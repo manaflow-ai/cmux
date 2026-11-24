@@ -20,7 +20,6 @@ struct TeamSidebar: View {
     @State private var creatingTeam = false
     @State private var joiningTeam = false
     @State private var newTeamName = ""
-    @State private var inviteLink = ""
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -81,11 +80,12 @@ struct TeamSidebar: View {
             Text("Teams share Macs and workspaces.")
         }
         .alert("Join with invite link", isPresented: $joiningTeam) {
-            TextField("Invite link", text: $inviteLink)
+            // The pasted link stays until the join works (ShellModel.inviteLinkDraft).
+            TextField("Invite link", text: Bindable(shell).inviteLinkDraft)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
-            Button("Cancel", role: .cancel) { inviteLink = "" }
-            Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+            Button("Cancel", role: .cancel) { shell.inviteLinkDraft = "" }
+            Button("Join") { shell.joinTeam(inviteLink: shell.inviteLinkDraft) }
                 .keyboardShortcut(.defaultAction)
         }
     }

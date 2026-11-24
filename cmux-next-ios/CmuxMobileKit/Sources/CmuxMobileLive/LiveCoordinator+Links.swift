@@ -973,7 +973,7 @@ extension LiveCoordinator {
                 sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
                 continue
             }
-            AgentSessionDirectory.shared.invalidate(id: used.tabID, macID: used.macID)
+            chatSessionChanged(id: used.tabID, macID: used.macID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)

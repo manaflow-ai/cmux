@@ -1217,6 +1217,10 @@
       "scope": "participants:write",
       "class": "mutation"
     },
+    "project.actions.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
     "project.add": {
       "scope": "project:write",
       "class": "mutation"

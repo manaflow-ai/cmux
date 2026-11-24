@@ -17,6 +17,12 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "link")
 public final class LinkController {
     public private(set) var phase: LinkMachine.Phase = .idle
     public private(set) var link: (any MacLink)?
+    /// This Mac's data is on screen (a terminal, the Feed, a chat). With the
+    /// app in front, the Rust link then runs its foreground probe
+    /// (``MacLink/setForegroundProbe(_:)``); the timing is the link's.
+    @ObservationIgnored public var onScreen = false {
+        didSet { if onScreen != oldValue { applyForegroundProbe() } }
+    }
     /// The last failure, kept while reconnecting (Settings shows it).
     public private(set) var lastFailure: String?
     /// The WebRTC media session beside the current WireGuard link.
@@ -65,7 +71,8 @@ public final class LinkController {
     @ObservationIgnored private var standbyWatchTask: Task<Void, Never>?
     @ObservationIgnored private var standbyTask: Task<Void, Never>?
     /// The standby link is probed one probe at a time, each bounded by
-    /// ``standbyProbeTimeout``, with this gap between them: a path back from
+    /// ``standbyProbeTimeout`` or, on a slow link, the link's own
+    /// RTT-scaled timeout (``MacLink/probeTimeout(floor:)``), with this gap between them: a path back from
     /// a blackout carries traffic again within both plus one round trip
     /// (1.25 s). Only while there is a standby (at most ``standbyLimit``):
     /// about 36 pings, a few KB, per blackout; nothing while idle.
@@ -75,8 +82,6 @@ public final class LinkController {
     /// an elevator; the Rust link closes on its own keepalive before that
     /// when the Mac is gone.
     nonisolated static let standbyLimit: Duration = .seconds(45)
-    /// The probes that fill ``standbyLimit``, one per probe and gap (36).
-    nonisolated static let standbyProbes = Int(standbyLimit / (standbyProbeTimeout + standbyProbeEvery))
     /// What the timers did, for tests that move a test clock: how many heartbeat tasks were
     /// started and how many have begun running, how many times the heartbeat went to sleep and for
     /// how long the last time, and how many probes started and the last one's timeout. Counters
@@ -246,6 +251,7 @@ public final class LinkController {
             startHeartbeat(generation: machine.generation)
         }
         for effect in effects { run(effect) }
+        if wasBackgrounded != machine.isBackgrounded { applyForegroundProbe() }
     }
 
     private func run(_ effect: LinkMachine.Effect) {
@@ -367,9 +373,15 @@ public final class LinkController {
         ConnectTimeline.shared.mark("link_standby")
         let clock = clock
         standbyTask = Task { [weak self] in
-            for _ in 0..<Self.standbyProbes where !Task.isCancelled {
-                let result = await Self.race(timeout: Self.standbyProbeTimeout + Self.probeGrace, clock: clock) {
-                    try await link.probe(timeout: Self.standbyProbeTimeout)
+            // Each failed probe spends its timeout and the gap; the loop ends
+            // once they fill ``standbyLimit``, however long the link's round
+            // trip makes each probe (the Rust link scales it).
+            var spent: Duration = .zero
+            while spent < Self.standbyLimit, !Task.isCancelled {
+                let timeout = link.probeTimeout(floor: Self.standbyProbeTimeout)
+                spent += timeout + Self.standbyProbeEvery
+                let result = await Self.race(timeout: timeout + Self.probeGrace, clock: clock) {
+                    try await link.probe(timeout: timeout)
                 }
                 guard let self, !Task.isCancelled, self.machine.standby == generation else { return }
                 if case .success(let rtt) = result {
@@ -458,9 +470,14 @@ public final class LinkController {
         }
     }
 
+    private func applyForegroundProbe() {
+        link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
+    }
+
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")
         self.link = link
+        applyForegroundProbe()
         watchTask?.cancel()
         let states = link.states
         let id = ObjectIdentifier(link)

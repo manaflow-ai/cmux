@@ -1375,11 +1375,12 @@
   --nt-glow-divider: 50%;
 }
 /* A light page has less dark around the glow to carry it: a little more color, the same reach. */
-:root.light .nt-cards[data-glow] {
-  --nt-glow-mix: 16%;
+/* `data-theme` is what the app sets on the root (shared/theme.ts); it has no `light` class. */
+:root[data-theme="light"] .nt-cards[data-glow] {
+  --nt-glow-mix: 28%;
 }
-:root.light .nt-cards[data-glow="vivid"] {
-  --nt-glow-mix: 30%;
+:root[data-theme="light"] .nt-cards[data-glow="vivid"] {
+  --nt-glow-mix: 52%;
 }
 .nt-cards[data-glow] .nt-card {
   position: relative;

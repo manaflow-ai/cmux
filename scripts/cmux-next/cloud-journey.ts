@@ -3375,6 +3375,28 @@ export async function listAllMachines(read: (params: Record<string, unknown>) =>
   throw new Error(`more than ${maxPages} pages of machines`);
 }
 
+/**
+ * The "listed" step's verdict: `id`'s row in every page of cloud.machine.list (`next_cursor`). A list that ends
+ * without the machine and without a cursor (a page cap: the shared agent account holds more machines than one page,
+ * run 45174448964 read 49 of 52) is confirmed by cloud.machine.get, and the detail names the cap; a machine neither
+ * read finds fails.
+ */
+export async function listedMachine(
+  id: string,
+  list: (params: Record<string, unknown>) => Promise<any>,
+  get: (id: string) => Promise<any>,
+  maxPages = 20,
+): Promise<{ row: any; detail: string }> {
+  const rows = await listAllMachines(list, maxPages);
+  const row = rows.find((r) => r?.id === id);
+  if (row) return { row, detail: `${rows.length} machines` };
+  const got = await get(id).catch((e: Error) => { throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get: ${e.message}`); });
+  if (!got || (got.id !== undefined && got.id !== id) || got.status === "deleted") {
+    throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get reads ${got?.status ?? "nothing"}`);
+  }
+  return { row: got, detail: `${rows.length} machines listed, no next_cursor (a page cap); cloud.machine.get reads it ${got.status ?? "?"}` };
+}
+
 /** The ids in `after` that `before` lacks. */
 export function newMachineIds(before: string[], after: string[]): string[] {
   const seen = new Set(before);
@@ -4256,8 +4278,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (deleted) return;
     let id = machine;
     if (!id) {
-      const v = await api.read("cloud.machine.list", {}).catch(() => null);
-      const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
+      // Every page: the machine may sit past the first (a shared account's list).
+      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
     }
     if (!id) return;
@@ -4551,13 +4573,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (journeyOnlyStarted) return;
       journeyOnlyStarted = true;
       await J.step("listed", async () => {
-        const v = await api.read("cloud.machine.list", {});
-        const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        const row = rows.find((r) => r.id === created.id);
-        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        const { row, detail } = await listedMachine(
+          created.id,
+          (params) => api.read("cloud.machine.list", params, 30_000),
+          (id) => api.read("cloud.machine.get", { machine: id }, 30_000),
+        );
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
-        return { value: null, detail: `${rows.length} machines${size}` };
+        return { value: null, detail: `${detail}${size}` };
       });
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.

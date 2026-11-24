@@ -5,7 +5,7 @@ import Testing
 /// The move's flow reports each step to Rust's reducer in order, and Cancel stops the move's Task only when the reducer says stop.
 @MainActor struct CloudPlaceFlowsTests {
     /// A fake reducer: records each event's name, answers `stop` for a cancel when told to.
-    final class Recorder: @unchecked Sendable {
+    nonisolated final class Recorder: @unchecked Sendable {
         private let lock = NSLock()
         private var names: [String] = []
         var stopOnCancel = true

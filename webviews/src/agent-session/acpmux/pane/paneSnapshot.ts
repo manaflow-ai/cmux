@@ -189,6 +189,7 @@ import {
 } from "./sendHost";
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
+import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
@@ -345,6 +346,8 @@ export type PaneSnapshotArgs = {
   untakenSends: React.RefObject<number>;
   pendingWake: React.RefObject<ComposerWake | undefined>;
   transcriptAnchor: React.RefObject<(() => ScrollAnchor | null | undefined) | undefined>;
+  /// The transcript's Toggle Terminal and Chat placement (VirtualTranscript `placeNow`).
+  placeTranscript: React.RefObject<((rowId: string | null) => boolean) | null>;
   setSends: React.Dispatch<React.SetStateAction<number>>;
   followingTranscript: React.RefObject<boolean>;
   setHostError: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -486,6 +489,7 @@ export function paneSnapshotEffect({
   untakenSends,
   pendingWake,
   transcriptAnchor,
+  placeTranscript,
   setSends,
   followingTranscript,
   setHostError,
@@ -751,6 +755,14 @@ export function paneSnapshotEffect({
     },
     revealTurn(turnId) {
       revealRef.current(turnId);
+    },
+    togglePlace() {
+      return togglePlace(counted.current.transcriptRows, transcriptAnchor.current?.());
+    },
+    placeToggle(at, until) {
+      if (until !== undefined && Date.now() > until) return false;
+      const rowId = at === null ? null : togglePromptRow(counted.current.transcriptRows, at);
+      return rowId !== undefined && (placeTranscript.current?.(rowId) ?? false);
     },
     applyCustomization(customization) {
       if ("themeCSS" in customization) {
@@ -1710,11 +1722,12 @@ export function paneSnapshotEffect({
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
           ),
-        "chat.plan.build": ({ permissionId, target, sessionId }) =>
+        "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
             String(permissionId),
             planBuildTarget(target),
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
+            typeof plan === "string" && plan.trim() ? plan : undefined,
           ),
         "chat.plan.compare": ({ buildId, sessionId }) =>
           client.planCompare(String(buildId), typeof sessionId === "string" && sessionId ? sessionId : undefined),

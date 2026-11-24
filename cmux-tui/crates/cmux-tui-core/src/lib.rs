@@ -62,6 +62,9 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+/// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
+#[cfg(unix)]
+pub mod tool_packs;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;

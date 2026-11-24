@@ -255,6 +255,7 @@ export function PermissionCard({
   fullAccessMode,
   onDraft,
   onBuildPlan,
+  onApproveEditedPlan,
   hold: holdOverride,
 }: {
   permission: AcpmuxPermission;
@@ -283,7 +284,11 @@ export function PermissionCard({
   /// A plan approval's other builds (`_acpmux/plan/build`): in a new worktree, or on two harnesses
   /// to compare. With it, Approve plan is a split button whose menu offers them; acpmux answers the
   /// ask itself, and a promise that rejects is a refusal the card shows, as for `onAnswer`.
-  onBuildPlan?(target: PlanBuildElsewhere): Promise<unknown>;
+  onBuildPlan?(target: PlanBuildElsewhere, plan?: string): Promise<unknown>;
+  /// Approves the plan as the person edited it on the card (Leo's gap doc item 6: "an edit step
+  /// before Approve"). With it, the card offers Edit plan; an Approve after an edit sends the edit
+  /// here instead of the plain allow, and a build elsewhere starts from it.
+  onApproveEditedPlan?(plan: string): Promise<unknown>;
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts);
   /// `reduced` draws the stepped ring. The pane passes none; the gallery and tests do.
   hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
@@ -402,6 +407,15 @@ export function PermissionCard({
   /// The ask shown now, read when an answer settles: only its own outcome changes what the card shows.
   const shown = useRef(permission.permissionId);
   shown.current = permission.permissionId;
+  /// The plan as the person is editing it, for the ask it was opened on (Edit plan).
+  const [planEdit, setPlanEdit] = useState<{ permissionId: string; text: string }>();
+  const editingPlan = Boolean(plan && onApproveEditedPlan && planEdit?.permissionId === permission.permissionId);
+  /// The edit Approve sends: only a changed, non-empty one; else the plan goes as the agent wrote it.
+  const editedText = (() => {
+    if (!editingPlan || !planEdit) return undefined;
+    const text = planEdit.text.trim();
+    return text && text !== plan ? text : undefined;
+  })();
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
   /// A refused plan build's line, in plain words, shown in place of the answer's refusal.
@@ -450,7 +464,11 @@ export function PermissionCard({
     if (!sent) return;
     let reply: unknown;
     try {
-      reply = onAnswer(option.id);
+      // Approve plan after an edit: the edited plan goes with the approval.
+      reply =
+        option === allowOnce && editedText !== undefined && onApproveEditedPlan
+          ? onApproveEditedPlan(editedText)
+          : onAnswer(option.id);
     } catch (error) {
       reply = Promise.reject(error);
     }
@@ -501,7 +519,7 @@ export function PermissionCard({
     if (!sent) return;
     let reply: unknown;
     try {
-      reply = onBuildPlan(target);
+      reply = onBuildPlan(target, editedText);
     } catch (error) {
       reply = Promise.reject(error);
     }
@@ -691,12 +709,33 @@ export function PermissionCard({
             })}
           </p>
         )}
-        {plan && (
-          // Fences as plain code, scrolled inside the card when long.
-          <div className="acpmux-permission-plan selectable" role="document" aria-label={t("permission.plan.label")}>
-            <Markdown plainCode>{plan}</Markdown>
-          </div>
-        )}
+        {plan &&
+          (editingPlan && planEdit ? (
+            // The plan as text the person edits; Approve plan sends it to the agent.
+            <textarea
+              className="acpmux-permission-plan acpmux-permission-plan-editor"
+              aria-label={t("permission.plan.editLabel")}
+              value={planEdit.text}
+              rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
+              spellCheck
+              autoFocus
+              onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
+              onKeyDown={(event) => {
+                // Typing stays in the field; Escape closes the edit without sending it.
+                event.stopPropagation();
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setPlanEdit(undefined);
+                }
+              }}
+            />
+          ) : (
+            // Fences as plain code, scrolled inside the card when long.
+            <div className="acpmux-permission-plan selectable" role="document" aria-label={t("permission.plan.label")}>
+              <Markdown plainCode>{plan}</Markdown>
+            </div>
+          ))}
+        {editedText !== undefined && <p className="acpmux-permission-plan-edited">{t("permission.plan.edited")}</p>}
       </div>
       {(commandBlock || scopeBlock) && (
         <div className="acpmux-permission-details">
@@ -734,6 +773,16 @@ export function PermissionCard({
               </React.Fragment>
             );
           })}
+          {plan && onApproveEditedPlan && permission.pending && (
+            <PermissionActionButton
+              label={editingPlan ? t("permission.plan.discardEdit") : t("permission.plan.edit")}
+              className="acpmux-permission-other acpmux-permission-plan-edit"
+              data-plan-editing={editingPlan ? "" : undefined}
+              onClick={() =>
+                setPlanEdit(editingPlan ? undefined : { permissionId: permission.permissionId, text: plan })
+              }
+            />
+          )}
           {denyOption && (
             <PermissionActionButton
               label={

@@ -29,7 +29,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |
-| `tabs.newTabApp` | string |  |  | New Tab App. An extension id that draws New Tab, such as "local/showcase-newtab". Unset: cmux's own. |
+| `tabs.newTabApp` | string |  |  | New Tab App. An extension that draws over the New Tab composer, by its id, such as "local/showcase-newtab". The composer always stays. Not used by the native New Tab page. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position (Cmd-T) |
 | `tabs.newTabButtonPosition` | string | `"end"` | `afterCurrent`, `end`, `start` | New Tab Position (+ Button) |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | + Button Visibility. Applies in Minimal Mode; otherwise the + always shows. |

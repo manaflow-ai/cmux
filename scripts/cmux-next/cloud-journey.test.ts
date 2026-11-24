@@ -12,7 +12,7 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
@@ -3270,5 +3270,25 @@ describe("waitForSpareReady", () => {
   });
   test("neither within the budget names both routes", async () => {
     await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
+  });
+});
+
+describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a shared account of 52)", () => {
+  const rows = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => ({ id: `vm_${a + k}`, status: "running" }));
+  test("follows next_cursor to the page that holds the machine", async () => {
+    const seen: unknown[] = [];
+    const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
+    const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
+    expect(r.detail).toBe("52 machines");
+    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+  });
+  test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
+    const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));
+    expect(r.row.size).toEqual({ cpu: 2 });
+    expect(r.detail).toContain("49 machines listed, no next_cursor (a page cap)");
+  });
+  test("a machine neither read finds fails", async () => {
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
   });
 });

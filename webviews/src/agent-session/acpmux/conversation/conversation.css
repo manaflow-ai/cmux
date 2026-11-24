@@ -778,7 +778,10 @@
 }
 /* A sent prompt's way to the agent (PromptDelivery.tsx): while it is on its way, its footer's time
    slot says so (a clock and one sentence) and the footer stays shown; once it lands the slot is its
-   time again, in the same place, so nothing moves. A failed prompt's card and Details below. */
+   time again, in the same place, so nothing moves. The row keeps a sent row's anchor at the bubble's
+   right edge, so Copy and the buttons after it never move with the words (Leo, 2026-11-17: "stop
+   making the copy button move with the text ... why was it not just at the right edge"). A failed
+   prompt's card and Details below. */
 .cv-user__bubble {
   position: relative;
 }
@@ -6714,6 +6717,45 @@ a.cv-sha:focus-visible {
     opacity: 1;
   }
 }
+/* The recap card's live entrances (the rules under prefers-reduced-motion: no-preference). */
+@keyframes cv-recap-rise {
+  from {
+    opacity: 0;
+    translate: 0 0.5lh;
+  }
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+@keyframes cv-recap-open {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+@keyframes cv-recap-unfurl {
+  from {
+    opacity: 0.4;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0);
+  }
+}
+@keyframes cv-recap-bead {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    scale: none;
+  }
+}
 /* New user and assistant messages fade in at their final size, without popping or growing.
  * RowFrame remains the virtualizer's measured geometry; its presentation child changes only opacity. */
 @keyframes cv-message-enter {
@@ -6768,6 +6810,26 @@ a.cv-sha:focus-visible {
   }
   :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
     animation-delay: 0s;
+  }
+  /* The recap card's entrance when it arrives live (turnEndFold.ts `TurnEndRecap`; `hold` keeps the
+     fade above): `rise` comes up half a line as it fades in, `unfurl` draws in from its top down,
+     `bead` grows from a touch smaller at its top. Each on the move step's ease-out, in its own box, from the frame
+     that draws it: no hand-over wait (the live line's rules above, which these outrank). */
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="rise"] {
+    animation: cv-recap-rise var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="unfurl"] {
+    animation: cv-recap-unfurl var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="place"] {
+    animation: none;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="open"] {
+    animation: cv-recap-open var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="bead"] {
+    animation: cv-recap-bead var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
+    transform-origin: 50% 0;
   }
   .acpmux-row__message-presentation {
     animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
@@ -9082,28 +9144,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   font-variant-numeric: tabular-nums;
 }
 
-/* A prompt's pending note starts where its bubble's text starts (Leo, 2026-11-14: "this is
-   misaligned"). The row hangs under the bubble out of flow, anchored right; with a bubble the body
-   becomes the row's box (the bubble's width) and the row starts one bubble padding in, still
-   anchored right and as wide as its words when they are wider than the bubble's text. */
-.cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
-  --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
-  --cv-bubble-pad-inline: calc(var(--cv-user-bubble-pad-inline, 4) * var(--grid-base) * var(--cv-bubble-scale));
-  display: block;
-  position: relative;
-  align-self: var(--cv-user-align, flex-end);
-  max-width: var(--cv-user-bubble-share, 70%);
-}
-.cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
-  max-width: none;
-}
-.cv-user .cv-user__body:has(> .cv-user__bubble) > .cv-user__actions.cv-user__actions--pending {
-  right: calc(-1 * var(--cv-action-inset));
-  width: max-content;
-  min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
-  justify-content: flex-start;
-}
-
 /* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
    path shows as the pane's tooltip. */
 .cv-tool__file {
@@ -9195,4 +9235,18 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   font-variant-numeric: tabular-nums;
   line-height: 18px;
   white-space: nowrap;
+}
+/* `morph`'s card (turnEndFold.ts TURN_END_CARD): a tinted surface where a finished turn's folded rows were,
+   shrinking into the Worked for line as the rows close over it. Under every row; never hit. */
+.acpmux-fold-card {
+  position: absolute;
+  left: var(--cv-inset);
+  right: var(--cv-inset-end, var(--cv-inset));
+  pointer-events: none;
+}
+.acpmux-fold-card > div {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--surface-card-radius);
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
