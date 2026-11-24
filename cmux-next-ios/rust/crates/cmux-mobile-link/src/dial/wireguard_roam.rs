@@ -1193,7 +1193,9 @@ mod tests {
             addresses: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_METERED],
         };
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
-        const { assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION) };
-        assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        const {
+            assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION);
+            assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        };
     }
 }
