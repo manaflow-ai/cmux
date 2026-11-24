@@ -99,13 +99,19 @@ async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     let past_short_wait = PROMPT_LINK_WAIT + Duration::from_secs(30);
     assert!(sent.next(past_short_wait).await.is_none(), "held past the short wait");
     assert_eq!(peer.pending_requests().await, 0, "nothing went to the peer while down");
+    // As a finished handshake leaves it: the link open, the peer back, the Connected notice.
+    peer.open_link_for_tests();
     hub.seed_peer_back(&peer, vec![row()]);
     hub.peer_snapshots.seed_restored(&peer);
+    let notice = (peer.name.clone(), peer.generation, crate::peer::PeerNotice::Connected);
+    let _ = hub.peer_notices.send(notice).await;
     // With no transport the peer's request fails or waits; either way it was tried, not refused
     // as unreachable.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
-        if peer.pending_requests().await > 0 {
+        if peer.pending_requests().await > 0
+            || peer.queued_for_tests(method::SESSION_PROMPT).await > 0
+        {
             break;
         }
         if let Ok(Some(line)) =
