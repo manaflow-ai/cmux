@@ -265,7 +265,7 @@ public final class LaunchShell {
     /// tab strips, panes) have their saved or live content, so it looks as stage 0's image does;
     /// over the image or the plain shell the swap waits for it, at most the Rust bound. Nil: the
     /// swap is at the real window's first commit.
-    public var contentReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
+    public var contentReady: (@MainActor (_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was
     /// typed and sent into it (its own store; the real Home claims it).
     public var handoff: ((NSView) -> Void)?

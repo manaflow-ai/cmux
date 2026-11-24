@@ -221,10 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
-        // The real launch window swaps in once its sidebar, strips and panes show what stage 0's image does.
-        launchReads.shell.content.contentReady = { [reveal = services.launchReveal] ready in
-            reveal.whenReady(.sidebar) { reveal.whenReady(.tabs) { reveal.whenReady(.pane) { ready() } } }
-        }
+        launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window); shell.presented(controller.window) // the first takes stage 0's frame, then its place
         }
