@@ -10,9 +10,14 @@
 //! are never held here.
 //!
 //! No daemon state is held: the standby is a group, not a link, so there is no pending link
-//! group to expire (the daemon's `PENDING_LINK_TTL`, 30 s, only starts at a link hello). The
-//! standby is dropped and redialed after [`MAX_AGE`] so a transport the network silently
-//! dropped is not what the next reconnect starts on.
+//! group to expire (the daemon's `PENDING_LINK_TTL`, 30 s, only starts at a link hello). But a
+//! daemon closes an iroh connection that opens no stream within its `first_stream_timeout`
+//! (15 s, `provider/iroh.rs`), and a standby opens none until it is used. So a standby is
+//! redialed after [`REFRESH`] (the old one kept until the new one is in), never trusted past
+//! [`MAX_AGE`], both under the daemon's 15 s; and before it is taken its group is asked whether
+//! it closed (local state, no round trip). The keeper also re-arms the moment a held group
+//! closes. A standby that is live by every local sign but dead on the wire gets a short redial
+//! ([`attempt_timeout`]) with the ordinary race started behind it.
 //!
 //! Bounded: one standby per peer, re-armed after use, none for the Cloud carrier (single-use
 //! grants, and `carrier::source` does not use this) nor for any auth but Enrolled, and
@@ -31,8 +36,25 @@ use cmux_remote::crypto::AuthKind;
 use cmux_remote::provider::ProviderError;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 
-/// How long a standby is trusted before it is dropped and dialed again.
-pub(crate) const MAX_AGE: Duration = Duration::from_secs(30);
+/// How long a standby is trusted. Under the daemon's 15 s close of a connection that opened
+/// no stream, with room for the clocks of both ends and a slow link.
+pub(crate) const MAX_AGE: Duration = Duration::from_secs(11);
+/// When the keeper dials the standby's replacement (the old one is held until it is in).
+pub(crate) const REFRESH: Duration = Duration::from_secs(8);
+/// A standby that closed sooner than this after it was armed counts as a failed arm (backoff),
+/// so a far end that closes every standby at once is not redialed in a loop.
+pub(crate) const MIN_LIFE: Duration = Duration::from_secs(1);
+/// The floor of a redial on a standby: covers scheduling on a loaded machine.
+pub(crate) const ATTEMPT_FLOOR: Duration = Duration::from_secs(1);
+/// The bound of a redial on a standby whose round trip is not known.
+pub(crate) const ATTEMPT_UNKNOWN_RTT: Duration = Duration::from_secs(3);
+
+/// The bound of the redial on a standby: `ATTEMPT_FLOOR + 2 × rtt` (a Noise handshake and the
+/// resume each take one round trip on a group that is already up), or
+/// [`ATTEMPT_UNKNOWN_RTT`].
+pub(crate) fn attempt_timeout(rtt: Option<Duration>) -> Duration {
+    rtt.map_or(ATTEMPT_UNKNOWN_RTT, |rtt| ATTEMPT_FLOOR.saturating_add(rtt.saturating_mul(2)))
+}
 /// The first wait after a failed arm; it doubles up to [`MAX_BACKOFF`].
 pub(crate) const INITIAL_BACKOFF: Duration = Duration::from_secs(2);
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(60);
@@ -70,20 +92,33 @@ impl<T> WarmStandby<T> {
         self.active.store(index, Ordering::Relaxed);
     }
 
-    /// The held standby, when it is fresh. A stale one is returned in `Err` to be closed.
-    fn take(&self) -> Option<Result<(usize, T), T>> {
+    /// The held standby, when it is fresh and `alive` says its group has not closed. A stale or
+    /// closed one is returned in `Err` to be closed.
+    fn take(&self, alive: impl Fn(&T) -> bool) -> Option<Result<(usize, T), T>> {
         let held = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()?;
-        Some(if held.armed_at.elapsed() < MAX_AGE {
+        Some(if held.armed_at.elapsed() < MAX_AGE && alive(&held.group) {
             Ok((held.index, held.group))
         } else {
             Err(held.group)
         })
     }
 
-    /// How long until the held standby goes stale (`None`: nothing held).
-    pub(crate) fn fresh_for(&self) -> Option<Duration> {
+    /// The held standby's group and when it was armed (the keeper waits on its close).
+    pub(crate) fn held(&self) -> Option<(T, Instant)>
+    where
+        T: Clone,
+    {
         let slot = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        slot.as_ref().map(|held| MAX_AGE.saturating_sub(held.armed_at.elapsed()))
+        slot.as_ref().map(|held| (held.group.clone(), held.armed_at))
+    }
+
+    /// How long until the held standby is due its replacement (`None`: nothing held, or the
+    /// one held closed).
+    fn refresh_in(&self, alive: impl Fn(&T) -> bool) -> Option<Duration> {
+        let slot = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.as_ref()
+            .filter(|held| alive(&held.group))
+            .map(|held| REFRESH.saturating_sub(held.armed_at.elapsed()))
     }
 
     /// The held standby's route, for logs and tests.
@@ -122,22 +157,23 @@ pub(crate) fn standby_route(
     }
     (0..len).map(|offset| (next % len + offset) % len).find(|&index| {
         index != active
-            && routes[index].supports_client_auth(auth)
-            && !routes[index].endpoint.scheme().starts_with("relay+")
+            && routes.get(index).is_some_and(|route| {
+                route.supports_client_auth(auth) && !route.endpoint.scheme().starts_with("relay+")
+            })
     })
 }
 
 /// What one look at the slot did.
 pub(crate) enum Armed<T> {
-    /// A fresh standby is held already; look again after this long.
+    /// A live standby is held, not yet due its replacement; look again after this long.
     Held(Duration),
-    /// A standby on this route was dialed. `retired` is the stale one it replaced, to close.
-    Dialed { index: usize, retired: Option<T> },
+    /// A standby on this route was dialed. `retired` is the one it replaced, to close.
+    Dialed { retired: Option<T> },
     /// No route can be a standby (a single route, or none supports the auth).
     NoRoute,
 }
 
-/// Fills the slot if it is empty or stale.
+/// Fills the slot if it is empty, closed (`alive` false) or due its replacement.
 pub(crate) async fn arm_standby<T: Send>(
     standby: &WarmStandby<T>,
     next: &AtomicUsize,
@@ -146,8 +182,9 @@ pub(crate) async fn arm_standby<T: Send>(
     lane_policy: LanePolicy,
     auth: AuthKind,
     attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
+    alive: impl Fn(&T) -> bool,
 ) -> Result<Armed<T>, ProviderError> {
-    if let Some(left) = standby.fresh_for().filter(|left| !left.is_zero()) {
+    if let Some(left) = standby.refresh_in(&alive).filter(|left| !left.is_zero()) {
         return Ok(Armed::Held(left));
     }
     let Some(index) = standby_route(
@@ -158,15 +195,38 @@ pub(crate) async fn arm_standby<T: Send>(
     ) else {
         return Ok(Armed::NoRoute);
     };
-    let request = connect_request(&routes[index], session, lane_policy)
+    let Some(route) = routes.get(index) else { return Ok(Armed::NoRoute) };
+    let request = connect_request(route, session, lane_policy)
         .map_err(|error| ProviderError::Configuration(error.to_string()))?;
     let group = attempt.connect(index, request, auth).await?;
-    Ok(Armed::Dialed { index, retired: standby.put(index, group) })
+    Ok(Armed::Dialed { retired: standby.put(index, group) })
 }
 
-/// [`next_reconnect_route`] that starts from the standby: a fresh one is the answer with no
-/// dial (the standby's route is dialed already). Without one, or when it is stale, the
-/// ordinary pass. Returns the group and, for a stale standby, the one to close.
+/// The standby for a redial about to start ([`ReconnectGroupSource::take_standby`]): the
+/// held one when it is fresh and `alive`, with the route it is on. The rotation moves to that
+/// route, so the pass started behind it redials it cold first (a standby can be dead on the
+/// wire with every local sign live), and the next standby goes beside it. A stale or closed
+/// one is returned in `Err` to be closed.
+///
+/// [`ReconnectGroupSource::take_standby`]: cmux_remote::connection::ReconnectGroupSource::take_standby
+pub(crate) fn take_standby<T>(
+    standby: &WarmStandby<T>,
+    next: &AtomicUsize,
+    alive: impl Fn(&T) -> bool,
+) -> Option<Result<(usize, T), T>> {
+    let taken = standby.take(alive)?;
+    if let Ok((index, _)) = &taken {
+        next.store(*index, Ordering::Relaxed);
+        standby.set_active(*index);
+    }
+    standby.wake.notify_one();
+    Some(taken)
+}
+
+/// [`next_reconnect_route`] that starts from the standby: a fresh, live one is the answer
+/// with no dial (the standby's route is dialed already). Without one, or when it is stale or
+/// closed, the ordinary pass. Returns the group and, for a stale or closed standby, the one to
+/// close.
 pub(crate) async fn next_warm_route<T: Send>(
     standby: &WarmStandby<T>,
     next: &AtomicUsize,
@@ -176,9 +236,10 @@ pub(crate) async fn next_warm_route<T: Send>(
     lane_policy: LanePolicy,
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
+    alive: impl Fn(&T) -> bool,
 ) -> Result<(T, Option<T>), ProviderError> {
     let mut stale = None;
-    match standby.take() {
+    match standby.take(alive) {
         Some(Ok((index, group))) => {
             next.store(index.saturating_add(1), Ordering::Relaxed);
             standby.set_active(index);

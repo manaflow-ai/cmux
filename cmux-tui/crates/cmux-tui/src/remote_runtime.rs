@@ -79,6 +79,7 @@ mod route_last_good;
 mod route_race;
 mod startup_progress;
 mod warm_standby;
+use cmux_remote::connection::StandbyGroup;
 pub use daemon_state::load_runtime_info;
 use daemon_state::{
     CommittedRuntimeInfoError, finalize_daemon_lifecycle, persist_runtime_info,
@@ -1639,6 +1640,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
             self.options.lane_policy,
             followup_auth_kind(&self.options.auth),
             &attempt,
+            group_alive,
         )
         .await?;
         if let Some(stale) = stale {
@@ -1646,11 +1648,38 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         }
         Ok(group)
     }
+
+    async fn take_standby(&self) -> Option<StandbyGroup> {
+        let (_, group) = match warm_standby::take_standby(&self.standby, &self.next, group_alive)? {
+            Ok(taken) => taken,
+            Err(stale) => {
+                close_failed_initial_group(&stale).await;
+                return None;
+            }
+        };
+        let rtt = group
+            .transport_snapshot()
+            .await
+            .selected_path
+            .and_then(|path| path.rtt_micros)
+            .map(Duration::from_micros);
+        Some(StandbyGroup {
+            group,
+            attempt_timeout: warm_standby::attempt_timeout(rtt),
+            race_after: self.race.map(|race| race.stagger),
+        })
+    }
 }
 
-/// The keeper of one peer's warm standby: dials it when the slot is empty or stale, and looks
-/// again when the reconnect took it, at the standby's expiry, or after a backoff when the dial
-/// failed. Holds the source only weakly, so it ends with it.
+/// A held group is live until it says it closed (no round trip).
+fn group_alive(group: &Arc<dyn LinkGroup>) -> bool {
+    !group.is_closed()
+}
+
+/// The keeper of one peer's warm standby: dials it when the slot is empty, closed or due its
+/// replacement, and looks again when the reconnect took it, when the held group closes, at its
+/// refresh, or after a backoff when the dial failed (or the group closed within
+/// [`warm_standby::MIN_LIFE`]). Holds the source only weakly, so it ends with it.
 async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tokio::sync::Notify>) {
     let mut backoff = warm_standby::INITIAL_BACKOFF;
     loop {
@@ -1671,16 +1700,16 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
             inner.options.lane_policy,
             followup_auth_kind(&inner.options.auth),
             &attempt,
+            group_alive,
         )
         .await;
-        let wait = match armed {
+        let mut wait = match armed {
             Ok(Armed::Held(left)) => left,
             Ok(Armed::Dialed { retired, .. }) => {
-                backoff = warm_standby::INITIAL_BACKOFF;
                 if let Some(retired) = retired {
                     close_failed_initial_group(&retired).await;
                 }
-                warm_standby::MAX_AGE
+                warm_standby::REFRESH
             }
             Ok(Armed::NoRoute) => return,
             Err(_) => {
@@ -1689,10 +1718,33 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
                 wait
             }
         };
+        let held = inner.standby.held();
         drop(inner);
+        let closed = async {
+            match &held {
+                Some((group, _)) => group.wait_closed().await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             () = tokio::time::sleep(wait) => {}
             () = wake.notified() => {}
+            () = closed => {
+                // Closed while held: re-arm now, unless it died young (back off then).
+                let lived = held.as_ref().map(|(_, armed_at)| armed_at.elapsed());
+                if lived.is_some_and(|lived| lived < warm_standby::MIN_LIFE) {
+                    wait = backoff;
+                    backoff = (backoff * 2).min(warm_standby::MAX_BACKOFF);
+                    tokio::select! {
+                        () = tokio::time::sleep(wait) => {}
+                        () = wake.notified() => {}
+                    }
+                }
+                continue;
+            }
+        }
+        if held.as_ref().is_some_and(|(_, armed_at)| armed_at.elapsed() >= warm_standby::MIN_LIFE) {
+            backoff = warm_standby::INITIAL_BACKOFF;
         }
     }
 }

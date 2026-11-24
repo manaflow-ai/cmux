@@ -5,7 +5,8 @@ use std::sync::atomic::AtomicUsize;
 
 use super::*;
 use crate::remote_runtime::warm_standby::{
-    Armed, MAX_AGE, WarmStandby, arm_standby, next_warm_route, standby_route,
+    ATTEMPT_FLOOR, ATTEMPT_UNKNOWN_RTT, Armed, MAX_AGE, REFRESH, WarmStandby, arm_standby,
+    attempt_timeout, next_warm_route, standby_route, take_standby,
 };
 
 /// Route `index` answers after `delay` with `(index, dial number)`, or fails when `down`.
@@ -63,8 +64,17 @@ async fn arm(
     routes: &[ResolvedRouteCandidate],
     attempt: &CountingDials,
 ) -> Result<Armed<(usize, usize)>, ProviderError> {
-    arm_standby(standby, next, routes, SESSION, LanePolicy::Single, AuthKind::Enrolled, attempt)
-        .await
+    arm_standby(
+        standby,
+        next,
+        routes,
+        SESSION,
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        attempt,
+        |_: &(usize, usize)| true,
+    )
+    .await
 }
 
 async fn reconnect(
@@ -82,6 +92,7 @@ async fn reconnect(
         LanePolicy::Single,
         AuthKind::Enrolled,
         attempt,
+        |_: &(usize, usize)| true,
     )
     .await
 }
@@ -114,7 +125,8 @@ async fn a_reconnect_with_a_standby_skips_the_dial() {
 
     // Armed beside the active link (route 0): the dial happens here, off the reconnect.
     let armed = arm(&standby, &next, &routes, &attempt).await.unwrap();
-    assert!(matches!(armed, Armed::Dialed { index: 1, retired: None }));
+    assert!(matches!(armed, Armed::Dialed { retired: None }));
+    assert_eq!(standby.held_index(), Some(1));
     assert_eq!(attempt.dials(), [1]);
 
     // Route 0 dies: the reconnect takes route 1's group, already dialed.
@@ -150,7 +162,7 @@ async fn the_standby_rearms_beside_the_new_active_route() {
     arm(&standby, &next, &routes, &attempt).await.unwrap();
     reconnect(&standby, &next, &routes, &attempt).await.unwrap();
     let armed = arm(&standby, &next, &routes, &attempt).await.unwrap();
-    assert!(matches!(armed, Armed::Dialed { index: 2, retired: None }));
+    assert!(matches!(armed, Armed::Dialed { retired: None }));
     assert_eq!(standby.held_index(), Some(2));
     // A fresh one is not dialed again.
     assert!(matches!(arm(&standby, &next, &routes, &attempt).await.unwrap(), Armed::Held(_)));
@@ -196,4 +208,112 @@ async fn one_route_has_no_standby() {
     let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
     assert!(matches!(arm(&standby, &next, &routes, &attempt).await.unwrap(), Armed::NoRoute));
     assert!(attempt.dials().is_empty());
+}
+
+/// A standby whose group closed (the daemon closes a connection that opened no stream) is
+/// never used: not by the redial, not by the pass, and the keeper dials its replacement.
+#[tokio::test(start_paused = true)]
+async fn a_closed_standby_is_never_used() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    let closed = |_: &(usize, usize)| false;
+
+    // The redial's take hands it back to be closed, and the rotation does not move to it.
+    let taken = take_standby(&standby, &next, closed).expect("a standby was held");
+    assert!(matches!(taken, Err((1, 1))), "a closed standby was handed to the redial");
+    assert_eq!(next.load(Ordering::Relaxed), 1);
+
+    // The pass's take dials instead.
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    let (group, stale) = next_warm_route(
+        &standby,
+        &next,
+        &routes,
+        Some(RouteRace::after(None)),
+        SESSION,
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        &attempt,
+        closed,
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, Some((1, 2)), "the closed standby is returned to close");
+    assert_eq!(group, (1, 3), "a new dial, not the closed group");
+
+    // The keeper's look re-arms over a closed one at once, however young it is.
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    let rearmed = arm_standby(
+        &standby,
+        &next,
+        &routes,
+        SESSION,
+        LanePolicy::Single,
+        AuthKind::Enrolled,
+        &attempt,
+        closed,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(rearmed, Armed::Dialed { retired: Some(_) }));
+}
+
+/// A live standby is replaced at REFRESH, before it is untrusted at MAX_AGE, and both come
+/// before the daemon's 15 s close of a connection that opened no stream. Until the new one is
+/// in, the old one is still taken.
+#[tokio::test(start_paused = true)]
+async fn the_standby_is_replaced_before_the_daemon_closes_it() {
+    assert!(REFRESH < MAX_AGE && MAX_AGE < Duration::from_secs(15));
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    match arm(&standby, &next, &routes, &attempt).await.unwrap() {
+        Armed::Held(left) => assert!(left <= REFRESH),
+        _ => panic!("a fresh standby was redialed"),
+    }
+    tokio::time::advance(REFRESH).await;
+    let refreshed = arm(&standby, &next, &routes, &attempt).await.unwrap();
+    assert!(matches!(refreshed, Armed::Dialed { retired: Some((1, 1)) }));
+    assert_eq!(attempt.dials(), [1, 1]);
+    // Past REFRESH but inside MAX_AGE an unreplaced standby is still taken.
+    let late = WarmStandby::new(0);
+    arm(&late, &next, &routes, &attempt).await.unwrap();
+    tokio::time::advance(REFRESH + (MAX_AGE - REFRESH) / 2).await;
+    assert!(matches!(take_standby(&late, &next, |_: &(usize, usize)| true), Some(Ok((1, _)))));
+}
+
+/// The redial on a standby gets a few round trips, not the 15 s attempt timeout.
+#[test]
+fn a_standby_redial_is_bounded_by_its_round_trip() {
+    assert_eq!(
+        attempt_timeout(Some(Duration::from_millis(50))),
+        ATTEMPT_FLOOR + Duration::from_millis(100)
+    );
+    assert_eq!(attempt_timeout(None), ATTEMPT_UNKNOWN_RTT);
+    assert!(attempt_timeout(Some(Duration::from_millis(300))) < Duration::from_secs(15));
+}
+
+/// The redial takes a standby to the route it is on: the pass started behind it redials that
+/// route cold first, and the next standby goes beside it.
+#[tokio::test(start_paused = true)]
+async fn a_taken_standby_moves_the_rotation_to_its_route() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    let taken = take_standby(&standby, &next, |_: &(usize, usize)| true);
+    assert!(matches!(taken, Some(Ok((1, (1, 1))))));
+    assert_eq!(next.load(Ordering::Relaxed), 1);
+    assert_eq!(standby.held_index(), None);
+    // Nothing held: no standby for the next redial.
+    assert!(take_standby(&standby, &next, |_: &(usize, usize)| true).is_none());
+    // The keeper's next standby is beside route 1.
+    arm(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(standby.held_index(), Some(2));
 }
