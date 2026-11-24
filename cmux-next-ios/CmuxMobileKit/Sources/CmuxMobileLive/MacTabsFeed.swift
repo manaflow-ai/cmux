@@ -118,6 +118,15 @@ public final class MacTabsFeed {
         mirrors[macID]?.rows().map(MacTabCard.init) ?? []
     }
 
+    /// `macID` was deleted: its kept cards and its place in the stream go, and an open channel
+    /// of it stops at its next chunk (its session is no longer the Mac's).
+    public func forget(macID: String) {
+        sessions[macID]?.outbox.finish()
+        sessions[macID] = nil
+        mirrors[macID] = nil
+        near[macID] = nil
+    }
+
     /// The cards on screen and around them, nearest the open tab first: their blobs are asked
     /// for before the rest. Call when the grid opens, comes to rest or the open tab changes,
     /// never per scroll frame.
