@@ -169,6 +169,10 @@ const CODEX_APP_DARK: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app-dark/agent-pane.css")),
 ];
 
+const WEB_CODING_APP: &[(&str, &str)] = &[
+    ("themes/web-coding-app.json", include_str!("../recipes/apps/web-coding-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/web-coding-app/agent-pane.css")),
+];
 const VIOLET_APP: &[(&str, &str)] = &[
     ("themes/violet-app.json", include_str!("../recipes/apps/violet-app/theme.json")),
     ("agent-pane/theme.css", include_str!("../recipes/apps/violet-app/agent-pane.css")),
@@ -525,6 +529,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux look like a violet desktop coding app",
         profile: include_str!("../recipes/violet-app.json"),
         includes: VIOLET_APP,
+    },
+    Recipe {
+        name: "web-coding-app",
+        title: "A light web coding app",
+        group: Group::Apps,
+        ask: "make cmux look like a light web coding agent, with workspaces as tabs",
+        profile: include_str!("../recipes/web-coding-app.json"),
+        includes: WEB_CODING_APP,
     },
 ];
 

@@ -2,6 +2,11 @@
 
 - 2026-11-17 (theme-flourish-settings, ask-cbefa8bcf5): Sidebar-Look: Leo, 2026-11-17: "ok i feel like a [character] theme necessarily has to have lots of [character] wallpapers among other flourishes". A theme may set a sidebar header picture (`appearance.sidebarHeader.dark` / `.light`, written by a community theme's install from cmux-theme.json `header`): an aspect-filled picture under the titlebar row, inset `Metrics.space2` with `Metrics.panelCornerRadius` corners, height width x 0.36 clamped to 64-140 pt, the list below it moved down by that height (`SidebarView+HeaderArt`). Its image comes from the shared `BackdropImageStore` cache, decoded off the main thread. Unset (the default): no view and the layout is unchanged.
 
+- 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
+  changed how groups look. A group opens with its visible header band and member rail. Folders and the six
+  other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
+  `ChiefGroupRailTests`, and `SidebarGroupsAsFoldersTests`.
+
 - 2026-11-14 (Remote ergonomics flow 5, ports): Sidebar-Look: Leo asked “and how are the ergonomics of cmux remote tho esp in the gui?”. The workspace hover card draws each port of the workspace's `ports` entry as a row under the tab list ("localhost:5173", network icon, the tab rows' hover and pressed fill), with details shut or open; a click opens it in a browser tab of the workspace, on another machine through its daemon. The entry no longer repeats as a details fact when it has a port to open; one with only words still does. Gallery: "Ports · this Mac · one port", "· two ports · details open", "· another machine · its localhost", "· port row hovered".
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
   The native row now consumes Rust-resolved `lines`, `linesByKind` and `linesByAgent` from
