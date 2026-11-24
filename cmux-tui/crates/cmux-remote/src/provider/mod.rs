@@ -192,6 +192,12 @@ pub trait LinkGroup: Send + Sync {
     fn is_closed(&self) -> bool {
         false
     }
+    /// Asks the far end to keep this group open while it carries nothing, for a standby: the lease
+    /// granted, or None where the provider or the far end has no hold (the standby is redialed).
+    async fn hold(&self) -> Option<std::time::Duration> {
+        None
+    }
+
     /// Resolves when the group closes (never, for a group that cannot tell): a warm standby
     /// held unused re-arms when it goes, instead of being found dead when it is needed.
     async fn wait_closed(&self) {

@@ -12,10 +12,15 @@
 //! No daemon state is held: the standby is a group, not a link, so there is no pending link
 //! group to expire (the daemon's `PENDING_LINK_TTL`, 30 s, only starts at a link hello). But a
 //! daemon closes an iroh connection that opens no stream within its `first_stream_timeout`
-//! (15 s, `provider/iroh.rs`), and a standby opens none until it is used. So a standby is
-//! redialed after [`REFRESH`] (the old one kept until the new one is in), never trusted past
-//! [`MAX_AGE`], both under the daemon's 15 s; and before it is taken its group is asked whether
-//! it closed (local state, no round trip). The keeper also re-arms the moment a held group
+//! (15 s, `provider/iroh.rs`), and a standby opens none until it is used. So a new standby asks
+//! the far end to hold it ([`LinkGroup::hold`], one unidirectional stream each way, no cmux
+//! stream): a listener that knows the hold keeps it until its unauthenticated timeout (5 min) and
+//! says so, and the standby is kept for that lease less [`HOLD_MARGIN`], one connection per peer
+//! every few minutes instead of a QUIC handshake every few seconds. A far end with no hold (an
+//! older daemon, or a provider without one) is asked once per peer; there the standby is redialed
+//! after [`REFRESH`] (the old one kept until the new one is in), never trusted past [`MAX_AGE`],
+//! both under the daemon's 15 s. Before a standby is taken its group is asked whether it closed
+//! (local state, no round trip). The keeper also re-arms the moment a held group
 //! closes. A standby that is live by every local sign but dead on the wire gets a short redial
 //! ([`attempt_timeout`]) with the ordinary race started behind it.
 //!
@@ -23,7 +28,8 @@
 //! grants, and `carrier::source` does not use this) nor for any auth but Enrolled, and
 //! `CMUX_REMOTE_WARM_STANDBY=0` turns it off.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -39,8 +45,18 @@ use cmux_remote_protocol::{LanePolicy, SessionId};
 /// How long a standby is trusted. Under the daemon's 15 s close of a connection that opened
 /// no stream, with room for the clocks of both ends and a slow link.
 pub(crate) const MAX_AGE: Duration = Duration::from_secs(11);
-/// When the keeper dials the standby's replacement (the old one is held until it is in).
-pub(crate) const REFRESH: Duration = Duration::from_secs(8);
+/// How long before a standby stops being trusted the keeper dials its replacement (the old one
+/// is held until the new one is in).
+pub(crate) const REFRESH_LEAD: Duration = Duration::from_secs(3);
+/// When the keeper replaces a standby the far end does not hold.
+pub(crate) const REFRESH: Duration = MAX_AGE.saturating_sub(REFRESH_LEAD);
+/// A held standby is trusted until this long before its lease ends.
+pub(crate) const HOLD_MARGIN: Duration = Duration::from_secs(5);
+
+/// How long a standby is trusted: [`MAX_AGE`], or a hold's lease less [`HOLD_MARGIN`].
+pub(crate) fn trusted_for(lease: Option<Duration>) -> Duration {
+    lease.map_or(MAX_AGE, |lease| lease.saturating_sub(HOLD_MARGIN).max(MAX_AGE))
+}
 /// A standby that closed sooner than this after it was armed counts as a failed arm (backoff),
 /// so a far end that closes every standby at once is not redialed in a loop.
 pub(crate) const MIN_LIFE: Duration = Duration::from_secs(1);
@@ -68,6 +84,8 @@ struct Standby<T> {
     index: usize,
     group: T,
     armed_at: Instant,
+    /// [`trusted_for`] its hold.
+    max_age: Duration,
 }
 
 /// The standby slot of one peer.
@@ -76,11 +94,18 @@ pub(crate) struct WarmStandby<T> {
     /// The route the link is on (the one the standby must not be).
     active: AtomicUsize,
     wake: Arc<Notify>,
+    /// The far end answered no hold once: later standbys of this peer do not ask again.
+    no_hold: AtomicBool,
 }
 
 impl<T> WarmStandby<T> {
     pub(crate) fn new(active: usize) -> Self {
-        Self { slot: Mutex::new(None), active: AtomicUsize::new(active), wake: Arc::default() }
+        Self {
+            slot: Mutex::new(None),
+            active: AtomicUsize::new(active),
+            wake: Arc::default(),
+            no_hold: AtomicBool::new(false),
+        }
     }
 
     /// Wakes the keeper to look at the slot now.
@@ -96,7 +121,7 @@ impl<T> WarmStandby<T> {
     /// closed one is returned in `Err` to be closed.
     fn take(&self, alive: impl Fn(&T) -> bool) -> Option<Result<(usize, T), T>> {
         let held = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()?;
-        Some(if held.armed_at.elapsed() < MAX_AGE && alive(&held.group) {
+        Some(if held.armed_at.elapsed() < held.max_age && alive(&held.group) {
             Ok((held.index, held.group))
         } else {
             Err(held.group)
@@ -116,9 +141,9 @@ impl<T> WarmStandby<T> {
     /// one held closed).
     fn refresh_in(&self, alive: impl Fn(&T) -> bool) -> Option<Duration> {
         let slot = self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        slot.as_ref()
-            .filter(|held| alive(&held.group))
-            .map(|held| REFRESH.saturating_sub(held.armed_at.elapsed()))
+        slot.as_ref().filter(|held| alive(&held.group)).map(|held| {
+            held.max_age.saturating_sub(REFRESH_LEAD).saturating_sub(held.armed_at.elapsed())
+        })
     }
 
     /// The held standby's route, for logs and tests.
@@ -127,11 +152,11 @@ impl<T> WarmStandby<T> {
         self.slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref().map(|s| s.index)
     }
 
-    fn put(&self, index: usize, group: T) -> Option<T> {
+    fn put(&self, index: usize, group: T, armed_at: Instant, max_age: Duration) -> Option<T> {
         self.slot
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .replace(Standby { index, group, armed_at: Instant::now() })
+            .replace(Standby { index, group, armed_at, max_age })
             .map(|old| old.group)
     }
 }
@@ -173,8 +198,9 @@ pub(crate) enum Armed<T> {
     NoRoute,
 }
 
-/// Fills the slot if it is empty, closed (`alive` false) or due its replacement.
-pub(crate) async fn arm_standby<T: Send>(
+/// Fills the slot if it is empty, closed (`alive` false) or due its replacement. A new standby
+/// asks the far end to `hold` it unless this peer's far end already answered no hold.
+pub(crate) async fn arm_standby<T: Send + Clone, H: Future<Output = Option<Duration>>>(
     standby: &WarmStandby<T>,
     next: &AtomicUsize,
     routes: &[ResolvedRouteCandidate],
@@ -183,6 +209,7 @@ pub(crate) async fn arm_standby<T: Send>(
     auth: AuthKind,
     attempt: &(impl ReconnectRouteAttempt<T> + ?Sized),
     alive: impl Fn(&T) -> bool,
+    hold: impl FnOnce(T) -> H,
 ) -> Result<Armed<T>, ProviderError> {
     if let Some(left) = standby.refresh_in(&alive).filter(|left| !left.is_zero()) {
         return Ok(Armed::Held(left));
@@ -199,7 +226,13 @@ pub(crate) async fn arm_standby<T: Send>(
     let request = connect_request(route, session, lane_policy)
         .map_err(|error| ProviderError::Configuration(error.to_string()))?;
     let group = attempt.connect(index, request, auth).await?;
-    Ok(Armed::Dialed { retired: standby.put(index, group) })
+    let dialed_at = Instant::now();
+    let lease =
+        if standby.no_hold.load(Ordering::Relaxed) { None } else { hold(group.clone()).await };
+    if lease.is_none() {
+        standby.no_hold.store(true, Ordering::Relaxed);
+    }
+    Ok(Armed::Dialed { retired: standby.put(index, group, dialed_at, trusted_for(lease)) })
 }
 
 /// The standby for a redial about to start ([`ReconnectGroupSource::take_standby`]): the

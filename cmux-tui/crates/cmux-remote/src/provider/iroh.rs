@@ -30,6 +30,24 @@ use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
 const AUTO_RELAY_BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// A standby hold, version 1. A client keeps a spare connection per peer to move to when its
+/// link dies, and that connection opens no cmux stream until then, so the listener's first-stream
+/// timeout would close it at 15 s and the client would have to redial it every few seconds. The
+/// client instead sends [`HOLD_REQUEST`] on one unidirectional stream; a listener that knows it
+/// lifts the first-stream timeout for that connection and answers on a unidirectional stream of
+/// its own with [`HOLD_GRANTED`] and the lease left, an 8-byte big-endian millisecond count: the
+/// connection's unauthenticated timeout, which still closes it. No cmux stream and no Noise
+/// handshake are involved, and the connection still holds its admission slot as before.
+///
+/// Lockstep: a listener older than this never accepts unidirectional streams, so the client hears
+/// nothing within [`HOLD_ANSWER_WAIT`] and redials its standby before 15 s as before. A client
+/// older than this never asks, and the listener behaves as before.
+pub(crate) const HOLD_REQUEST: &[u8] = b"cmux-standby-hold/1";
+pub(crate) const HOLD_GRANTED: &[u8] = b"cmux-standby-held/1";
+/// How long a client waits for [`HOLD_GRANTED`] and a listener for [`HOLD_REQUEST`]: both are one
+/// stream each way on a connection that is already up.
+pub(crate) const HOLD_ANSWER_WAIT: Duration = Duration::from_secs(3);
+
 /// Load a stable carrier key or create it with owner-only permissions. Noise
 /// remains the daemon identity, but a stable Iroh key keeps published route
 /// hints valid across daemon restarts.
@@ -831,6 +849,7 @@ async fn serve_iroh_connection(
     tokio::pin!(first_stream_deadline);
     tokio::pin!(unauthenticated_deadline);
     let mut authenticated = false;
+    let mut held = false;
     let _connection_permit = connection_permit;
     loop {
         tokio::select! {
@@ -854,13 +873,24 @@ async fn serve_iroh_connection(
                     None => break,
                 }
             }
-            _ = &mut first_stream_deadline, if next_stream_id == 0 => {
+            _ = &mut first_stream_deadline, if next_stream_id == 0 && !held => {
                 connection.close(4_u8.into(), b"first cmux stream timed out");
                 break;
             }
             _ = &mut unauthenticated_deadline, if !authenticated => {
                 connection.close(8_u8.into(), b"cmux authentication timed out");
                 break;
+            }
+            accepted = connection.accept_uni(), if !held && next_stream_id == 0 => {
+                let Ok(receiver) = accepted else { break };
+                let lease = unauthenticated_deadline
+                    .deadline()
+                    .saturating_duration_since(tokio::time::Instant::now());
+                if !answer_hold(&connection, receiver, lease).await {
+                    connection.close(10_u8.into(), b"unexpected cmux stream");
+                    break;
+                }
+                held = true;
             }
             accepted = connection.accept_bi() => {
                 let Ok((mut sender, mut receiver)) = accepted else { break };
@@ -927,6 +957,48 @@ async fn serve_iroh_connection(
         }
     }
     links.shutdown().await;
+}
+
+/// Reads a [`HOLD_REQUEST`] and answers it with [`HOLD_GRANTED`] and `lease`. False for anything
+/// else, or nothing within [`HOLD_ANSWER_WAIT`].
+async fn answer_hold(
+    connection: &::iroh::endpoint::Connection,
+    mut receiver: ::iroh::endpoint::RecvStream,
+    lease: Duration,
+) -> bool {
+    tokio::time::timeout(HOLD_ANSWER_WAIT, async {
+        let request = receiver.read_to_end(HOLD_REQUEST.len()).await.ok()?;
+        if request != HOLD_REQUEST {
+            return None;
+        }
+        let mut answer = HOLD_GRANTED.to_vec();
+        answer
+            .extend_from_slice(&u64::try_from(lease.as_millis()).unwrap_or(u64::MAX).to_be_bytes());
+        let mut sender = connection.open_uni().await.ok()?;
+        sender.write_all(&answer).await.ok()?;
+        sender.finish().ok()
+    })
+    .await
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+/// Asks the listener to hold `connection` ([`HOLD_REQUEST`]). The lease it granted, or None from a
+/// listener older than the hold (no answer within [`HOLD_ANSWER_WAIT`]).
+pub(crate) async fn request_hold(connection: &::iroh::endpoint::Connection) -> Option<Duration> {
+    tokio::time::timeout(HOLD_ANSWER_WAIT, async {
+        let mut sender = connection.open_uni().await.ok()?;
+        sender.write_all(HOLD_REQUEST).await.ok()?;
+        sender.finish().ok()?;
+        let mut receiver = connection.accept_uni().await.ok()?;
+        let answer = receiver.read_to_end(HOLD_GRANTED.len() + 8).await.ok()?;
+        let lease = answer.strip_prefix(HOLD_GRANTED)?;
+        Some(Duration::from_millis(u64::from_be_bytes(lease.try_into().ok()?)))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1086,4 +1158,13 @@ impl LinkGroup for IrohLinkGroup {
         let connection = self.connection.lock().await.clone();
         let _ = connection.closed().await;
     }
+
+    async fn hold(&self) -> Option<Duration> {
+        let connection = self.connection.lock().await.clone();
+        request_hold(&connection).await
+    }
 }
+
+#[cfg(test)]
+#[path = "iroh_hold_tests.rs"]
+mod hold_tests;

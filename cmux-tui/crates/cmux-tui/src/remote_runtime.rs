@@ -1701,6 +1701,7 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
             followup_auth_kind(&inner.options.auth),
             &attempt,
             group_alive,
+            |group: Arc<dyn LinkGroup>| async move { group.hold().await },
         )
         .await;
         let mut wait = match armed {
@@ -1709,7 +1710,9 @@ async fn keep_standby(weak: std::sync::Weak<ReconnectGroupsInner>, wake: Arc<tok
                 if let Some(retired) = retired {
                     close_failed_initial_group(&retired).await;
                 }
-                warm_standby::REFRESH
+                // Look again at once: the slot answers `Held` with its refresh, which a hold
+                // the far end granted puts minutes out instead of seconds.
+                Duration::ZERO
             }
             Ok(Armed::NoRoute) => return,
             Err(_) => {

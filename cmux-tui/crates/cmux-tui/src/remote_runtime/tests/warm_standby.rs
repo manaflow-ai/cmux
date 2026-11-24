@@ -1,12 +1,12 @@
 //! One warm standby route: a reconnect that finds one takes it without a dial, and falls back
 //! to the (raced) pass when there is none or it is stale. Virtual (paused) time.
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::remote_runtime::warm_standby::{
-    ATTEMPT_FLOOR, ATTEMPT_UNKNOWN_RTT, Armed, MAX_AGE, REFRESH, WarmStandby, arm_standby,
-    attempt_timeout, next_warm_route, standby_route, take_standby,
+    ATTEMPT_FLOOR, ATTEMPT_UNKNOWN_RTT, Armed, MAX_AGE, REFRESH, REFRESH_LEAD, WarmStandby,
+    arm_standby, attempt_timeout, next_warm_route, standby_route, take_standby, trusted_for,
 };
 
 /// Route `index` answers after `delay` with `(index, dial number)`, or fails when `down`.
@@ -58,11 +58,24 @@ fn three_routes() -> Vec<ResolvedRouteCandidate> {
 
 const SESSION: SessionId = SessionId([31; 16]);
 
+/// Arms against a far end with no hold (an older daemon).
 async fn arm(
     standby: &WarmStandby<(usize, usize)>,
     next: &AtomicUsize,
     routes: &[ResolvedRouteCandidate],
     attempt: &CountingDials,
+) -> Result<Armed<(usize, usize)>, ProviderError> {
+    arm_with_hold(standby, next, routes, attempt, None, &AtomicUsize::new(0)).await
+}
+
+/// Arms against a far end that answers a hold with `lease`, counting the asks in `asked`.
+async fn arm_with_hold(
+    standby: &WarmStandby<(usize, usize)>,
+    next: &AtomicUsize,
+    routes: &[ResolvedRouteCandidate],
+    attempt: &CountingDials,
+    lease: Option<Duration>,
+    asked: &AtomicUsize,
 ) -> Result<Armed<(usize, usize)>, ProviderError> {
     arm_standby(
         standby,
@@ -73,6 +86,10 @@ async fn arm(
         AuthKind::Enrolled,
         attempt,
         |_: &(usize, usize)| true,
+        |_| {
+            asked.fetch_add(1, Ordering::Relaxed);
+            std::future::ready(lease)
+        },
     )
     .await
 }
@@ -255,6 +272,7 @@ async fn a_closed_standby_is_never_used() {
         AuthKind::Enrolled,
         &attempt,
         closed,
+        |_| std::future::ready(None),
     )
     .await
     .unwrap();
@@ -316,4 +334,48 @@ async fn a_taken_standby_moves_the_rotation_to_its_route() {
     // The keeper's next standby is beside route 1.
     arm(&standby, &next, &routes, &attempt).await.unwrap();
     assert_eq!(standby.held_index(), Some(2));
+}
+
+/// A far end that holds the standby (`cmux-standby-hold/1`) keeps the same connection for its
+/// lease: no redial every few seconds, and it is still taken minutes later.
+#[tokio::test(start_paused = true)]
+async fn a_held_standby_is_kept_for_its_lease_without_a_redial() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    let asked = AtomicUsize::new(0);
+    let lease = Some(Duration::from_secs(300));
+    arm_with_hold(&standby, &next, &routes, &attempt, lease, &asked).await.unwrap();
+    tokio::time::advance(Duration::from_secs(240)).await;
+    match arm_with_hold(&standby, &next, &routes, &attempt, lease, &asked).await.unwrap() {
+        Armed::Held(left) => assert!(left > Duration::ZERO, "held for its lease"),
+        _ => panic!("a held standby was redialed inside its lease"),
+    }
+    assert_eq!(attempt.dials(), [1], "one dial in four minutes");
+    assert!(matches!(take_standby(&standby, &next, |_: &(usize, usize)| true), Some(Ok((1, _)))));
+    // Near the lease's end it is replaced, and the hold is asked again.
+    let standby = WarmStandby::new(0);
+    arm_with_hold(&standby, &next, &routes, &attempt, lease, &asked).await.unwrap();
+    tokio::time::advance(trusted_for(lease) - REFRESH_LEAD).await;
+    let refreshed = arm_with_hold(&standby, &next, &routes, &attempt, lease, &asked).await.unwrap();
+    assert!(matches!(refreshed, Armed::Dialed { retired: Some(_) }));
+    assert_eq!(asked.load(Ordering::Relaxed), 3);
+    assert!(trusted_for(lease) < Duration::from_secs(300));
+}
+
+/// A far end with no hold is asked once per peer; its standbys are redialed under its 15 s.
+#[tokio::test(start_paused = true)]
+async fn a_far_end_with_no_hold_is_asked_once_and_the_standby_is_redialed() {
+    let routes = three_routes();
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let attempt = CountingDials::new(Duration::from_millis(5), vec![]);
+    let asked = AtomicUsize::new(0);
+    arm_with_hold(&standby, &next, &routes, &attempt, None, &asked).await.unwrap();
+    tokio::time::advance(REFRESH).await;
+    let refreshed = arm_with_hold(&standby, &next, &routes, &attempt, None, &asked).await.unwrap();
+    assert!(matches!(refreshed, Armed::Dialed { retired: Some(_) }));
+    assert_eq!(asked.load(Ordering::Relaxed), 1, "no second ask of a far end with no hold");
+    assert_eq!(trusted_for(None), MAX_AGE);
 }
