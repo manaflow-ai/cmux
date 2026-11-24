@@ -113,8 +113,10 @@ jobs:
           if [ -n "$SCANNED" ]; then
             git fetch --no-tags --filter=blob:none --depth=1 origin \
               +refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned
+            # Depth 1 when that fails: the scan then reads the whole diff, as before batching.
             git fetch --no-tags --filter=blob:none --shallow-exclude=refs/pr-media-privacy/scanned origin \
-              +refs/heads/pr-media:refs/remotes/origin/pr-media
+              +refs/heads/pr-media:refs/remotes/origin/pr-media ||
+              git fetch --no-tags --filter=blob:none --depth=1 origin +refs/heads/pr-media:refs/remotes/origin/pr-media
           else
             git fetch --no-tags --filter=blob:none --depth=1 origin +refs/heads/pr-media:refs/remotes/origin/pr-media
           fi

@@ -394,6 +394,18 @@ class ScanTests(RepoCase):
         self.assertEqual(privacy.batch_end(self.work, start, end, 1), first)
         self.assertEqual(privacy.batch_end(self.work, second, end, 1), end)
 
+    def test_a_batch_dedupes_a_file_touched_twice_and_skips_a_squashed_marker(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        first = self.commit({"1/a.png": "a"})
+        second = self.commit({"1/a.png": "a2", "1/b.png": "b"})
+        end = self.commit({"2/c.png": "c"})
+        # 1/a.png counts once across first and second.
+        self.assertEqual(privacy.batch_end(self.work, start, end, 2), second)
+        # A squash (prune_pr_media.py) leaves the marker off the tip's history: read the diff whole.
+        squashed = git("commit-tree", f"{end}^{{tree}}", "-m", "PR media, pruned", cwd=self.work).strip()
+        self.assertEqual(privacy.batch_end(self.work, start, squashed, 1), squashed)
+        self.assertNotEqual(first, second)
+
     def test_text_files_are_read_without_ocr(self) -> None:
         start = self.commit({"README.md": "hi"})
         end = self.commit({"7/index.html": "<p>cmux@cmux3s-mac-mini %</p>"})
