@@ -1196,7 +1196,7 @@ export default agentPaneEntry({
       },
     },
     ...Object.fromEntries(
-      looks
+      looks.looks
         .filter((look) => ["studio", "plush-addon", "paper-addon"].includes(look.id))
         .map((look) => [
           `whats-new-look-${look.id}`,

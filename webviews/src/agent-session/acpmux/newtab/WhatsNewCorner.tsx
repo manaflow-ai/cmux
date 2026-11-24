@@ -22,7 +22,7 @@ export function WhatsNewCorner({ onCommand }: { onCommand?: (command: WhatsNewCo
   if (!notice || !onCommand) return null;
   const { look } = notice;
   return (
-    <div className="nt-whats-new" data-look={look} role="group" aria-label={notice.title}>
+    <div className="nt-whats-new" data-look={look}>
       <button
         type="button"
         className="nt-whats-new-open"
@@ -48,7 +48,7 @@ export function WhatsNewCorner({ onCommand }: { onCommand?: (command: WhatsNewCo
         title={notice.dismiss}
         onClick={() => onCommand("dismiss")}
       >
-        <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true" focusable="false">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       </button>

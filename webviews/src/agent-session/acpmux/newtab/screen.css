@@ -13,7 +13,10 @@
    gallery's whats-new-holds-the-page check). The screen is the corner's containing block; every other
    absolutely placed part of the page sits in a positioned box of its own (.nt-box, the cards, the player). */
 .nt-screen{position:relative}
-.nt-screen>.nt-whats-new{position:absolute;top:var(--ds-space-2);right:var(--ds-space-2);z-index:1;width:auto;max-width:min(320px,calc(100% - 2 * var(--ds-space-2)));display:flex;align-items:center;gap:0;height:24px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.nt-screen>.nt-whats-new{position:absolute;top:var(--ds-space-2);right:var(--ds-space-2);z-index:var(--layer-raised);width:auto;max-width:min(320px,calc(100% - 2 * var(--ds-space-2)));display:flex;align-items:center;gap:0;/* The chip carries a page-colored backing: nothing to see on a plain page, readable text over a
+   wallpaper (round 3, cmux#53762: bare dim text over a busy picture was hard to read). */
+height:24px;color:color-mix(in srgb,var(--agent-text) 78%,transparent);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-bg) 90%,transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur)}
+:root[data-reduce-transparency] .nt-screen>.nt-whats-new{background:var(--agent-bg);-webkit-backdrop-filter:none;backdrop-filter:none}
 .nt-whats-new button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;min-width:0;margin:0;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:inherit;font:inherit;letter-spacing:inherit;cursor:default;white-space:nowrap}
 .nt-whats-new button:hover,.nt-whats-new button:focus-visible{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-whats-new button:focus-visible{outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
@@ -21,7 +24,7 @@
 .nt-whats-new-title,.nt-whats-new-label{overflow:hidden;text-overflow:ellipsis}
 .nt-whats-new-title{color:var(--agent-text)}
 .nt-whats-new button.nt-whats-new-dismiss{width:20px;padding:0;justify-content:center;opacity:0}
-.nt-whats-new:hover .nt-whats-new-dismiss,.nt-whats-new:focus-within .nt-whats-new-dismiss{opacity:1}
+.nt-whats-new:hover .nt-whats-new-dismiss,.nt-whats-new:has([data-popup-open]) .nt-whats-new-dismiss,.nt-whats-new:focus-within .nt-whats-new-dismiss{opacity:1}
 .nt-whats-new[data-look="dot"] .nt-whats-new-open{width:24px;padding:0;justify-content:center}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
