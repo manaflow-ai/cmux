@@ -6,11 +6,16 @@ import UIKit
 /// card's own snapshot, last-known picture or placeholder) for the UI tests'
 /// probe (`TabCardFaceProbe`). Draws nothing and changes nothing; outside
 /// DEBUG it is the content as it is.
-struct TabCardFaceRecord: ViewModifier {
+public struct TabCardFaceRecord: ViewModifier {
     let tabID: String?
     let face: String
 
-    func body(content: Content) -> some View {
+    public init(tabID: String?, face: String) {
+        self.tabID = tabID
+        self.face = face
+    }
+
+    public func body(content: Content) -> some View {
         #if DEBUG
         content.onChange(of: face, initial: true) { _, face in
             if let tabID { TabCardFaceProbe.record(face, tab: tabID) }
@@ -27,22 +32,38 @@ struct TabCardFaceRecord: ViewModifier {
 /// grid card drew first in this launch (the grid is kept built while hidden,
 /// so that may be before it showed) and the face it draws now, whether the
 /// grid shows, and how many last-known pictures this launch wrote to disk:
-/// `grid=1 saves=N saved=t-g2,t-g3 t-g3=live>lastKnown t-g2=placeholder>snapshot`. A card is one
+/// `grid=1 macseeded=N saves=N saved=t-g2,t-g3 t-g3=live>lastKnown t-g2=placeholder>snapshot`. A card is one
 /// accessibility element (TabsKit's card button), so its content cannot carry
 /// an identifier a test reads; this probe does, as `TabBarProbe` does.
 @MainActor
-enum TabCardFaceProbe {
+public enum TabCardFaceProbe {
     static let isEnabled = CommandLine.arguments.contains("-cmux-mobile-card-face-probe")
 
     /// Per tab: the first face recorded this launch, and the latest.
     private static var faces: [String: (first: String, now: String)] = [:]
     private static weak var probe: ProbeView?
     private static var gridShown = false
+    private static var favicons: [String: (first: Bool, now: Bool)] = [:]
+    private static var macSeededCards = 0
 
     /// The grid showed (true) or was covered by a page (`WorkspaceTabsSource.overviewVisibilityChanged`).
     static func gridVisible(_ visible: Bool) {
         guard isEnabled else { return }
         gridShown = visible
+        install()
+    }
+
+    /// A browser tab's favicon slot as its card builds it: an image, or the kind's glyph (blank).
+    /// Called from a view body, so it only writes this table; the probe view reads it.
+    static func recordFavicon(shown: Bool, tab: String) {
+        guard isEnabled else { return }
+        favicons[tab] = (first: favicons[tab]?.first ?? shown, now: shown)
+    }
+
+    /// The rig's mock Mac records are on disk (`ListStressMacCards`): `cards` rows and their blobs.
+    public static func macSeeded(cards: Int) {
+        guard isEnabled else { return }
+        macSeededCards = cards
         install()
     }
 
@@ -54,8 +75,9 @@ enum TabCardFaceProbe {
 
     static var summary: String {
         let cards = faces.keys.sorted().compactMap { tab in faces[tab].map { "\(tab)=\($0.first)>\($0.now)" } }
-        return (["grid=\(gridShown ? 1 : 0)", "saves=\(TabCardSnapshots.shared.saves)",
-                 "saved=" + (TabCardSnapshots.shared.savedTabs.isEmpty ? "-" : TabCardSnapshots.shared.savedTabs.sorted().joined(separator: ","))] + cards).joined(separator: " ")
+        let icons = favicons.keys.sorted().compactMap { tab in favicons[tab].map { "icon:\(tab)=\($0.first ? 1 : 0)>\($0.now ? 1 : 0)" } }
+        return (["grid=\(gridShown ? 1 : 0)", "macseeded=\(macSeededCards)", "saves=\(TabCardSnapshots.shared.saves)",
+                 "saved=" + (TabCardSnapshots.shared.savedTabs.isEmpty ? "-" : TabCardSnapshots.shared.savedTabs.sorted().joined(separator: ","))] + cards + icons).joined(separator: " ")
     }
 
     /// Puts the probe on the key window once (above everything, no touches).
