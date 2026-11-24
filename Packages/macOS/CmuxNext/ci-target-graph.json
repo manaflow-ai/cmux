@@ -1323,9 +1323,7 @@
         "CmuxNextDesign",
         "CmuxNextFiles"
       ],
-      "packages": [
-        "CmuxVisibleRows"
-      ]
+      "packages": []
     },
     "CmuxNextFloating": {
       "kind": "regular",
