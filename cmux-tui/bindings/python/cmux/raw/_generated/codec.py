@@ -166,6 +166,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsResult': models.ServerStatsResult,
     'types/ServerStatsWritePath': models.ServerStatsWritePath,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
+    'types/SetClientInfoResult': models.SetClientInfoResult,
     'types/SetHostSizePolicyResult': models.SetHostSizePolicyResult,
     'types/SetSizeCountsResult': models.SetSizeCountsResult,
     'types/SetSizePolicyResult': models.SetSizePolicyResult,
