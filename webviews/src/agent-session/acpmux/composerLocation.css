@@ -401,7 +401,8 @@
    so the two always match. */
 .acpmux-composer-box,
 .acpmux-asks-stack {
-  --acpmux-composer-radius: 18px;
+  /* A theme's corner (--cmux-composer-radius); unset, 18 px. */
+  --acpmux-composer-radius: var(--cmux-composer-radius, 18px);
 }
 /* The card's material is the liquid glass (.ui-glass, ui/glass/glass.css) with the composer's own
    tokens (composerStates.css): the solid composer surface on an opaque window, glass over art or a
@@ -1647,12 +1648,11 @@
   align-items: center;
   height: var(--acpmux-composer-control);
 }
-/* Claude Code's +: a rounded-square chip with a hairline edge at rest, its glyph a step over the other icons
-   (ask-bfa9b41590, Leo 2026-11-23: "our + symbol is too small"). The chip's corner is the box's minus the
-   inset (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
+/* Claude Code's +: a bare glyph at rest, a step over the other icons (ask-bfa9b41590, Leo 2026-11-23: "our +
+   symbol is too small"), with no edge (Lucas 2026-11-23). Its hover chip's corner is the box's minus the inset
+   (--acpmux-plus-chip-radius), so the two stay concentric. The round look (codex) draws its own +. */
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button {
   border-radius: var(--acpmux-plus-chip-radius); /* radius-allow: concentric with the composer's corner */
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 :is(.acpmux-composer:not([data-composer-look="codex"]), .nt-composer) .acpmux-composer-plus .acpmux-picker-button .acpmux-icon {
   width: var(--acpmux-shield-box);
