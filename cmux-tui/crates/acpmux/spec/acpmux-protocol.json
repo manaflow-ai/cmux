@@ -132,6 +132,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/request_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "acp.session.fork",
       "params": {
         "$ref": "#/types/ForkParams"
@@ -224,6 +230,12 @@
     {
       "kind": "request",
       "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/felt_snapshot",
       "params": true,
       "result": true
     },
@@ -559,6 +571,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/native_history",
       "params": {
         "$ref": "#/types/NativeHistoryParams"
@@ -636,6 +656,12 @@
     {
       "kind": "request",
       "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_rest",
       "params": true,
       "result": true
     },
@@ -1022,6 +1048,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
@@ -1080,6 +1118,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/controls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
@@ -1087,6 +1131,12 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard",
       "params": true,
       "result": true
     },
@@ -1873,6 +1923,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_history",
       "params": true,
       "result": true
@@ -2401,6 +2457,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/host_overload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/vm_host",
       "params": true,
       "result": true
@@ -2414,6 +2476,18 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place_set",
       "params": true,
       "result": true
     },
@@ -2732,6 +2806,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/control",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harness_inventory",
       "params": true
     },
@@ -2838,6 +2917,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createKey": true,
         "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
@@ -2846,6 +2926,7 @@
         "effort": true,
         "env": true,
         "ephemeral": true,
+        "features": true,
         "forceAdmit": true,
         "forwardProjection": true,
         "fromAgent": true,
@@ -2874,6 +2955,8 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "personVerified": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -2883,6 +2966,7 @@
         "provenance": true,
         "reportTo": true,
         "requestId": true,
+        "requireAsking": true,
         "requireFullAccess": true,
         "resend": true,
         "restricted": true,
@@ -3846,6 +3930,16 @@
     "EventsParams": {
       "additionalProperties": false,
       "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "afterSeq": {
           "description": "Records after this one; it may not lie beyond the last record.",
           "format": "uint64",
@@ -3901,6 +3995,13 @@
         "sessionId": {
           "type": "string"
         },
+        "sinceSeen": {
+          "description": "Read the transcript after this reader's New line, or their persisted readThrough cursor while away.\nWithout a cursor the page is empty. Incompatible with afterSeq, beforeSeq, promptIndex and turnOpener.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "subagent": {
           "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
           "type": [
@@ -3941,14 +4042,23 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "seenSeq": {
+          "description": "The cutover used by sinceSeen, null on a first visit. Absent from ordinary pages.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
-        "createdAt",
         "events",
         "hasMore",
         "lastSeq",
-        "pageThrough"
+        "pageThrough",
+        "createdAt"
       ],
       "type": "object"
     },
@@ -4384,6 +4494,15 @@
             "null"
           ]
         },
+        "heldUntil": {
+          "description": "When a `capacity` turn's continuation runs, while it waits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "promptId": {
           "type": [
             "string",
@@ -4398,7 +4517,7 @@
           ]
         },
         "status": {
-          "description": "`completed`, `failed` or `cancelled`.",
+          "description": "`completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a\ncapacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).",
           "type": [
             "string",
             "null"
@@ -5738,6 +5857,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
@@ -7367,7 +7488,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -8332,7 +8453,7 @@
           "description": "What its harness spends and holds, from the harness's own records\n(`usage_stats.rs`); absent until a Claude Code or Codex chat's records\nare found, for any other harness, and from a peer on an older acpmux."
         },
         "waitingOn": {
-          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "description": "What it waits on the person for: `question` (an agent question), `permission`,\n`secret` (a private card asking a secret's value), `elevation` (a card asking the\npassword to run one command as root) or `mcp_connect` (a card asking to connect an MCP\nserver); null while it waits on nothing. A `waiting` status always has one. Only the\nperson allows a permission or answers a card.",
           "type": [
             "string",
             "null"
@@ -8650,6 +8771,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,
@@ -9323,6 +9455,15 @@
           "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "cutoverSeq": {
+          "description": "A transient cutover for recap reads while this view is visible and attended.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
             "null"
           ]
         },

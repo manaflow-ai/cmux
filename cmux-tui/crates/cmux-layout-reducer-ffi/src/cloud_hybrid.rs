@@ -2,7 +2,8 @@
 //! the start's state between calls, sends it with each event and its monotonic clock, and runs the
 //! effects the answer lists (start here, make the machine, move, deliver or hold a prompt, show).
 //! `cloud_hybrid_start` reads back what a `cmux chat` start's driver shows now, for the chat
-//! header's `place.start` (cmux-cloud-start-core `hybrid_show`). `cloud_computer_status` folds a
+//! header's `place.start` (cmux-cloud-start-core `hybrid_show`). `cloud_hybrid_keep_count` answers
+//! the keep-running switch's count (cmux-cloud-start-core `keep_count`). `cloud_computer_status` folds a
 //! session's facts (that Show, a move, the machine's pause and shape, a refusal, the pins) into the
 //! one `ComputerStatus` the chat header reads (cmux-cloud-start-core `computer_status`, RFD 0080).
 
@@ -12,6 +13,7 @@ use std::path::{Path, PathBuf};
 use cmux_cloud_start_core::computer_status::{self, Facts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
 use cmux_cloud_start_core::hybrid_show;
+use cmux_cloud_start_core::keep_count;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -86,6 +88,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_computer_status" => {
             let facts: Facts = read(request)?;
             serde_json::to_value(computer_status::status(&facts)).map_err(|_| ERR_INVALID)?
+        }
+        // The keep-running switch's count (RFD 0135): `{plan?, kept, on, hoursUsed?}` answers the
+        // plan's slots and hours, how many are kept, and what flipping this chat's switch does.
+        b"cloud_hybrid_keep_count" => {
+            let facts: keep_count::Facts = read(request)?;
+            serde_json::to_value(keep_count::count(&facts)).map_err(|_| ERR_INVALID)?
         }
         _ => return Err(ERR_INVALID),
     };

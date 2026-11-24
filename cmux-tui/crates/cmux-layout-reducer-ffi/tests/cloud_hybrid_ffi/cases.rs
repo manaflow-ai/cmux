@@ -141,6 +141,19 @@ fn a_session_reads_its_one_computer_status() {
 }
 
 #[test]
+fn the_keep_count_says_how_many_and_what_another_does() {
+    let plus = json!({"plan": "next_plus", "kept": 2, "on": false, "hoursUsed": 41.5});
+    let (code, reply) = call(c"cloud_hybrid_keep_count", &plus);
+    assert_eq!(code, OK);
+    assert_eq!((reply["kept"].clone(), reply["slots"].clone()), (json!(2), json!(3)));
+    assert_eq!(reply["hoursUsed"], 41);
+    assert_eq!(reply["next"], json!({"do": "keeps", "after": 3}));
+    let none = call(c"cloud_hybrid_keep_count", &json!({})).1;
+    assert_eq!(none["next"], json!({"do": "startsTrial", "slots": 1, "hours": 10}));
+    assert_eq!(call(c"cloud_hybrid_keep_count", &json!({"kept": "two"})).0, ERR_INVALID);
+}
+
+#[test]
 fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
     assert_eq!(call(c"cloud_computer_status", &json!({"home": "cloud"})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_computer_status", &json!({"session_id": ""})).0, ERR_INVALID);
