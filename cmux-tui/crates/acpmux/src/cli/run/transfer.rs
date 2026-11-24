@@ -8,7 +8,7 @@ use cmux_json::JsonSet as _;
 
 #[path = "transfer_live.rs"]
 pub(crate) mod live;
-pub(crate) use live::{Live, move_progress_line};
+pub(crate) use live::{Live, move_progress_line, move_undecided_line};
 use live::{Pager, page_files};
 
 /// Moves `session` to the daemon at `to`.
