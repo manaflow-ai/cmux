@@ -31,12 +31,15 @@
 //! and inherits terminals whose unplaced times are far past the grace: the terminals with no tab
 //! that lived because the app held an attach stream on each (an agent's terminal). Counted from
 //! those times they were due on the new owner's first pass, seconds before the app attached
-//! again (2026-11-24: 18 of 18 ended 3.5 s after the owner change). Each such terminal therefore
+//! again (2026-11-24: 18 of 18 ended 3.5 s after the owner change). Every terminal a new owner
+//! inherits unplaced, a young one too (29 s into a 30 s grace it has 1 s left), therefore
 //! gets one adoption hold: until [`COLD_ADOPTION_HOLD`] after the owner first read it, shortened
 //! to one grace from when the app's frontend is connected, and the cap does not count it
 //! meanwhile. The hold's start is durable (`terminal_unplaced_adopted`), so owners that restart
 //! faster than the hold do not give it again and an abandoned terminal still ends; it is given
-//! anew only after a client was seen attached to the terminal, or it was placed or kept.
+//! anew only after a client was seen attached to the terminal (at any later pass, the hold over
+//! or not), or it was placed or kept. Until the owner has read the holds, the PTY reclaim ends
+//! no closed tab's terminal either: it could not tell a held one.
 //!
 //! The grace runs across owner restarts. The registry keeps the wall-clock
 //! time the owner first saw each terminal unplaced
@@ -117,6 +120,12 @@ pub(crate) struct ReapSchedule {
     adoption_applied: HashSet<String>,
     /// A frontend was connected at an earlier pass of this owner.
     adoption_frontend: bool,
+    /// The inherited terminals with a durable adoption time, their hold over or not: one a
+    /// client is seen attached to loses it, so the next owner start holds it anew.
+    adoption_rows: HashSet<String>,
+    /// The adoption read failed: when the reaper tries it again. Without it a schedule with
+    /// no deadline yet waited for the next topology event.
+    adoption_retry: Option<Instant>,
 }
 
 impl ReapSchedule {
@@ -124,7 +133,7 @@ impl ReapSchedule {
     /// capped, growing delay. A past-due deadline left in place made the
     /// reaper thread wait zero time and re-scan in a hot loop for as long as
     /// the scan kept failing.
-    pub(crate) fn defer_due_after_failed_scan(&mut self, now: Instant) {
+    pub(crate) fn defer_due_after_failed_scan(&mut self, now: Instant) -> Instant {
         let delay = SCAN_RETRY_INITIAL
             .saturating_mul(1_u32 << self.scan_failures.min(10))
             .min(SCAN_RETRY_MAX);
@@ -135,6 +144,7 @@ impl ReapSchedule {
                 *deadline = until;
             }
         }
+        until
     }
 
     /// Reconcile with the current set of reapable terminals, each with how
@@ -199,6 +209,8 @@ impl ReapSchedule {
     /// how long ago it was (`adopted_for`).
     pub(crate) fn adopt(&mut self, now: Instant, adopted_for: HashMap<String, Duration>) {
         self.adoption_read = true;
+        self.adoption_retry = None;
+        self.adoption_rows = adopted_for.keys().cloned().collect();
         self.adopted = adopted_for
             .into_iter()
             .filter(|(_, held_for)| *held_for < COLD_ADOPTION_HOLD)
@@ -243,10 +255,16 @@ impl ReapSchedule {
             .collect()
     }
 
-    /// A client is attached to `terminal_id`: its adoption hold is over (its attach keeps it).
+    /// This owner has read the adoption holds: [`ReapSchedule::adoption_held`] is complete.
+    pub(crate) fn adoption_read(&self) -> bool {
+        self.adoption_read
+    }
+
+    /// A client is attached to `terminal_id`, or it ended: its adoption hold is over.
     fn end_adoption(&mut self, terminal_id: &str) {
         self.adopted.remove(terminal_id);
         self.adoption_applied.remove(terminal_id);
+        self.adoption_rows.remove(terminal_id);
     }
 
     /// No deadline comes before `until`. Pushed out, never dropped, so the
@@ -317,7 +335,11 @@ impl ReapSchedule {
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.deadlines.values().min().copied()
+        let earliest = self.deadlines.values().min().copied();
+        match (earliest, self.adoption_retry) {
+            (Some(deadline), Some(retry)) => Some(deadline.min(retry)),
+            (deadline, retry) => deadline.or(retry),
+        }
     }
 
     #[cfg(test)]
@@ -469,9 +491,9 @@ impl Mux {
             .collect())
     }
 
-    /// This owner's first read of the unplaced times it inherited: how long ago each terminal
-    /// that was already past `grace` got its adoption hold (zero when this read gives it). A
-    /// zero grace reaps at once and holds nothing.
+    /// This owner's first read of the unplaced times it inherited: how long ago each unplaced
+    /// terminal got its adoption hold (zero when this read gives it). A zero grace reaps at
+    /// once and holds nothing.
     fn adopt_inherited_unplaced(
         &self,
         grace: Duration,
@@ -480,12 +502,11 @@ impl Mux {
             return Ok(HashMap::new());
         }
         let wall_ms = now_ms();
-        let grace_ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX);
         let adopted = self
             .workspace_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .adopt_terminal_unplaced(grace_ms, wall_ms)?;
+            .adopt_terminal_unplaced(wall_ms)?;
         Ok(adopted
             .into_iter()
             .map(|(terminal_id, adopted_ms)| {
@@ -494,14 +515,16 @@ impl Mux {
             .collect())
     }
 
-    /// End the adoption hold of every held terminal a client is attached to again, durably, so
-    /// the next owner start holds it anew. Reads nothing once no terminal is held.
+    /// End the adoption hold of every inherited terminal a client is attached to again, durably,
+    /// so the next owner start holds it anew. Also one whose hold ran out before a pass saw the
+    /// attach: left in place, its spent adoption time gave the next owner no hold for a terminal
+    /// the app was attached to. Reads nothing once no inherited terminal has an adoption time.
     fn end_adoption_of_attached(&self, schedule: &mut ReapSchedule) {
-        if schedule.adopted.is_empty() {
+        if schedule.adoption_rows.is_empty() {
             return;
         }
         let attached: Vec<String> =
-            self.attached_among(schedule.adopted.keys()).into_iter().collect();
+            self.attached_among(schedule.adoption_rows.iter()).into_iter().collect();
         if attached.is_empty() {
             return;
         }
@@ -595,7 +618,7 @@ impl Mux {
                     self.report_internal_diagnostic(format!(
                         "terminal reap adoption read failed: {error}"
                     ));
-                    schedule.defer_due_after_failed_scan(now);
+                    schedule.adoption_retry = Some(schedule.defer_due_after_failed_scan(now));
                     return Vec::new();
                 }
             }
@@ -623,7 +646,7 @@ impl Mux {
             }
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
-                schedule.defer_due_after_failed_scan(now);
+                let _ = schedule.defer_due_after_failed_scan(now);
                 return Vec::new();
             }
         };
@@ -664,8 +687,26 @@ impl Mux {
                 .ok();
             schedule.tried(&terminal_id, outcome, now, grace);
             if outcome == Some(ReapOutcome::Reaped) {
+                schedule.end_adoption(&terminal_id);
                 reaped.push(terminal_id);
             }
+        }
+        reaped
+    }
+
+    /// One turn of the reaper thread at `now`: the reap pass, then the PTY reclaim. The reclaim
+    /// waits for the owner's adoption read: before it, the held set is empty, and under PTY
+    /// pressure the reclaim ended inherited terminals the reap pass had not classified yet (a
+    /// first read that failed). Returns the host ids the reap pass ended.
+    pub(crate) fn reaper_turn(
+        self: &Arc<Self>,
+        schedule: &mut ReapSchedule,
+        reclaim: &mut pty_reclaim::ReclaimClock,
+        now: Instant,
+    ) -> Vec<String> {
+        let reaped = self.reap_unplaced_terminals(schedule, now);
+        if schedule.adoption_read() {
+            self.reclaim_ptys_if_low_leaving(reclaim, &schedule.adoption_held(now));
         }
         reaped
     }
@@ -1166,8 +1207,7 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
             }
             let Some(mux) = weak.upgrade() else { break };
             let now = Instant::now();
-            mux.reap_unplaced_terminals(&mut schedule, now);
-            mux.reclaim_ptys_if_low_leaving(&mut reclaim, &schedule.adoption_held(now));
+            mux.reaper_turn(&mut schedule, &mut reclaim, now);
             // Never hold the mux across the wait: the thread must not keep
             // the mux alive after its other owners are gone.
             drop(mux);

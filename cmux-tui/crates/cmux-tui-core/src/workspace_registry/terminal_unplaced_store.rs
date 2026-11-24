@@ -142,18 +142,15 @@ impl WorkspaceRegistry {
     }
 
     /// An owner's first read of the unplaced times it inherited: every
-    /// terminal unplaced for `grace_ms` or longer gets an adoption time of
-    /// `now_ms`, unless an earlier owner already gave it one. Returns each
-    /// adopted terminal's time (Unix ms), the earlier owner's where it had
-    /// one. Rows of terminals that are no longer unplaced are removed.
-    pub fn adopt_terminal_unplaced(
-        &mut self,
-        grace_ms: u64,
-        now_ms: u64,
-    ) -> anyhow::Result<HashMap<String, u64>> {
+    /// unplaced terminal, however long unplaced (one closed a second before
+    /// the owner change has as little of its grace left as an old one), gets
+    /// an adoption time of `now_ms`, unless an earlier owner already gave it
+    /// one. Returns each adopted terminal's time (Unix ms), the earlier
+    /// owner's where it had one. Rows of terminals that are no longer
+    /// unplaced are removed.
+    pub fn adopt_terminal_unplaced(&mut self, now_ms: u64) -> anyhow::Result<HashMap<String, u64>> {
         let db = self.connection.get();
         let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
-        let before = i64::try_from(now_ms.saturating_sub(grace_ms)).unwrap_or(i64::MAX);
         let tx = db.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM terminal_unplaced_adopted
@@ -162,8 +159,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT OR IGNORE INTO terminal_unplaced_adopted(terminal_id, adopted_ms)
-             SELECT terminal_id, ?1 FROM terminal_unplaced WHERE since_ms <= ?2",
-            params![now, before],
+             SELECT terminal_id, ?1 FROM terminal_unplaced",
+            params![now],
         )?;
         let adopted = {
             let mut statement =
@@ -229,5 +226,27 @@ impl WorkspaceRegistry {
             "UPDATE terminal_unplaced_adopted SET adopted_ms = MAX(adopted_ms - ?1, 0)",
             params![by],
         )?)
+    }
+
+    /// How many adoption times the registry holds.
+    pub(crate) fn terminal_adoption_count(&self) -> anyhow::Result<usize> {
+        let count: i64 = self.connection.get().query_row(
+            "SELECT COUNT(*) FROM terminal_unplaced_adopted",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
+    /// Makes every adoption read and write fail (`broken`), or work again:
+    /// the table is renamed away and back.
+    pub(crate) fn break_terminal_adoptions(&mut self, broken: bool) -> anyhow::Result<()> {
+        let sql = if broken {
+            "ALTER TABLE terminal_unplaced_adopted RENAME TO terminal_unplaced_adopted_away"
+        } else {
+            "ALTER TABLE terminal_unplaced_adopted_away RENAME TO terminal_unplaced_adopted"
+        };
+        self.connection.get().execute(sql, [])?;
+        Ok(())
     }
 }

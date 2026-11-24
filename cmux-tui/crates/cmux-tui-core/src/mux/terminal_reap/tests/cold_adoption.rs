@@ -11,7 +11,15 @@ use super::*;
 /// `count` terminals with no tab, each unplaced for 20 graces, as the owner before this one left
 /// them. Returns the placed anchor and the terminal ids.
 fn inherited_unplaced_terminals(mux: &Arc<Mux>, count: usize) -> (Arc<Surface>, Vec<String>) {
-    let grace = mux.terminal_reap_grace();
+    inherited_terminals_unplaced_for(mux, count, 20 * mux.terminal_reap_grace())
+}
+
+/// [`inherited_unplaced_terminals`], each unplaced for `age`.
+fn inherited_terminals_unplaced_for(
+    mux: &Arc<Mux>,
+    count: usize,
+    age: Duration,
+) -> (Arc<Surface>, Vec<String>) {
     let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
     let surfaces: Vec<_> = (0..count)
         .map(|index| mux.new_workspace(Some(format!("agent-{index}")), Some((80, 24))).unwrap())
@@ -35,10 +43,7 @@ fn inherited_unplaced_terminals(mux: &Arc<Mux>, count: usize) -> (Arc<Surface>, 
         mux.workspace_registry
             .lock()
             .unwrap()
-            .backdate_terminal_unplaced(
-                terminal_id,
-                20 * grace + Duration::from_millis(index as u64),
-            )
+            .backdate_terminal_unplaced(terminal_id, age + Duration::from_millis(index as u64))
             .unwrap();
     }
     (placed, terminals)
@@ -156,5 +161,109 @@ fn cold_owner_ends_inherited_terminals_nobody_returns_for_once_the_hold_is_over(
     let ended = mux.reap_unplaced_terminals(&mut last, Instant::now());
     assert_eq!(ended.len(), count, "the adoption hold was given a second time");
     assert_eq!(running(&mux, &terminals), 0);
+    end_all(&mux, &placed, &terminals);
+}
+
+/// Terminals closed a second before the owner change: 29 s into a 30 s grace. They get the hold
+/// too; with only 1 s left the new owner ended them before the app attached, and more than the
+/// cap of them lost the excess on its first pass.
+#[test]
+fn cold_owner_holds_inherited_terminals_still_inside_their_grace() {
+    let mux = Mux::new_for_test("cold-adoption-young", SurfaceOptions::default());
+    let grace = mux.terminal_reap_grace();
+    let count = MAX_TERMINALS_IN_REAP_GRACE + 2;
+    let (placed, terminals) =
+        inherited_terminals_unplaced_for(&mux, count, grace - Duration::from_secs(1));
+
+    let mut cold = ReapSchedule::default();
+    let start = Instant::now();
+    assert!(mux.reap_unplaced_terminals(&mut cold, start).is_empty());
+    assert_eq!(running(&mux, &terminals), count, "the first pass ended terminals over the cap");
+    assert!(mux.reap_unplaced_terminals(&mut cold, start + Duration::from_secs(2)).is_empty());
+    assert_eq!(running(&mux, &terminals), count, "a terminal ended at its old unplaced time");
+
+    // The frontend comes and attaches to all but two: those two end one grace later.
+    let came = start + Duration::from_secs(3);
+    mux.control_clients.connect_test_frontend();
+    assert!(mux.reap_unplaced_terminals(&mut cold, came).is_empty());
+    for terminal_id in &terminals[2..] {
+        mux.control_clients.attach_test_stream(runtime_view(&mux, terminal_id));
+    }
+    let ended = mux.reap_unplaced_terminals(&mut cold, came + grace + Duration::from_secs(1));
+    assert_eq!(ended.len(), 2, "a terminal nobody came back for still runs");
+    assert_eq!(running(&mux, &terminals[2..]), count - 2);
+    end_all(&mux, &placed, &terminals);
+}
+
+/// The app attaches a second after the owner change and no pass runs until the hold is over
+/// (no topology event wakes the reaper). The spent adoption time must not stay: the next owner
+/// start read it as a hold already given and ended the running terminal before the app attached.
+#[test]
+fn an_attach_seen_only_after_the_hold_ended_still_frees_the_next_owners_hold() {
+    let mux = Mux::new_for_test("cold-adoption-late-pass", SurfaceOptions::default());
+    let count = 3;
+    let (placed, terminals) = inherited_unplaced_terminals(&mux, count);
+
+    let mut cold = ReapSchedule::default();
+    let start = Instant::now();
+    assert!(mux.reap_unplaced_terminals(&mut cold, start).is_empty());
+    assert_eq!(mux.workspace_registry.lock().unwrap().terminal_adoption_count().unwrap(), count);
+    let clients: Vec<_> = terminals
+        .iter()
+        .map(|terminal_id| mux.control_clients.attach_test_stream(runtime_view(&mux, terminal_id)))
+        .collect();
+    let after = start + COLD_ADOPTION_HOLD + Duration::from_secs(1);
+    assert!(mux.reap_unplaced_terminals(&mut cold, after).is_empty());
+    assert_eq!(running(&mux, &terminals), count);
+    assert_eq!(
+        mux.workspace_registry.lock().unwrap().terminal_adoption_count().unwrap(),
+        0,
+        "a spent adoption time outlived the attach"
+    );
+
+    // The next owner change, long after: the app's streams end with the old owner.
+    for client in clients {
+        mux.control_clients.detach_test_client(client);
+    }
+    let mut next = ReapSchedule::default();
+    let restart = Instant::now();
+    assert!(mux.reap_unplaced_terminals(&mut next, restart).is_empty());
+    assert_eq!(running(&mux, &terminals), count, "the next owner ended a terminal it should hold");
+    assert_eq!(next.deadline(&terminals[0]), Some(restart + COLD_ADOPTION_HOLD));
+    end_all(&mux, &placed, &terminals);
+}
+
+/// The owner's first adoption read fails while PTYs are low. The PTY reclaim knows no held
+/// terminal yet and must end none; the read is tried again, the hold applies, and terminals
+/// nobody returns for still end once it is over.
+#[test]
+fn a_failed_first_adoption_read_keeps_the_pty_reclaim_from_inherited_terminals() {
+    let mux = Mux::new_for_test("cold-adoption-read-fails", SurfaceOptions::default());
+    let count = MAX_TERMINALS_IN_REAP_GRACE + 2;
+    let (placed, terminals) = inherited_unplaced_terminals(&mux, count);
+
+    mux.workspace_registry.lock().unwrap().break_terminal_adoptions(true).unwrap();
+    pty_reclaim::set_pty_usage_for_test(Some((510, 511)));
+    let mut cold = ReapSchedule::default();
+    let mut reclaim = pty_reclaim::ReclaimClock::default();
+    let start = Instant::now();
+    let ended = mux.reaper_turn(&mut cold, &mut reclaim, start);
+    let after_failed_read = running(&mux, &terminals);
+    let retry_at = cold.next_deadline();
+
+    mux.workspace_registry.lock().unwrap().break_terminal_adoptions(false).unwrap();
+    let retried = mux.reaper_turn(&mut cold, &mut reclaim, start + Duration::from_secs(1));
+    let after_retry = running(&mux, &terminals);
+    pty_reclaim::set_pty_usage_for_test(None);
+    assert!(ended.is_empty() && retried.is_empty());
+    assert!(retry_at.is_some(), "nothing wakes the reaper to read the holds again");
+    assert_eq!(after_failed_read, count, "the PTY reclaim ended terminals before the read");
+    assert_eq!(after_retry, count, "a held terminal ended under PTY pressure");
+    assert_eq!(cold.next_deadline(), Some(start + Duration::from_secs(1) + COLD_ADOPTION_HOLD));
+
+    // Nobody returns: once the hold is over, every one of them ends.
+    mux.workspace_registry.lock().unwrap().backdate_terminal_adoptions(COLD_ADOPTION_HOLD).unwrap();
+    let mut last = ReapSchedule::default();
+    assert_eq!(mux.reap_unplaced_terminals(&mut last, Instant::now()).len(), count);
     end_all(&mux, &placed, &terminals);
 }
