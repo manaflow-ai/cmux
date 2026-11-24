@@ -139,6 +139,10 @@ public final class InPlaceTextSelection: NSObject {
         view.selectedTextRange = word
         loupe = UITextLoupeSession.begin(at: point, fromSelectionWidgetView: nil, in: view)
         UISelectionFeedbackGenerator().selectionChanged()
+        // A table cell caches its accessibility children: a reused Feed cell did not list the new
+        // stand-in, so VoiceOver (and UI tests) could not find the live selection (fleet step
+        // f0fe88a219ecf80750d04c72). VoiceOver moves to the selection.
+        UIAccessibility.post(notification: .layoutChanged, argument: view)
         onChange?(true)
     }
 
