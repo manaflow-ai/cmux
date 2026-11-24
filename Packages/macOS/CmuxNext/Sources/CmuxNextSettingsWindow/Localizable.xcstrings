@@ -151477,127 +151477,391 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Used once for this join and sent through stdin. It is never saved."
+            "value": "Use an ephemeral, pre-approved, single-use auth key that expires soon. It is used once for this join, sent through stdin, and never saved."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.reusableWarning": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "This looks like a reusable credential that can join more than one machine. Prefer an ephemeral, single-use auth key with a short expiry."
+          }
+        }
+      }
+    },
+    "settingsPage.tailnet.allowHttp": {
+      "comment": "Settings > Tailscale Cloud machine join.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Allow plain HTTP to %@. The key crosses the network unencrypted."
           }
         }
       }

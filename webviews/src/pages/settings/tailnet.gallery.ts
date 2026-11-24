@@ -11,6 +11,12 @@ const variant = (tailnet: TailnetState, note: string, steps: PageFixtureStep[] =
   steps,
   note,
 });
+const cloudShown: PageFixtureStep = { selector: '[data-card="tailnet-cloud"]', action: "wait" };
+const openSheet: PageFixtureStep[] = [cloudShown, { selector: "[data-tailnet-vm-join]", action: "click" }];
+const fill = (key: string): PageFixtureStep[] => [
+  { selector: "[data-tailnet-join-vm]", action: "input", value: "vm_studio" },
+  { selector: "[data-tailnet-join-key]", action: "input", value: key },
+];
 const signIn = "https://login.tailscale.com/a/1a2b3c4d5e";
 const cloudHost: Partial<HostLists> = {
   machines: [{ id: "vm_studio", title: "Studio Cloud", subtitle: "Online", active: true }],
@@ -46,31 +52,59 @@ export default settingsPageEntry({
       { state: "error", error: "tailnet start was superseded" },
       "A failed start: acpmux's own text, and Try Again.",
     ),
+    "cloud-off": {
+      section: "devices",
+      tailnet: { state: "stopped" },
+      steps: [shown],
+      note: "Tailscale for Cloud machines off (the default): only this Mac's own tailnet card, no Join.",
+    },
     "cloud-ready": {
       section: "devices",
       options: {
         values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"], "tailnet.join.ssh": true },
       },
       host: cloudHost,
+      steps: [cloudShown],
       note: "Tailscale is enabled for Cloud machines. Join opens a sheet that asks for a key only for this operation.",
     },
     "cloud-join-sheet": {
       section: "devices",
       options: { values: { "tailnet.join.enabled": true } },
       host: cloudHost,
-      steps: [
-        { selector: '[data-card="tailnet-cloud"]', action: "wait" },
-        { selector: "[data-tailnet-vm-join]", action: "click" },
-      ],
-      note: "The secure join sheet with a Cloud machine selector and password field.",
+      steps: openSheet,
+      note: "The join sheet: Cloud machine, a password field, and the advice to use an ephemeral, single-use key.",
     },
-    "cloud-switch": {
+    "cloud-joined": {
       section: "devices",
-      options: {
-        values: { "tailnet.join.enabled": true, "tailnet.join.ephemeral": true, "tailnet.join.autoJoinNewVMs": true },
-      },
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
       host: cloudHost,
-      note: "Advanced join defaults with ephemeral devices and automatic joins available from the schema rows.",
+      steps: [
+        ...openSheet,
+        ...fill("tskey-auth-kSINGLEUSE"),
+        { selector: "[data-tailnet-join-submit]", action: "click" },
+      ],
+      note: "Joined: the machine's MagicDNS name, online, its tailnet address and tags, and Leave.",
+    },
+    "cloud-reusable-key": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true } },
+      host: cloudHost,
+      steps: [...openSheet, ...fill("tskey-client-kREUSABLE")],
+      note: "An OAuth client secret pasted: the sheet warns that it can join more than one machine.",
+    },
+    "cloud-plain-http": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.loginServer": "http://headscale.lan:8080" } },
+      host: cloudHost,
+      steps: [...openSheet, ...fill("hskey-auth-0123")],
+      note: "A plain-http Headscale server: Join stays off until Allow plain HTTP is ticked for that server.",
+    },
+    "cloud-other-tailnet": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true } },
+      host: cloudHost,
+      steps: [...openSheet, ...fill("tskey-auth-kOTHER"), { selector: "[data-tailnet-join-submit]", action: "click" }],
+      note: "The machine is already on another tailnet: the CLI's error, and the hint to switch.",
     },
   },
 });
