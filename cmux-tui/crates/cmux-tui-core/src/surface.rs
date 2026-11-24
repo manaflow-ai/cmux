@@ -367,6 +367,11 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
     ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+/// The most replay bytes a respawned terminal is seeded with: the replay
+/// budget less room for the respawn's mode reset and marker line. Every
+/// replay on the restore path (snapshot, tail rebuild, full-mode rebuild,
+/// exit snapshot) is bounded by it, so none is too large to seed.
+pub(crate) const SEED_REPLAY_MAX_BYTES: usize = VT_REPLAY_MAX_BYTES - 64 * 1024;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
 const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
 const _: () = assert!(
