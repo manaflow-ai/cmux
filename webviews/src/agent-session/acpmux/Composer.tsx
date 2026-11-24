@@ -2824,7 +2824,12 @@ function ComposerFrame({
       onClick={running ? stopTurn : undefined}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
+      <SendSlotGlyph
+        glyph={stopping ? "stopping" : "stop"}
+        state={stopping ? "stopping" : "stop"}
+        memory={morphMemory}
+        scope={sessionId}
+      />
       <StopPulse pulses={stopPresence.pulses} />
     </button>
   ) : null;
@@ -3214,7 +3219,7 @@ function ComposerFrame({
         disabled={resuming}
         onClick={() => runResume(canResume)}
       >
-        <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
+        <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
     ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
@@ -3257,7 +3262,14 @@ function ComposerFrame({
                         )
           }
         >
-          <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
+          <SendSlotGlyph
+            glyph={quietActions && !shell ? "return" : "arrow"}
+            // The slot's state (composer/sendSlotTransitions.ts): a draft to send, a send the host
+            // has not taken yet, or nothing.
+            state={hasDraft || listening ? "send-ready" : sendingShown ? "sending" : "idle"}
+            memory={morphMemory}
+            scope={sessionId}
+          />
         </button>
       </SendMenu>
     ) : null;
