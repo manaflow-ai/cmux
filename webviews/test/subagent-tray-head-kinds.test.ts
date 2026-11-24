@@ -118,6 +118,18 @@ describe("the header counts the commands by what they do", () => {
     command("plain", "rg -n TODO src"),
   ];
 
+  test("1, 2 and many subagents each read with their noun, never a bare number", () => {
+    const run = (n: number) =>
+      head(
+        Array.from({ length: n }, (_, i) => agent(`r${i}`, "running")),
+        [],
+      ).text;
+    expect(run(1)).toBe("1 subagent running");
+    expect(run(2)).toBe("2 subagents running");
+    expect(run(53)).toBe("53 subagents running");
+    for (const n of [1, 2, 53]) expect(run(n)).not.toMatch(/^\d+$/);
+  });
+
   test("each kind apart, in a fixed order, after the agents", () => {
     expect(head(coordinator, []).text).toBe(
       "1 subagent running · 1 message · 1 review · 1 test run · 1 build · 2 waits · 1 server · 1 command",

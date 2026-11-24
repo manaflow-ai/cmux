@@ -101,6 +101,11 @@ const NATIVE_ROW_PX = 28;
  * Whether a menu of `rows` rows at pointer height `y` opens upward: there is no room below it in the
  * page and more above (a hat over the composer at the window's bottom edge).
  */
+/// The side the panel opens on: the page's flip applies only to the default "bottom"; a caller's own side stays.
+export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bottom"): S | "top" {
+  return callerSide === "bottom" ? flipped : callerSide;
+}
+
 export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
   const need = rows * NATIVE_ROW_PX + 8;
   return viewportHeight - y < need && y > viewportHeight - y;
@@ -175,7 +180,8 @@ export function ContextMenu({
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
     model: native?.model
-      ? { ...native.model, side: nativeSide }
+      ? // Flip up only from the default "bottom"; a side the caller chose is theirs.
+        { ...native.model, side: popupSide(native.model.side, nativeSide) }
       : { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => nativeAnchor,
     onEvent: (event) => {
