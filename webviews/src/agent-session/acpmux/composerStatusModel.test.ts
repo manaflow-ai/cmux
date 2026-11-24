@@ -165,4 +165,33 @@ describe("items", () => {
     expect(restoring?.showAt).toBe(6_000 + RECONNECT_LINE_AFTER_MS);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
   });
+
+  test("a written host failure is a problem item carrying its action and details", () => {
+    const failure = {
+      words: "status.hostFailure.unavailable",
+      detail: "acpmux: connection refused",
+      selfRetrying: false,
+      action: "retry" as const,
+      since: 5,
+    };
+    const item = hostRecoveryItem({ failure }, 10).item;
+    expect(item).toMatchObject({
+      kind: "hostFailure",
+      level: "problem",
+      words: "status.hostFailure.unavailable",
+      detail: "acpmux: connection refused",
+      action: "retry",
+      since: 5,
+    });
+    expect(hostRecoveryItem({ failure: { ...failure, pending: true } }, 10).item?.pending).toBe(true);
+    const restart = hostRecoveryItem({ failure: { ...failure, action: "restartService" as const } }, 10).item;
+    expect(restart?.action).toBe("restartService");
+  });
+
+  test("a failure the pane retries itself says Reconnecting, as the old chip did", () => {
+    const item = hostRecoveryItem({ failure: { words: "status.hostFailure.unavailable", selfRetrying: true } }, 0).item;
+    expect(item?.kind).toBe("agentService");
+    expect(item?.level).toBe("info");
+    expect(item?.words).toBe("status.agentService.reconnecting");
+  });
 });

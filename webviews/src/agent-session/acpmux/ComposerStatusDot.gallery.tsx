@@ -8,10 +8,12 @@
 import { componentEntry } from "../../gallery/format";
 import { ComposerStatusDot, type ComposerStatusDotProps } from "./ComposerStatusDot";
 import type { FooterFact, StatusItem } from "./composerStatusModel";
-import { ConnectionChip } from "./HostError";
+import { ConnectionChip, HostUnavailableLine } from "./HostError";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 
-type Props = ComposerStatusDotProps & { before?: boolean };
+/// `hostCard`: the host failure card (HostError.tsx HostUnavailableLine) over the composer, as before
+/// RFD 0128 moved it into the dot.
+type Props = ComposerStatusDotProps & { before?: boolean; hostCard?: boolean };
 
 const NOW = Date.UTC(2026, 10, 22, 22, 40);
 const MACHINE = "walk-remote";
@@ -54,6 +56,27 @@ const queuePaused: StatusItem = {
   action: "resumeQueue",
 };
 
+const HOST_DETAIL = "acpmux: connect /run/acpmux.sock: connection refused (os error 111)";
+const hostFailure: StatusItem = {
+  kind: "hostFailure",
+  level: "problem",
+  words: "status.hostFailure.unavailable",
+  since: NOW - 45_000,
+  detail: HOST_DETAIL,
+  action: "retry",
+};
+const peerFailure: StatusItem = {
+  ...hostFailure,
+  words: "status.hostFailure.peerUnreachable",
+  subject: MACHINE,
+  action: "restartService",
+};
+const hostReconnecting: StatusItem = {
+  kind: "agentService",
+  level: "info",
+  words: "status.agentService.reconnecting",
+};
+
 const facts: FooterFact[] = [
   { kind: "machine", text: MACHINE, live: false },
   { kind: "folder", text: "/Users/leo/Projects/cmux/webviews", live: false },
@@ -65,17 +88,25 @@ const facts: FooterFact[] = [
   { kind: "queued", count: 12, live: true },
 ];
 
-const ACTIONS = new Set(["reconnect", "resumeQueue"] as const);
+const ACTIONS = new Set(["reconnect", "resumeQueue", "retry", "restartService"] as const);
 
 // The composer stands at the pane's foot as in the dock, full width, so the card has the room above
 // it that it opens into (side "top"), and the composer, an inline-size container, is never squeezed
 // to its padding in the shell's row (which put the dot off the scene's left edge).
 const SHELL = { padding: 16, flexDirection: "column", justifyContent: "flex-end" } as const;
 
-function Row({ before = false, ...props }: Props) {
+function Row({ before = false, hostCard = false, ...props }: Props) {
   return (
     <div className="acpmux-shell" data-composer-status-fixture style={SHELL}>
       {before ? <ConnectionChip kind="reconnecting" words="Reconnecting…" /> : null}
+      {hostCard ? (
+        <HostUnavailableLine
+          message="Can't reach the agent service."
+          detail={HOST_DETAIL}
+          selfRetrying={false}
+          onRetry={() => undefined}
+        />
+      ) : null}
       <form className="acpmux-composer">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
@@ -145,6 +176,26 @@ const variants: Record<string, { note: string; props: Props }> = {
   glyph: {
     note: "Not picked: a warning glyph on a problem says the same as the red, louder than unobtrusive.",
     props: { items: [stuck], look: "glyph" },
+  },
+  "host-before": {
+    note: "Before (RFD 0128 follow-up): the host failure card stood over the transcript's end with Retry and Details, taking the composer's top.",
+    props: { items: [], hostCard: true },
+  },
+  "host-failure": {
+    note: "Picked: the same failure is a problem item; the red dot is announced once and its card keeps Retry and Details.",
+    props: { items: [hostFailure], initial: "pinned" },
+  },
+  "host-details": {
+    note: "Picked: Details opens the service's own words under the row, selectable for copying.",
+    props: { items: [hostFailure], initial: "pinned", initialDetail: "hostFailure" },
+  },
+  "host-restarting": {
+    note: "Picked: a remote machine's service offers Restart; while it runs the button says Restarting… and is disabled.",
+    props: { items: [{ ...peerFailure, pending: true }], initial: "pinned" },
+  },
+  "host-reconnecting": {
+    note: "Picked: while the pane retries by itself, the old Reconnecting… chip is a muted info item instead.",
+    props: { items: [hostReconnecting], initial: "peek" },
   },
   "facts-pulse": {
     note: "Experiment arm pulse: the card's Session list, and live counters (subagents, queued 9+) beside the dot.",
