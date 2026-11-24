@@ -9,6 +9,9 @@ public struct TerminalTabContext {
     public var safeAreaInsets: EdgeInsets
     /// The page is settled full screen and takes input.
     public var isInteractive: Bool
+    /// The page is full screen (not zoomed out to the tab grid), even while a menu, a swipe or the
+    /// address bar briefly takes input from it: what the page's orientation follows.
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: suspend the terminal's own pinch.
     public var isZoomGestureActive: Bool
     /// Finger travel on the page (positive = finger down); collapses and
@@ -20,9 +23,11 @@ public struct TerminalTabContext {
     public var openLink: (@MainActor (URL) -> Void)?
 
     public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil,
+                isOnPage: Bool? = nil) {
         self.safeAreaInsets = safeAreaInsets
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage ?? isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
         self.openLink = openLink
