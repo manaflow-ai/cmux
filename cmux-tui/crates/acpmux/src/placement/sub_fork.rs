@@ -464,8 +464,8 @@ pub fn apply(checkout: &Path, patch: &[u8]) -> Result<usize, String> {
     }
     git(checkout, None, &["apply", "--check", "--binary", "-"], Some(patch))?;
     git(checkout, None, &["apply", "--binary", "-"], Some(patch))?;
-    let numstat = git(checkout, None, &["apply", "--numstat", "-"], Some(patch))?;
-    Ok(numstat.split(|b| *b == b'\n').filter(|l| !l.is_empty()).count())
+    // One `diff --git` header per file the patch touched (the patch is git's own output).
+    Ok(patch.split(|b| *b == b'\n').filter(|l| l.starts_with(b"diff --git ")).count())
 }
 
 #[cfg(test)]
