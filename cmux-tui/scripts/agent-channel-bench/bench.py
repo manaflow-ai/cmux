@@ -119,7 +119,8 @@ def cold(args, a):
     if args.carrier == "ws": kw = {"token": peer_tokens()[0]}
     for i in range(args.runs + 1):
         t0 = time.perf_counter()
-        r = rpc.call("_acpmux/peer_add", name="box", url=url, **kw)  # no wait: poll `peers` every ~3 ms
+        pname = f"box{i}"  # a new name each run: its token cache starts empty (the `ssh` carrier reads the tokens over a login of its own)
+        r = rpc.call("_acpmux/peer_add", name=pname, url=url, **kw)  # no wait: poll `peers` every ~3 ms
         pr = {}
         while (time.perf_counter() - t0) < 30:
             peers = rpc.call("_acpmux/peers")["result"]["peers"]; pr = peers[0] if peers else {}
@@ -131,7 +132,7 @@ def cold(args, a):
         if i and not ok: print("run failed:", pr.get("state"), pr.get("error") or r.get("error"), file=sys.stderr)
         ls = pr.get("linkStats") or {}
         if i and ls.get("firstByteMs") is not None: fb.append(ls["firstByteMs"])
-        rpc.call("_acpmux/peer_remove", name="box"); time.sleep(0.4)
+        rpc.call("_acpmux/peer_remove", name=pname); time.sleep(0.4)
     print(f"RTT={args.rtt}ms host={os.uname().sysname} (both ends Linux) carrier={args.carrier}")
     print(stats("cold connect peer_add -> state=connected", ready))
     print(stats("  of which daemon firstByteMs (WS open)", fb))
@@ -142,14 +143,17 @@ def capture():
     ARRIVES at B, and a B->A packet as it arrives at A: the stamp is always the receiver's time."""
     p = subprocess.Popen(["sudo", "-n", "ip", "netns", "exec", "acb-a", "tcpdump", "-i", "acb-va", "-n", "-tt", "-l", "-U", "tcp"],
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    p.lines = []
+    import threading
+    threading.Thread(target=lambda: p.lines.extend(p.stdout), daemon=True).start()
     time.sleep(1.0)
     return p
 
 
 def payload_times(cap, src_ip):
     """(epoch, length) of each tcp segment with payload from src_ip."""
-    cap.terminate(); out = cap.stdout.read(); rows = []
-    for l in out.splitlines():
+    time.sleep(0.5); cap.terminate(); time.sleep(0.5); rows = []
+    for l in list(cap.lines):
         if f"IP {src_ip}." in l and " length " in l:
             n = int(l.rsplit(" length ", 1)[1].split()[0])
             if n: rows.append((float(l.split()[0]), n))
@@ -162,20 +166,19 @@ def send(args, a):
     t_delivered = the sender daemon's `send --status` says delivered (B accepted it)."""
     rpc = Rpc("a")
     kw = dict(zip(("token", "peerToken"), peer_tokens()))
-    rpc.call("_acpmux/peer_add", name="box", url=f"ssh://box:{PORT}", wait=True, **kw)
-    time.sleep(2)
+    rpc.call("_acpmux/peer_add", name="box", url=f"ssh://box:{PORT}", **kw)
+    time.sleep(4)  # `wait` answers before the link's session list is read: a send then queues ("host unreachable")
     cap = capture(); marks = []; tout = []
     for i in range(args.runs + 1):
         t0 = time.time()
         r = cli("a", "send", "--no-wait", "box/lane-x", f"bench {i}")
         t1 = time.time()
         if r.returncode: print("send failed:", r.stdout, r.stderr, file=sys.stderr); continue
-        did = r.stdout.split()[-1] if r.stdout.split() else ""
+        did = r.stdout.split("id=")[1].split()[0] if "id=" in r.stdout else ""
         done = None
-        while time.time() - t0 < 10:
-            st = cli("a", "send", "--status", did).stdout
-            if "delivered" in st: done = time.time(); break
-            time.sleep(0.01)
+        while time.time() - t0 < 3:
+            st = cli("a", "send", "--status").stdout
+            if any(did in l and l.startswith("delivered") for l in st.splitlines()): done = time.time(); break
         marks.append((i, t0, t1, done)); time.sleep(0.6)
     rows = payload_times(cap, "10.77.0.1")
     arr, cli_ms, dlv = [], [], []
