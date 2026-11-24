@@ -279,6 +279,8 @@ struct EventInspectorList: View {
     @Binding var copied: Bool
     /// The pill's jump: the newest row, scrolled to once the held records are drawn.
     @State private var jumpTo: Int?
+    /// The record whose detail is pushed.
+    @State private var selected: AgentInspectorEvent?
     #if DEBUG
     /// Body evaluations (tests: one per keystroke's landing, none for the keystroke itself).
     static var bodies = 0
@@ -296,37 +298,20 @@ struct EventInspectorList: View {
         // the journal drops them); what its tap lands is the kept ones.
         let held = memo.heldCount
         let pill = NewEventsPill(arrived: memo.arrivedWhileHeld)
-        ScrollViewReader { proxy in
-            List {
-                Section {
-                    ForEach(rows.reversed()) { event in
-                        NavigationLink {
-                            EventInspectorDetail(event: event)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.title).font(.subheadline.monospaced()).lineLimit(2)
-                                Text("\(event.dir) · \(event.kind) · \(event.at.formatted(.dateTime.hour().minute().second()))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .accessibilityIdentifier("chat.inspector.row")
-                    }
-                } header: {
-                    // Its own view: a filter starting redraws the header, not the list.
-                    EventInspectorCount(memo: memo, shown: memo.matchingCount(journal), total: total, dropped: journal.dropped)
-                }
-            }
+        // A UIKit list (EventInspectorCollection): an update is one apply of the rows that changed,
+        // and a row is measured once. Newest first.
+        EventInspectorCollectionView(rows: Array(rows.reversed()), shown: memo.matchingCount(journal), total: total,
+                                     dropped: journal.dropped, memo: memo,
+                                     open: { selected = $0 },
+                                     away: { memo.setHolding($0, journal: journal) },
+                                     jumpTo: jumpTo, jumped: { jumpTo = nil })
+            .ignoresSafeArea(.container, edges: .vertical)
+            .navigationDestination(item: $selected) { EventInspectorDetail(event: $0) }
             .overlay {
                 if total == 0 {
                     ContentUnavailableView("No events yet", systemImage: "list.bullet.rectangle",
                                            description: Text("Records from the Mac show here as they arrive."))
                 }
-            }
-            // Away from the top the list holds still: new records wait behind the pill (a
-            // burst inserted rows above the reader every frame), and land together when the
-            // reader taps it or scrolls back to the top.
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 24 } action: { _, away in
-                memo.setHolding(away, journal: journal)
             }
             .overlay(alignment: .top) {
                 if held > 0 || pill.arrived > 0 {
@@ -344,11 +329,6 @@ struct EventInspectorList: View {
                     .accessibilityLabel(pill.accessibilityText)
                     .accessibilityIdentifier("chat.inspector.newEvents")
                 }
-            }
-            .onChange(of: jumpTo) {
-                guard let id = jumpTo else { return }
-                jumpTo = nil
-                withAnimation { proxy.scrollTo(id, anchor: .top) }
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -370,27 +350,6 @@ struct EventInspectorList: View {
                     .accessibilityIdentifier("chat.inspector.more")
                 }
             }
-        }
-    }
-}
-
-/// The inspector's count header ("N events", "N of M events", dropped, "Filtering…"). It reads
-/// whether a filter runs itself, so a filter starting redraws only this line.
-private struct EventInspectorCount: View {
-    let memo: EventInspectorRows
-    let shown: Int
-    let total: Int
-    let dropped: Int
-
-    var body: some View {
-        Text(summary).accessibilityIdentifier("chat.inspector.count")
-    }
-
-    private var summary: String {
-        var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
-        if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
-        if memo.isFiltering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
-        return text
     }
 }
 
