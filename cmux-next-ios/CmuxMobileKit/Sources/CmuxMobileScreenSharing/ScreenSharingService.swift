@@ -432,7 +432,8 @@ public final class ScreenSharingService {
             viewer = current
         } else {
             self.viewer?.close(reason: .viewerDisconnected)
-            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
+            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hostPlatform: mac.platform, hub: hub,
+                                         preferences: preferences)
             viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
             viewer.refusedBeforeShown = { [weak self, weak viewer] refusal, requested in
                 guard let self, let viewer, self.viewer === viewer else { return }

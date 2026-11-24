@@ -75,7 +75,8 @@ impl Hub {
         let lower = name.to_ascii_lowercase();
         let found = if local {
             let homes = self.harness_homes();
-            crate::claude_peers::live(&homes.claude)
+            // A folder walk: off the runtime's workers (RFD 0124 R6).
+            crate::qos::off_worker(|| crate::claude_peers::live(&homes.claude))
                 .into_iter()
                 .find(|p| p.session_id.to_ascii_lowercase().starts_with(&lower))
         } else {
