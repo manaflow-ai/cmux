@@ -218,6 +218,13 @@ pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
 
 #[cfg(test)]
 impl Peer {
+    /// A test that stands in for a listener from before the early request: no first request goes
+    /// out with the upgrade, as after the real refusal (`early_refused`).
+    #[cfg(test)]
+    pub(crate) fn refuse_early(&self) {
+        self.early_refused.store(true, Ordering::SeqCst);
+    }
+
     /// Test stand-in for the far daemon: answers every request this peer's link would write with
     /// `result` until one is `m`, and gives that one's line. No `serve` runs: the frames are read
     /// off the link's queue as `serve` would read them.
