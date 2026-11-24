@@ -125,6 +125,28 @@ async fn session_tail_last_reads_older_pages_forward() {
     drop(dir);
 }
 
+/// The same passive request a coordinator makes: first visit, then a delta spanning several pages.
+#[tokio::test]
+async fn session_tail_since_seen_reads_only_new_records_without_marking_them_seen() {
+    let (hub, client, _dir) = daemon().await;
+    let id = chat_with_output(&hub, &client, 12, 256 << 10).await;
+    let session = hub.resolve(&id).unwrap();
+    let end = session.meta().last_seq;
+    let mut buf = Vec::new();
+    stream_seen(&client, &id, &mut Out::new(&id, false, &mut buf)).await.unwrap();
+    assert!(buf.is_empty());
+    let cursor = end - 10;
+    client.request(method::MUX_SEEN, json!({"sessionId": id, "seq": cursor})).await.unwrap();
+    stream_seen(&client, &id, &mut Out::new(&id, false, &mut buf)).await.unwrap();
+    let seqs: Vec<_> = std::str::from_utf8(&buf)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap()["seq"].as_u64().unwrap())
+        .collect();
+    assert_eq!(seqs, (cursor + 1..=end).collect::<Vec<_>>());
+    assert_eq!(hub.read_through(&session, crate::hub::reader_of(None)), Some(cursor));
+}
+
 struct ClosedPipe;
 
 impl Write for ClosedPipe {
