@@ -45,6 +45,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ``AcpmuxDaemonStop``), and answers true when the pane's next handshake may start one: also
     /// when none runs. Never an attached daemon or the Chief home's.
     func restartGaveUpAcpmux(sessionId: String?) async -> Bool
+    /// One event each time this host's own acpmux answers a lookup (any pane's, a restart's): a pane
+    /// whose handshake loop stopped asks again then (AgentPaneView `observeAcpmuxAnswers`). Nil when
+    /// this host has no daemon of its own.
+    func acpmuxAnswers() -> AsyncStream<Void>?
     /// The person's click on a request this app's running acpmux lacks (it is older than the app):
     /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
     /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
@@ -83,6 +87,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartGaveUpAcpmux(sessionId: String?) async -> Bool { false }
+
+    /// Hosts without a daemon have no answers to tell.
+    public func acpmuxAnswers() -> AsyncStream<Void>? { nil }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
@@ -366,6 +373,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return await daemonStop.restart(environment)
     }
 
+    public nonisolated func acpmuxAnswers() -> AsyncStream<Void>? {
+        daemons.answers()
+    }
+
     /// The person's "Restart agent service" after the pane stopped asking: no lookup waits, so the
     /// guard of ``restartStuckAcpmux(sessionId:)`` does not apply; the person's click decides (rule R5).
     /// A daemon of this home that runs gets SIGTERM; none running is a restart too, since the pane's
@@ -471,7 +482,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             Self.markLookup("lookup_end", owned: owned)
             // A pane whose handshake loop stopped asks again now that acpmux answers (AgentPaneView
             // `observeAcpmuxAnswers`): the event that ends its terminal state, never a tick.
-            NotificationCenter.default.post(name: .cmuxNextAcpmuxAnswered, object: nil)
+            daemons.noteAnswered()
             return endpoint
         }
         inFlight[startsDaemon] = task

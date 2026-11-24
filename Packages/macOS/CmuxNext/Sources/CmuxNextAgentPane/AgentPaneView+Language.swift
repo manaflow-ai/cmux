@@ -32,17 +32,13 @@ extension AgentPaneView {
     /// or a restart's) tells every page `acpmux-daemon-answered`. A page still connected or still
     /// asking ignores it (hostRetry.ts `hostWakeAsks`); there is no tick.
     func observeAcpmuxAnswers() {
-        // task-owner: this pane (cancelled in close() and deinit); event-driven (NotificationCenter).
+        guard let answers = model.host.acpmuxAnswers() else { return }
+        // task-owner: this pane (cancelled in close() and deinit); event-driven (the host's stream).
         acpmuxAnswerObservation = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .cmuxNextAcpmuxAnswered).map({ _ in () }) {
+            for await _ in answers {
                 guard let self else { return }
                 self.evaluateScript("window.dispatchEvent(new Event('acpmux-daemon-answered'))")
             }
         }
     }
-}
-
-public extension Notification.Name {
-    /// This app's acpmux answered a lookup (``AcpmuxHost``): a stopped pane asks again.
-    static let cmuxNextAcpmuxAnswered = Notification.Name("cmux.next.acpmux-answered")
 }

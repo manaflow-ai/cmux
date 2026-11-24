@@ -120,6 +120,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await host(for: sessionId).restartStuckAcpmux(sessionId: sessionId)
     }
 
+    /// This Mac's acpmux answers: the Chief home's daemon is its host's to start.
+    public func acpmuxAnswers() -> AsyncStream<Void>? {
+        local.acpmuxAnswers()
+    }
+
     public func restartGaveUpAcpmux(sessionId: String?) async -> Bool {
         await host(for: sessionId).restartGaveUpAcpmux(sessionId: sessionId)
     }

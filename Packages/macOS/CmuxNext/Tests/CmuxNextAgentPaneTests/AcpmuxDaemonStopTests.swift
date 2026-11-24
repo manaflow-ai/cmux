@@ -171,6 +171,20 @@ struct AcpmuxRestartStuckTests {
         #expect(await host.restarts == 0)
     }
 
+    /// A stopped pane asks again when this app's acpmux answers a lookup, by an event, never a tick:
+    /// every listening pane hears each answer.
+    @Test func everyListeningPaneHearsThatAcpmuxAnswered() async {
+        let daemons = AcpmuxLocalDaemons()
+        let first = daemons.answers()
+        let second = daemons.answers()
+        daemons.noteAnswered()
+        var heardFirst = false
+        for await _ in first { heardFirst = true; break }
+        var heardSecond = false
+        for await _ in second { heardSecond = true; break }
+        #expect(heardFirst && heardSecond)
+    }
+
     /// Page script cannot stop the daemon: only a real click reaches the host.
     @Test func restartAgentServiceNeedsAGesture() async {
         let host = NoHost()
