@@ -238,6 +238,20 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             let mut ledger = load_ledger()?;
             let local = HomeLocal::new();
             let mut events = Vec::new();
+            let mut plan = plan;
+            if headless.is_some() {
+                // The headless route carries no local files: say so once, not as a failed step each.
+                for carry in plan.carry.iter_mut().filter(|c| c.checked) {
+                    carry.checked = false;
+                    plan.warnings.push(format!(
+                        "--headless: {} stays (run without --headless to carry it)",
+                        carry.path
+                    ));
+                }
+                for project in &mut plan.projects {
+                    project.chats.clear();
+                }
+            }
             let outcome = match headless {
                 Some(backend) => {
                     let mut cloud = Headless { global: global.clone(), backend };
@@ -687,6 +701,10 @@ impl Cloud for Headless {
             .stdin(cmux_process::Stdio::null())
             .stdout(cmux_process::Stdio::null())
             .stderr(cmux_process::Stdio::inherit());
+        // CI measures and then deletes (CMUX_MIGRATE_JOURNEY_DELETE=1); a person's move keeps its machine.
+        if std::env::var("CMUX_MIGRATE_JOURNEY_DELETE").as_deref() != Ok("1") {
+            command.arg("--keep");
+        }
         if let Ok(stub) = std::env::var("CMUX_MIGRATE_MODEL_STUB") {
             command.args(["--model-stub", &stub]);
         }
@@ -710,8 +728,9 @@ impl Cloud for Headless {
         headless_created(&journey)
     }
 
-    fn deliver_secrets(&mut self, _: &str, _: &[String]) -> Result<Vec<String>, String> {
-        Err(HEADLESS_ONLY.into())
+    /// No keychain here: every name is still to set (`cmux cloud secret set NAME`).
+    fn deliver_secrets(&mut self, _: &str, names: &[String]) -> Result<Vec<String>, String> {
+        Ok(names.to_vec())
     }
     fn write_file(&mut self, _: &str, _: &str, _: &str) -> Result<(), String> {
         Err(HEADLESS_ONLY.into())
