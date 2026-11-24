@@ -1295,7 +1295,8 @@ impl Warm {
         Ok((self.open_locked(key, token, timeline).await?, false))
     }
 
-    /// A new socket for `key`, now the pooled one.
+    /// A new socket for `key`, now the pooled one (tests open one directly).
+    #[cfg(test)]
     async fn open(
         &self,
         key: &SocketKey,
