@@ -326,16 +326,14 @@ fn escape(value: &str) -> String {
 
 fn unescape(value: &str) -> Option<String> {
     let mut out = Vec::with_capacity(value.len());
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            let hex = value.get(index + 1..index + 3)?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            index += 3;
+    let mut bytes = value.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let high = char::from(bytes.next()?).to_digit(16)?;
+            let low = char::from(bytes.next()?).to_digit(16)?;
+            out.push(u8::try_from(high.checked_mul(16)?.checked_add(low)?).ok()?);
         } else {
-            out.push(bytes[index]);
-            index += 1;
+            out.push(byte);
         }
     }
     String::from_utf8(out).ok()
@@ -344,6 +342,19 @@ fn unescape(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escaped_ids_and_generations_survive_encode_and_decode() {
+        let mut cursors = Cursors::default();
+        let id = "50%\tdone\n-";
+        cursors.chats.insert(id.to_string(), ChatCursor { last_seq: 3, opened_at: 1 });
+        cursors.list.tree_revision = Some("-".to_string());
+        let decoded = Cursors::decode(&cursors.encode());
+        assert_eq!(decoded.chats.get(id).map(|chat| chat.last_seq), Some(3));
+        assert_eq!(decoded.list.tree_revision.as_deref(), Some("-"));
+        assert_eq!(unescape("%4"), None);
+        assert_eq!(unescape("%zz"), None);
+    }
 
     fn cursors() -> Cursors {
         let mut cursors = Cursors::default();
