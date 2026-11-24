@@ -49,6 +49,7 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-hop-relay = { path = "../../../../cmux-tui/crates/cmux-hop-relay" }
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true

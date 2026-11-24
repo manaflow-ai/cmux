@@ -328,6 +328,11 @@ pub(crate) fn next_keepalive(now: tokio::time::Instant) -> tokio::time::Instant 
 
 struct Shared {
     device_id: String,
+    // Use the currently attached signaling identity for a new relay ticket
+    // after a PoP explicitly refuses the one a sleeping phone had.
+    ice_base: String,
+    token: String,
+    build_space: Option<crate::build_space::BuildSpace>,
     /// Counts inbound frames (any kind); `probe` waits for it to move.
     inbound: tokio::sync::watch::Sender<u64>,
     opened: std::time::Instant,
@@ -413,6 +418,13 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
 }
 
 impl SignalingClient {
+    pub(crate) async fn fresh_ice(&self) -> Result<crate::api::IceConfig, crate::api::ApiError> {
+        crate::api::ApiClient::new(&self.shared.ice_base, &self.shared.token)
+            .with_build_space(self.shared.build_space.clone())
+            .ice()
+            .await
+    }
+
     /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
         base_url: &str,
@@ -469,6 +481,11 @@ impl SignalingClient {
         let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
+            ice_base: base_url
+                .strip_prefix("ws")
+                .map_or_else(|| base_url.to_owned(), |suffix| format!("http{suffix}")),
+            token: token.to_owned(),
+            build_space: build_space.cloned(),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -839,6 +856,9 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            ice_base: String::new(),
+            token: String::new(),
+            build_space: None,
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),

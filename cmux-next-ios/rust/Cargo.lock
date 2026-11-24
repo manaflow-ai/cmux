@@ -523,6 +523,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
 
@@ -570,6 +585,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-hop-relay",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",

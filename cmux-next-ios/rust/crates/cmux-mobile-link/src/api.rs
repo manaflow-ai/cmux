@@ -28,17 +28,47 @@ impl IceServer {
     }
 }
 
+fn normalize_hop_servers(config: &mut IceConfig) {
+    config.ice_servers.extend(
+        config
+            .hop_servers
+            .iter()
+            .filter(|hop| hop.kind.as_deref().is_none_or(|kind| kind == "hop"))
+            .filter_map(|hop| {
+                let url = hop.url.as_deref().filter(|url| url.starts_with("hop://"))?;
+                let ticket = hop.ticket.as_deref().filter(|ticket| !ticket.is_empty())?;
+                Some(IceServer::hop(url, ticket))
+            }),
+    );
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct HopServer {
-    pub url: String,
-    pub ticket: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub ticket: Option<String>,
+}
+
+// A future carrier may use structured credentials. One unfamiliar or
+// malformed extension row must leave the standard ICE response usable.
+fn decode_hop_entries<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Vec<HopServer>, D::Error> {
+    let value = serde_json::Value::deserialize(de)?;
+    Ok(match value {
+        serde_json::Value::Array(rows) => {
+            rows.into_iter().filter_map(|row| serde_json::from_value(row).ok()).collect()
+        }
+        _ => Vec::new(),
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IceConfig {
     pub ice_servers: Vec<IceServer>,
-    #[serde(default, rename = "hopServers")]
+    #[serde(default, deserialize_with = "decode_hop_entries")]
     pub hop_servers: Vec<HopServer>,
     #[serde(default)]
     pub ttl: Option<u64>,
@@ -232,11 +262,25 @@ impl ApiClient {
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
-        let mut config: IceConfig = Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
+        let mut config: IceConfig =
+            Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))?;
         // `hopServers` is additive so an old client ignores it. New clients
         // normalize it into the common list after legacy ICE has parsed.
-        config.ice_servers.extend(config.hop_servers.iter().map(|hop| IceServer::hop(hop.url.clone(), hop.ticket.clone())));
+        normalize_hop_servers(&mut config);
         Ok(config)
+    }
+
+    /// Prepare a previously used ICE list for another WireGuard session.
+    /// Only the PoP ticket is single-use across sessions. Keep usable TURN
+    /// credentials even if the authenticated refresh cannot complete.
+    pub async fn renew_hop_tickets(&self, servers: &mut Vec<IceServer>, budget: std::time::Duration) {
+        if !servers.iter().any(|server| server.hop_config().is_some()) {
+            return;
+        }
+        servers.retain(|server| server.hop_config().is_none());
+        if let Ok(Ok(config)) = tokio::time::timeout(budget, self.ice()).await {
+            servers.extend(config.ice_servers.into_iter().filter(|server| server.hop_config().is_some()));
+        }
     }
 
     /// `POST /v1/devices` (upsert). Returns the backend's `device` object.
@@ -384,11 +428,13 @@ impl IceCache {
     }
 
     pub fn store(&self, config: &IceConfig) {
+        let hop_uncached = config.ice_servers.iter().any(|server| server.hop_config().is_some());
+        let reusable: Vec<IceServer> =
+            config.ice_servers.iter().filter(|server| server.hop_config().is_none()).cloned().collect();
         let expires = std::time::Instant::now() + Self::lifetime(config);
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some((config.ice_servers.clone(), expires));
-        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some(config.ice_servers.clone());
+            (!hop_uncached).then_some((reusable.clone(), expires));
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reusable);
     }
 
     /// Forget everything, the last servers too.
@@ -507,8 +553,36 @@ mod tests {
         let hop = IceServer::hop("hop://127.0.0.1:7422", "hop1.session.999.sig");
         assert_eq!(hop.hop_config(), Some(("hop://127.0.0.1:7422", "hop1.session.999.sig")));
         assert!(stun_servers(std::slice::from_ref(&hop)).is_empty());
-        let old: IceConfig = serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"url":"hop://h:1","ticket":"t"}],"ttl":60}"#).unwrap();
+        let old: IceConfig = serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"kind":"hop","url":"hop://h:1","ticket":"t"}],"ttl":60}"#).unwrap();
         assert_eq!(old.ice_servers.len(), 1, "raw decode preserves old ICE list");
-        assert_eq!(old.hop_servers[0].url, "hop://h:1");
+        assert_eq!(old.hop_servers[0].url.as_deref(), Some("hop://h:1"));
+    }
+
+    #[test]
+    fn hop_tickets_are_never_reused_from_the_mobile_cache() {
+        let cache = IceCache::new();
+        let hop = IceServer::hop("hop://h:1", "hop1.a.1.sig");
+        let config = IceConfig { ice_servers: vec![hop], hop_servers: Vec::new(), ttl: Some(600) };
+        cache.store(&config);
+        assert!(cache.fresh().is_none());
+        assert!(cache.last().unwrap().is_empty());
+    }
+
+    #[test]
+    fn old_clients_ignore_additive_hop_servers_and_new_clients_ignore_unknown_kinds() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct OldIceConfig {
+            ice_servers: Vec<IceServer>,
+        }
+        let json = r#"{"iceServers":[{"urls":["stun:s:3478"]}],"hopServers":[{"kind":"hop","url":"hop://h:1","ticket":"t"},{"kind":"future","ticket":{"scheme":"other"}},{"kind":"future","endpoint":"future://x:1"},{"kind":"hop","url":"http://x:1","ticket":"bad"},{"kind":"hop","url":"hop://x:1","ticket":""}]}"#;
+        let old: OldIceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(old.ice_servers.len(), 1);
+        let mut new: IceConfig = serde_json::from_str(json).unwrap();
+        normalize_hop_servers(&mut new);
+        assert_eq!(new.ice_servers.iter().filter_map(IceServer::hop_config).count(), 1);
+        let old_response: IceConfig =
+            serde_json::from_str(r#"{"iceServers":[{"urls":["stun:s:3478"]}]}"#).unwrap();
+        assert!(old_response.hop_servers.is_empty());
     }
 }

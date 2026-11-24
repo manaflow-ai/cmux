@@ -2020,6 +2020,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [

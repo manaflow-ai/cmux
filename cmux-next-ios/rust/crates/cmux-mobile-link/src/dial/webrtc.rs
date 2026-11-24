@@ -116,6 +116,7 @@ async fn new_peer_connection_for(
     let config = RTCConfiguration {
         ice_servers: ice_servers
             .iter()
+            .filter(|server| server.hop_config().is_none())
             .map(|server| RTCIceServer {
                 urls: server.urls.clone(),
                 username: server.username.clone().unwrap_or_default(),

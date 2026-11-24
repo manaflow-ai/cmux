@@ -227,10 +227,14 @@ impl Paths {
         if current.and_then(|id| self.selector.path(id)).is_some_and(|p| p.kind.class().is_direct()) {
             return current;
         }
-        self.entries.iter().find(|entry| {
-            entry.route.carrier == Carrier::Hop
-                && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
-        }).map(|entry| entry.id).or(current)
+        self.entries
+            .iter()
+            .find(|entry| {
+                entry.route.carrier == Carrier::Hop
+                    && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
+            })
+            .map(|entry| entry.id)
+            .or(current)
     }
 
     /// The route the selector sends on: an alive path.
@@ -526,6 +530,29 @@ mod tests {
         let (_, probe) = *due.pings.iter().find(|(ping, _)| *ping == id).expect("an upgrade probe at once");
         paths.on_pong(id, probe, now + std::time::Duration::from_millis(3));
         assert_eq!(paths.current(), Some(lan));
+    }
+
+    #[test]
+    fn answered_hop_precedes_turn_and_yields_to_direct() {
+        let mut paths = paths_on(lan_table());
+        let relay = Wanted { route: turn("203.0.113.9:4100"), relayed: true };
+        let hop = Wanted {
+            route: Route { carrier: Carrier::Hop, addr: "203.0.113.10:4100".parse().unwrap() },
+            relayed: true,
+        };
+        let lan = Wanted { route: udp("192.168.1.30:4100"), relayed: false };
+        paths.sync(&[relay, hop]);
+        let now = Instant::now();
+        for (id, probe) in paths.poll(now).pings {
+            let delay = if paths.route_of(id) == Some(hop.route) { 30 } else { 2 };
+            paths.on_pong(id, probe, now + std::time::Duration::from_millis(delay));
+        }
+        assert_eq!(paths.current(), Some(hop.route));
+        paths.sync(&[relay, hop, lan]);
+        answer_all(&mut paths, now + std::time::Duration::from_secs(1), std::time::Duration::from_millis(5));
+        assert_eq!(paths.current(), Some(lan.route));
+        paths.sync(&[relay]);
+        assert_eq!(paths.current(), Some(relay.route));
     }
 
     #[test]

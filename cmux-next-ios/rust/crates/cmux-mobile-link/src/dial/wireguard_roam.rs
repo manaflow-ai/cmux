@@ -58,14 +58,19 @@ pub(super) enum Control {
         stun: Vec<SocketAddr>,
         reflexive: mpsc::UnboundedSender<SocketAddr>,
         timeline: Timeline,
+        new_hop_port: oneshot::Sender<hop::Rebind>,
     },
     /// Ask `stun` for the current socket's reflexive address and send what
     /// they answer to `reflexive` (an answer that went out with its host
     /// endpoints only, [`Session::gather_after_answer`]).
-    Gather { stun: Vec<SocketAddr>, reflexive: mpsc::UnboundedSender<SocketAddr> },
+    Gather {
+        stun: Vec<SocketAddr>,
+        reflexive: mpsc::UnboundedSender<SocketAddr>,
+    },
     /// A TURN allocation on the new network (or replacing a dead one).
     Turn(TurnCarrier),
     Hop(HopCarrier),
+    HopRebound(SocketAddr),
     /// The peer announced new endpoints.
     PeerEndpoints {
         endpoints: Vec<String>,
@@ -77,7 +82,10 @@ pub(super) enum Control {
     },
     /// The peer receives what this side sends (its `reach` message): from
     /// this address of ours, on its TURN allocation when `via_turn`.
-    Reached { from: Option<SocketAddr>, via_turn: bool },
+    Reached {
+        from: Option<SocketAddr>,
+        via_turn: bool,
+    },
     /// Debug and tests: the socket's network is gone.
     Blackhole,
     /// Debug and tests: the network goes dark (`true`: nothing this side
@@ -196,6 +204,7 @@ pub(super) struct Session {
     resignal: mpsc::UnboundedSender<()>,
     resignals: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
+    late_allocations: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
     roaming: tokio::sync::Mutex<()>,
@@ -257,6 +266,7 @@ impl Session {
             resignal,
             resignals: Mutex::new(Some(resignals)),
             follow: Mutex::new(None),
+            late_allocations: Mutex::new(None),
             announce: Mutex::new(None),
             control_task: Mutex::new(None),
             roaming: tokio::sync::Mutex::new(()),
@@ -415,6 +425,61 @@ impl Session {
         tracing::debug!(session = self.session_id, port, timings = %timeline.summary(), "WireGuard answer gathered");
     }
 
+    pub(super) fn finish_allocations(
+        self: &Arc<Self>,
+        mut pending: tokio::task::JoinSet<RelayAllocation>,
+        mut turn_missing: bool,
+        generation: u64,
+    ) {
+        if pending.is_empty() {
+            if turn_missing {
+                self.retry_missing_turn();
+            }
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let task = tokio::spawn(async move {
+            while let Some(result) = pending.join_next().await {
+                let Some(session) = weak.upgrade() else { return };
+                let _one_at_a_time = session.roaming.lock().await;
+                if session.closed.load(Ordering::Relaxed)
+                    || session.roams.load(Ordering::Relaxed) != generation
+                {
+                    return;
+                }
+                let Ok(net) = session.net() else { return };
+                let mut endpoints = lock(&session.endpoints).clone();
+                match result {
+                    Ok(RelayAllocation::Hop(Some(hop))) => {
+                        if let Some(old) = lock(&session.own_hop).replace(hop.relayed) {
+                            endpoints.retain(|s| s != &old.to_string());
+                        }
+                        if session.control.send(Control::Hop(hop)).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(RelayAllocation::Turn(Some(turn))) => {
+                        turn_missing = false;
+                        let relayed = relayed_of(Some(&turn));
+                        endpoints.extend(relayed.0.iter().cloned());
+                        session.install_turn(turn, relayed);
+                    }
+                    _ => continue,
+                }
+                let (relayed, tls) = lock(&session.relayed).clone();
+                session.announce(endpoints, relayed, tls);
+                let _ = net.refresh().await;
+            }
+            if turn_missing
+                && let Some(session) = weak.upgrade()
+                && session.roams.load(Ordering::Relaxed) == generation
+            {
+                session.retry_missing_turn();
+            }
+        });
+        stop_monitor(lock(&self.late_allocations).replace(task));
+    }
+
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
         let dead = turn.transport.is_stream().then(|| turn.dead());
@@ -451,7 +516,8 @@ impl Session {
             loop {
                 match events.recv().await {
                     Some(SessionEvent::Signal(SignalEnvelope {
-                        payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls, hop },
+                        payload:
+                            SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls, hop },
                         ..
                     })) => {
                         let _ = inject.send(RoamMessage::Endpoints {
@@ -522,6 +588,7 @@ impl Session {
     /// End the session: stop its tasks and tell the peer.
     pub(super) fn close(&self) {
         self.closed.store(true, Ordering::Relaxed);
+        stop_monitor(lock(&self.late_allocations).take());
         if let Some(task) = lock(&self.follow).take() {
             task.abort();
         }
@@ -578,7 +645,14 @@ impl Session {
     /// Move the session onto the network the device has now.
     async fn roam(self: &Arc<Self>) -> Timeline {
         let _one_at_a_time = self.roaming.lock().await;
-        self.roams.fetch_add(1, Ordering::Relaxed);
+        let generation = self.roams.fetch_add(1, Ordering::Relaxed) + 1;
+        stop_monitor(lock(&self.late_allocations).take());
+        if self.dialer && lock(&self.own_hop).is_none() && hop::configured(&self.options) {
+            let options = self.options.clone();
+            let mut pending = tokio::task::JoinSet::new();
+            pending.spawn(async move { RelayAllocation::Hop(hop::allocate(&options).await) });
+            self.finish_allocations(pending, false, generation);
+        }
         let timeline = Timeline::new();
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
@@ -595,7 +669,14 @@ impl Session {
         let stun = self.stun_servers().await;
         let asked = stun.len();
         let (reflexive_tx, mut reflexive_rx) = mpsc::unbounded_channel();
-        let rebind = Control::Rebind { socket, stun, reflexive: reflexive_tx, timeline: timeline.clone() };
+        let (new_hop_port, hop_port) = oneshot::channel();
+        let rebind = Control::Rebind {
+            socket,
+            stun,
+            reflexive: reflexive_tx,
+            timeline: timeline.clone(),
+            new_hop_port,
+        };
         if self.control.send(rebind).is_err() {
             return timeline;
         }
@@ -626,7 +707,38 @@ impl Session {
             }
             found
         };
-        let (mut turn, reflexive) = tokio::join!(turn, reflexive);
+        let hop = async {
+            let addr = match hop_port.await {
+                Ok(hop::Rebind::NewAddress(addr)) => addr,
+                Ok(hop::Rebind::TicketRefused) => {
+                    // Mint once for this roam. Keep TURN and direct recovery moving
+                    // while the authenticated HTTP request and BIND are in flight.
+                    let signaling = self.signaling();
+                    let mut options = self.options.clone();
+                    let mut pending = tokio::task::JoinSet::new();
+                    pending.spawn(async move {
+                        let config =
+                            tokio::time::timeout(Duration::from_secs(3), signaling.fresh_ice()).await;
+                        let Ok(Ok(config)) = config else { return RelayAllocation::Hop(None) };
+                        options.ice_servers = config.ice_servers;
+                        RelayAllocation::Hop(hop::allocate(&options).await)
+                    });
+                    self.finish_allocations(pending, false, generation);
+                    return;
+                }
+                Err(_) => return,
+            };
+            let old = lock(&self.own_hop).replace(addr);
+            let _ = self.control.send(Control::HopRebound(addr));
+            let mut endpoints = lock(&self.endpoints).clone();
+            if let Some(old) = old {
+                endpoints.retain(|s| s != &old.to_string());
+            }
+            let (relayed, tls) = lock(&self.relayed).clone();
+            self.announce(endpoints, relayed, tls);
+            let _ = net.refresh().await;
+        };
+        let (mut turn, reflexive, ()) = tokio::join!(turn, reflexive, hop);
         if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
             // UDP): from now on it keeps a TURN allocation, and keeps asking
@@ -708,7 +820,8 @@ struct SignalTarget {
 
 impl SignalTarget {
     fn send(&self, message: &RoamMessage) {
-        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, hop } = message.clone() else {
+        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, hop } = message.clone()
+        else {
             return;
         };
         let client = lock(&self.signaling).clone();
@@ -997,6 +1110,17 @@ pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
     hit
 }
 
+/// The negotiated hop/1 leg for this tunnel. P4 uses the sender for tagged, already
+/// encrypted state updates. A successful rebind preserves its sender and sequence space.
+pub fn hop_sender(session_id: &str, dialer: bool) -> Option<HopSender> {
+    let session = find(session_id, dialer)?;
+    lock(&session.hop_sender).clone()
+}
+
+pub fn hop_stats(session_id: &str, dialer: bool) -> Option<crate::link_stat::HopStats> {
+    hop_sender(session_id, dialer)?.stats()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1036,16 +1160,4 @@ mod tests {
             RoamMessage::Reach { from: None, via: None }
         );
     }
-}
-
-
-/// The active hop/1 leg for this tunnel. P4 uses the sender for tagged, already
-/// encrypted state updates. Replacement carriers publish a new sender on roam.
-pub fn hop_sender(session_id: &str, dialer: bool) -> Option<HopSender> {
-    let session = find(session_id, dialer)?;
-    lock(&session.hop_sender).clone()
-}
-
-pub fn hop_stats(session_id: &str, dialer: bool) -> Option<crate::link_stat::HopStats> {
-    Some(hop_sender(session_id, dialer)?.stats())
 }
