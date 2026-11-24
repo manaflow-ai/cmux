@@ -200,7 +200,9 @@ struct BrowserChromeTabSwitch {
             chrome.pageOverlays.remove(notice)
         }
         // The cookie import offer waits, hidden, for its tab (it shows once per launch).
-        if let card = chrome.currentCookieImportCard, !card.isHidden {
+        if let card = chrome.currentCookieImportCard, card.wasSeen {
+            chrome.hideCookieImportOffer()  // seen: another tab showing closes it (``BrowserCookieImportCard/wasSeen``)
+        } else if let card = chrome.currentCookieImportCard, !card.isHidden {
             card.heldFor = state
             state.cookieOfferHolder = chrome
             card.isHidden = true

@@ -55,6 +55,10 @@ path = "tests/test_ios_internal_yolo.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_kit_bench_runs_after_red_step.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_screen_sharing_proof.py"
 lane = "manual"
 reason = "Protected capture harness unit tests, no new CI gate. Run python3 tests/test_ios_screen_sharing_proof.py after changing either screen-sharing proof driver or the HQ admission workflow identity."
