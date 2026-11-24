@@ -391,7 +391,7 @@ impl AgentShare {
                 };
                 waiting.remove(&oldest);
             }
-            waiting.insert(id.clone(), (pending, Instant::now()));
+            waiting.insert(id, (pending, Instant::now()));
         }
         let notice = self.sink.notice(json!({
             "kind": if on { "shared" } else { "unshared" },

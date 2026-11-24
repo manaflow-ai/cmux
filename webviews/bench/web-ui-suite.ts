@@ -76,6 +76,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // The RFD 0040 transcript replacement's named fling benchmark. It reports both the current web transcript and
+  // a plain-text floor with one schema so a future native arm can join without changing the driver.
+  {
+    name: "transcript-fling",
+    file: "transcript-fling.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
@@ -175,6 +184,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_200_000,
     ownPart: true,
   },
+  // Ten 100-turn chats in one shared renderer against an empty one (goal memory-per-chat): renderer PSS, MB per chat
+  // and chat_pages_memory.n10.ratio_vs_empty. Linux only (/proc). perf-cron.py's web-ui-memory part runs it
+  // (`--only chat-pages-memory`).
+  {
+    name: "chat-pages-memory",
+    file: "chat-pages-memory.bench.ts",
+    args: ["10", "100"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
   // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
   {
@@ -193,6 +212,26 @@ export const BENCHES: readonly Bench[] = [
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
     timeoutMs: 1_770_000,
+    ownPart: true,
+  },
+  // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared
+  // renderer listing 3,000 chats; the cost per added item at 100 over at 10 (sim_ladder.ratio_max). perf-cron.py's
+  // web-ui-ladder part runs it, under that part's 30-minute run cap.
+  {
+    name: "sim-ladder",
+    file: "sim-ladder.bench.ts",
+    args: ["--sessions", "3000"],
+    timeoutMs: 1_700_000,
+    ownPart: true,
+  },
+  // The same sim at a profile of Leo's running NIGHTLY (goal sim-fidelity-flat-ladder): its pages, tabs, listed chats,
+  // change rate and load, against its frame p95, keydown, script ms/s and agent renderer RSS; divergence past 1.5x is
+  // red. perf-cron.py's web-ui-fidelity part runs it.
+  {
+    name: "sim-fidelity",
+    file: "sim-ladder.bench.ts",
+    args: ["--profile", "bench/profiles/leo-nightly.json"],
+    timeoutMs: 600_000,
     ownPart: true,
   },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
