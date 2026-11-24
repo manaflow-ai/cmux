@@ -2092,8 +2092,7 @@ impl Underlay for HybridUnderlay {
             self.last_turn_source = Some(from);
             return Poll::Ready(Ok(Received { len, origin }));
         }
-        loop {
-            let Some(relay) = &mut self.relay else { break };
+        while let Some(relay) = &mut self.relay {
             match relay.inbound.poll_recv(cx) {
                 Poll::Ready(Some(datagram)) => {
                     if self.dark {
