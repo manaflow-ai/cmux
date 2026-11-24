@@ -543,6 +543,7 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+mod wip_ref;
 
 /// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
 /// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
