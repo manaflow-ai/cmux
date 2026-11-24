@@ -43,13 +43,26 @@ struct OmnibarNarrowFitTests {
             if field.maxX > frame.minX + 0.5 { found.append("field ends at \(field.maxX), under \(type(of: badge)) at \(frame.minX)") }
         }
         if field.maxX > bar.bounds.maxX + 0.5 { found.append("field ends past the bar") }
+        // The chip is never squeezed under its own content: a squeezed chip still draws its label at full width, over
+        // the field (the sweep's "N" sliver before "h.").
+        let content = bar.chip.intrinsicContentSize.width
+        if chip.width + 0.5 < content { found.append("chip squeezed to \(chip.width) under its content \(content)") }
+        // The text keeps a readable width whenever the bar has room for it beside the icon alone.
+        let room = bar.bounds.width - OmnibarStyle.chipLeading - OmnibarStyle.chipSize - OmnibarStyle.textLeading - OmnibarStyle.trailingPadding
+        let wanted = min(OmnibarNarrowFitTests.readableText, room)
+        if field.width + 0.5 < wanted { found.append("field \(field.width) pt wide, under \(wanted)") }
         return found
     }
+
+    /// About five characters of the omnibar's font (``OmnibarNarrowFit``'s minimum, spelled out so the test needs no
+    /// type the fix adds).
+    static let readableText: CGFloat = 40
 
     @Test(arguments: [70, 90, 110, 140, 180, 240, 320, 480, 840] as [CGFloat])
     func theURLTextEndsBeforeEveryTrailingIcon(width: CGFloat) {
         let (bar, window, _) = bar(width: width)
         defer { window.closeAfterTest() }
+        #expect(abs(bar.frame.width - width) <= 0.5, "the bar is the width asked for, not one Auto Layout chose")
         #expect(problems(bar).isEmpty, "at \(width) pt: \(problems(bar))")
     }
 
