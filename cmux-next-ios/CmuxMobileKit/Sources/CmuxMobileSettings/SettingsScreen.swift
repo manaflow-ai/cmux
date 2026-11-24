@@ -141,6 +141,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
                     }
                     .accessibilityIdentifier("settings.compactWorkspaceList")
+                    // The Mac's Needs You Look (`notifications.attention.mark`): a waiting workspace's
+                    // dot, or a gentle glow until it is opened. Badge by default (Leo, 2026-11-19).
+                    Picker(selection: $settings.attentionMark) {
+                        ForEach(AttentionMarkLook.allCases) { Text($0.title).tag($0) }
+                    } label: {
+                        SettingsLabel("Needs You look", symbol: "bell.badge")
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.attentionMark")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }
