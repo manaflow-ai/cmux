@@ -1405,11 +1405,6 @@ async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_bat
             "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
         m.last_turn = Some(json!({"turnId": "t0", "endedAt": expires.saturating_sub(300_000)}));
     };
-    let tried = |inbox: &Inbox| {
-        inbox.in_flight.is_some()
-            || inbox.refused_at != 0
-            || inbox.items.iter().any(|i| i.noticed || i.answered.is_some())
-    };
     // Past the burst window: today each review would wake the chat.
     let at = now.saturating_sub(WAKE_DEBOUNCE_MS + 1);
     let (hub, session) = hub_with_chat("cold-50");
