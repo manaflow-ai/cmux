@@ -64,6 +64,10 @@ pub struct HeldRows {
     /// The screen rows (first, last) a repaint's move was seen in: a pan
     /// shows the held rows there and keeps the rows outside it in place.
     band: Option<(usize, usize)>,
+    /// The app marks where its frames end (the cursor shown again after a
+    /// hidden redraw, or a synchronized update's end): a repaint is compared
+    /// there, not at a batch's end, which can fall mid-frame.
+    framed: bool,
     rows: VecDeque<Row>,
     /// Rows ever held since the store started (front drops keep counting).
     pushed: u64,
@@ -98,6 +102,18 @@ impl HeldRows {
         self.last_seen.clear();
         self.moved = false;
         self.band = None;
+        self.framed = false;
+    }
+
+    /// Whether the app marks its frames' ends ([`HeldRows::frame_end`]).
+    pub fn framed(&self) -> bool {
+        self.framed
+    }
+
+    /// The app finished a frame: compare it with the last whole one.
+    pub fn frame_end(&mut self, screen: &[Row]) {
+        self.framed = true;
+        self.observe(screen);
     }
 
     /// Where a pan shows held rows, when a repaint's move set it.
@@ -202,9 +218,20 @@ impl HeldRows {
     }
 }
 
+/// A row as it looks: an empty cell is a space (an app that moves the
+/// cursor past blank cells instead of writing spaces draws the same row),
+/// and trailing blank cells are dropped.
 fn trimmed_cells(row: &Row) -> Vec<Cell> {
-    let keep = row.cells.iter().rposition(|c| *c != Cell::default()).map_or(0, |i| i + 1);
-    row.cells.get(..keep).unwrap_or_default().to_vec()
+    let blank = Cell::blank(0);
+    let mut cells: Vec<Cell> = row
+        .cells
+        .iter()
+        .map(|&c| if c.is_empty_or_space() { Cell { ch: 0, ..c } } else { c })
+        .collect();
+    let keep =
+        cells.iter().rposition(|c| *c != blank && *c != Cell::default()).map_or(0, |i| i + 1);
+    cells.truncate(keep);
+    cells
 }
 
 fn has_text(cells: &[Cell]) -> bool {
@@ -237,11 +264,20 @@ fn inferred_shift(before: &[Vec<Cell>], now: &[Vec<Cell>]) -> Option<(usize, usi
         // the screen: a block still on it is the rest of a frame drawn in two
         // batches (its first half already moved up), not a move.
         if run > 0 && text >= SHIFT_MATCH_ROWS {
-            let left = &before[top..top + k];
+            // A row equal before and after can still be part of the move: in
+            // a table whose rows repeat every two (an entry, a rule), an even
+            // move leaves each rule where a rule was. The band starts at the
+            // highest row the move also explains, or the rows held would be
+            // one rule out of step with the entries.
+            let mut start = top;
+            while start > 0 && before[start - 1 + k] == now[start - 1] {
+                start -= 1;
+            }
+            let left = &before[start..start + k];
             if now.windows(k).any(|block| block == left) {
                 return None;
             }
-            return Some((top, k, (top + run + k - 1).min(n - 1)));
+            return Some((start, k, (top + run + k - 1).min(n - 1)));
         }
     }
     None

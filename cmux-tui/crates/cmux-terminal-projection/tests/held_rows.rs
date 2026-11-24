@@ -28,6 +28,41 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// The painted characters, escape sequences dropped, a row per line.
+fn visible(bytes: &[u8]) -> String {
+    let s = text(bytes);
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => match chars.next() {
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        if c.is_ascii_alphabetic() || c == '@' || c == '~' {
+                            if c == 'H' {
+                                out.push('\n');
+                            }
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(c) = chars.next() {
+                        if c == '\x07' || (c == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\r' | '\n' => out.push('\n'),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[test]
 fn rows_that_scroll_off_the_alternate_screen_are_held_once() {
     let mut p = alt_app();
@@ -279,8 +314,9 @@ fn an_app_that_repaints_its_transcript_higher_holds_the_rows_that_left() {
 }
 
 /// Claude Code 2.1.330's full-screen mode, as recorded (120x40): it never
-/// scrolls, it repaints its transcript higher. Fed in batches, the rows that
-/// left its transcript are held.
+/// scrolls, it repaints its transcript higher, each frame between the cursor
+/// hidden and shown again. Compared frame to frame, the rows that left its
+/// transcript are held, in order, whatever the batches the bytes came in.
 #[test]
 fn claude_code_full_screen_repaints_are_held() {
     let bytes = std::fs::read(concat!(
@@ -288,22 +324,43 @@ fn claude_code_full_screen_repaints_are_held() {
         "/tests/parity/real/claude_code_session.vt"
     ))
     .expect("fixture");
-    let mut p = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
-    let _ = p.set_viewport(54, 38);
-    let mut per_batch = Vec::new();
-    for size in [256usize, 1024, 4096] {
-        let mut q = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
-        let _ = q.set_viewport(54, 38);
-        for chunk in bytes.chunks(size) {
-            let _ = q.feed(chunk, true);
+    // Up to the app's exit (leaving the alternate screen drops what it held).
+    let end = bytes.windows(8).rposition(|w| w == b"\x1b[?1049l").expect("exit");
+    let mut held = Vec::new();
+    for size in [256usize, 1024, 4096, end] {
+        let mut p = Projection::new(120, 40, DEFAULT_HISTORY_LIMIT);
+        let _ = p.set_viewport(54, 38);
+        for chunk in bytes[..end].chunks(size) {
+            let _ = p.feed(chunk, true);
         }
-        per_batch.push((size, q.held().0, q.held().1));
+        held.push(p.held());
+        if size == 1024 {
+            let rows = p.held().0;
+            let step = p.alt_pan(rows as f64);
+            assert_eq!(step.forward_rows, 0.0);
+            let shown = text(&step.paint);
+            assert!(shown.contains("v2.1.330"), "{shown}");
+            assert!(shown.contains("read main.py and explain the bug"));
+            // The input box and status line stay where they are.
+            assert!(shown.contains("auto mode on"));
+            let mid = p.alt_pan(-((rows / 2) as f64));
+            let mid = visible(&mid.paint);
+            // The primes table: every entry between two rules, none lost or
+            // doubled (an even move once put the rules out of step).
+            let table: Vec<char> = mid
+                .lines()
+                .filter_map(|row| row.trim().chars().next())
+                .filter(|c| matches!(c, '│' | '├'))
+                .collect();
+            assert!(table.len() > 10, "{mid}");
+            assert!(table.windows(2).all(|w| w[0] != w[1]), "a rule lost or doubled: {mid}");
+        }
     }
-    for chunk in bytes.chunks(1024) {
-        let _ = p.feed(chunk, true);
-    }
-    eprintln!("claude_code_session.vt held (batch bytes, rows, bytes): {per_batch:?}");
-    assert!(p.held().0 > 0, "held {per_batch:?}");
+    eprintln!(
+        "claude_code_session.vt held (rows, bytes) for 256, 1024, 4096 B and whole: {held:?}"
+    );
+    assert!(held[0].0 >= 60, "{held:?}");
+    assert!(held.iter().all(|h| *h == held[0]), "{held:?}");
 }
 
 /// A repaint matches only on rows with text: a line alone on a blank screen
