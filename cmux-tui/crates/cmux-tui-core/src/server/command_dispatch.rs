@@ -303,6 +303,28 @@ fn dispatch_command(
         Command::ReadScrollback { surface, start, count } => {
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
+        Command::TerminalFind {
+            surface,
+            query,
+            case_sensitive,
+            whole_word,
+            regex,
+            before,
+            epoch,
+            page_rows,
+            max_matches,
+        } => cmd_terminal_find::terminal_find(
+            mux,
+            surface,
+            cmd_terminal_find::FindRequest {
+                query,
+                options: cmux_terminal_find::FindOptions { case_sensitive, whole_word, regex },
+                before,
+                epoch,
+                page_rows,
+                max_matches,
+            },
+        ),
         Command::SidebarPlugin { cols, rows, relaunch } => {
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }

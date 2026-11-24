@@ -249,6 +249,10 @@ impl JournalMaintenance {
                     // VACUUM) that layout commits take, so a lowered holder would delay the resize reply under
                     // load. It keeps the thread's own QoS, as before cmux-interactivity.
                     outcome = mux.run_journal_maintenance(&mut ledgers);
+                    // A tick runs 30 s or more after the last request, past
+                    // the quiet trim it armed: arm it again, or the pages the
+                    // checkpoint and sealing freed stay with the process.
+                    cmux_tui_platform::malloc_quiet_trim::note_activity();
                 }
             },
         )?;
@@ -290,6 +294,9 @@ fn run_index_backfill(weak_mux: &Weak<Mux>, control: &JournalMaintenanceControl)
             // Not demoted, like the tick: a slice holds the workspace registry lock layout commits take.
             if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
         };
+        // Same as a maintenance tick: the slices' freed pages are trimmed
+        // once they stop (slices 800 ms apart keep postponing it).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         let rest = match outcome {
             Ok(false) => return,
             Ok(true) => {

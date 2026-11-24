@@ -714,7 +714,7 @@
             "pin",
             "more"
           ],
-          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
+          "page_hidden": "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)"
         },
         {
           "key": "appearance.metrics.tabFontSize",

@@ -244,7 +244,7 @@ enum Read {
 impl Reader {
     pub fn new(api: String, token: String, cache: Cache) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("acpmux-ci-wait/", env!("CARGO_PKG_VERSION")))
             .build()?;
