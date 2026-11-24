@@ -629,50 +629,30 @@ impl Peer {
             }
             other => other,
         };
-        let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
-        let heard = Heard::default();
-        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
+        // Whether an attempt sent the early `initialize` (a refusal then dials without it).
+        let sent_early = AtomicBool::new(false);
+        let token_said_no = AtomicBool::new(false);
+        // One whole open, `connect_async`'s steps with the TCP stream's reads counted (`Heard`).
+        let attempt = || async {
+            let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
+            let heard = Heard::default();
+            // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
+            let early = (self.url.starts_with("ws://")
+                && !self.early_refused.load(Ordering::SeqCst))
             .then(|| self.early_initialize())
             .flatten();
-        let early_id = early.as_ref().map(|(id, _)| *id);
-        let token_said_no = AtomicBool::new(false);
-        // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
-        let connect = async {
+            let early_id = early.as_ref().map(|(id, _)| *id);
+            if early_id.is_some() {
+                sent_early.store(true, Ordering::SeqCst);
+            }
             let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
-            // A URL that already carried this peer is dialed again every `URL_REDIAL_AGAIN`
-            // while no attempt connected (`happy_dial::connect_tcp_again`): a dial sent into an
-            // outage otherwise waits out its SYN retransmissions after the network is back.
-            let tcp = if self.linked_once.load(Ordering::SeqCst) {
-                // A wake or a network change starts a fresh attempt at once, not at the next tick.
-                let kick = || async {
-                    let mut slept = crate::peer_link::SleepWatch::now();
-                    tokio::select! {
-                        () = self.network_changed() => {
-                            tracing::info!(peer = %self.name, "network changed mid-dial; dialing again now");
-                        }
-                        () = async {
-                            loop {
-                                tokio::time::sleep(URL_REDIAL_AGAIN).await;
-                                if slept.check().is_some() {
-                                    break;
-                                }
-                            }
-                        } => {
-                            tracing::info!(peer = %self.name, "this computer slept mid-dial; dialing again now");
-                        }
-                    }
-                };
-                crate::happy_dial::connect_tcp_again(&host, port, URL_REDIAL_AGAIN, kick).await
-            } else {
-                crate::happy_dial::connect_tcp(&host, port).await
-            }
-            .map_err(|e| e.to_string())?;
+            let tcp =
+                crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| e.to_string())?;
             // A peer forwards the pane's prompts and their images: the listener's limits.
-            tokio_tungstenite::client_async_tls_with_config(
+            let (ws, _) = tokio_tungstenite::client_async_tls_with_config(
                 req,
                 match early {
                     Some((_, frame)) => heard.wrap_early(tcp, frame),
@@ -688,12 +668,50 @@ impl Peer {
                     self.token_refused();
                 }
                 e.to_string()
-            })
+            })?;
+            Ok::<_, String>((ws, heard, early_id))
         };
-        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
+        // A URL that already carried this peer is opened again every `URL_REDIAL_AGAIN` while
+        // no attempt has opened (`happy_dial::again`): an open sent into an outage otherwise
+        // waits out its SYN and segment retransmissions after the network is back. A wake or a
+        // network change starts a fresh attempt at once, not at the next tick.
+        let connect = async {
+            if !self.linked_once.load(Ordering::SeqCst) {
+                return attempt().await;
+            }
+            let kick = || async {
+                let mut slept = crate::peer_link::SleepWatch::now();
+                tokio::select! {
+                    () = self.network_changed() => {
+                        tracing::info!(peer = %self.name, "network changed mid-dial; dialing again now");
+                    }
+                    () = async {
+                        loop {
+                            tokio::time::sleep(URL_REDIAL_AGAIN).await;
+                            if slept.check().is_some() {
+                                break;
+                            }
+                        }
+                    } => {
+                        tracing::info!(peer = %self.name, "this computer slept mid-dial; dialing again now");
+                    }
+                }
+            };
+            crate::happy_dial::again(
+                URL_REDIAL_AGAIN,
+                crate::happy_dial::AGAIN_AT_MOST,
+                kick,
+                attempt,
+            )
+            .await
+        };
+        let (ws, heard, early_id) = match tokio::time::timeout(self.timings.connect, connect).await
+        {
             Ok(Ok(opened)) => opened,
             // A listener that predates the early request refuses the upgrade: dial without.
-            Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
+            Ok(Err(_))
+                if sent_early.load(Ordering::SeqCst) && !token_said_no.load(Ordering::SeqCst) =>
+            {
                 self.early_refused.store(true, Ordering::SeqCst);
                 return Box::pin(self.open_url()).await;
             }
