@@ -1091,6 +1091,8 @@ Params:
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
+| `api_revision` | `uint32` | default none | The API revision the client reads and writes; absent: revision 12 |
+| `api_version` | `string` | default none | A dated API version, `YYYY-MM-DD`; see [api-versioning.md](api-versioning.md) |
 
 `set-client-info` labels a connection; it never sets the `client-hello` role
 or the request origin. Identity fields are clamped like `name`. A connection that sends
@@ -1107,9 +1109,12 @@ receives `linux`, `windows` and any later kind as they are in every size state
 SDKs built before them reject an unknown `device_kind`. `priority_key` keeps
 the real kind for every connection.
 
-Result: `object{}`.
+Result: `object{}`; with `api_version`, `object{api_version:string,api_revision:uint32}`: the dated
+version that serves the connection and its revision. The promise behind it (no breaking change
+without a new dated version, 12 months of overlap): [api-versioning.md](api-versioning.md).
 
-Errors: `bad request: ...` for wrong JSON types.
+Errors: `bad request: ...` for wrong JSON types; a malformed `api_version`, one older than the
+oldest version served, or one that disagrees with `api_revision`.
 
 CLI mapping:
 
@@ -9791,6 +9796,15 @@ as `output` bytes: the ones the screen has set right after the first frame,
 then each set and reset as it is written, so the viewer's keys and pastes
 encode the way the program expects. A terminal that is full-screen when it attaches starts with `vt-state`,
 and a `resized` while full-screen (or leaving it) passes as `resized`.
+A connection that declared all three and `terminal-full-screen-frames-v1`
+gets a full-screen program as `agent-cli-lean` frames too, as an agent CLI on
+the alternate screen goes: the alternate screen and the input modes (mouse
+tracking 1000, 1002, 1003 among them) as `output` bytes, a switch of screens
+followed by a keyframe of the screen switched to, frames at most one per
+16.7 ms (one display frame) instead of one per 100 ms, and no `vt-state` or
+PTY bytes, also for a terminal that is full-screen when it attaches. A program
+that repaints its whole screen for each change then sends the cells that
+changed. Agent CLI terminals keep their 100 ms pace.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

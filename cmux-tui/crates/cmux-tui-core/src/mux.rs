@@ -1201,14 +1201,25 @@ impl Mux {
             self.remove_surface_after_registry(surface.id);
             return;
         }
+        // The surface's workspace comes from the placement indexes: no walk of the workspace list.
+        // The scan stays for the transient state where the indexes lack the placement.
         let workspace_key = {
             let state = self.state.lock().unwrap();
-            state.workspaces.iter().find_map(|workspace| {
-                workspace
-                    .screens
-                    .iter()
-                    .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
-                    .then(|| workspace.key.clone())
+            let indexed = state
+                .pane_of(surface.id)
+                .and_then(|pane| state.screen_of(pane))
+                .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                .map(|workspace| workspace.key.clone());
+            indexed.or_else(|| {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(state.workspaces.len());
+                state.workspaces.iter().find_map(|workspace| {
+                    workspace
+                        .screens
+                        .iter()
+                        .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
+                        .then(|| workspace.key.clone())
+                })
             })
         };
         if let Some(workspace_key) = workspace_key {
