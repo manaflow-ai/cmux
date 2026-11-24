@@ -94,11 +94,8 @@ impl Rhythm {
     /// The median of its gaps (the lower middle one of an even count), None before any.
     pub(super) fn median(&self) -> Option<Duration> {
         let mut g: Vec<u64> = self.gaps.iter().copied().collect();
-        if g.is_empty() {
-            return None;
-        }
         g.sort_unstable();
-        Some(Duration::from_millis(g[(g.len() - 1) / 2]))
+        g.get(g.len().checked_sub(1)? / 2).copied().map(Duration::from_millis)
     }
 }
 
