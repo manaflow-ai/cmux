@@ -322,7 +322,7 @@ public final class MacScreenPages {
 
     /// The name of device `id`: the hub's, else the last one seen, else "Mac".
     func deviceName(_ id: String) -> String {
-        hub?.devices.first { $0.id == id }?.name ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
+        hub?.deviceNames[id] ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
     }
 
     /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
