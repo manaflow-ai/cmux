@@ -2726,10 +2726,12 @@ impl Hub {
         self.release_former_names(session, &name, &old);
         let (old, titled) = {
             let mut m = session.meta.lock().unwrap();
+            let prev_source = m.title_source.clone();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
             let titled = match naming {
                 Naming::Hand => super::task_names::name_in_words(&name).inspect(|title| {
+                    super::title_log::renamed(session, &m.harness, prev_source.as_deref());
                     m.title = Some(title.clone());
                     m.title_source = Some(super::titles::NAMED.to_owned());
                     m.title_prompt = None;
