@@ -1,4 +1,5 @@
 import type React from "react";
+import { runResumedSubmit } from "./composer/resumedSend";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyDictation,
@@ -189,7 +190,12 @@ export function useDictation(
       // Submit on the next task, once the composer's state holds the dictated text. A Send that
       // ended the session sends it itself (settle, below).
       if (update.state === "idle" && !update.cancelled && autoSend && splice.placed && !afterFinish.current)
-        setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
+        // A resumed submit: its Computer Use hold only says why, never opens setup (composer/resumedSend.ts).
+        setTimeout(
+          () =>
+            runResumedSubmit(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit())),
+          0,
+        );
     };
     /// Once a session is over, the Send that ended it goes, on the next task (the composer's state
     /// holds the words by then); a cancelled session sends nothing.
