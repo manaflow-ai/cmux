@@ -148,7 +148,16 @@ export async function serveBenchPage(
   // is a 404, never a guess, because answering with the wrong file of the same name is the silent
   // failure this helper exists to stop. Without this the page loaded, installed no hooks, and read
   // as a 30 s `waitForFunction` timeout behind five 404s.
+  // The page itself is served at the root (`/transcript-fling.html`), where the app's own pages are
+  // (index.html, diff-page.html): there the page's `./assets/x.css` links and the chunks' CSS preloads
+  // (Vite's `__vitePreload`, root-absolute `/assets/x.css`) are one URL. Served from its directory, the
+  // page linked `/test/browser/assets/x.css` and the chunks preloaded `/assets/x.css`, two URLs for one
+  // file, so every harness page applied its whole stylesheet (8,471 rules for the transcript) twice:
+  // twice the style recalc of every row a bench mounted, a cost the app never pays
+  // (transcript-scroll-frame fling React p95 53 ms, 30 ms with one copy, on WebKit and Chromium alike).
+  const pageName = path.basename(emitted);
   const resolveEmitted = (asked: string): string | undefined => {
+    if (asked === pageName) return emitted;
     if (emittedFiles.has(asked)) return asked;
     const parts = asked.split("/");
     for (let drop = 1; drop < parts.length; drop += 1) {
@@ -178,7 +187,7 @@ export async function serveBenchPage(
     },
   });
   return {
-    url: `http://127.0.0.1:${statics.port}/${emitted}${query}`,
+    url: `http://127.0.0.1:${statics.port}/${pageName}${query}`,
     dev: false,
     close: async () => {
       await statics.stop(true);
