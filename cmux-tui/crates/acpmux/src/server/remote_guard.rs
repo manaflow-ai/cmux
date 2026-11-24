@@ -648,8 +648,10 @@ async fn check_inner(
     if auth == super::ConnAuth::MeshControl
         && m == method::SESSION_NEW
         && [params.get("policy"), params.pointer("/_meta/acpmux/policy")].into_iter().any(|p| {
+            // Parsed, so an alias (`yolo`) is caught as well as `approve-all`.
             p.and_then(Value::as_str)
-                == Some(crate::config::PermissionPolicy::ApproveAll.to_string().as_str())
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                == Some(crate::config::PermissionPolicy::ApproveAll)
         })
     {
         return Err(refused("an approve-all start relayed through the mesh hub"));

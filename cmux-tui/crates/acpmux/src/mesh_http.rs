@@ -809,7 +809,12 @@ mod tests {
         assert_eq!(control_cap(&entries, &sender, Some("u2"), "start"), Some(P::ApproveEdits));
         assert_eq!(control_cap(&entries, &from(Some("d8"), Some("u2")), Some("u1"), "start"), None);
         // A value this build does not know reads as ask.
-        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(), P::Ask);
+        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "rocket"})).policy_cap(), P::Ask);
+        // `yolo` is approve-all's alias, not an unknown value.
+        assert_eq!(
+            entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(),
+            P::ApproveAll
+        );
         assert!(!MeshControlFrom::same_user().is_unmarked_join_entry());
     }
 
