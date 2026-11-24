@@ -3860,6 +3860,14 @@ function TranscriptView({
   rowsEndRef.current = rowsEnd;
   const totalHeight = under.total;
   const layout = useMemo(() => ({ ...measured.layout, totalHeight }), [measured, totalHeight]);
+  // DEBUG-SSP (not for merge)
+  useLayoutEffect(() => {
+    const log = (globalThis as { __vtLog?: string[] }).__vtLog;
+    if (!log) return;
+    log.push(
+      `${performance.now().toFixed(1)} sid=${sessionId?.slice(0, 6)} rows=${rows.length} first=${rows[0]?.id} m=${measured.layout.totalHeight.toFixed(1)} origin=${(measured.layout.origin ?? 0).toFixed(1)} total=${totalHeight.toFixed(1)} h=${height} room=${room.toFixed(1)} dockSpace=${dockSpace} dockRoom=${dockRoom.toFixed(1)} tailGap=${tailGap.toFixed(1)} sw=${sessionSwitched} fol=${following} st=${ref.current?.scrollTop}`,
+    );
+  });
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
     const followed = following && !sessionSwitched;

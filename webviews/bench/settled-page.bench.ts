@@ -415,6 +415,7 @@ function installFrameReader() {
       frames = [];
       marks.length = 0;
       t0 = at;
+      (globalThis as { __vtLog?: string[] }).__vtLog = [];
       lastKey = "";
       lastChange = at;
       running = true;
@@ -425,12 +426,18 @@ function installFrameReader() {
     },
     stop() {
       running = false;
-      return { t0, frames, lastChange, marks: marks.slice() };
+      return { t0, frames, lastChange, marks: marks.slice(), vt: (globalThis as { __vtLog?: string[] }).__vtLog };
     },
   };
 }
 
-type Read = { t0: number; frames: FrameRecord[]; lastChange: number; marks: { t: number; what: string }[] };
+type Read = {
+  t0: number;
+  frames: FrameRecord[];
+  lastChange: number;
+  marks: { t: number; what: string }[];
+  vt?: string[];
+};
 type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
 /** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
  * every frame read since the transition. */
@@ -764,6 +771,9 @@ try {
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
         // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
         for (const reason of judged.why) console.log(`    moved ${reason}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const line of read.vt ?? [])
+            console.log(`    vt ${(Number(line.split(" ")[0]) - read.t0).toFixed(1)} ${line}`);
         if (process.env.FRAMES === "1" && judged.shifts > 0)
           for (const frame of read.frames.filter((one) => one.t >= read.t0))
             console.log(
