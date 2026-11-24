@@ -275,6 +275,15 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub starting: bool,
+    /// It holds its owner's launch credential (`agent_credentials.rs`) while its agent is
+    /// hibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart
+    /// now loses it, and the chat's next start runs without it. `acpmux session wake` starts the
+    /// agent, whose env then carries the credential across the restart; a machine update does that
+    /// before it restarts this daemon. Says only that one is held, never its name or value. Absent
+    /// otherwise, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub credential_only_here: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// Moved to another daemon (`acpmux session move`): where it runs now,
