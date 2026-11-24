@@ -65,6 +65,32 @@ fn packed_through(m: &pack::Manifest) -> u64 {
     m.segments.iter().filter_map(|s| s.seq.map(|(_, hi)| hi)).max().unwrap_or(0)
 }
 
+/// The `compaction_outline` record for the summary at `summary_seq`, from a pack that holds it:
+/// the turns through the summary's line, the last one cut at it when the pack goes on past.
+fn outline_record(pack: &pack::Pack, session: &str, summary_seq: u64) -> anyhow::Result<Value> {
+    let (last_line, _) = pack
+        .by_seq(summary_seq)
+        .map_err(pack_error)?
+        .ok_or_else(|| anyhow::anyhow!("the pack holds no record at seq {summary_seq}"))?;
+    let starts: Vec<u64> = pack.manifest.marks().collect();
+    let end = starts.partition_point(|s| *s <= last_line);
+    let from = end.saturating_sub(MAX_RECORDED_TURNS);
+    let mut turns = digest::turns_window(pack, from, end).map_err(pack_error)?;
+    if let Some(t) = turns.last_mut()
+        && t.range.last > last_line
+    {
+        t.records = t.records.saturating_sub(t.range.last - last_line);
+        t.range.last = last_line;
+    }
+    Ok(json!({
+        "summarySeq": summary_seq,
+        "session": session,
+        "lastLine": last_line,
+        "turns": turns.iter().map(turn_json).collect::<Vec<_>>(),
+        "omitted": from,
+    }))
+}
+
 impl Hub {
     /// After a `compaction_summary` the log took at `summary_seq`: packs the log through it and
     /// appends the outline of the turns it covers (module doc), on a thread of its own.
@@ -82,12 +108,12 @@ impl Hub {
                         hub.append(&session, "mux", OUTLINE_KIND, record);
                     }
                     Err(error) => {
-                        tracing::debug!(session = %session.id, "compaction not outlined: {error:#}");
+                        tracing::warn!(session = %session.id, "compaction not outlined: {error:#}");
                     }
                 }
             });
         if let Err(error) = spawned {
-            tracing::debug!("compaction not outlined: {error}");
+            tracing::warn!("compaction not outlined: {error}");
         }
     }
 
@@ -99,25 +125,21 @@ impl Hub {
     ) -> anyhow::Result<Value> {
         let store = self.pack_store(&session.id)?;
         let work = transfers_dir().join(format!("outline-{}", uuid::Uuid::now_v7()));
-        let packed = {
-            let _turn = PackTurn::take(&session.id);
-            let made = self.pack_through(session, summary_seq, &store, &work);
-            let _ = crate::home_fs::remove_dir_all(&work);
-            let (manifest, _, _) = made?;
-            let pack = pack::Pack::with_manifest(&store, manifest);
-            let marks = pack.manifest.marks().count();
-            let from = marks.saturating_sub(MAX_RECORDED_TURNS);
-            let turns = digest::turns_window(&pack, from, marks).map_err(pack_error)?;
-            (turns, from, pack.manifest.lines)
+        let _turn = PackTurn::take(&session.id);
+        // A pack that already holds the summary (a `fresh` read packed past it) is kept: packing
+        // through the summary again would cut the pack back to it.
+        let held = pack::Manifest::load(&store, &session.id)
+            .map_err(pack_error)?
+            .filter(|m| packed_through(m) >= summary_seq);
+        let manifest = match held {
+            Some(m) => m,
+            None => {
+                let made = self.pack_through(session, summary_seq, &store, &work);
+                let _ = crate::home_fs::remove_dir_all(&work);
+                made?.0
+            }
         };
-        let (turns, omitted, lines) = packed;
-        Ok(json!({
-            "summarySeq": summary_seq,
-            "session": session.id,
-            "lastLine": lines.saturating_sub(1),
-            "turns": turns.iter().map(turn_json).collect::<Vec<_>>(),
-            "omitted": omitted,
-        }))
+        outline_record(&pack::Pack::with_manifest(&store, manifest), &session.id, summary_seq)
     }
 
     /// The chat's pack, packed through its newest records when it has none (or `fresh`).
@@ -273,7 +295,9 @@ impl Hub {
             }
             let last = newest.ok_or_else(|| {
                 RpcError::not_found(
-                    "this chat has not compacted (no compaction outline)".to_owned(),
+                    "this chat has no compaction outline: it has not compacted, or the outline of \
+                     its newest compaction is still being made or failed (acpmux's log says)"
+                        .to_owned(),
                 )
             })?;
             end = starts.partition_point(|s| *s <= last);
@@ -328,5 +352,40 @@ impl Hub {
             false
         })?;
         Ok(found)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pack that goes on past a summary (a `fresh` read packed further): the summary's outline
+    /// names the turns through the summary's line and nothing after it.
+    #[test]
+    fn an_outline_from_a_pack_that_goes_on_past_the_summary_ends_at_the_summary() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [
+            r#"{"seq":1,"at":10,"dir":"mux","kind":"turn_started","msg":{"promptLine":"one"}}"#,
+            r#"{"seq":2,"at":11,"dir":"in","kind":"agent_message_chunk","msg":{"params":{"update":{"content":{"text":"done"}}}}}"#,
+            r#"{"seq":3,"at":12,"dir":"mux","kind":"turn_started","msg":{"promptLine":"compact"}}"#,
+            r#"{"seq":4,"at":13,"dir":"in","kind":"compaction_summary","msg":{"text":"summary"}}"#,
+            r#"{"seq":5,"at":14,"dir":"in","kind":"agent_message_chunk","msg":{"params":{"update":{"content":{"text":"after"}}}}}"#,
+            r#"{"seq":6,"at":15,"dir":"mux","kind":"turn_started","msg":{"promptLine":"three"}}"#,
+            r#"{"seq":7,"at":16,"dir":"in","kind":"agent_message_chunk","msg":{"params":{"update":{"content":{"text":"later"}}}}}"#,
+        ];
+        let file = dir.path().join("history.ndjson");
+        std::fs::write(&file, lines.join("\n") + "\n").unwrap();
+        let store = pack::Store::new(dir.path().join("store"));
+        let (manifest, _) =
+            pack::pack(&store, "chat", &[file], &pack::Params::default(), false).unwrap();
+        assert_eq!(packed_through(&manifest), 7);
+        let record =
+            outline_record(&pack::Pack::with_manifest(&store, manifest), "chat", 4).unwrap();
+        assert_eq!(record["lastLine"], 3);
+        let turns = record["turns"].as_array().unwrap();
+        assert_eq!(turns.len(), 2, "{record}");
+        assert_eq!(turns[1]["range"], "chat@2-3");
+        assert_eq!(turns[1]["records"], 2);
+        assert_eq!(record["omitted"], 0);
     }
 }
