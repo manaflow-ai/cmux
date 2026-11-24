@@ -12,7 +12,7 @@ use super::proc;
 use cmux_process::{Child, Command, Stdio};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -149,11 +149,6 @@ fn harness(fanin_dir: &Path) -> Result<Value, String> {
                         "env": {"FANIN_DIR": fanin_dir}}}))
 }
 
-pub fn free_port() -> Result<u16, String> {
-    let l = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    l.local_addr().map(|a| a.port()).map_err(|e| e.to_string())
-}
-
 pub fn token() -> String {
     // Loopback-only scratch daemons: unique, not secret.
     format!("fanin{:x}{:x}", std::process::id(), super::rpc::now_us())
@@ -244,8 +239,20 @@ pub fn spawn(s: Spawn) -> Result<Daemon, String> {
     }
 }
 
+/// The running host owns its ephemeral loopback port until the end of this ramp.
+pub fn host_endpoint(rec: &Rec) -> Result<(u16, String), String> {
+    let token = peer_token(&rec.home)?;
+    let status = status_json(rec);
+    let listen = status["listen"]
+        .as_str()
+        .and_then(|s| s.parse::<SocketAddrV4>().ok())
+        .filter(|addr| addr.ip().is_loopback() && addr.port() != 0)
+        .ok_or_else(|| format!("{} did not report a bound loopback listener", rec.name))?;
+    Ok((listen.port(), token))
+}
+
 /// Reads a host daemon's peer token (`<home>/run/peer.token`), waiting for it to be written.
-pub fn peer_token(home: &Path) -> Result<String, String> {
+fn peer_token(home: &Path) -> Result<String, String> {
     let p = home.join("run").join("peer.token");
     let until = Instant::now() + Duration::from_secs(30);
     loop {

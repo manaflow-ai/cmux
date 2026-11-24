@@ -307,7 +307,6 @@ fn start_hosts(
         let handles: Vec<_> = (0..h)
             .map(|i| {
                 s.spawn(move || {
-                    let port = fleet::free_port()?;
                     let token = fleet::token();
                     let home = dir.join(format!("h{i:02}"));
                     let d = fleet::spawn(Spawn {
@@ -317,12 +316,17 @@ fn start_hosts(
                         home: &home,
                         socket: &sock.join(format!("h{i:02}.sock")),
                         fanin_dir,
-                        config: json!({"websocket": {"listen": format!("127.0.0.1:{port}"),
+                        config: json!({"websocket": {"listen": "127.0.0.1:0",
                                         "token": token, "tokenRotated": 1}}),
                         agent_hosts: cfg.agent_hosts,
                     })?;
-                    let peer = fleet::peer_token(&home)?;
-                    Ok((d, port, token, peer))
+                    match fleet::host_endpoint(&d.rec) {
+                        Ok((port, peer)) => Ok((d, port, token, peer)),
+                        Err(e) => {
+                            fleet::stop_all(&mut vec![d]);
+                            Err(e)
+                        }
+                    }
                 })
             })
             .collect();
