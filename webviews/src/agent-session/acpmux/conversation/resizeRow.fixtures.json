@@ -1,0 +1,208 @@
+{
+  "bigCheckout": {
+    "backTo": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "first": {
+      "hourlyCents": 118,
+      "kind": "resize",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 16
+      }
+    },
+    "now": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "why": {
+      "checkoutGib": 40.0,
+      "command": "cargo build --release",
+      "kind": "bigCheckout",
+      "memoryFreeGib": 3.0
+    }
+  },
+  "chromium": {
+    "backTo": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "first": {
+      "hourlyCents": 118,
+      "kind": "resize",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 16
+      }
+    },
+    "now": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "why": {
+      "burstCents": 296,
+      "burstVcpu": 32,
+      "command": "fetch --nohooks chromium",
+      "diskFreeGb": 20,
+      "hoursBurst": 1.5,
+      "hoursHere": 20.0,
+      "kind": "project",
+      "memoryGb": 4,
+      "needsDiskGb": 100,
+      "needsMemoryGb": 16,
+      "project": "chromium",
+      "short": ["disk", "memory"]
+    }
+  },
+  "chromiumOnPlus": {
+    "backTo": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "first": {
+      "hourlyCents": 82,
+      "kind": "upgrade",
+      "plan": "pro",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 8
+      }
+    },
+    "now": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "why": {
+      "burstCents": 296,
+      "burstVcpu": 32,
+      "command": "fetch --nohooks chromium",
+      "diskFreeGb": 20,
+      "hoursBurst": 1.5,
+      "hoursHere": 20.0,
+      "kind": "project",
+      "memoryGb": 4,
+      "needsDiskGb": 100,
+      "needsMemoryGb": 16,
+      "project": "chromium",
+      "short": ["disk", "memory"]
+    }
+  },
+  "grew": {
+    "act": "grew",
+    "from": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "hourlyCents": 118,
+    "reason": "memory",
+    "to": {
+      "memGiB": 32,
+      "vcpu": 16
+    },
+    "undoAtPause": true
+  },
+  "grewCpu": {
+    "act": "grew",
+    "from": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "hourlyCents": 59,
+    "reason": "cpu",
+    "to": {
+      "memGiB": 16,
+      "vcpu": 8
+    },
+    "undoAtPause": true
+  },
+  "held": {
+    "act": "heldAtPlanLimit",
+    "from": {
+      "memGiB": 16,
+      "vcpu": 4
+    },
+    "hourlyCents": 41,
+    "reason": "memory",
+    "to": {
+      "memGiB": 16,
+      "vcpu": 4
+    },
+    "undoAtPause": false,
+    "upgrade": {
+      "hourlyCents": 82,
+      "kind": "upgrade",
+      "plan": "pro",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 8
+      }
+    }
+  },
+  "llvm": {
+    "backTo": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "first": {
+      "hourlyCents": 82,
+      "kind": "resize",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 8
+      }
+    },
+    "now": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "why": {
+      "command": "cmake -S llvm -B build -G Ninja",
+      "diskFreeGb": 12,
+      "kind": "project",
+      "memoryGb": 4,
+      "needsDiskGb": 20,
+      "needsMemoryGb": null,
+      "project": "llvm",
+      "short": ["disk"]
+    }
+  },
+  "pressure": {
+    "backTo": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "first": {
+      "hourlyCents": 118,
+      "kind": "resize",
+      "to": {
+        "memGiB": 32,
+        "vcpu": 16
+      }
+    },
+    "now": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "why": {
+      "busyMinutes": 6,
+      "kind": "pressure",
+      "memTotalGib": 4.0,
+      "memUsedGib": 3.8
+    }
+  },
+  "shrank": {
+    "act": "shrank",
+    "from": {
+      "memGiB": 32,
+      "vcpu": 16
+    },
+    "hourlyCents": 15,
+    "reason": "idle",
+    "to": {
+      "memGiB": 4,
+      "vcpu": 2
+    },
+    "undoAtPause": false
+  }
+}
