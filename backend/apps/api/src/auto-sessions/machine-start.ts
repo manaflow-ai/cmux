@@ -47,22 +47,29 @@ export const nextStartAt = (sql: SqlStorage): number | null => sql.exec<{ at: nu
 
 const closeStart = (sql: SqlStorage, machine: string): void => void sql.exec(`DELETE FROM starts WHERE machine = ?`, machine)
 
+/** What the Cloud answers for a machine that does not exist (any more) in the team. */
+export const MACHINE_NOT_FOUND = "cloud.machine.not_found"
+/** What one look says of the machine besides what it wrote: `gone` when the Cloud says it does not exist. */
+export type StartLook = "gone" | null
+
 /**
  * One look at `row`'s machine. `pending`: the assignments it has not acked; none left ends the start. `mayUse`
  * asks again that the owner may still use the machine's team, so a start never outlives a removal from it.
+ * A machine that does not exist is tried again like any failed read, and answered `gone`: the caller knows
+ * whether the store picked that machine, and then looks for another (index-do.ts).
  */
-export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCloud, mayUse: (owner: string, team: string) => Promise<boolean>, row: StartRow, pending: number, now: number): Promise<void> => {
-  if (pending === 0) return closeStart(sql, row.machine)
+export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCloud, mayUse: (owner: string, team: string) => Promise<boolean>, row: StartRow, pending: number, now: number): Promise<StartLook> => {
+  if (pending === 0) return closeStart(sql, row.machine), null
   if (now - row.since >= GIVE_UP_MS) {
     console.error(JSON.stringify({ msg: "auto_sessions.start_gave_up", machine: row.machine, tries: row.tries }))
-    return closeStart(sql, row.machine)
+    return closeStart(sql, row.machine), null
   }
   const principal: Principal = { identity: `session:${row.owner}`, kind: "session", user: row.owner, team: row.team }
   let step: WakeStep
   try {
     if (!(await mayUse(row.owner, row.team))) {
       console.warn(JSON.stringify({ msg: "auto_sessions.start_refused", machine: row.machine, reason: "the owner no longer has the machine's team" }))
-      return closeStart(sql, row.machine)
+      return closeStart(sql, row.machine), null
     }
     const c = cloud(row.team)
     step = wakeStep((await c.readOp(row.team, principal, "cloud.machine.get", { machine: row.machine })) as Parameters<typeof wakeStep>[0])
@@ -78,7 +85,7 @@ export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCl
     const tries = row.tries + 1
     console.warn(JSON.stringify({ msg: "auto_sessions.start_retry", machine: row.machine, tries, error: step.error }))
     sql.exec(`UPDATE starts SET tries = ?, next_at = ?, asked = 1 WHERE machine = ?`, tries, now + wakeBackoffMs(tries), row.machine)
-    return
+    return step.error === MACHINE_NOT_FOUND ? "gone" : null
   }
   if (step.act === "start") console.log(JSON.stringify({ msg: "auto_sessions.start", machine: row.machine }))
   const running = step.act === "running"
@@ -87,4 +94,5 @@ export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCl
   // there is nothing to do but look again later, in case the machine is paused before the daemon gets to them.
   const settled = running && (row.asked === 0 || now - runningAt >= RUNNING_GRACE_MS)
   sql.exec(`UPDATE starts SET tries = 0, asked = ?, next_at = ?, running_at = ? WHERE machine = ?`, running ? row.asked : 1, now + (settled ? RECHECK_MS : POLL_MS), runningAt, row.machine)
+  return null
 }

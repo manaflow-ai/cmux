@@ -13,9 +13,10 @@ import { SHA256_HEX } from "./snapshots.ts"
  * Callers (callers.ts): the owner (a signed-in session or a person's install), and a machine (the bearer of a VM
  * install bound to a Cloud machine of the owner; its holder is `vm:<that machine>`).
  *
- *   GET  /v1/auto-sessions/machine              owner    -> {team, machine}: the one the owner named, else one of their own Cloud machines
- *                                                        that the store picks and keeps; 404 auto.no_machine when they have none
- *   PUT  /v1/auto-sessions/machine              owner    {team, machine} -> {team, machine}; it replaces a pick
+ *   GET  /v1/auto-sessions/machine              owner    -> {team, machine}: the one the owner named, else one of their own Cloud machines in
+ *                                                        the caller's team that the store picks and keeps for that team; 404 auto.no_machine
+ *                                                        when they have none there
+ *   PUT  /v1/auto-sessions/machine              owner    {team, machine} -> {team, machine}; one per owner, for every team's chats; it replaces every pick
  *   GET  /v1/auto-sessions?limit=&cursor=       owner    -> {sessions, nextCursor}
  *   POST /v1/auto-sessions                      owner    {title?, harness, repo: {remote, branch}, firstMessage: {id, text}}
  *                                                        -> 201 {session}: the Auto machine holds it, assignment `create`; 409 auto.no_machine
@@ -227,8 +228,9 @@ const collection = async (request: Request, env: Env): Promise<Response> => {
 
 /**
  * `GET` and `PUT /v1/auto-sessions/machine`: the owner's Auto machine. `GET` answers the one they named, else the
- * one the store picked among their own Cloud machines (it looks in the caller's team when none is kept yet).
- * `PUT` names one: it replaces a pick, and the chats that were waiting for a machine go to it.
+ * one the store picked among their own Cloud machines of the caller's team (it looks there when none is kept
+ * yet); a pick made for another team's chats is not answered. `PUT` names one for all the owner's chats: it
+ * replaces every pick, and the chats that were waiting for a machine go to it.
  */
 const machineSetting = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "GET" && request.method !== "PUT") return fail(405, "method_not_allowed", "GET or PUT")

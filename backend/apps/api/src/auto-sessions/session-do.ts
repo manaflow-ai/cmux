@@ -1,9 +1,11 @@
 import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
+import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env, RawEnv } from "../env.ts"
 import { appendEvents, dropEvents, EVENTS_TABLE, planAppend, readEvents, type EventIn, type EventOut } from "./events.ts"
 import { ackInbox, addMessage, dropInbox, INBOX_TABLE, readInbox, sentState, type InboxMessage } from "./inbox.ts"
 import { ackAssignment, ackedInbox, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
+import { machineGone } from "./machine-gone.ts"
 import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState } from "./model.ts"
 import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, saveRecord } from "./record-store.ts"
 import { acceptSnapshot, chunkNames, CHUNKS_TABLE, dropSnapshots, getChunk, hasChunk, putChunk, readSnapshot, roomForChunk, sha256Hex, SNAPSHOTS_TABLE, weighChunks } from "./snapshots.ts"
@@ -63,8 +65,8 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   /**
    * The owner's Auto machine for a chat of `of.team`: the one they named, else one of their own Cloud machines in
-   * that team, which the owner's index picks and keeps (index-do.ts `autoMachine`, the one lookup every reader
-   * of the Auto machine calls).
+   * that team, which the owner's index picks and keeps for that team's chats (index-do.ts `autoMachine`, the one
+   * lookup every reader of the Auto machine calls). A pick is never one made for another team's chat.
    */
   private autoMachine(of: { readonly owner: string; readonly team: string | null }): Promise<AutoMachine | null> {
     const ns = this.env.AUTO_SESSION_INDEX_DO!
@@ -107,8 +109,9 @@ export class AutoSessionDO extends DurableObject<Env> {
       armIndexRetry(this.sql, Date.now() + INDEX_RETRY_MS)
     }
     await this.schedule()
-    // To a chat that waits for an Auto machine the index answers the one the owner has. So a machine set while
-    // this chat was being parked, or whose word did not reach this chat, is not missed.
+    // To a chat that waits for an Auto machine, or sits unpicked on one that is not the Auto machine any more, the
+    // index answers the one stored for it. So a machine set while this chat was being parked or moved, or whose
+    // word did not reach this chat, is not missed.
     if (set) await this.machineSet(r.owner, set)
   }
 
@@ -267,11 +270,25 @@ export class AutoSessionDO extends DurableObject<Env> {
     return r.ok ? ok(r.value.session) : r
   }
 
-  /** The owner set their Auto machine: a chat that was waiting for one, or was given to another that never picked it up, goes to it. */
-  async machineSet(owner: string, machine: AutoMachine): Promise<void> {
+  /**
+   * The owner has an Auto machine: a chat that was waiting for one, or was given to another that never picked it
+   * up, goes to it. `picked`: the store picked `machine` for the chats of its team, so a chat of another team
+   * stays where it is (a chat with no team is in its owner's personal one). A machine the owner named takes any.
+   */
+  async machineSet(owner: string, machine: AutoMachine, picked = false): Promise<void> {
     if (!this.admitted({ kind: "owner", owner }, true)) return
     await this.apply<null>((current) => {
+      if (picked && (current.team ?? personalTeamIdFor(owner)) !== machine.team) return { out: null }
       const next = machineSet(current, machine)
+      return next ? { out: null, rec: next, loud: true } : { out: null }
+    })
+  }
+
+  /** The machine the store picked is gone, with no other in its place: a chat it never picked up waits for a machine again (machine-gone.ts). */
+  async machineGone(owner: string, machine: string): Promise<void> {
+    if (!this.admitted({ kind: "owner", owner }, true)) return
+    await this.apply<null>((current) => {
+      const next = machineGone(current, machine)
       return next ? { out: null, rec: next, loud: true } : { out: null }
     })
   }
