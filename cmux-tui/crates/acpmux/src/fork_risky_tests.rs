@@ -48,6 +48,10 @@ fn everyday_steps_are_not() {
         "git checkout -b topic",
         "rm -rf target",
         "rm -rf node_modules dist",
+        // Build outputs and caches regenerate: a fork for them would teach people to skip the button.
+        "rm -rf build dist node_modules/.cache",
+        "rm -rf .next out coverage __pycache__ target/debug",
+        "rm -f npm-debug.log",
         "rm file.txt",
         "cargo test",
         "bun test",

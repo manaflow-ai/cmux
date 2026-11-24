@@ -254,17 +254,22 @@ const grokPlan: AcpmuxPermission = {
   ],
 };
 
-/// A Cloud chat's risky step (acpmux fork_risky.rs): `rm -rf` on the Cloud machine, with Fork first
+/// A Cloud chat's risky step (acpmux fork_risky.rs): uncommitted work dropped on the Cloud machine (what
+/// the staging run measured), with Fork first
 /// beside Allow once (RFD 0163 row 25, behind cloud.autoCloud).
 const forkFirstAsk: AcpmuxPermission = {
   permissionId: "gallery-fork-first",
   kind: "execute",
-  title: "`rm -rf build dist`",
-  command: "rm -rf build dist node_modules/.cache",
-  description: "Clear the build outputs before a clean rebuild",
+  title: "`git reset --hard && git clean -fdx`",
+  command: "git reset --hard && git clean -fdx",
+  description: "Start over from the last commit",
   scope: { kind: "directory", value: "/home/cmux/src/atlas-web" },
   pending: true,
-  forkOffer: { machine: "vm_7k2q9d", reason: "deletes files (rm -rf)", clientKey: "risky-gallery-fork-first" },
+  forkOffer: {
+    machine: "vm_7k2q9d",
+    reason: "git reset --hard drops uncommitted work",
+    clientKey: "risky-gallery-fork-first",
+  },
   options: [
     { id: "allow", name: "Allow", kind: "allow_once", allow: true },
     { id: "reject", name: "Reject", kind: "reject_once", allow: false },
