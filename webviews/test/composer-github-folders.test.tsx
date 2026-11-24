@@ -40,9 +40,8 @@ const { setNativeHost } = await import("../src/agent-session/acpmux/native");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
 const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
 const { useState } = await import("react");
-const { forgetAddedRepos, rememberAddedRepo, setFolderUseTimes } = await import(
-  "../src/agent-session/acpmux/addedRepos"
-);
+const { forgetAddedRepos, rememberAddedRepo, setFolderUseTimes } =
+  await import("../src/agent-session/acpmux/addedRepos");
 
 // Each test starts with no repository added as a project and no folder times.
 beforeEach(() => {
@@ -1248,9 +1247,9 @@ test("one list, most recently used first: an added GitHub repository sits among 
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "acme/web", "notes"]);
     expect(listRow("acme/api")).toBeUndefined();
     // No GitHub section: no heading and no hairline anywhere in the list.
-    expect(doc().querySelectorAll(".ui-combobox-scroll [data-section], .ui-combobox-scroll [data-divider]")).toHaveLength(
-      0,
-    );
+    expect(
+      doc().querySelectorAll(".ui-combobox-scroll [data-section], .ui-combobox-scroll [data-divider]"),
+    ).toHaveLength(0);
     expect(listRow("acme/web")?.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
@@ -1267,7 +1266,11 @@ test("a folder that is a clone of an added GitHub repository is its one row, wit
       projectChoices: [
         { cwd: FOLDER, label: "app" },
         // This Mac's clone of acme/api, as `project.list` names its GitHub origin.
-        { cwd: "/Users/me/src/api", label: "api", repo: { root: "/Users/me/src/api", name: "api", github: "Acme/API" } },
+        {
+          cwd: "/Users/me/src/api",
+          label: "api",
+          repo: { root: "/Users/me/src/api", name: "api", github: "Acme/API" },
+        },
       ],
     },
     gh.store,
@@ -1325,7 +1328,10 @@ test("a folder named by a bare UUID is never listed (cmux#53226)", async () => {
       ...persistent,
       projectChoices: [
         { cwd: FOLDER, label: "app" },
-        { cwd: "/Users/me/scratch/f05f40b0-8fc6-4074-ba2b-0ab797700efa", label: "f05f40b0-8fc6-4074-ba2b-0ab797700efa" },
+        {
+          cwd: "/Users/me/scratch/f05f40b0-8fc6-4074-ba2b-0ab797700efa",
+          label: "f05f40b0-8fc6-4074-ba2b-0ab797700efa",
+        },
       ],
     },
     gh.store,

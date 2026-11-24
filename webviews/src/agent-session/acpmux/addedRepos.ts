@@ -49,7 +49,9 @@ export function readAddedRepos(): AddedRepo[] {
     stored = memory;
   }
   const list = Array.isArray(stored)
-    ? stored.filter(isAddedRepo).map((repo) => ({ fullName: repo.fullName, private: repo.private === true, at: repo.at }))
+    ? stored
+        .filter(isAddedRepo)
+        .map((repo) => ({ fullName: repo.fullName, private: repo.private === true, at: repo.at }))
     : [];
   return [...list].sort((a, b) => b.at - a.at);
 }

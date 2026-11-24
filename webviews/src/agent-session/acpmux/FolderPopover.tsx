@@ -202,30 +202,10 @@ export function FolderPopover({
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
-  const listValues = useMemo(() => {
-    const repos = [...githubRows].map(([value, repo]) => ({ repo, block: [value] }));
-    if (cloud) return [...repos.flatMap((repo) => repo.block), ...cloudRows.keys()];
-    // Each repository's rows (its lead, New Worktree, its open worktrees) stay together, used when its
-    // newest folder was.
-    const blocks: { block: string[]; at: number | undefined }[] = [];
-    let previous: string | undefined;
-    for (const [value, { group }] of shown) {
-      if (group.key !== previous) {
-        let at: number | undefined;
-        for (const member of group.members) {
-          const used = folderUsedAt(member.id);
-          if (used !== undefined && (at === undefined || used > at)) at = used;
-        }
-        blocks.push({ block: [], at });
-        previous = group.key;
-      }
-      blocks.at(-1)!.block.push(value);
-    }
-    const path = typedPath ? [typedPath] : [];
-    // Words typed: the folders in the search's order, the typed path, then the repositories that match.
-    if (typed) return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block)];
-    return [...mergeByRecentUse(blocks, repos).flat(), ...path];
-  }, [cloud, cloudRows, githubRows, shown, typed, typedPath]);
+  const listValues = useMemo(
+    () => orderedRows({ cloud, cloudRows, githubRows, shown, typed, typedPath }),
+    [cloud, cloudRows, githubRows, shown, typed, typedPath],
+  );
   // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
   const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
@@ -661,6 +641,53 @@ export function FolderPopover({
       )}
     </span>
   );
+}
+
+/// The list's values in order. Cloud: the added repositories, then the machines' folders. This Mac: each
+/// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
+/// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
+/// order, the typed path, then the repositories that match.
+function orderedRows({
+  cloud,
+  cloudRows,
+  githubRows,
+  shown,
+  typed,
+  typedPath,
+}: {
+  cloud: boolean;
+  cloudRows: ReadonlyMap<string, unknown>;
+  githubRows: ReadonlyMap<string, AddedRepo>;
+  shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
+  typed: string;
+  typedPath: string | undefined;
+}): string[] {
+  const repos: { repo: AddedRepo; block: string[] }[] = [];
+  githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
+  if (cloud) return [...repos.map((repo) => repo.block[0]!), ...cloudRows.keys()];
+  const blocks: { block: string[]; at: number | undefined }[] = [];
+  let previous: string | undefined;
+  shown.forEach((place, value) => {
+    const group = place.group;
+    if (group.key !== previous) {
+      blocks.push({ block: [], at: newestUse(group.members) });
+      previous = group.key;
+    }
+    blocks[blocks.length - 1]!.block.push(value);
+  });
+  const path = typedPath ? [typedPath] : [];
+  if (typed) return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block)];
+  return [...mergeByRecentUse(blocks, repos).flat(), ...path];
+}
+
+/// When a chat here last worked in any of `members`, if one did.
+function newestUse(members: readonly FolderChoice[]): number | undefined {
+  let at: number | undefined;
+  members.forEach((member) => {
+    const used = folderUsedAt(member.id);
+    if (used !== undefined && (at === undefined || used > at)) at = used;
+  });
+  return at;
 }
 
 function focusFolderField(input: HTMLInputElement | null): void {
