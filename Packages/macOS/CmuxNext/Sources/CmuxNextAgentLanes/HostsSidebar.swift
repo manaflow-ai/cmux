@@ -56,7 +56,7 @@ public final class HostsSidebar {
             self.stopAging = stopAging
         }
 
-        /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
+        /// Mesh-only joined machines (Mac or Linux) use the signed-in dial flow; linked rows use the ordinary workspace action.
         public func open(_ machine: MachineSectionRow) {
             switch MachineRow(machine: machine).action {
             case .dialJoined(let joined): openJoined(joined)
@@ -81,10 +81,9 @@ public final class HostsSidebar {
 
         var action: RowAction? {
             if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id) {
-                // A mesh-only joined row is a presence/management row. Only an online Mac
-                // supports the signed-in dial flow; Linux and Windows rows have no daemon
-                // machine id that workspace.newOnMachine could accept.
-                return joined.state == .online && joined.isMac ? .dialJoined(joined) : nil
+                // A mesh-only joined row opens through its hub route (``SignedInMachineDial``), which
+                // makes the server row workspace.newOnMachine runs on; an offline one stays closed.
+                return joined.opensOverHub ? .dialJoined(joined) : nil
             }
             return machine.isConnected ? .newWorkspace : .connect
         }

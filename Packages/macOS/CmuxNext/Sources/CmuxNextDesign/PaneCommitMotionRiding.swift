@@ -19,11 +19,21 @@ public extension NSView {
     /// (``PaneContentAreaView/waitingGround``: a split's new pane in its key's frame) rides: a flat ground has
     /// nothing to cut, and the terminal's host comes into it at its final size.
     /// O(the area's views), no layout.
+    ///
+    /// A riding view that shows content drawn in a window of its own (``PaneContentOwnWindow``: itself or a direct
+    /// subview, a cmux page on the Chromium engine) does not ride: the move's clip does not cut that window.
     var paneRidesCommitMotion: Bool {
-        guard let area = paneCommitMotionArea else { return self is any PaneCommitMotionRiding }
+        guard let area = paneCommitMotionArea else { return self is any PaneCommitMotionRiding && !drawsInOwnWindowNow }
         guard area.bounds.width >= 1, area.bounds.height >= 1 else { return false }
         guard let top = paneCommitMotionTop else { return area.waitingGround != nil }
-        return top is any PaneCommitMotionRiding
+        return top is any PaneCommitMotionRiding && !top.drawsInOwnWindowNow
+    }
+
+    /// Whether this view, or a shown direct subview of it, draws in a window of its own now (``PaneContentOwnWindow``).
+    /// O(its subviews), no layout.
+    private var drawsInOwnWindowNow: Bool {
+        if let own = self as? any PaneContentOwnWindow, own.drawsInOwnWindow { return true }
+        return subviews.contains { !$0.isHidden && ($0 as? any PaneContentOwnWindow)?.drawsInOwnWindow == true }
     }
 
     /// This pane content's area: the view itself, or its first direct subview that is one.

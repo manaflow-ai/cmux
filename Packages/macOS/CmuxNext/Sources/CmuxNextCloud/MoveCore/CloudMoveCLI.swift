@@ -484,6 +484,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return (read.answer, read.plan ?? StartChatPlan(createKey: "", tabKey: ""))
     }
 
+    /// A new machine in the cloud environment `environment` (`env_…`, the `/v1/cloud-environments` store): the platform's
+    /// workspace ensure (`cmux link start-chat ensure --environment`), which injects the environment's variables and runs
+    /// its setup. The wire's `cloud.environment.boot` is not live on cmux-api or cmux-platform (`CLOUD_LIVE_OPS`), and it
+    /// reads CloudDO's own table, which holds none of these. `key`'s UUID part is the ensure's workspace and client key, so
+    /// a Retry with the same key gets the same machine; `access` is the person's cmux access token (stdin). The machine's id.
+    public func machineInEnvironment(_ environment: String, key: String, platform: String?, access: String) async throws -> String {
+        var call = ["verb": "start-chat-ensure", "key": String(key.suffix(36)), "environment": environment]
+        call["platform"] = platform
+        let read = try await run(call, reading: "reservation", stdin: Data((access + "\n").utf8))
+        let object = read.object.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+        guard read.answer.ok, let id = object?["machine"]?.stringValue else {
+            throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
+        }
+        return id
+    }
+
     /// `cmux link start-chat pin`: the send `key` of `account` runs on `machine`, one the App just made for it.
     public func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
         var call = ["verb": "start-chat-pin", "key": key, "account": account, "machine": machine]

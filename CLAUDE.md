@@ -5,6 +5,23 @@ The rules every agent needs in every session here. Everything else lives on the 
 
 **Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). Before building a tool or calling yourself blocked, find the team's existing one in the [team-tools catalog](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/agents/team-tools/SKILL.md) (exact commands, proven runs); with an hq checkout beside this one it is `../cmuxterm-hq/skills/agents/team-tools/SKILL.md`, and `scripts/install-team-tools.sh` there puts it in every session. External contributors can ignore this block; those links return 404 for them.
 
+**Without the team's tooling** (Claude, Codex or another agent a contributor runs on their own machine, with no
+fleet and no team tools): the code rules below all apply to you. The ones that name `cmux-ci`, `glaeda-gh`, the
+fleet, lane VMs, hq links or `cmux app try` are how team agents run checks; on your own machine do this instead:
+
+- Build on the Mac you're on, in a tagged build, never over the installed cmux: `./scripts/setup.sh` once, then
+  `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <your-tag>`. Python under `scripts/` and `tests/`
+  runs directly (`python3 tests/test_x.py`); `cmux-tui/` takes a focused `cargo test` there
+  ([cmux-tui/AGENTS.md](cmux-tui/AGENTS.md)).
+- Before pushing: `python3 scripts/verify-local.py` (it picks the checks your diff touches), plus
+  `scripts/web-lint.sh` for `webviews/` or `web/`.
+- Open the pull request against `feat-cmux-next` and let CI run; check it once with `gh pr checks N`, not a
+  watch loop. Say under Testing what you ran and what you couldn't.
+- Leave classic paths ([`.github/classic-frozen.txt`](.github/classic-frozen.txt)) alone and keep new logic in
+  the language the boundaries file names.
+
+The person path, with the 5-minute build, test and land steps and a map of the tree: [docs/start-here.md](docs/start-here.md).
+
 ## The loop: use it first, then test
 
 Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
@@ -74,7 +91,8 @@ Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-ho
   link (a web or daemon change: `cmux app try <PR>`, a build only when `hot-verify.py plan` needs one or the
   person asks), the fleet simulator evidence and the iPhone install result
   ([finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md)). A docs-only change gives the
-  file path instead.
+  file path instead. `cmux-next-ios/scripts/review.sh` points both apps at the tag's own backend stack by
+  default (`--backend dev` for the shared dev Workers).
 
 ## CI, review and merge
 
