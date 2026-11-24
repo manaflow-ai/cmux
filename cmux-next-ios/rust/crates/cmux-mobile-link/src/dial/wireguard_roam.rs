@@ -1332,9 +1332,9 @@ pub fn simulate_blackout(session_id: Option<&str>, dialer: bool, dark: bool) -> 
     hit
 }
 
-/// Debug and tests: the TCP or TLS stream of one side's TURN allocation
-/// (of `session_id`, or of every session) dies, as when a middlebox resets
-/// it. The session takes a new allocation. Returns how many sessions it hit.
+/// Debug and tests: the relay socket of one side (of `session_id`, or of
+/// every session) dies, as when a proxy resets it. The session joins the
+/// relay again. Returns how many sessions it hit.
 #[doc(hidden)]
 pub fn simulate_relay_loss(session_id: Option<&str>, dialer: bool) -> usize {
     live()
@@ -1511,6 +1511,10 @@ async fn reassert_on_relay(session: &Arc<Session>, shared: &Arc<RelayShared>) {
     }
 }
 
+/// Debug and tests: the TCP or TLS stream of one side's TURN allocation
+/// (of `session_id`, or of every session) dies, as when a middlebox resets
+/// it. The session takes a new allocation. Returns how many sessions it hit.
+#[doc(hidden)]
 pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
     let mut hit = 0;
     for session in live() {

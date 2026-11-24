@@ -312,6 +312,8 @@ pub fn hops_from_entries(
 /// How long the system's answer for a destination is kept: a PAC file is
 /// fetched and run once per destination in this time, not per connection.
 const CACHE_FOR: Duration = Duration::from_secs(30);
+/// How long an old answer still serves [`hops_now`] while a new one is asked.
+const STALE_FOR: Duration = Duration::from_secs(10 * 60);
 /// Bound on asking the system (PAC fetch and run included): past it, direct.
 const SYSTEM_WAIT: Duration = Duration::from_secs(5);
 
@@ -338,7 +340,8 @@ fn cached(key: &CacheKey) -> Option<Vec<Hop>> {
 
 fn remember(key: CacheKey, hops: &[Hop]) {
     let mut cache = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    cache.retain(|_, (at, _)| at.elapsed() < CACHE_FOR);
+    // Old answers stay a while for `hops_now`'s guess; the map stays small.
+    cache.retain(|_, (at, _)| at.elapsed() < STALE_FOR);
     cache.insert(key, (Instant::now(), hops.to_vec()));
 }
 
@@ -355,6 +358,10 @@ fn dev_override() -> Option<Vec<Hop>> {
 /// The system's hops to `host:port`, asking the OS (blocking: a PAC file may
 /// be fetched and run).
 fn system_hops_blocking(host: &str, port: u16, secure: bool) -> Vec<Hop> {
+    #[cfg(test)]
+    if host.ends_with(".slow-pac.test") {
+        std::thread::sleep(Duration::from_millis(800));
+    }
     if is_loopback(host) {
         return vec![Hop::Direct];
     }
@@ -404,22 +411,55 @@ pub async fn hops(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> 
     }
 }
 
-/// [`hops`] without waiting: the cached answer, else the system's asked now
-/// on this thread (an HTTP client's proxy callback, which cannot await).
-/// [`warm`] first keeps PAC off the caller's thread.
+/// [`hops`] without waiting, for an HTTP client's proxy callback (which runs
+/// on a runtime worker and cannot await): the cached answer, even one past
+/// [`CACHE_FOR`] (the last answer this network gave is a better guess than
+/// none), and on a miss or an old answer the system is asked again off this
+/// thread. Never asks the system on the caller's thread: a PAC fetch there
+/// would stall a tokio worker for up to [`SYSTEM_WAIT`]. With no answer yet
+/// it goes direct, as [`hops`] does past [`SYSTEM_WAIT`]; every caller of the
+/// link's HTTP client [`warm`]s first, so that is a redirect's rare case.
 pub fn hops_now(host: &str, port: u16, secure: bool, config: &ProxyConfig) -> Vec<Hop> {
     match config {
         ProxyConfig::System => {
             let key = (host.to_ascii_lowercase(), port, secure);
-            if let Some(hops) = cached(&key) {
-                return hops;
+            let (fresh, hops) = {
+                let cache = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match cache.get(&key) {
+                    Some((at, hops)) => (at.elapsed() < CACHE_FOR, Some(hops.clone())),
+                    None => (false, None),
+                }
+            };
+            if !fresh {
+                warm_off_thread(key);
             }
-            let hops = system_hops_blocking(host, port, secure);
-            remember(key, &hops);
-            hops
+            hops.unwrap_or_else(|| vec![Hop::Direct])
         }
         ProxyConfig::Fixed(hops) if !hops.is_empty() => hops.clone(),
         ProxyConfig::Fixed(_) | ProxyConfig::Direct => vec![Hop::Direct],
+    }
+}
+
+/// Ask the system for `key`'s hops on a thread of its own and cache them;
+/// one lookup per destination at a time.
+fn warm_off_thread(key: CacheKey) {
+    static ASKING: std::sync::OnceLock<Mutex<std::collections::HashSet<CacheKey>>> =
+        std::sync::OnceLock::new();
+    let asking = ASKING.get_or_init(Default::default);
+    if !asking.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key.clone()) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("cmux-link-proxy-lookup".into()).spawn({
+        let key = key.clone();
+        move || {
+            let hops = system_hops_blocking(&key.0, key.1, key.2);
+            remember(key.clone(), &hops);
+            asking.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key);
+        }
+    });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "no thread for the system proxy lookup");
+        asking.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key);
     }
 }
 
@@ -732,5 +772,28 @@ mod tests {
     fn a_407_names_its_schemes() {
         let head = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Negotiate\r\nproxy-authenticate: NTLM\r\nProxy-Authenticate: Basic realm=\"corp\", Digest realm=\"corp\", nonce=\"x\"\r\n\r\n";
         assert_eq!(auth_schemes(head), vec!["Negotiate", "NTLM", "Basic", "Digest"]);
+    }
+
+    /// Review F2: the HTTP client's proxy callback never asks the system on
+    /// its own thread. A cold cache answers at once (direct) and the system
+    /// is asked off-thread; the answer is cached for the next request.
+    #[test]
+    fn a_cold_cache_callback_returns_without_blocking() {
+        let host = "cold.slow-pac.test";
+        let started = Instant::now();
+        let hops = hops_now(host, 443, true, &ProxyConfig::System);
+        let took = started.elapsed();
+        assert_eq!(hops, vec![Hop::Direct]);
+        assert!(took < Duration::from_millis(100), "the callback blocked for {took:?} (lookup takes 800 ms)");
+        let key = (host.to_owned(), 443, true);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while cached(&key).is_none() {
+            assert!(Instant::now() < deadline, "the off-thread lookup never cached its answer");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // A warm cache answers from it, again without blocking.
+        let started = Instant::now();
+        let _ = hops_now(host, 443, true, &ProxyConfig::System);
+        assert!(started.elapsed() < Duration::from_millis(100));
     }
 }

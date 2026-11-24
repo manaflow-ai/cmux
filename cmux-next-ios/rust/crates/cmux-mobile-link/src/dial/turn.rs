@@ -579,7 +579,7 @@ impl TurnCarrier {
             .connect(name, tcp)
             .await
             .map_err(|e| format!("TLS to {}: {e}", server.host))?;
-        crate::egress::note(crate::egress::PathKind::of(&via, &server.host));
+        crate::egress::note(&server.host, crate::egress::PathKind::of(&via, &server.host));
         let conn = StreamConn::new(tls, local, peer);
         let dead = conn.dead();
         Ok((Arc::new(conn), dead))

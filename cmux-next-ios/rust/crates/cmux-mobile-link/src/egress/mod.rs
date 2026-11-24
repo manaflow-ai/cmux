@@ -81,31 +81,29 @@ impl EgressError {
 pub fn network_changed() {
     proxy::forget();
     tls::forget_inspected();
-    SEEN.store(0, std::sync::atomic::Ordering::Relaxed);
+    paths().clear();
 }
 
-/// The most telling path a link connection took on this network: 0 none or
-/// direct, 1 a proxy, 2 an inspecting proxy.
-static SEEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-
-/// A link connection (signaling, the relay, TURN over TLS) went out on `path`.
-pub fn note(path: PathKind) {
-    let rank = match path {
-        PathKind::Direct => 0,
-        PathKind::Proxy => 1,
-        PathKind::Inspected => 2,
-    };
-    SEEN.fetch_max(rank, std::sync::atomic::Ordering::Relaxed);
+/// Each host's path on its latest link connection (signaling, the relay,
+/// TURN over TLS). Per host and replaced by the next connection to it, so a
+/// clean handshake to a host that was inspected clears it: `link_stat`
+/// reports the path the link takes now, not the worst one it ever took.
+fn paths() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, PathKind>> {
+    static PATHS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, PathKind>>> =
+        std::sync::OnceLock::new();
+    PATHS.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The way out this network makes the link take, for `link_stat`: `None`
-/// when every connection went direct.
+/// A link connection to `host` went out on `path`.
+pub fn note(host: &str, path: PathKind) {
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    paths().insert(host, path);
+}
+
+/// The way out this network makes the link take, for `link_stat`: the most
+/// telling of each host's latest path, `None` when every one went direct.
 pub fn seen() -> Option<PathKind> {
-    match SEEN.load(std::sync::atomic::Ordering::Relaxed) {
-        0 => None,
-        1 => Some(PathKind::Proxy),
-        _ => Some(PathKind::Inspected),
-    }
+    paths().values().copied().filter(|path| *path != PathKind::Direct).max()
 }
 
 /// Bound on each hop's TCP connect and proxy handshake.
@@ -199,7 +197,7 @@ pub async fn connect_tls(
         .connect(name, tcp)
         .await
         .map_err(|error| EgressError::Io(format!("TLS to {host}: {error}")))?;
-    note(PathKind::of(&via, host));
+    note(host, PathKind::of(&via, host));
     Ok((stream, via))
 }
 
@@ -229,7 +227,8 @@ impl std::fmt::Display for WebSocketError {
 
 /// How a connection's path looks from here, for telemetry: direct, through
 /// a proxy, or through a proxy (or middlebox) that inspects TLS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+/// Ordered by how telling it is (`Direct` < `Proxy` < `Inspected`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PathKind {
     Direct,
@@ -247,6 +246,11 @@ impl PathKind {
         } else {
             Self::Direct
         }
+    }
+
+    /// The path of a connection that ran no TLS.
+    pub fn of_plain(via: &Via) -> Self {
+        if matches!(via, Via::Proxy(_)) { Self::Proxy } else { Self::Direct }
     }
 
     pub fn as_str(self) -> &'static str {
@@ -280,7 +284,9 @@ pub async fn connect_websocket(
     let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
         .await
         .map_err(WebSocketError::Upgrade)?;
-    note(PathKind::of(&via, &host));
+    // Plain `ws://` ran no TLS, so nothing inspected it.
+    let path = if secure { PathKind::of(&via, &host) } else { PathKind::of_plain(&via) };
+    note(&host, path);
     Ok((socket, via))
 }
 
@@ -309,5 +315,32 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
             tracing::warn!(%error, "no TLS configuration from the OS trust store; the HTTP client uses its own roots");
             builder
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn latest(host: &str) -> Option<PathKind> {
+        paths().get(host).copied()
+    }
+
+    /// Review F3: `link_stat.egress` follows each host's latest connection:
+    /// one clean connection after an inspected one is not inspected, and a
+    /// direct one is not "proxy".
+    #[test]
+    fn the_latest_connection_to_a_host_sets_its_path() {
+        let host = "relay.f3-path.test";
+        note(host, PathKind::Inspected);
+        assert_eq!(latest(host), Some(PathKind::Inspected));
+        note(host, PathKind::Proxy);
+        assert_eq!(latest(host), Some(PathKind::Proxy), "a clean handshake through the proxy");
+        note(host, PathKind::Direct);
+        assert_eq!(latest(host), Some(PathKind::Direct));
+        assert!(PathKind::Direct < PathKind::Proxy && PathKind::Proxy < PathKind::Inspected);
+        let proxy = Via::Proxy(Hop::Http(ProxyServer::new("proxy.corp", 3128)));
+        assert_eq!(PathKind::of_plain(&proxy), PathKind::Proxy);
+        assert_eq!(PathKind::of_plain(&Via::Direct), PathKind::Direct);
     }
 }
