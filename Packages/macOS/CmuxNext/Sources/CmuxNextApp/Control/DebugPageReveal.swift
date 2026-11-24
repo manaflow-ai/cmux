@@ -8,7 +8,8 @@ import CmuxNextSettings
 ///
 /// Actions: `hide` (`NSApp.hide`), `show` (`NSApp.unhideWithoutActivation`), `cover` (an opaque window of this app
 /// ordered over the main window, so it is occluded while the app keeps its windows) and `uncover`, `samples` (the
-/// sampling so far and its summary; it stops the sampler). Every reply carries `occluded` (the window's occlusion
+/// sampling so far and its summary; it stops the sampler), `front` (the main window above every other app's
+/// windows, `orderFrontRegardless`, still without activating: a host whose screen another app's window fills). Every reply carries `occluded` (the window's occlusion
 /// state lacks `.visible`) and `hidden` (`NSApp.isHidden`).
 ///
 /// The summary, `reveal`: the remote layers' context ids when the window left the screen, when it was visible again,
@@ -42,6 +43,7 @@ enum DebugPageReveal {
                 made.hasShadow = false
                 made.ignoresMouseEvents = true
                 made.level = window.level
+                made.animationBehavior = .none
                 made.order(.above, relativeTo: window.windowNumber)
                 cover = made
             }
@@ -52,6 +54,8 @@ enum DebugPageReveal {
             sampler?.mark(action)
             cover?.orderOut(nil)
             cover = nil
+        case "front":
+            window.orderFrontRegardless()
         case "samples":
             let result = sampler?.report() ?? .null
             sampler?.stop()
@@ -73,14 +77,15 @@ enum DebugPageReveal {
         return app.mainWindow ?? app.windows.first { $0.isVisible && $0.canBecomeMain && $0.contentView != nil }
     }
 
-    /// Every remote layer (`CALayerHost`) at least 40 x 40 points in the window's layer tree, by context id.
+    /// Every remote layer (`CALayerHost`, any size: Chromium's has no bounds of its own) in the window's layer tree,
+    /// by context id; 0 ids are left out.
     static func remoteContextIDs(in window: NSWindow) -> [UInt32] {
         guard let root = window.contentView?.superview?.layer ?? window.contentView?.layer else { return [] }
         var ids: [UInt32] = []
         var stack: [CALayer] = [root]
         while let layer = stack.popLast() {
-            if String(describing: type(of: layer)) == "CALayerHost", layer.bounds.width >= 40, layer.bounds.height >= 40,
-               let id = (layer.value(forKey: "contextId") as? NSNumber)?.uint32Value {
+            if NSStringFromClass(type(of: layer)) == "CALayerHost",
+               let id = (layer.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0 {
                 ids.append(id)
             }
             stack.append(contentsOf: layer.sublayers ?? [])
