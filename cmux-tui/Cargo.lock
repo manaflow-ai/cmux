@@ -2317,6 +2317,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "rcgen",
+ "rustls",
+ "rustls-platform-verifier",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
@@ -2419,6 +2437,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2853,6 +2872,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",

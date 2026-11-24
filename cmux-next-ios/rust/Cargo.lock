@@ -564,19 +564,17 @@ dependencies = [
  "bytes",
  "cmux-build-space",
  "cmux-mobile-link",
+ "cmux-proxy",
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-transport",
  "cmux-wg",
- "core-foundation",
- "core-foundation-sys",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "rcgen",
  "reqwest",
  "rustls",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "socket2 0.6.5",
@@ -633,6 +631,23 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation",
+ "core-foundation-sys",
+ "rustls",
+ "rustls-platform-verifier",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
