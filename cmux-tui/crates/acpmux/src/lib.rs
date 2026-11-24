@@ -160,6 +160,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;
