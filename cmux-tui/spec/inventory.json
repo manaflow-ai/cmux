@@ -564,6 +564,7 @@
       "swap-pane",
       "terminal-command-context",
       "terminal-events",
+      "terminal-find",
       "terminal-history",
       "terminal-last-command",
       "terminal-ports",
