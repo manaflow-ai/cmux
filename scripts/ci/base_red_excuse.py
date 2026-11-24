@@ -7264,8 +7264,59 @@ WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most mai
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
-WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed: (.*)",
-                                  re.S)
+# Since leo-workspace#9404 (2026-11-23) a run reruns its failed units on main and tools/ws-check discounts those that
+# fail there too (discount_base_reds): the status counts only the run's own failed steps, "N of M steps failed: UNIT
+# (+K base red discounted, main SHA8)", or since lw#9754 "N of M steps failed (+K base red discounted, main SHA8): UNIT",
+# while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
+WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
+                                  r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
+# "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
+WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
+                                r"[1-9]\d* of \d+ reruns ended)")
+WS_CHECK_BASE_FAILED = re.compile(r"^ws-check step FAILED on main too: (.+?) \(exit -?\d+")
+WS_CHECK_FAILED_LABEL = re.compile(r"^ws-check step FAILED: (.+?) \(exit -?\d+")
+# ws_check_run.py's pseudo-step for a run that wrote the global git config (cmux#28148): no step line of its own, only
+# "ws-check: a step changed the global git config PATH (...)". Before this it was refused "has no 'ws-check step
+# FAILED: global git config changed by a step' line" (leo-workspace#9703 at 85551f8b, run 45341796653, 2026-11-24).
+WS_CHECK_GIT_CONFIG_STEP = "global git config changed by a step"
+WS_CHECK_GIT_CONFIG_LINE = "ws-check: a step changed the global git config"
+
+
+def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[list[str], int, str] | None:
+    """(the run's own failed labels, sorted, how many it discounted, the main it reran them on) as tools/ws-check
+    discount_base_reds counts them from LINES before AT: every FAILED label less those its one base pass failed on main
+    too. None when the log holds no such pass (none, several, or one that reran nothing), or a failed step has no
+    FAILED line (ws-check discounts nothing then)."""
+    ours = {m[1] for line in lines[:at] if (m := WS_CHECK_FAILED_LABEL.match(line))}
+    passes = [m[1] or m[2] for line in lines[:at] if (m := WS_CHECK_BASE_PASS.match(line))]
+    if not ours or len(passes) != 1 or set(failed) - {label.split(" [", 1)[0] for label in ours}:
+        return None
+    theirs = {m[1] for line in lines[:at] if (m := WS_CHECK_BASE_FAILED.match(line))}
+    if not ours & theirs:
+        return None
+    return sorted(ours - theirs), len(ours & theirs), passes[0]
+
+
+def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
+    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
+    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    count, total, described = int(named[1]), int(named[2]), named[5]
+    if total != steps:
+        return False
+    if not named[3] and count == len(failed) and ws_check_names_step(described, failed[0]):
+        return True
+    found = ws_check_discount(lines, at, failed)
+    if found is None or not found[0]:
+        return False
+    own, discounted, main = found
+    if count != len({label.split(" [", 1)[0] for label in own}):
+        return False
+    marker = f" (+{discounted} base red discounted, main {main[:8]})"
+    if named[3]:  # lw#9754's shape: the marker before the unit
+        return (int(named[3]), named[4]) == (discounted, main[:8]) and ws_check_names_step(described, own[0])
+    # The marker after the unit, both cut together at 139 characters.
+    return (own[0] + marker).startswith(described)
 
 
 def ws_check_names_step(described: str, step: str) -> bool:
@@ -7757,10 +7808,16 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
-    if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not ws_check_names_step(named[3], failed[0]):
+    if not ws_check_described(named, failed, result.get("steps"), lines, at):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
+        if step == WS_CHECK_GIT_CONFIG_STEP:
+            # No step line: the run's own line says it, one fact with no tests (its path and first watcher vary).
+            if not any(line.startswith(WS_CHECK_GIT_CONFIG_LINE) for line in lines[:at]):
+                raise Refused(f"{where}: run {link[1]} has no '{WS_CHECK_GIT_CONFIG_LINE}' line")
+            steps[step] = {"tests": frozenset(), "lines": frozenset({WS_CHECK_GIT_CONFIG_LINE}), "failures": {}}
+            continue
         # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
         # each read in its own group; the step's tests and lines are every red unit's together.
         result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
@@ -7865,6 +7922,19 @@ def ws_check_fix(repo: str, merge_base: str, tip: str, commits: list[str], githu
     return fix
 
 
+def ws_check_base_verdict(repo: str, commit: str, github) -> tuple[str, dict]:
+    """ws_check_verdict of a base COMMIT in the window the head is compared with (never the merge-base, whose read
+    stays strict), with a failure whose log cannot be read as "none" (no verdict): it only takes
+    evidence away, so the comparison goes on to the base's other verdicts. Before this one unreadable main verdict
+    refused every head: 2026-11-24, main 106d10145c's run 45341598629 kept only the last 200 lines of its red
+    test_demand_scaler.py (leo-workspace tools/ws_check_collect.py quiet), 16 of 17 FAIL lines, and every
+    leo-workspace PR was refused "its failing tests cannot be listed" on main's run, not its own."""
+    try:
+        return ws_check_verdict(repo, commit, github)
+    except Refused as error:
+        return "none", {"why": f"its verdict cannot be read ({str(error)[:300]})", "url": "", "unreadable": True}
+
+
 def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> dict:
     """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
     commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
@@ -7883,12 +7953,18 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
         ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
-    verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
-    verdicts = (found for found in verdicts if found[1] != "none")
+    unreadable: list[str] = []
+
+    def readable(found: tuple) -> bool:
+        if found[1] == "none" and found[2].get("unreadable"):
+            unreadable.append(f"{found[0][:12]}: {found[2]['why']}")
+        return found[1] != "none"
+    verdicts = ((commit, *ws_check_base_verdict(repo, commit, github)) for commit in commits)
+    verdicts = (found for found in verdicts if readable(found))
     newest = next(verdicts, None)
     if newest is None:
         raise Refused(f"'{WS_CHECK}': none of the {WS_CHECK_COMMITS} newest {base} commits has a ws-check verdict to "
-                      "compare with")
+                      "compare with" + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
     tip, tip_kind, tip_verdict = newest
     tested = f"{base} {tip[:12]} ({tip_verdict['url'] or 'no run'})"
 
