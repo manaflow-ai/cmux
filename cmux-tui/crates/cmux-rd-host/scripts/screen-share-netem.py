@@ -70,16 +70,22 @@ def setup(args):
                             "--workload", args.workload],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
-    started(app, "testapp")
+    started(app, "testapp", others=[xvfb])
     return [app, xvfb]
 
 
-def started(proc, what):
+def started(proc, what, others=()):
     """Stops the run when a helper exited during start-up: every attempt after it would fail
-    with the host's "Connection refused" and say nothing of why."""
+    with the host's "Connection refused" and say nothing of why. OTHERS, the helpers already
+    started, are stopped too: an Xvfb left running holds its display, and the next run exits
+    at start with "Server is already active"."""
     if proc.poll() is None:
         return
     err = (proc.stderr.read() if proc.stderr else "").strip()
+    for other in others:
+        if other.poll() is None:
+            other.kill()
+            other.wait()
     teardown()
     sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
 
@@ -94,14 +100,54 @@ def teardown():
         sh(f"ip netns del {ns}", check=False)
 
 
-def readline(proc, deadline):
+class Lines:
+    """Lines from a child's stdout, read off the descriptor itself. A buffered pipe's readline()
+    pulls every line that has arrived into Python's buffer, where select() no longer sees them:
+    a host that printed displays, key and candidates in one write left the key there, and the
+    attempt timed out with no key ("answer line: invalid type: null"), about one session in
+    ten, or half of them on a busy machine."""
+
+    def __init__(self, pipe):
+        self.fd = pipe.fileno()
+        self.buf = b""
+        self.eof = False
+
+    def fileno(self):
+        return self.fd
+
+    def ready(self):
+        """A whole line is buffered, or the pipe ended: next() returns at once."""
+        return b"\n" in self.buf or self.eof
+
+    def fill(self):
+        """One read of what the descriptor has (call it when select says readable)."""
+        chunk = os.read(self.fd, 65536)
+        self.buf += chunk
+        self.eof = self.eof or not chunk
+
+    def take(self):
+        """The next buffered line, or "" at the end of the pipe, or None when neither."""
+        if b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            return line.decode(errors="replace") + "\n"
+        if self.eof:
+            rest, self.buf = self.buf, b""
+            return rest.decode(errors="replace")
+        return None
+
+
+def readline(lines, deadline):
+    """The next line from LINES (a Lines) by DEADLINE, "" at the end of the pipe, None on timeout."""
     while True:
+        line = lines.take()
+        if line is not None:
+            return line
         left = deadline - time.time()
         if left <= 0:
             return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
+        r, _, _ = select.select([lines], [], [], left)
         if r:
-            return proc.stdout.readline()
+            lines.fill()
 
 
 def sample_budget(base_samples, drop_s, trigger_s=0):
@@ -233,7 +279,8 @@ def attempt(args, n, drop_s=None):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     host = None
     try:
-        line = readline(viewer, time.time() + 10)
+        viewer_out = Lines(viewer.stdout)
+        line = readline(viewer_out, time.time() + 10)
         try:
             viewer_key = json.loads(line)["key"]
         except (ValueError, KeyError, TypeError):
@@ -245,6 +292,7 @@ def attempt(args, n, drop_s=None):
                                  args.display, "--profile", "baseline", *args.serve_arg],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, bufsize=1)
+        host_out = Lines(host.stdout)
         host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "control",
                                      "stun": [], "display": args.display,
                                      "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
@@ -254,7 +302,7 @@ def attempt(args, n, drop_s=None):
         while True:
             # Once the key and a candidate are in, wait only briefly for more: serve with
             # no STUN prints no candidates_done, and the handshake clock is already running.
-            line = readline(host, min(dl, time.time() + 0.2) if host_key and cands else dl)
+            line = readline(host_out, min(dl, time.time() + 0.2) if host_key and cands else dl)
             if not line:
                 break
             msg = json.loads(line)
@@ -274,7 +322,7 @@ def attempt(args, n, drop_s=None):
         blip_done = args.blip_at is None or drop_s is None
         blip_until = None
         drop_restored = drop_s is None
-        streams = {host.stdout: "host", viewer.stdout: "viewer"}
+        streams = {host_out: "host", viewer_out: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
             if not blip_done and "connect_ms" in rec and time.time() - t0 >= args.blip_at:
@@ -286,9 +334,15 @@ def attempt(args, n, drop_s=None):
                 netem(args.rtt, args.loss)
                 blip_until = None
                 drop_restored = True
-            r, _, _ = select.select(list(streams), [], [], 0.05)
+            r = [s for s in streams if s.ready()]
+            if not r:
+                r, _, _ = select.select(list(streams), [], [], 0.05)
+                for s in r:
+                    s.fill()
             for s in r:
-                line = s.readline()
+                line = s.take()
+                if line is None:
+                    continue
                 if not line:
                     del streams[s]
                     continue
@@ -309,7 +363,7 @@ def attempt(args, n, drop_s=None):
                     rec["host_ended"] = msg["ended"]
                 elif who == "viewer" and "g2g_ms" in msg:
                     rec["report"] = msg
-                    streams.pop(viewer.stdout, None)
+                    streams.pop(viewer_out, None)
             if "report" in rec:
                 break
         if blip_until:
