@@ -100,7 +100,7 @@ const TAIL_LINES: usize = 25;
 pub(super) fn why_failed(program: &str, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(TAIL_LINES);
-    let tail = &lines[start..];
+    let (head, tail) = lines.split_at_checked(start).unwrap_or((&[], lines.as_slice()));
     let names_error = |line: &str| {
         let lower = line.to_ascii_lowercase();
         !lower.contains("warning")
@@ -109,7 +109,7 @@ pub(super) fn why_failed(program: &str, text: &str) -> String {
     let causes: Vec<&str> = if tail.iter().any(|line| names_error(line)) {
         Vec::new()
     } else {
-        lines[..start].iter().copied().filter(|line| names_error(line)).take(5).collect()
+        head.iter().copied().filter(|line| names_error(line)).take(5).collect()
     };
     if causes.is_empty() {
         return format!("{program} failed:\n{}", tail.join("\n"));
