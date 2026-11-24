@@ -6,7 +6,7 @@
 //
 // Real WebKit from Playwright (the app is WKWebView); ANCHOR_ENGINE=chromium runs Chromium instead.
 // CI fails the file when it cannot launch (requireBrowserLane).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
@@ -16,12 +16,11 @@ import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors
 
 type Frame = { box: number; t: number; scrollTop: number; fromEnd: number; gap: number };
 
-const ENGINE_NAME = process.env.ANCHOR_ENGINE === "chromium" ? "chromium" : "webkit";
-// Where a frame is read: "late" after the frame's ResizeObservers (what paints), "raf" in rAF (before them).
-const SAMPLE_LATE = process.env.ANCHOR_SAMPLE !== "raf";
-const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
-
 await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => {
+  const ENGINE_NAME = process.env.ANCHOR_ENGINE === "chromium" ? "chromium" : "webkit";
+  // Where a frame is read: "late" after the frame's ResizeObservers (what paints), "raf" in rAF (before them).
+  const SAMPLE_LATE = process.env.ANCHOR_SAMPLE !== "raf";
+  const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
   if (!(await probeEngineOrSkip("transcript-composer-grow-anchor", ENGINE_NAME, ENGINE))) return;
   setDefaultTimeout(180_000);
   const ENTRY = "agent-pane.transcript-composer-grow";
@@ -59,19 +58,10 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
     await page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
+      // raf-read: setup only, pinning the view to its end again after the rows settled; nothing is measured here.
       for (let i = 0; i < 10; i++) await new Promise((r) => requestAnimationFrame(r));
       scroller.scrollTop = scroller.scrollHeight;
     });
-    if (process.env.ANCHOR_PRE === "wheel") {
-      await page.mouse.move(width / 2, 200);
-      for (const dy of [-1500, -1500, 800, 800, 5000, 5000]) {
-        await page.mouse.wheel(0, dy);
-        await page.evaluate(async () => {
-          for (let i = 0; i < 25; i++) await new Promise((r) => requestAnimationFrame(r));
-        });
-      }
-      await page.waitForTimeout(1000);
-    }
     if (scrolledUp)
       await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -102,6 +92,7 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
           fromEnd: Math.round((scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) * 10) / 10,
           gap: Math.round((box.getBoundingClientRect().top - last.getBoundingClientRect().bottom) * 10) / 10,
         });
+        // raf-read: ANCHOR_SAMPLE=raf only, the pre-observer read kept to compare against the late one.
         if (!own.__stop && !late) requestAnimationFrame(tick);
       };
       if (late) {
@@ -117,6 +108,7 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
         observer.observe(sentinel);
         const flip = () => {
           sentinel.style.width = sentinel.style.width === "1px" ? "2px" : "1px";
+          // raf-read: flip only resizes the sentinel; the read is in its observer, after the app's.
           if (!own.__stop) requestAnimationFrame(flip);
         };
         requestAnimationFrame(flip);
@@ -148,26 +140,6 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
         for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
       });
     }
-  };
-  const pasteGrow = async (page: Page) => {
-    await page.locator(`${COMPOSER_MD_FIELD} .ProseMirror`).click();
-    await page.keyboard.press("Control+End");
-    await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>(".ProseMirror")!;
-      const data = new DataTransfer();
-      data.setData("text/plain", "\npasted two\npasted three\npasted four\npasted five");
-      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
-  };
-  const wrapGrow = async (page: Page) => {
-    await page.locator(`${COMPOSER_MD_FIELD} .ProseMirror`).click();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.type(
-      " and then a very long continuation of the sentence that has to wrap onto further lines in a narrow pane ".repeat(
-        3,
-      ),
-      { delay: 5 },
-    );
   };
   const shrink = async (page: Page) => {
     for (let line = 5; line >= 2; line--) {

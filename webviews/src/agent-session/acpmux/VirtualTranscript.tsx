@@ -90,7 +90,12 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
-import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
+import {
+  FIELD_GROWTH_EVENT,
+  growthPendingIn,
+  growthTranslate,
+  type FieldGrowthEvent,
+} from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
@@ -1688,7 +1693,21 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
+    // in that round, the dock already holds the field at its natural height. Taken here, the rows
+    // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
+    // The growth event, in the same round, takes it on the field's curve instead; a change no growth
+    // claims by the next frame is taken then.
+    let waitedForGrowth = 0;
     const resized = () => {
+      if (!growth && growthPendingIn(dock)) {
+        if (!waitedForGrowth)
+          waitedForGrowth = requestAnimationFrame(() => {
+            waitedForGrowth = 0;
+            if (!growth) resized();
+          });
+        return;
+      }
       const rows = thread.current;
       if (!rows || growth || asksFolding()) {
         take();
@@ -1744,9 +1763,6 @@ function TranscriptView({
       const { detail, target } = event as FieldGrowthEvent;
       if (!(target instanceof HTMLElement)) return;
       growth = { field: target, to: detail.to };
-      // Hold the field at its start height while the transcript takes the growth into its room. Both
-      // animations then start from the same committed layout instead of the field leading by a frame.
-      detail.animation.pause();
       // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
       queueMicrotask(() => {
         const rows = thread.current;
@@ -1757,10 +1773,7 @@ function TranscriptView({
         take();
         // Where the rows now lie against where they were drawn: they start there and go home.
         const delta = before - rows.getBoundingClientRect().top;
-        if (Math.abs(delta) < 0.5) {
-          detail.animation.play();
-          return;
-        }
+        if (Math.abs(delta) < 0.5) return;
         // A move already in flight (a send's, the stack's): the growth joins its plan, one curve.
         const tx = transactionOn(rows) ? threadTransaction(rows) : undefined;
         if (tx?.active()) {
@@ -1772,7 +1785,6 @@ function TranscriptView({
           easing: detail.progress ? "linear" : detail.easing,
           composite: "add",
         });
-        detail.animation.play();
         if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
         rowsMove = move;
         move.addEventListener("finish", () => {
@@ -1796,6 +1808,7 @@ function TranscriptView({
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      if (waitedForGrowth) cancelAnimationFrame(waitedForGrowth);
       rowsMove?.cancel();
       for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
