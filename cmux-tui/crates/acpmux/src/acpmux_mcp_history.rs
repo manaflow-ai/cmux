@@ -11,9 +11,8 @@ use std::sync::Arc;
 
 pub(super) const NAME: &str = "chat_history";
 /// What every chat with the tool is told.
-pub(super) const STEER: &str = "After a compaction your summary names turns as ranges \
-(<session>@<first>-<last>): call chat_history with the range to read what was asked, said and run \
-there, then with seq for one tool result whole, instead of guessing at what the summary left out.";
+pub(super) const STEER: &str = "After a compaction, call chat_history with a range from your summary \
+(<session>@<first>-<last>) to read what was asked and run there; with seq for one result whole.";
 
 pub(super) fn tool() -> Value {
     json!({
