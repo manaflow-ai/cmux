@@ -216,10 +216,17 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
                 Some("keep") => "Keep",
                 _ => "Revert",
             };
-            let label = object.get("label").and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+            let label = object
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty());
             match (label, run) {
                 (label, Some(Ok(run))) => {
-                    let label = label.map_or_else(|| verb(&run).to_owned(), |l| cut(&what, l, MAX_ACTION, &mut notes));
+                    let label = label.map_or_else(
+                        || verb(&run).to_owned(),
+                        |l| cut(&what, l, MAX_ACTION, &mut notes),
+                    );
                     Some(json!({"label": label, "run": run}))
                 }
                 (Some(label), run) => {
@@ -463,7 +470,9 @@ mod tests {
             ])
         );
         // No label: the verb's own. Keep and revert take no target.
-        let got = shown(json!({"recap": "x", "ask": "Keep?", "actions": [{"run": {"customize": "keep"}}, {"run": {"customize": "revert"}}]}));
+        let got = shown(
+            json!({"recap": "x", "ask": "Keep?", "actions": [{"run": {"customize": "keep"}}, {"run": {"customize": "revert"}}]}),
+        );
         assert_eq!(got["actions"][0], json!({"label": "Keep", "run": {"customize": "keep"}}));
         assert_eq!(got["actions"][1]["label"], "Revert");
     }
@@ -477,7 +486,10 @@ mod tests {
         .unwrap();
         assert_eq!(got["actions"], json!(["Do it"]));
         let said = notes.join("; ");
-        assert!(said.contains("action 1 run dropped") && said.contains("action 2 has no label"), "{said}");
+        assert!(
+            said.contains("action 1 run dropped") && said.contains("action 2 has no label"),
+            "{said}"
+        );
     }
 
     #[test]
@@ -485,8 +497,16 @@ mod tests {
         let tool = tool();
         let items = &tool["inputSchema"]["properties"]["actions"]["items"]["anyOf"];
         assert_eq!(items[0]["type"], "string");
-        assert_eq!(items[1]["properties"]["run"]["properties"]["customize"]["enum"], json!(["try", "keep", "revert"]));
-        assert!(tool["inputSchema"]["properties"]["actions"]["description"].as_str().unwrap().contains("customize"));
+        assert_eq!(
+            items[1]["properties"]["run"]["properties"]["customize"]["enum"],
+            json!(["try", "keep", "revert"])
+        );
+        assert!(
+            tool["inputSchema"]["properties"]["actions"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("customize")
+        );
     }
 
     #[test]

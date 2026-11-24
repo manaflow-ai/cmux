@@ -32,7 +32,9 @@ pub(crate) fn valid_target(target: &str) -> bool {
         }
         Some(("dir", p)) => !p.is_empty() && !p.starts_with('-'),
         Some(_) => false,
-        None => word(target, |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'),
+        None => {
+            word(target, |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        }
     }
 }
 
@@ -45,7 +47,9 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
         "try" => {
             let target = run.get("target").and_then(Value::as_str).unwrap_or_default();
             if !valid_target(target) {
-                return Err("target must be pr:N, branch:B, sha:S, dir:PATH or a profile name".into());
+                return Err(
+                    "target must be pr:N, branch:B, sha:S, dir:PATH or a profile name".into()
+                );
             }
             out.push(target.to_owned());
             if let Some(minutes) = run.get("minutes").filter(|v| !v.is_null()) {
@@ -65,7 +69,8 @@ pub(crate) fn argv(run: &Value) -> Result<Vec<String>, String> {
 /// when it failed.
 pub(crate) async fn run(params: &Value) -> Result<Value, String> {
     let args = argv(params.get("run").unwrap_or(&Value::Null))?;
-    let binary = std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let binary =
+        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
     let mut command = tokio::process::Command::new(binary);
     command.kill_on_drop(true).args(&args).stdin(std::process::Stdio::null());
     if let Some(socket) = std::env::var_os("CMUX_SOCKET_PATH").filter(|v| !v.is_empty()) {
@@ -75,7 +80,8 @@ pub(crate) async fn run(params: &Value) -> Result<Value, String> {
         .await
         .map_err(|_| "customize took too long".to_owned())?
         .map_err(|e| format!("cmux customize did not start: {e}"))?;
-    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().chars().take(4000).collect::<String>();
+    let text =
+        |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().chars().take(4000).collect::<String>();
     let said = if output.status.success() { text(&output.stdout) } else { text(&output.stderr) };
     Ok(json!({"ok": output.status.success(), "output": said}))
 }
@@ -90,7 +96,10 @@ mod tests {
             argv(&json!({"customize": "try", "target": "pr:51234", "minutes": 15})).unwrap(),
             ["customize", "try", "pr:51234", "--minutes", "15"]
         );
-        assert_eq!(argv(&json!({"customize": "try", "target": "darker"})).unwrap(), ["customize", "try", "darker"]);
+        assert_eq!(
+            argv(&json!({"customize": "try", "target": "darker"})).unwrap(),
+            ["customize", "try", "darker"]
+        );
         assert_eq!(argv(&json!({"customize": "keep"})).unwrap(), ["customize", "keep"]);
         assert_eq!(argv(&json!({"customize": "revert"})).unwrap(), ["customize", "revert"]);
     }

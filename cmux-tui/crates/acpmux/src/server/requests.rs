@@ -3836,9 +3836,9 @@ async fn dispatch_request_with_identity(
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
         // `cmux customize` argv, no shell. Never offered to a read-only connection.
-        method::MUX_CUSTOMIZE_RUN => crate::customize_run::run(&params)
-            .await
-            .map_err(RpcError::invalid_params),
+        method::MUX_CUSTOMIZE_RUN => {
+            crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
+        }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
