@@ -474,12 +474,16 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
     let mut links = core.link_channel(&upload.mac_id).subscribe();
     let mut backoff = timings.backoff_start;
     loop {
-        let current = links.borrow_and_update().clone();
+        // A link the keepalive declared dead is no link: wait for the app's next one with the
+        // give-up clock held, as for a phone offline, instead of burning attempts on it.
+        let current = links.borrow_and_update().clone().filter(|link| !link.is_closed());
         let link = match current {
             Some(link) => link,
             None => {
                 upload.stage(UploadStage::WaitingForMac);
-                let Ok(link) = links.wait_for(|link| link.is_some()).await.map(|l| l.clone()) else { return };
+                let live =
+                    |link: &Option<Arc<LinkHandle>>| link.as_ref().is_some_and(|link| !link.is_closed());
+                let Ok(link) = links.wait_for(live).await.map(|l| l.clone()) else { return };
                 let Some(link) = link else { continue };
                 lock(&upload.state).last_advance = Instant::now();
                 link
@@ -519,7 +523,8 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
             let st = lock(&upload.state);
             (st.epoch != epoch, st.last_advance.elapsed())
         };
-        if idle >= timings.give_up {
+        let offline = links.borrow().as_ref().is_none_or(|link| link.is_closed());
+        if idle >= timings.give_up && !offline {
             return upload
                 .fail("stalled", "The upload stopped making progress, so it gave up. Try sending it again.");
         }
