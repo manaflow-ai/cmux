@@ -27,6 +27,8 @@ public final class AgentPaneLaunchImages {
     nonisolated static let maximumFiles = 64
 
     nonisolated let directory: URL?
+    /// Saves the pages while the app runs (``AgentLaunchPictures``), so a launch after a crash or a kill has them too.
+    public var pictures: AgentLaunchPictures?
     /// Whether the last quit saved any page: a directory listing, for a lane thread (``CEFLaunchPrefetch``: a page on
     /// screen at the quit is a Chromium page by default, so its framework is read before the first window).
     public nonisolated var savedPagesExist: @Sendable () -> Bool {
@@ -172,8 +174,15 @@ public final class AgentPaneLaunchImages {
         held[key] = nil
     }
 
-    /// Replaces the saved pages with `images` (by tab key).
-    public func save(_ images: [String: NSImage]) async {
+    /// The save under way (``save(_:keeping:)``): the next one writes after it, so two saves never
+    /// interleave their writes and removals.
+    private var writing: Task<Void, Never>?
+
+    /// Replaces the saved pages with `images` (by tab key), keeping the saved page of each key in `keeping`
+    /// that `images` lacks: a pane on screen whose page has not painted yet keeps its last picture rather
+    /// than losing it to a save that could not take a new one. Every other saved page goes, so the set stays
+    /// the pages on screen (one per pane, at most ``maximumFiles`` read at launch).
+    public func save(_ images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the encode and the writes run detached.
         var frames: [String: CGImage] = [:]
@@ -182,7 +191,13 @@ public final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached(priority: .utility) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        let kept = keeping.subtracting(images.keys), previous = writing
+        let write = Task.detached(priority: .utility) {
+            await previous?.value
+            Self.write(frames.compactMapValues { $0.pageImageData() }, keeping: kept, to: directory)
+        }
+        writing = write
+        await write.value
     }
 
     /// Every saved page in `directory`, decoded, with its point size, by tab key: for each key the first
@@ -202,10 +217,10 @@ public final class AgentPaneLaunchImages {
         return pages
     }
 
-    private nonisolated static func write(_ files: [String: Data], to directory: URL) {
+    private nonisolated static func write(_ files: [String: Data], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where files[old] == nil && !keeping.contains(key(ofFile: old)) {
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, data) in files {
@@ -216,6 +231,9 @@ public final class AgentPaneLaunchImages {
     }
 
     private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
+
+    /// The tab key a saved page's file name holds (``fileName(_:scale:ext:)``; a file-safe key has no `@`).
+    public nonisolated static func key(ofFile name: String) -> String { String(name.prefix { $0 != "@" }) }
 
     /// Where tab `key` of `machine` keeps its frame and saved page: the bare id on this Mac (the files a
     /// save before tabs had a machine wrote), else the id and a digest of the machine, so two machines'

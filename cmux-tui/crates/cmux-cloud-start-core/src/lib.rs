@@ -8,6 +8,7 @@ pub mod agent_check;
 pub mod approval_answer;
 pub mod ask;
 pub mod capability;
+pub mod hybrid;
 pub mod list_wait;
 pub mod machine_bootstrap;
 pub mod machine_config;

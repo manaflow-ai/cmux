@@ -6,6 +6,7 @@
 // page does (pageBase.css), code the terminal font the host's appearance sets
 // (`--cmux-diff-code-font-family`, appearance.ts), as in the diff viewer.
 import type { DiffViewerAppearance } from "../../appearance";
+import { guardedStylesheet } from "../../surfaces/stylesheetGuard";
 
 /** Every `--cmux-md-*` property and its default. styles.css declares the same defaults. */
 export const MARKDOWN_STYLE_DEFAULTS = {
@@ -471,7 +472,13 @@ export function applyMarkdownLook(settings: unknown, themeCSS: string | undefine
     .join("\n");
   styleElement(doc, SETTINGS_STYLE).textContent = body ? `:root {\n${body}\n}\n` : "";
   const theme = styleElement(doc, THEME_STYLE);
-  if (themeCSS !== undefined) theme.textContent = themeCSS;
+  if (themeCSS !== undefined) {
+    // cmux.stylesheetGuard/1: a theme.css that would load something by address keeps the last good one.
+    delete theme.dataset.refused;
+    theme.textContent = guardedStylesheet(themeCSS, theme.textContent ?? "", (why) => {
+      theme.dataset.refused = why;
+    });
+  }
   const behavior = markdownBehavior(settings);
   doc.documentElement.dataset.cmuxMdToolbar = String(behavior.toolbar);
   doc.documentElement.dataset.cmuxMdTables = behavior.tables;

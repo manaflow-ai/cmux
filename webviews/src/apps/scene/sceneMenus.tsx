@@ -174,7 +174,7 @@ export function SceneContextMenu({
           </MenuButton>
         </span>
       ) : null}
-      <MenuPopup finalFocus={target}>
+      <MenuPopup atPointer finalFocus={target}>
         <MenuRows items={menu.items} pick={menu.pick} />
       </MenuPopup>
     </Menu>
