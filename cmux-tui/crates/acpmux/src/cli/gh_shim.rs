@@ -152,6 +152,8 @@ fn request(
         body,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
+        // gh-style actions take the broker's default token scope.
+        permissions: None,
     })
 }
 
