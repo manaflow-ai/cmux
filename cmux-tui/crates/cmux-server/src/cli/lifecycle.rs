@@ -89,6 +89,15 @@ fn valid_channel(channel: &str) -> bool {
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
+/// The channel base: `--channel-url` when the person gave one (the egress gate then lets its
+/// host through), else [`CHANNEL_BASE`].
+fn channel_base(flag: Option<&str>) -> &str {
+    let Some(flag) = flag else { return CHANNEL_BASE };
+    // The person named this host (--channel-url); a redirect off it is still checked.
+    cmux_egress::allow_named(flag);
+    flag
+}
+
 fn manifest_url(base: &str, channel: &str, version: Option<&str>) -> Result<String> {
     if !valid_channel(channel) {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
@@ -123,7 +132,7 @@ fn apply_channel(
     cfg: &ServerConfig,
 ) -> Result<ApplyReport> {
     let version = args.value("version").map(str::to_owned).or_else(|| cfg.pinned_version());
-    let base = args.value("channel-url").unwrap_or(CHANNEL_BASE);
+    let base = channel_base(args.value("channel-url"));
     let channel = cfg.channel();
     let url = manifest_url(base, &channel, version.as_deref())?;
     if ctx.keys.is_empty() {
@@ -707,3 +716,7 @@ fn find_program(name: &str) -> Option<PathBuf> {
         .map(|dir| dir.join(name))
         .find(|candidate| candidate.is_file())
 }
+
+#[cfg(test)]
+#[path = "lifecycle_egress_tests.rs"]
+mod egress_tests;

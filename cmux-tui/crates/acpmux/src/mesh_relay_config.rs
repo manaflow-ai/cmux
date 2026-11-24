@@ -196,6 +196,21 @@ mod tests {
         let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
         assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
     }
+
+    #[test]
+    fn the_configured_hub_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let config = MeshRelayConfig {
+            url: "https://mesh-relay-named-test.org/hub".into(),
+            token_command: vec!["cmux-token".into()],
+            team_messaging: true,
+            credential: None,
+            control_from: Vec::new(),
+        };
+        assert!(config.origin().is_ok());
+        assert!(cmux_egress::check("mesh-relay-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-mesh-relay-test.org", "test").is_err());
+    }
 }
 
 /// How much a policy runs without asking: nothing (`ask`, `deny-all`), reads (`approve-reads`,
@@ -247,6 +262,8 @@ impl MeshRelayConfig {
             return Err("meshRelay.tokenCommand names no program".into());
         }
         let path = url.path().trim_end_matches('/');
+        // The person named this host (meshRelay.url); a redirect off it is still checked.
+        cmux_egress::allow_named(url.as_str());
         Ok(format!("{}{path}", url.origin().ascii_serialization()))
     }
 

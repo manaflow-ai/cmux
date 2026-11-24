@@ -131,6 +131,14 @@ async fn probe_once(route: &Route, home: &Path) -> Value {
     probe_once_with_timeout(route, home, PROBE_TIMEOUT).await
 }
 
+/// The person named these hosts (a route's base or health URL); a redirect off one is still
+/// checked.
+fn allow_route_hosts(file: &RouteFile) {
+    for url in [&file.anthropic_base_url, &file.openai_base_url, &file.health_url] {
+        url.as_deref().into_iter().for_each(cmux_egress::allow_named);
+    }
+}
+
 async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) -> Value {
     let started = Instant::now();
     let answer = |status: ProbeStatus, message: String| {
@@ -155,6 +163,7 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
         );
     }
     let family = probed_family(route);
+    allow_route_hosts(&route.file);
     let mut base =
         route.file.anthropic_base_url.clone().or_else(|| route.file.openai_base_url.clone());
     let mut secret = match route.file.secret.as_deref().map(resolve_reference) {
@@ -303,6 +312,18 @@ mod tests {
         let mut edited = probed.clone();
         edited.file.anthropic_base_url = None;
         assert!(recent(&edited, KEPT_MS).is_none());
+    }
+
+    #[test]
+    fn a_routes_endpoints_pass_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let named = route(json!({"kind": "custom-anthropic",
+                                 "anthropicBaseUrl": "https://route-named-test.org/v1",
+                                 "healthUrl": "https://route-health-named-test.org/h"}));
+        allow_route_hosts(&named.file);
+        assert!(cmux_egress::check("route-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("route-health-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-route-probe-test.org", "test").is_err());
     }
 
     /// A failed health request is a route status, not an error that can fail a wake.

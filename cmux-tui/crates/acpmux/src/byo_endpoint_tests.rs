@@ -1717,3 +1717,11 @@ fn byo_endpoint_every_keychain_read_reads_only_its_own_item_by_exact_account() {
         [("K".to_owned(), "${keychain:cmux-harness}".to_owned())].into();
     profiles::resolve_env_refs(&mut plain, &|_| None, &lookup).unwrap();
 }
+
+#[test]
+fn a_checked_base_url_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    assert!(check_base_url("https://byo-endpoint-named-test.org/v1").is_ok());
+    assert!(cmux_egress::check("byo-endpoint-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-byo-endpoint-test.org", "test").is_err());
+}
