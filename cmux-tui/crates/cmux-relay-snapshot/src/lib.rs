@@ -332,7 +332,7 @@ fn derive(
     ephemeral_point: &[u8],
     viewer_point: &[u8],
     context: &[u8],
-) -> [u8; 32] {
+) -> Result<[u8; 32], Error> {
     let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), peer.as_affine());
     let mut salt = Vec::with_capacity(2 * POINT_LEN);
     salt.extend_from_slice(ephemeral_point);
