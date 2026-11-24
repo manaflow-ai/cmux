@@ -416,6 +416,8 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The latest surge the list's last page reports (the surge card on Machines). */
+  surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
   paymentPastDue?: boolean | "fail";
   /** This month's usage (`cloud.usage.current`); "fail" fails the read, "hold" keeps it loading; absent: not served. */
