@@ -5,6 +5,8 @@
 // "oh and i previously had an "agent pane was not able to redraw" which idk if it's fixed here but").
 // Each scenario is a fresh page load of a chat shaped like that one, in real Chromium on the pane's dev
 // entry (dev React: the full message and a real stack), and fails printing every loop error in full.
+// Green on this data (2026-11-24): it guards the shape; the pane's boundary now logs where a loop
+// happens on the journal's first line (PaneBoundary.tsx), so the next hit in the app names it.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
