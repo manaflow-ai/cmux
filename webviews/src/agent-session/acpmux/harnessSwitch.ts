@@ -1,12 +1,12 @@
 import { errorMessage, isHostRefusal, startCancelled, switchFailedText, startErrorMessage } from "./transportErrors";
-import { isConnectionLoss, logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
+import { logStartFailure, startFailureCause, startFailureCode, isConnectionLoss } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
 import { harnessFamilyMenu } from "./harnessModes";
 import { heldOptionPick, isEffortOption } from "./heldOptions";
-import { isTrustRefusal } from "./direct";
+import { isTrustRefusal } from "./trustRefusal";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
@@ -422,7 +422,9 @@ export class HarnessSwitch {
     const leftMode =
       previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
     if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
-    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
+    // Only a switch back from another harness brings a mode back: a new chat on the harness the pane
+    // shows starts on acpmux's start mode, never the shown chat's (agent-pane-start-mode-chip).
+    const back = leftHarness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,

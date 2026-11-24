@@ -1030,9 +1030,6 @@ check_no_github_hosted_runners() {
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
-    "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     # The packages' attestations are verified with --deny-self-hosted-runners,

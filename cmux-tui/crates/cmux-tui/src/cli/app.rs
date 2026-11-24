@@ -39,6 +39,7 @@ mod classic;
 mod events;
 mod fallback_socket;
 mod group_create;
+mod health;
 mod join;
 mod keybinding;
 mod launch_times;
@@ -226,6 +227,8 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
+    Health(health::Command),
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
@@ -343,6 +346,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
@@ -927,6 +931,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
         _ => {}
     }
@@ -1078,6 +1083,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
