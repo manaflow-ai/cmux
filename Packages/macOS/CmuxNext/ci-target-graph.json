@@ -18,7 +18,8 @@
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater",
-    "CmuxVNC": "Packages/Shared/CmuxVNC"
+    "CmuxVNC": "Packages/Shared/CmuxVNC",
+    "CmuxVisibleRows": "Packages/Shared/CmuxVisibleRows"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -345,6 +346,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextKeepAwake",
         "CmuxNextKeys",
+        "CmuxNextLaunchImages",
         "CmuxNextLayout",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
@@ -398,7 +400,8 @@
         "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextAppCore": {
@@ -549,7 +552,8 @@
         "CmuxMessagesLab",
         "CmuxTheme",
         "CmuxUpdater",
-        "CmuxVNC"
+        "CmuxVNC",
+        "CmuxVisibleRows"
       ],
       "reads": [
         "Native/OptChat/optchat-chief/inspector/index.html",
@@ -1677,6 +1681,18 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextLaunchImages": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunchImages",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextLayout": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
@@ -1723,6 +1739,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextDevices",
         "CmuxNextPalette",
+        "CmuxNextPhone",
         "CmuxNextRemoteView",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -2244,10 +2261,12 @@
         "CmuxNextPalette",
         "CmuxNextResources",
         "CmuxNextSettings",
+        "CmuxNextSignposts",
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextSidebarActions": {

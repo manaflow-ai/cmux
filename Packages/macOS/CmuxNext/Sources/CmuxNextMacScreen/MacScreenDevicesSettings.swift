@@ -582,7 +582,11 @@ public final class MacScreenDevicesSettings {
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
                 if run.on == true { shareThisMac() }
-                else { try await hubHost.setSharing(false) }
+                else {
+                    // The person's switch in Settings: their off outranks the join default (Z4).
+                    CmuxRemoteShareConsent.recordDecline()
+                    try await hubHost.setSharing(false)
+                }
             case "setAgentsMayShare":
                 // The person's click on this switch is the consent; the hub audits it, the notice says it.
                 _ = try await CmuxRemoteActionEnvironment.setAgentsMayShare(run.on ?? false, hub: hub, window: nil)
