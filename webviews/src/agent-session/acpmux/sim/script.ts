@@ -255,19 +255,9 @@ export class SimBuilder {
     return this;
   }
 
-  /** A plan (todo list) update. */
-  plan(entries: { content: string; status?: string }[], after = 300): this {
-    return this.record(
-      "in",
-      "plan",
-      update("plan", { entries: entries.map((entry) => ({ priority: "medium", status: "pending", ...entry })) }),
-      after,
-      "plan",
-    );
-  }
-
-  /** A permission card for a call, answered `answerMs` later (`answer: false` leaves it open). */
-  permission(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
+  /** A new call that asks permission, answered `answerMs` later (`answer: false` leaves it open); `permission`
+   *  asks on a call already open. */
+  permissionCall(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
     this.asks += 1;
     const permissionId = `perm-${this.asks}`;
     const toolCallId = this.nextCallId();

@@ -33,6 +33,9 @@ const KNOWN_RED: Record<string, string> = {
   // A background turn's reply cut by the person's prompt: the rest of the message draws under the prompt, cut
   // inside `**` (found in Leo's own chat, session b0e9114e seq 5244663-5244700).
   "SE-29": "helper ae03a5b84e9c36fd5 (split reply)",
+  // Base's own map fails the same scenario (incoming-notice-turn, test/chat-sim-map.test.ts) on feat-cmux-next
+  // bacb1a2e4c2: turn 1's activity folds 20 ms before its turn_result.
+  "SE-22": "base red: chat-sim-map incoming-notice-turn",
 };
 
 let clock: VirtualClock | undefined;

@@ -115,7 +115,7 @@ function placed(event: (typeof EVENTS)[number], b: SimBuilder): void {
       );
       break;
     case "permission":
-      b.permission("rm -rf build/");
+      b.permissionCall("rm -rf build/");
       break;
     case "background-end":
       b.backgroundEnds();
@@ -298,7 +298,7 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     harness: "sim",
     make: turn("se-09", "a permission card between replies", (b) => {
       msg(b, P1, "m1");
-      b.permission("git push --force");
+      b.permissionCall("git push --force");
       b.tool("git push --force", { ms: 800 });
       msg(b, P2, "m2");
       b.turnEnd();
@@ -503,16 +503,19 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
     owner: own.sim,
     harness: "sim",
     make: turn("se-24", "a plan updated three times", (b) => {
-      b.plan([{ content: "Read" }, { content: "Fix" }]);
+      b.plan([
+        ["Read", "pending"],
+        ["Fix", "pending"],
+      ]);
       msg(b, P1, "m1");
       b.plan([
-        { content: "Read", status: "completed" },
-        { content: "Fix", status: "in_progress" },
+        ["Read", "completed"],
+        ["Fix", "in_progress"],
       ]);
       b.tool("bun test", { ms: 500 });
       b.plan([
-        { content: "Read", status: "completed" },
-        { content: "Fix", status: "completed" },
+        ["Read", "completed"],
+        ["Fix", "completed"],
       ]);
       msg(b, P2, "m2");
       b.turnEnd();
