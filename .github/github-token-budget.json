@@ -85,7 +85,6 @@
     "cmux-next-dev-daily.yml: Publish the rolling GitHub prerelease": "baseline 2026-11-04",
     "cmux-next-dev-daily.yml: Require a successful app-producing job": "baseline 2026-11-04",
     "cmux-next-dev-daily.yml: Resolve the source run": "baseline 2026-11-04",
-    "cmux-next-dev-kick.yml: Dispatch cmux-next-dev-daily-dispatch.yml on main": "baseline 2026-11-04",
     "cmux-next-fast-gates.yml: Post the cmux-next/fast-gates status": "baseline 2026-11-04",
     "cmux-next-fast-gates.yml: Resolve the head and the base": "baseline 2026-11-04",
     "cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next": "polls (tests/test_ci_no_github_token_polling.py): per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
