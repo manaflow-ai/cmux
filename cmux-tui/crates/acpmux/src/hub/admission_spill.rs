@@ -29,8 +29,10 @@
 //! carries the ask (`admission_redirect::forwarded`), so no peer spills again.
 //!
 //! The switch is the registry's `lane_overflow.spill` (`{"enabled": true,
-//! "wait_seconds": N, "max_spills_per_host": N}`); `ACPMUX_SPILL=0` turns it off
-//! on one host and `ACPMUX_SPILL=1` on. Each decision logs an `admission-place`
+//! "wait_seconds": N, "max_spills_per_host": N}`); with no `enabled` it follows
+//! `lane_place.one_lane_per_host` ([`one_per_host`]: then a host holding a live session
+//! has no room for a create that may move, and each added host takes one).
+//! `ACPMUX_SPILL=0` turns it off on one host and `ACPMUX_SPILL=1` on. Each decision logs an `admission-place`
 //! line: `spill_waiting`, `spilled`, `spill_failed`.
 
 use super::admission_redirect::Reason;
@@ -69,10 +71,12 @@ pub(crate) fn config(registry: Option<&Value>) -> Option<Config> {
 
 pub(crate) fn config_with(registry: Option<&Value>, env: Option<&str>) -> Option<Config> {
     let spec = registry.and_then(|r| r.pointer("/lane_overflow/spill"));
+    let solo = one_per_host(registry);
     let on = match env.map(str::trim) {
         Some("0") => false,
         Some("1") => true,
-        _ => spec.and_then(|s| s.get("enabled")).and_then(Value::as_bool) == Some(true),
+        // Unset, the switch follows one lane per machine: no host is packed past it.
+        _ => spec.and_then(|s| s.get("enabled")).and_then(Value::as_bool).unwrap_or(solo),
     };
     if !on {
         return None;
@@ -80,8 +84,21 @@ pub(crate) fn config_with(registry: Option<&Value>, env: Option<&str>) -> Option
     let secs = |k: &str| spec.and_then(|s| s.get(k)).and_then(Value::as_f64).filter(|n| *n >= 1.0);
     let wait =
         secs("wait_seconds").map_or(WAIT_DEFAULT, |s| Duration::from_secs(s as u64)).min(WAIT_MAX);
-    let per_host = secs("max_spills_per_host").map_or(PER_HOST_DEFAULT, |n| n as u64);
+    let per_host = match secs("max_spills_per_host") {
+        Some(n) => n as u64,
+        None if solo => 1,
+        None => PER_HOST_DEFAULT,
+    };
     Some(Config { wait, per_host })
+}
+
+/// Whether the registry puts one lane on each machine (`lane_place.one_lane_per_host`, Leo,
+/// 2026-11-24: "stop packing if you're still packing. each guy gets their individual lil
+/// machine for now"): a host holding a live session has no room for another create that may
+/// move, and a host the fleet adds takes one.
+pub(crate) fn one_per_host(registry: Option<&Value>) -> bool {
+    registry.and_then(|r| r.pointer("/lane_place/one_lane_per_host")).and_then(Value::as_bool)
+        == Some(true)
 }
 
 /// How long the caller of `params` waits for a spill; None when it asked for none. A
@@ -111,12 +128,21 @@ pub(crate) fn wait(asked: Option<Duration>, config: Option<Config>) -> Option<Du
 
 /// Whether the placement engine's `verdict` over the connected peers names one with room
 /// it is known to have: a reading that shows room for a lane, no overload, and no shadow
-/// defer. A pick whose resources are unknown is no room (it may be as full as this host).
-pub(crate) fn known_room(verdict: &Value) -> bool {
-    verdict.get("pick").and_then(Value::as_str).is_some()
+/// defer; with `solo` (`one_per_host`), no live session there either. A pick whose resources
+/// are unknown is no room (it may be as full as this host).
+pub(crate) fn known_room(verdict: &Value, solo: bool) -> bool {
+    let pick = verdict.get("pick").and_then(Value::as_str);
+    let empty = || {
+        let hosts = verdict.get("hosts").and_then(Value::as_array);
+        let row =
+            hosts.and_then(|h| h.iter().find(|r| r.get("name").and_then(Value::as_str) == pick));
+        row.and_then(|r| r.get("live")).and_then(Value::as_u64) == Some(0)
+    };
+    pick.is_some()
         && verdict.get("overloaded").and_then(Value::as_bool) != Some(true)
         && verdict.get("room").and_then(Value::as_f64).is_some_and(|r| r >= 1.0)
         && verdict.pointer("/shadow/would_defer").and_then(Value::as_bool) != Some(true)
+        && (!solo || empty())
 }
 
 /// A create admission chose to spill (`Admitted::spill`).
@@ -203,6 +229,12 @@ mod tests {
         assert_eq!(config_with(Some(&on), Some("0")), None, "ACPMUX_SPILL=0 wins");
         let one = config_with(Some(&off), Some("1")).unwrap();
         assert_eq!(one.wait, WAIT_DEFAULT, "ACPMUX_SPILL=1 with no switch");
+        // One lane per machine turns it on, one spill a host, unless the switch says off.
+        let solo = json!({"lane_place": {"one_lane_per_host": true}, "lane_overflow": {}});
+        assert_eq!(config_with(Some(&solo), None).map(|c| c.per_host), Some(1));
+        let solo_off = json!({"lane_place": {"one_lane_per_host": true},
+            "lane_overflow": {"spill": {"enabled": false}}});
+        assert_eq!(config_with(Some(&solo_off), None), None);
     }
 
     #[test]
@@ -233,14 +265,20 @@ mod tests {
         // reading, which kept the scale-up from ever running.
         let unknown = json!({"pick": "gcp-agent-lane-1", "overloaded": false, "room": null,
             "why": "gcp-agent-lane-1: resources unknown: only the mesh hub reaches it"});
-        assert!(!known_room(&unknown));
-        assert!(known_room(&json!({"pick": "big-red", "room": 3.0, "overloaded": false})));
-        assert!(!known_room(&json!({"pick": "big-red", "room": 0.0})));
-        assert!(!known_room(&json!({"pick": "big-red", "room": 3.0, "overloaded": true})));
+        assert!(!known_room(&unknown, false));
+        assert!(known_room(&json!({"pick": "big-red", "room": 3.0, "overloaded": false}), false));
+        assert!(!known_room(&json!({"pick": "big-red", "room": 0.0}), false));
+        assert!(!known_room(&json!({"pick": "big-red", "room": 3.0, "overloaded": true}), false));
         assert!(!known_room(
-            &json!({"pick": "big-red", "room": 3.0, "shadow": {"would_defer": true}})
+            &json!({"pick": "big-red", "room": 3.0, "shadow": {"would_defer": true}}),
+            false
         ));
-        assert!(!known_room(&json!({"pick": null, "error": "no candidates"})));
+        assert!(!known_room(&json!({"pick": null, "error": "no candidates"}), false));
+        // One lane per machine: a pick with room is no room while it holds a live session.
+        let busy = json!({"pick": "e1", "room": 3.0, "hosts": [{"name": "e1", "live": 2}]});
+        let empty = json!({"pick": "e1", "room": 3.0, "hosts": [{"name": "e1", "live": 0}]});
+        assert!(known_room(&busy, false) && !known_room(&busy, true));
+        assert!(known_room(&empty, true));
     }
 
     #[tokio::test(start_paused = true)]

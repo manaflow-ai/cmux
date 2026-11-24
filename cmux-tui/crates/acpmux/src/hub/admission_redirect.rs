@@ -80,6 +80,8 @@ pub(crate) enum Reason {
     OverCap,
     /// The shadow host-budget verdict for this host would defer.
     Busy,
+    /// One lane per machine (`lane_place.one_lane_per_host`) and this host holds one.
+    Occupied,
 }
 
 impl Reason {
@@ -87,6 +89,7 @@ impl Reason {
         match self {
             Self::OverCap => "over-cap",
             Self::Busy => "busy",
+            Self::Occupied => "one-per-host",
         }
     }
 }
@@ -184,11 +187,19 @@ fn off() -> bool {
 /// The reason to place a create elsewhere, when every gate holds (module docs):
 /// `lane_host`, this machine has a `lanes` entry; `over`, at its cap; `busy`, its
 /// shadow verdict would defer.
-pub(crate) fn considered(ask: &Ask<'_>, lane_host: bool, over: bool, busy: bool) -> Option<Reason> {
+pub(crate) fn considered(
+    ask: &Ask<'_>,
+    lane_host: bool,
+    over: bool,
+    busy: bool,
+    occupied: bool,
+) -> Option<Reason> {
     let reason = if over {
         Reason::OverCap
     } else if busy {
         Reason::Busy
+    } else if occupied {
+        Reason::Occupied
     } else {
         return None;
     };
@@ -304,18 +315,35 @@ mod tests {
     #[test]
     fn only_an_asking_agent_caller_on_a_lane_host_with_no_room_moves() {
         let agent = ask(true, false, true, true);
-        assert_eq!(considered(&agent, true, true, false), Some(Reason::OverCap));
-        assert_eq!(considered(&agent, true, false, true), Some(Reason::Busy));
-        assert_eq!(considered(&agent, true, false, false), None, "room here: it stays");
-        assert_eq!(considered(&agent, false, true, true), None, "no lanes entry: not a lane host");
+        assert_eq!(considered(&agent, true, true, false, false), Some(Reason::OverCap));
+        assert_eq!(considered(&agent, true, false, true, false), Some(Reason::Busy));
+        assert_eq!(considered(&agent, true, false, false, false), None, "room here: it stays");
+        assert_eq!(considered(&agent, true, false, false, true), Some(Reason::Occupied));
         assert_eq!(
-            considered(&ask(false, false, true, true), true, true, false),
+            considered(&agent, false, true, true, false),
+            None,
+            "no lanes entry: not a lane host"
+        );
+        assert_eq!(
+            considered(&ask(false, false, true, true), true, true, false, false),
             None,
             "old client"
         );
-        assert_eq!(considered(&ask(true, true, true, true), true, true, false), None, "a person");
-        assert_eq!(considered(&ask(true, false, false, true), true, true, false), None, "Web");
-        assert_eq!(considered(&ask(true, false, true, false), true, true, false), None, "a peer");
+        assert_eq!(
+            considered(&ask(true, true, true, true), true, true, false, false),
+            None,
+            "a person"
+        );
+        assert_eq!(
+            considered(&ask(true, false, false, true), true, true, false, false),
+            None,
+            "Web"
+        );
+        assert_eq!(
+            considered(&ask(true, false, true, false), true, true, false, false),
+            None,
+            "a peer"
+        );
     }
 
     #[test]

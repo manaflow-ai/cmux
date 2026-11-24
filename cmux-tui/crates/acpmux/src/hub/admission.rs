@@ -387,7 +387,7 @@ impl Hub {
         let (flag, registry, unreadable, source, machine, hosted, here) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
-        let (verdict, fillers, mut admitted) = {
+        let (verdict, fillers, live_here, mut admitted) = {
             let mut admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
             let (live, fillers) = self.live_sessions(&admitting, &hosted);
             let verdict = check(&Inputs {
@@ -403,6 +403,7 @@ impl Hub {
             (
                 verdict,
                 fillers,
+                live,
                 Admitted {
                     admitting: &self.admitting,
                     made,
@@ -431,11 +432,15 @@ impl Hub {
             Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
             None => {}
         }
+        // One lane per machine (`admission_spill::one_per_host`): a create that may move goes
+        // to a machine of its own once this one holds a live session.
+        let solo = super::admission_spill::one_per_host(registry.as_ref());
         let reason = super::admission_redirect::considered(
             &ask,
             verdict.uncapped.is_none(),
             verdict.over.is_some(),
             busy,
+            solo && live_here >= 1,
         );
         // The connected peers as the placement engine weighs them, once for the move
         // and the warning.
@@ -455,7 +460,7 @@ impl Hub {
             let max = verdict.over.as_ref().map(|o| o.max);
             admitted.spill = self.spill(
                 &ask,
-                &verdict.over,
+                (&verdict.over, live_here),
                 peers,
                 registry.as_ref(),
                 (source.as_path(), machine.as_deref()),
@@ -470,7 +475,8 @@ impl Hub {
                 // Its create logs `spilled` or `spill_failed` once it started.
                 let wait = format!("waitMs={}", spill.wait.as_millis());
                 super::admission_redirect::log("spill_waiting", reason, None, Some(&wait));
-            } else {
+            } else if !solo || super::admission_spill::known_room(peers, true) {
+                // One lane per machine: never onto a peer that already holds one.
                 admitted.placed = super::admission_redirect::pick(peers, reason, live, max);
             }
             // A placed one is logged by its create once it started there, or failed.
@@ -574,7 +580,7 @@ impl Hub {
     fn spill(
         &self,
         ask: &Ask<'_>,
-        over: &Option<OverCap>,
+        (over, live): (&Option<OverCap>, usize),
         verdict: &Value,
         registry: Option<&Value>,
         (source, machine): (&Path, Option<&str>),
@@ -583,7 +589,7 @@ impl Hub {
         use super::admission_spill as spill;
         let config = spill::config(registry);
         let wait = spill::wait(ask.spill, config)?;
-        if spill::known_room(verdict) {
+        if spill::known_room(verdict, spill::one_per_host(registry)) {
             return None;
         }
         let workspace = super::admission_scale_up::workspace_of(source);
@@ -592,7 +598,7 @@ impl Hub {
         plan.as_ref()?;
         Some(spill::Spill {
             reason,
-            live: over.as_ref().map_or(0, |o| o.live),
+            live: over.as_ref().map_or(live, |o| o.live),
             max: over.as_ref().map(|o| o.max),
             wait,
             per_host: config.map_or(6, |c| c.per_host),
