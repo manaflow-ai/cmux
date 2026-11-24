@@ -519,11 +519,13 @@ async fn cell(harness: &str, level: Level, policy: Policy, age: Age, remote: boo
     let full_now = age == Age::Switched || matches!(level, Level::Default | Level::FullAccess);
     // Whether the daemon's policy answers an approval the harness asks for (on this Mac).
     let policy_answers = level.policy(policy) == PermissionPolicy::ApproveAll;
-    // A chat a peer connection starts runs under its own `ask` policy, not the peer daemon's
-    // default (`server/remote_guard.rs`), so an approve-all default does not answer for it: it
-    // asks unless it runs under full access. On this Mac it asks at an asking level unless the
-    // approve-all policy answers.
-    let expect_ask = if remote { !full_now } else { level.asks() && !policy_answers };
+    // This Mac's daemon starts the peer chat over the peer token: the owner's own daemon
+    // (`remote_guard::owner_control`, cmux#50026), so the peer starts it as its own, in the
+    // harness's mode and the peer's own policy, and it asks as a chat on this Mac does: at an
+    // asking level unless the approve-all policy answers. A peer chat switched to Full access
+    // by the proved approve-all policy (below) asks for nothing.
+    let switched_peer = remote && age == Age::Switched;
+    let expect_ask = if switched_peer { !full_now } else { level.asks() && !policy_answers };
     if seen.asked != expect_ask {
         seen.problems.push(format!(
             "an approval {} the app, expected {}",
@@ -534,8 +536,8 @@ async fn cell(harness: &str, level: Level, policy: Policy, age: Age, remote: boo
     if !seen.probe.contains("perm-probe ran npm test") {
         seen.problems.push(format!("the probe turn did not run its command: {:?}", seen.probe));
     }
-    if remote {
-        // Remote-origin: the harness asks, and the peer daemon answers under full access.
+    if switched_peer {
+        // The harness keeps its ask mode, and the peer's approve-all policy answers.
         if full_now && seen.auto.is_none() {
             seen.problems.push("the peer did not answer the approval under full access".into());
         }
