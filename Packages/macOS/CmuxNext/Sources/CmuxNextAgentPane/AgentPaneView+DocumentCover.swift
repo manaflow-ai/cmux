@@ -54,6 +54,11 @@ extension AgentPaneView {
         view.isHidden = false
         addSubview(view, positioned: .above, relativeTo: nil)
         view.showMarkLater()
+        if cover.waitsOnUncommittedReload {
+            cover.uncommittedTimer.schedule(after: cover.uncommittedLimit) { @MainActor [weak self] in
+                self?.endUncommittedReloadCover()
+            }
+        }
         if pageDrawsOverCovers {
             // Chromium draws in its own window over any cover: the page waits outside the window.
             if !holdsPageAway {
@@ -71,6 +76,15 @@ extension AgentPaneView {
         documentCoverLogger.error("agent pane keeps its last frame over a new document cause=\(cause.rawValue, privacy: .public) session=\(self.model.sessionId ?? "none", privacy: .public) engine=\(self.engineName, privacy: .public) picture=\(picture != nil) picture_age_ms=\(age, privacy: .public)")
         flickerLog?.record("reload-cover", ["cause": cause.rawValue, "page": AgentPageFlickerLog.pageName(self),
                                             "engine": engineName, "picture": picture != nil])
+    }
+
+    /// A reload's cover whose new document never committed: the old document still draws, so it shows again
+    /// rather than a stale picture for good. A later commit covers the new document again.
+    func endUncommittedReloadCover() {
+        let cover = documentCover
+        guard cover.isShown, cover.waitsOnUncommittedReload else { return }
+        cover.uncommittedEnded()
+        endDocumentCover(painted: false, reason: "reload-never-committed")
     }
 
     private func drawCoverPicture(_ picture: NSImage?, in cover: AgentPaneDocumentCover) {

@@ -76,6 +76,13 @@ public final class AgentPaneDocumentCover {
     /// A capture a moment after the page drew or the person touched it.
     let captureTimer = DemandTimer(owner: "agent-pane.reload-cover.capture")
     private var lastCaptureUptime: TimeInterval = -.infinity
+    /// A reload's cover whose new document never commits (a failed provisional load, a dropped Chromium
+    /// navigation) ends after ``uncommittedLimit``: the old document still draws under it, and the stale picture
+    /// would otherwise stay up for good. A commit after that puts the cover back up for the new document.
+    let uncommittedTimer = DemandTimer(owner: "agent-pane.document-cover.uncommitted")
+    var uncommittedLimit: Duration = .seconds(10)
+    /// Reload covers ended because no new document committed (`debug.agent_pane pacer`).
+    public private(set) var uncommittedEnds = 0
 
     /// How soon after a paint report or a gesture the picture is taken, and how often at most.
     static let captureDelay: Duration = .milliseconds(1500)
@@ -136,6 +143,11 @@ public final class AgentPaneDocumentCover {
     /// The page's picture stands in now (a fresh one landed over the loading state).
     func pictureShown() { if isShown { showsPicture = true } }
 
+    /// Whether the shown cover is a reload's whose new document has not committed (the old one still draws).
+    var waitsOnUncommittedReload: Bool { cause == .reload && documentsSince == 0 }
+
+    func uncommittedEnded() { uncommittedEnds += 1 }
+
     func pageEndedNow() {
         pageEnded = true
         rendererEnds += 1
@@ -149,7 +161,7 @@ public final class AgentPaneDocumentCover {
     public var report: [String: Any] {
         [
             "covers": Dictionary(uniqueKeysWithValues: covers.map { ($0.key.rawValue, $0.value) }),
-            "renderer_ends": rendererEnds, "give_ups_kept": giveUpsKept, "blank_reveals": blankReveals,
+            "renderer_ends": rendererEnds, "uncommitted_ends": uncommittedEnds, "give_ups_kept": giveUpsKept, "blank_reveals": blankReveals,
             "shown": cause.map { $0.rawValue as Any } ?? NSNull(), "picture_age_ms": frameAgeMilliseconds.map { $0 as Any } ?? NSNull(),
             "recoveries": recoveries.map { ["cause": $0.cause.rawValue, "ms": $0.milliseconds, "picture": $0.picture] as [String: Any] },
         ]
@@ -161,6 +173,7 @@ public final class AgentPaneDocumentCover {
     /// The cover went; returns the recovery when the new document painted.
     @discardableResult
     func ended(painted: Bool) -> Recovery? {
+        uncommittedTimer.cancel()
         guard let cause else { return nil }
         let recovery = Recovery(cause: cause, milliseconds: Int(((now() - since) * 1000).rounded()), picture: showsPicture)
         self.cause = nil
