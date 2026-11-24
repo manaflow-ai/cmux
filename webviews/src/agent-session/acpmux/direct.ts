@@ -11948,13 +11948,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!store || !sessionId) return;
     const generation = this.selectionGeneration;
-    const records = await store.read(sessionId).catch(() => [] as UnsentPromptRecord[]);
-    if (!records.length || this.selectedSessionId !== sessionId || this.selectionGeneration !== generation) return;
     // The host's journal sends its unanswered prompts again once, right after a connection's first
     // frame: only the chat this connection opened on waits for that. A chat opened later already
     // shows what the journal sent (its record is in the chat's history).
     const onConnect = !this.unsentRestoredOnce && this.journalsPrompts();
     this.unsentRestoredOnce = true;
+    const records = await store.read(sessionId).catch(() => [] as UnsentPromptRecord[]);
+    if (!records.length || this.selectedSessionId !== sessionId || this.selectionGeneration !== generation) return;
     const echoed = new Set<string>();
     for (const row of this.rows.values()) if (row.promptId) echoed.add(row.promptId);
     let drew = false;
