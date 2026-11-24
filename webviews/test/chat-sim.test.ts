@@ -215,3 +215,23 @@ test("chat simulator: compact-steer: one Worked for, under the steer, at every s
     .map((row) => row.kind);
   expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
 });
+
+// Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts". The live line under a thought stands
+// the gap the reply stands there, so the reply takes its place (transcriptGrid.ts MARK_LIVE_THOUGHT); under the 8 the
+// reply came 8 lower and everything over it moved 8 more than the reply's own line.
+test("chat simulator: think-then-answer: the live line under a thought stands the reply's gap", () => {
+  const result = runSimulation(SCENARIOS["think-then-answer"]!());
+  const live = new Set<number>();
+  const reply = new Set<number>();
+  // The first turn's work is the one thought (the second runs a command between its thoughts).
+  for (const trace of result.traces.filter((trace) => trace.turn === 1)) {
+    const rows = trace.rows ?? [];
+    rows.forEach((row, at) => {
+      if (at === 0 || rows[at - 1]!.kind !== "activity") return;
+      if (row.live && row.kind === "thinking") live.add(row.gap);
+      if (row.kind === "assistant" && rows.at(-1)?.live) reply.add(row.gap);
+    });
+  }
+  expect(reply.size).toBe(1);
+  expect([...live]).toEqual([...reply]);
+});
