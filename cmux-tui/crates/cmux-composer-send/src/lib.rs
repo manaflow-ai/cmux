@@ -24,6 +24,10 @@
 //!
 //! The outbox does no I/O. Its owner (the phone's terminal session) asks for the next request,
 //! sends it and reports the answer.
+//!
+//! [`chat::PromptOutbox`] is its twin for the agent chat's prompts (keyed by `promptId`).
+
+pub mod chat;
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
