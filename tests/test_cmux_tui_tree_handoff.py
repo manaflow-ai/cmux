@@ -147,6 +147,53 @@ class QuotaOnlyFailureTests(unittest.TestCase):
         self.assertTrue(self.quota(jobs))
 
 
+# 2026-11-23 20:45Z and 11-24 17:25Z, the build legs' logs while feat-cmux-next did not compile; re-runs of the same
+# tree failed on the same lines.
+E0599 = ("2026-11-23T20:45:31.0255786Z error[E0599]: no method named `lock_or_recover` found for struct `ChatLocks`\n"
+         "2026-11-23T20:45:31.0263638Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
+E0062 = ("2026-11-24T17:25:47.1285855Z error[E0062]: field `permissions` specified more than once\n"
+         "2026-11-24T17:25:47.1289663Z error: could not compile `acpmux` (lib) due to 1 previous error\n")
+
+
+class CompileErrorFailureTests(unittest.TestCase):
+    def compile_error(self, jobs, logs):
+        return handoff.compile_error_failure(jobs, lambda j: logs.get(j["id"]))
+
+    def test_a_build_leg_that_failed_to_compile(self):
+        for text in (E0599, E0062):
+            jobs = [job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build"),
+                    job(2, "build / build aarch64-apple-darwin", "failure", "Build"),
+                    job(3, "cmux_next_ daemon tests", "failure", "cargo test")]
+            self.assertTrue(self.compile_error(jobs, {1: text}))
+
+    def test_one_leg_is_enough(self):
+        # The darwin leg timed out, the linux leg did not compile: the tree cannot publish from this source.
+        jobs = [job(1, "build-linux / build aarch64-unknown-linux-musl", "failure", "Build"),
+                job(2, "build / build aarch64-apple-darwin", "failure", "Build")]
+        self.assertTrue(self.compile_error(jobs, {1: E0062, 2: "The operation was canceled."}))
+
+    def test_a_killed_or_starved_rustc_is_the_runners(self):
+        for fault in ("process didn't exit successfully: `rustc` (signal: 9, SIGKILL: kill)",
+                      "No space left on device (os error 28)", "memory allocation of 4096 bytes failed"):
+            jobs = [job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build")]
+            self.assertFalse(self.compile_error(jobs, {1: E0599 + fault}), fault)
+
+    def test_a_missing_crate_is_the_runners_cache(self):
+        text = "error[E0463]: can't find crate for `core`\nerror: could not compile `libc`\n"
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "failure", "Build")], {1: text}))
+
+    def test_needs_both_rustcs_code_and_cargos_verdict(self):
+        jobs = [job(1, "build / build aarch64-apple-darwin", "failure", "Build")]
+        self.assertFalse(self.compile_error(jobs, {1: "error[E0599]: quoted in a test name\n"}))
+        self.assertFalse(self.compile_error(jobs, {1: "error: could not compile `x` due to a lint\n"}))
+
+    def test_only_build_legs_and_readable_logs_count(self):
+        # A daemon test that did not compile, or an unreadable leg log, is no evidence: the hand-off goes ahead.
+        self.assertFalse(self.compile_error([job(3, "cmux_next_ daemon tests", "failure", "cargo test")], {3: E0599}))
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "failure", "Build")], {}))
+        self.assertFalse(self.compile_error([job(1, "build / build aarch64-apple-darwin", "success")], {1: E0599}))
+
+
 class CandidateTests(unittest.TestCase):
     def test_order_skips_self_and_expired(self):
         artifacts = [marker(1, 10, "lane/x"), marker(2, 11), marker(3, 12), marker(4, 13, expired=True), marker(5, 99)]
@@ -207,6 +254,18 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("tree hand-off skipped", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
+    def test_an_owner_that_did_not_compile_hands_nothing_off(self):
+        state = {"jobs_pages": [[job(1, "build-linux / build x86_64-unknown-linux-musl", "failure", "Build"),
+                                 job(2, "build / build aarch64-apple-darwin", "failure", "Build")]],
+                 "logs": {"1": E0599, "2": E0599},
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Rust compile error", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+        # Each log is read once though both checks read it.
+        self.assertEqual(sum(1 for c in calls if c[-1].endswith("/jobs/1/logs")), 1)
 
     # 2026-11-13: f8a39fdd's run 43425734678 deferred tree 77865e8e to its owner at attempt 3, built nothing,
     # and the owner published only its own commit's manifest: f8a39fdd answered 404. A published tree
@@ -429,8 +488,10 @@ class WorkflowTests(unittest.TestCase):
         steps = notify["steps"]
         step = next(s for s in steps if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertNotIn("continue-on-error", step, "a hand-off that could not run is the job's red, not a warning")
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertEqual(step["env"]["GH_TOKEN_SPARE"], "${{ steps.cmux-bot-token.outputs.token }}")
+        # The CI pool's token first, the run's own when no pool minted one (#51604); the cmux-bot App's is the spare.
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
+        self.assertEqual(step["env"]["GH_TOKEN_SPARE"],
+                         "${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}")
         mint = next(s for s in steps if s.get("id") == "cmux-bot-token")
         self.assertLess(steps.index(mint), steps.index(step))
         self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
