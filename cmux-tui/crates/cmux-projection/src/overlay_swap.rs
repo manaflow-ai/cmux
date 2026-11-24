@@ -23,9 +23,19 @@ const RENAME_EXCHANGE: u32 = 2;
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let done = rename2_raw(&from, &to, flags);
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rename2_raw(from: &CString, to: &CString, flags: u32) -> i64 {
     // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
-    let done = unsafe {
+    unsafe {
         libc::syscall(
             libc::SYS_renameat2,
             libc::AT_FDCWD,
@@ -34,12 +44,21 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
             to.as_ptr(),
             flags,
         )
-    };
-    if done < 0 {
-        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
-    } else {
-        Ok(())
     }
+}
+
+/// macOS has no `renameat2`; `renamex_np` takes the same two flags under its own names.
+#[cfg(target_os = "macos")]
+fn rename2_raw(from: &CString, to: &CString, flags: u32) -> i64 {
+    let mut mac = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        mac |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        mac |= libc::RENAME_SWAP;
+    }
+    // SAFETY: two valid C strings.
+    i64::from(unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), mac) })
 }
 
 impl Overlay {
