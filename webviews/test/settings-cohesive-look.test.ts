@@ -163,6 +163,30 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
           await browser.close();
         }
       });
+
+      // Dogfood 2026-11-24: in Menus the editor's title and its four buttons (Expand All, New Submenu,
+      // Add Separator, Reset to Default) sat on one unwrapping line wider than the detail column, so
+      // Reset to Default ran past the 680 px column and was cut at the window's edge.
+      test("Menus keeps its editor's buttons inside the column", async () => {
+        const browser = await engine.launch({ headless: true });
+        try {
+          for (const width of [1100, 1300]) {
+            const page = await browser.newPage({ viewport: { width, height: 900 } });
+            await installPaintedFrames(page);
+            await open(page, "menus");
+            const past = await page.evaluate(() => {
+              const detail = document.querySelector<HTMLElement>(".menus-detail")!.getBoundingClientRect();
+              return [...document.querySelectorAll<HTMLElement>(".menus-detail-header > *")]
+                .filter((el) => el.getBoundingClientRect().right > detail.right + 0.5)
+                .map((el) => el.textContent?.trim() ?? el.className);
+            });
+            expect({ width, past }).toEqual({ width, past: [] });
+            await page.close();
+          }
+        } finally {
+          await browser.close();
+        }
+      });
     });
   }
   if (engines.length === 0) describe.skip("settings cohesive look", () => test("engines", () => {}));
