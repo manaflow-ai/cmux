@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
@@ -151,6 +152,11 @@ export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
+/// Settings > Agent Chat > Pop In Sent Prompts, off by default: a sent prompt pops in and settles
+/// where it lands (conversation.css SEND-POP). On, the page's root carries `data-send-pop="claude"`,
+/// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
+/// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
+export const SEND_POP_KEY = "agentPane.display.sendPop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -170,6 +176,9 @@ export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+/// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
+/// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const AUTO_CLOUD_KEY = "cloud.autoCloud";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -178,6 +187,15 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Agent Chat > Environment Card, off by default: a floating card at the chat's top right
+/// with its changes, branch or worktree, Commit or push and Create PR (session-info/EnvironmentCard.tsx),
+/// after the Codex app's Environment panel. A look turns it on. Not part of ChatDisplay: switching it
+/// measures no transcript row again.
+export const ENVIRONMENT_CARD_KEY = "agentPane.display.environmentCard";
+/// Settings > Agent Chat > Changes Pill, off by default: "1 file changed +2 -2" over the composer
+/// (session-info/EnvironmentCard.tsx ChangesPill), which opens the diff beside the chat. Not part of
+/// ChatDisplay.
+export const CHANGES_PILL_KEY = "agentPane.display.changesPill";
 /// Settings > Agent Chat > Model Logo in Composer (modelChipIcon.ts), on unless set false; the model
 /// chip's right-click writes it. The agent pages' storage ends with the launch
 /// (AgentPaneView.sharedDataStore and Chromium's off-the-record profile), so a pick kept only there
@@ -530,6 +548,7 @@ let raw: Values = {};
 let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
+let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
 let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
@@ -538,8 +557,11 @@ let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = false;
+let autoCloudOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
+let environmentCardOn = false;
+let changesPillOn = false;
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -591,6 +613,7 @@ export function chatPartAttributes(display: ChatDisplay): Record<string, string 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
@@ -599,6 +622,16 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // The pop's gate: written only when the setting changes, so a page that set its own
+  // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
+  const sendPop = raw[SEND_POP_KEY] === true;
+  if (sendPop !== sendPopOn) {
+    sendPopOn = sendPop;
+    if (typeof document !== "undefined") {
+      if (sendPop) document.documentElement.setAttribute("data-send-pop", "claude");
+      else document.documentElement.removeAttribute("data-send-pop");
+    }
+  }
   const storedBanner = raw[UNREAD_BANNER_KEY];
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const show = isRailShow(raw[RAIL_SHOW_KEY]) ? (raw[RAIL_SHOW_KEY] as RailShow) : DEFAULT_RAIL_SHOW;
@@ -610,8 +643,11 @@ export function setChatDisplay(value: unknown): void {
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] === true;
+  const autoCloud = raw[AUTO_CLOUD_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
+  const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -647,13 +683,18 @@ export function setChatDisplay(value: unknown): void {
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
+    autoCloud === autoCloudOn &&
     labels === commandLabels &&
-    coach === promptCoachOn
+    coach === promptCoachOn &&
+    environmentCard === environmentCardOn &&
+    changesPill === changesPillOn
   )
     return;
   picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
+  environmentCardOn = environmentCard;
+  changesPillOn = changesPill;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
@@ -665,6 +706,7 @@ export function setChatDisplay(value: unknown): void {
   transcriptView = view;
   presentation = nextPresentation;
   featureTipsOn = tips;
+  autoCloudOn = autoCloud;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -797,16 +839,34 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+const autoCloudSnapshot = () => autoCloudOn;
+/// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
+/// and its Cloud leg (autoCloud.ts) show only with it and the plan.
+export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const environmentCardSnapshot = () => environmentCardOn;
+/// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
+export const useEnvironmentCardOn = (): boolean =>
+  useSyncExternalStore(subscribe, environmentCardSnapshot, environmentCardSnapshot);
+const changesPillSnapshot = () => changesPillOn;
+/// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
+export const useChangesPillOn = (): boolean =>
+  useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
+/// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
+/// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
+export const sendPopEnabled = (): boolean => {
+  const gate = typeof document === "undefined" ? null : document.documentElement.getAttribute("data-send-pop");
+  return gate !== null && gate !== "none";
+};
 /// Whether the hat over the composer is tucked away to its pull tab (TRAY_TUCKED_KEY).
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.

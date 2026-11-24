@@ -33,8 +33,9 @@ import { perfRow, TARGET_MS } from "./perfRow";
 const args = benchPositionals();
 const TURNS = (args[0] ?? "100,1500").split(",").map(Number);
 const ROUNDS = Number(args[1] ?? 3);
+const FIXTURE = args[2];
 if (TURNS.some((turns) => !Number.isInteger(turns) || turns < 3) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
-  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1]");
+  throw new Error("usage: transcript-resize-frame.bench.ts [turns>=3,...] [rounds>=1] [fixture]");
 const STREAM = process.env.CMUX_RESIZE_STREAM === "1";
 const MODE = STREAM ? " stream" : "";
 /// The drag: from WIDE to NARROW and back, STEPS frames each way.
@@ -83,6 +84,8 @@ type Drag = {
   longestTask: number;
   /// The settle: the longest frame interval once the width held, while the rows are placed at it.
   settleTask: number;
+  /// The longest open Worked-for control list mounted for this drag.
+  workedControls: number;
 };
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 const pct = (values: number[], p: number) => {
@@ -105,7 +108,13 @@ try {
     await gotoBenchPage(page, served);
     await requireProductionReact(page, { dev: DEV });
     await page.waitForFunction(() => "__debug" in window);
-    const seeded = await page.evaluate(`window.__debug.seedRows(${turns})`);
+    const seeded = await page.evaluate(`window.__debug.seedRows(${turns}, ${JSON.stringify(FIXTURE)})`);
+    if (FIXTURE === "worked-resize") {
+      await page.evaluate(() =>
+        (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked(true),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
     for (const shape of cases) {
       const drag = async (): Promise<Drag> =>
@@ -131,6 +140,12 @@ try {
               for (const entry of list.getEntries()) tasks.push({ start: entry.startTime, duration: entry.duration });
             });
             taskObserver.observe({ type: "longtask", buffered: false });
+            const workedControls = Math.max(
+              0,
+              ...[...document.querySelectorAll<HTMLElement>(".cv-worked[aria-controls]")].map(
+                (row) => row.getAttribute("aria-controls")?.split(" ").length ?? 0,
+              ),
+            );
             acpmuxPerf.enable();
             acpmuxPerf.resetFrames();
             const widths = [
@@ -241,6 +256,7 @@ try {
               heldDrift: Math.round(heldDrift * 10) / 10,
               heldSettleJump: Math.round(heldSettleJump * 10) / 10,
               clip: Math.round(clip * 10) / 10,
+              workedControls,
               fits,
               longestTask: Math.round(longestTask * 10) / 10,
               settleTask: Math.round(settleFrame * 10) / 10,
@@ -319,7 +335,7 @@ try {
             `over_budget=${over} dropped=${dropped} longest_task_ms=${run.longestTask} settle_frame_ms=${run.settleTask} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
             `overlap_frames=${run.overlaps} latest_drift_px=${run.drift} settle_jump_px=${run.settleJump} ` +
             `held_drift_px=${run.heldDrift} held_settle_jump_px=${run.heldSettleJump} top_clip_px=${run.clip} ` +
-            `spans_p95=${JSON.stringify(run.spans)}`,
+            `worked_controls=${run.workedControls} spans_p95=${JSON.stringify(run.spans)}`,
         );
       });
       perfRow({

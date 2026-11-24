@@ -54,7 +54,7 @@ enum IPhoneHostStrings {
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .localizedModule) }
     static var how: String {
         String(localized: "iphone.how.body",
-               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight.",
                table: "IPhone", bundle: .localizedModule)
     }
     static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .localizedModule) }
@@ -146,6 +146,7 @@ enum IPhoneHostStrings {
         case "relay": String(localized: "iphone.path.relay", defaultValue: "Relayed", table: "IPhone", bundle: .localizedModule)
         case "turn": String(localized: "iphone.path.turn", defaultValue: "Relayed (TURN)", table: "IPhone", bundle: .localizedModule)
         case "turn-tls": String(localized: "iphone.path.turnTls", defaultValue: "Relayed (TURN over TLS)", table: "IPhone", bundle: .localizedModule)
+        case "https-relay": String(localized: "iphone.path.httpsRelay", defaultValue: "Relayed (cmux over HTTPS)", table: "IPhone", bundle: .localizedModule)
         case "none": String(localized: "iphone.path.none", defaultValue: "No path", table: "IPhone", bundle: .localizedModule)
         default: wire
         }

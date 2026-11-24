@@ -84,10 +84,10 @@ impl Hub {
             if stop.is_cancelled() {
                 return;
             }
-            let mut slot = session.inbound_rx.lock().await;
+            let mut slot = session.inbound_rx().lock().await;
             if session.status() == SessionStatus::Closed
                 && rx.is_empty()
-                && !producers_live(&session.inbound_tx)
+                && !producers_live(session.inbound_tx())
             {
                 *slot = Some(rx);
                 return;
@@ -97,7 +97,7 @@ impl Hub {
 
     /// Start the chat's inbound loop when no loop holds its receiver.
     pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
+        if let Some(rx) = session.inbound_rx().lock().await.take() {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
         }
@@ -110,7 +110,7 @@ impl Hub {
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+        while let Some(item) = next_inbound(rx, stop, closed, session.inbound_tx()).await {
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
@@ -127,6 +127,13 @@ impl Hub {
                         // What an agent a Stop ended still had in flight is not the next turn's
                         // (`cancel.rs`): none of it lands in the turn that runs now.
                         if agent == session.stopped_agent.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        // The replay of a session its `session/fork` made (`fork_replay.rs`).
+                        if params
+                            .as_ref()
+                            .is_some_and(|p| super::fork_replay::update_of_the_fork(&session, p))
+                        {
                             continue;
                         }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
@@ -182,6 +189,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.surgery_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -274,6 +282,11 @@ impl Hub {
                         &mut session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()),
                         &clean,
                     );
+                    session
+                        .exit_line
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .heard(&short_text(&clean, STDERR_LINE_CAP));
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
@@ -306,6 +319,21 @@ impl Hub {
                             child.fail_pending_if_unheard().await;
                         }
                         self.idle_wake.notify_one();
+                    } else if let Some(child) = session
+                        .child
+                        .lock()
+                        .await
+                        .clone()
+                        .filter(|c| c.generation == agent && c.is_broken())
+                    {
+                        // Broken on an entry the store could not log: retried until it logs
+                        // (`reach_broken_link`), one retry per link; the hub's scope owns it.
+                        if child.claim_broken_retry() {
+                            let (hub, s) = (self.clone(), session.clone());
+                            self.scope.spawn_named("broken-link-reattach", async move {
+                                hub.reach_broken_link(&s, &child).await;
+                            });
+                        }
                     } else if let Some(child) = session
                         .child
                         .lock()
@@ -360,6 +388,8 @@ impl Hub {
                         && session.status() != SessionStatus::Closed;
                     let intentional = hibernating
                         || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // This process's line, taken at every exit so the next process starts with none.
+                    let last = session.exit_line.lock().unwrap_or_else(|e| e.into_inner()).take();
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
@@ -371,32 +401,23 @@ impl Hub {
                             } else if intentional {
                                 json!({"code": code})
                             } else {
-                                // Its stderr was queued before its exit (`agent.rs`): the tail
-                                // holds what it said last (`exit_reason.rs`).
-                                let tail =
-                                    session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
-                                super::exit_reason::exited_data(
-                                    code,
-                                    super::exit_reason::last_explaining(
-                                        tail.iter().map(String::as_str),
-                                    ),
-                                )
+                                // Its stderr was queued before its exit (`agent.rs`): the line is
+                                // what it said last since its last good turn (`exit_reason.rs`).
+                                super::exit_reason::exited_data(code, last.as_deref())
                             },
                         );
                     }
                     if !intentional {
-                        self.set_status(&session, SessionStatus::Disconnected);
+                        self.set_status(&session, NotWaiting::Disconnected);
                         // Quit on the account's limit: held until its reset, then started
                         // again with no prompt (`rate_hold.rs` `hold_at_exit`).
-                        let limit = {
-                            let tail =
-                                session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
-                            super::exit_reason::last_explaining(tail.iter().map(String::as_str))
-                                .filter(|l| super::exit_reason::exit_cause(l) == "rate_limit")
-                                .map(str::to_owned)
-                        };
+                        // This process's own line (`exit_line`), not `stderr_tail`, which still
+                        // holds a 429 an earlier turn retried past.
+                        let limit = last
+                            .as_deref()
+                            .filter(|l| super::exit_reason::exit_cause(l) == "rate_limit");
                         if let Some(line) = limit {
-                            self.hold_at_exit(&session, &line).await;
+                            self.hold_at_exit(&session, line).await;
                         }
                     }
                 }
@@ -555,6 +576,17 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         retitled = m.title.as_deref() != Some(title);
+                        if retitled {
+                            super::title_log::record(
+                                session,
+                                &m.harness,
+                                None,
+                                "harness",
+                                m.title_source.as_deref(),
+                                title.split_whitespace().count(),
+                                0,
+                            );
+                        }
                         m.title = Some(title.to_owned());
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                         // The ledger's copy (one map entry; a line only when a field changed).
@@ -1314,7 +1346,7 @@ impl Hub {
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
             self.background_attention(session);
-            self.set_status(session, SessionStatus::Waiting);
+            self.set_waiting(session, super::WaitReason::of_request(&request));
             (rx, prev, grouping, permission_id)
         };
         // Joined its group (or none): the group's timer need not wait for it.
@@ -1360,11 +1392,45 @@ impl Hub {
         self.append(session, "mux", "permission_decision", decision.clone());
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         state.settled.remember(permission_id, decision.get("answeredBy"), &decision["outcome"]);
-        if state.pending.is_empty()
-            && session.status() == SessionStatus::Waiting
-            && !self.secrets.waiting_in(&session.id)
-        {
-            self.set_status(session, status_after_ask(session, prev));
+        self.settle_after_ask(session, &state, || status_after_ask(session, prev));
+    }
+
+    /// What the chat's open asks wait on the person for, the first of them as `waitingOn` names
+    /// it (`subsession_send.rs` `waiting_on`): a question, a permission, a secret or root
+    /// password card, an MCP connect card; None when nothing is open. `state` is its
+    /// `permissions`, which the caller holds so no answer lands between this read and its write.
+    pub(super) fn open_ask(
+        &self,
+        session: &Session,
+        state: &permission_groups::PermissionState,
+    ) -> Option<WaitReason> {
+        let mut reason = None;
+        for pending in state.pending.values() {
+            match WaitReason::of_request(&pending.request) {
+                WaitReason::Question => return Some(WaitReason::Question),
+                other => reason = Some(other),
+            }
+        }
+        reason
+            .or_else(|| self.secrets.waiting_for(&session.id))
+            .or_else(|| self.mcp_connects.waiting_in(&session.id).then_some(WaitReason::McpConnect))
+    }
+
+    /// After one of a Waiting chat's asks closed: it waits on the next open one, with that one's
+    /// reason, else takes `after` (`status_after_ask`). A chat that is not Waiting keeps its
+    /// status. `state` is its `permissions`, held as in [`Self::open_ask`].
+    pub(super) fn settle_after_ask(
+        &self,
+        session: &Session,
+        state: &permission_groups::PermissionState,
+        after: impl FnOnce() -> NotWaiting,
+    ) {
+        if session.status() != SessionStatus::Waiting {
+            return;
+        }
+        match self.open_ask(session, state) {
+            Some(reason) => self.set_waiting(session, reason),
+            None => self.set_status(session, after()),
         }
     }
 
@@ -1899,11 +1965,13 @@ pub(super) fn stale_turn(session: &Session, then: &Option<String>) -> bool {
 /// The status of a chat whose last ask (a permission or a secret) was just
 /// answered, from `prev`, its status when that ask came: running in a turn,
 /// ready between turns (an ask that outlived its turn), else as it was.
-pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> SessionStatus {
+pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> super::NotWaiting {
+    use super::NotWaiting;
     match (session.turn().is_some(), prev) {
-        (true, _) => SessionStatus::Running,
-        (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
-        (false, prev) => prev,
+        (true, _) => NotWaiting::Running,
+        (false, prev) => {
+            NotWaiting::of(prev).filter(|s| *s != NotWaiting::Running).unwrap_or(NotWaiting::Ready)
+        }
     }
 }
 

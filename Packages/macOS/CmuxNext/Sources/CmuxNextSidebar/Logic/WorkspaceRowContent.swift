@@ -43,6 +43,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -95,9 +98,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
-    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
