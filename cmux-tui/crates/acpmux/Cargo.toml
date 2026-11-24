@@ -16,6 +16,13 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# Dev only: the pause-policy replay (src/bin/pause_replay.rs) scores Cloud agent VM pause
+# policies over recorded session timelines. Never in a shipped build.
+[[bin]]
+name = "pause-replay"
+path = "src/bin/pause_replay.rs"
+required-features = ["pause-replay"]
+
 [[bench]]
 name = "v2"
 harness = false
@@ -36,6 +43,8 @@ tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
 # The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
 # a shipped build: only `cargo test --features sim --test sim` turns it on.
 sim = []
+# Dev only: builds the pause-replay bin above. Never in a shipped build.
+pause-replay = []
 # Another crate's tests' in-process daemon that serves the v2 list (src/test_support.rs; row 7c,
 # cmux-tui-core's list callers). Never in a shipped build: only a crate's dev-dependencies turn it
 # on. Its gates print and compare their rounds through `acpmux_book::gate_rounds`.
@@ -239,6 +248,10 @@ url = { workspace = true, optional = true }
 # The change-only, path-following inotify watch (`quiet_dirs.rs`) of the harness, settings and
 # login-env watches; `notify` asks for every open. Already in the tree through `notify`, with its features.
 inotify = { version = "0.11", default-features = false }
+# The daemon's allocator on Linux (src/main.rs, acpmux-standalone): musl's malloc, the shipped
+# static build's, never gave freed pages back, and a daemon up 12 h held 2.5 GB with a flat live
+# heap (RFD 0156). mimalloc returns them on its own.
+mimalloc = { version = "0.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
