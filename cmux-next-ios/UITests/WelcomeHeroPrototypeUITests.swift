@@ -41,6 +41,31 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
     }
 
+    /// The sign-in rows answer a held finger the way system glass does: held,
+    /// a row stays lit and stretches toward the finger as it drags; dragged
+    /// off and released, nothing is sent and the welcome stays. In light and
+    /// dark; the step's recording is the evidence for the motion.
+    @MainActor
+    func testSignInRowsHoldAndFollowADrag() throws {
+        defer { XCUIDevice.shared.appearance = .light }
+        for dark in [false, true] {
+            XCUIDevice.shared.appearance = dark ? .dark : .light
+            let app = launch(arguments: ["-cmux-mobile-welcome-hero", "morph"])
+            XCTAssertTrue(element(app, id: "welcome.wordmark.morph").waitForExistence(timeout: 20))
+            let github = app.buttons["Continue with GitHub"]
+            XCTAssertTrue(github.waitForExistence(timeout: 5))
+            // Let the reveal settle so the recording shows only the press.
+            _ = app.staticTexts["__never__"].waitForExistence(timeout: 2.5)
+            let start = github.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let away = github.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 4.5))
+            start.press(forDuration: 1.5, thenDragTo: away, withVelocity: .slow, thenHoldForDuration: 1.0)
+            XCTAssertTrue(element(app, id: "welcome.wordmark.morph").exists, "dragging off a row must not sign in")
+            XCTAssertTrue(github.exists)
+            capture("held-drag-\(dark ? "dark" : "light")")
+            app.terminate()
+        }
+    }
+
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore",
