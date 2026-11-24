@@ -47,6 +47,8 @@ pub(crate) mod auto_resume;
 mod bg_notify;
 mod bg_tasks;
 #[cfg(test)]
+mod row_cost_tests;
+#[cfg(test)]
 mod wait_reason_tests;
 #[cfg(test)]
 mod worker_lock_tests;
