@@ -339,6 +339,13 @@ impl PeerSnapshots {
     ) -> Result<Option<Link>, RpcError> {
         self.restoring.wait(peer, session).await
     }
+
+    /// `peer`'s current link restored with nothing held: what a reconnect's restore leaves.
+    #[cfg(test)]
+    pub(crate) fn seed_restored(&self, peer: &crate::peer::Peer) {
+        let link = (peer.generation, peer.link_epoch());
+        self.restoring.decide(&peer.name, Decision { link, held: None });
+    }
 }
 
 impl Store {

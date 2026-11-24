@@ -97,11 +97,24 @@ async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     assert!(sent.next(Duration::from_millis(1500)).await.is_none(), "not answered while down");
     assert_eq!(peer.pending_requests().await, 0, "nothing went to the peer while down");
     hub.seed_peer_back(&peer, vec![row()]);
-    // With no transport the peer never answers, so the proof is the prompt waiting on the peer.
+    hub.peer_snapshots.seed_restored(&peer);
+    // With no transport the peer's request fails or waits; either way it was tried, not refused
+    // as unreachable.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    while peer.pending_requests().await == 0 {
+    loop {
+        if peer.pending_requests().await > 0 {
+            break;
+        }
+        if let Ok(Some(line)) =
+            tokio::time::timeout(Duration::from_millis(50), sent.output.recv()).await
+        {
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(2)) {
+                assert_ne!(reason(&v), Some("peer_unreachable"), "sent on, not refused: {v}");
+                break;
+            }
+        }
         assert!(tokio::time::Instant::now() < deadline, "sent on once the link is back");
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
