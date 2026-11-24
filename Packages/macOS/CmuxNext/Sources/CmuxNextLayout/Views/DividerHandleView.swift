@@ -52,6 +52,11 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
     /// equal ones skip the work.
     var placedClips: [CGRect?]?
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        ResizeBands.register(self) // the divider has priority over a scroller's knob under it
+    }
+
     private let line = CALayer()
     /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
