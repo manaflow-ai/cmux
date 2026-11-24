@@ -97,6 +97,7 @@ impl Hub {
         }
         self.note_harness_sandbox(session, update);
         self.note_claim_run(session, update);
+        self.turn_rules_tool(session, update);
         // Release the detector before appending: summary readers hold meta before the
         // detector, while append takes meta to publish the record.
         let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
