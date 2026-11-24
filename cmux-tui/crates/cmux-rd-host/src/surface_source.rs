@@ -211,15 +211,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     if secret.is_empty() {
         return Err("no secret on stdin".into());
     }
-    if opts.flag("lifeline") {
-        // hostd holds stdin open while it wants this source; its end (or hostd's) ends us.
-        std::thread::spawn(|| {
-            let mut sink = [0u8; 256];
-            let mut stdin = std::io::stdin();
-            while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
-            std::process::exit(0);
-        });
-    }
+    // hostd holds stdin open while it wants this source; its end (or hostd's) ends us.
+    let lifeline = opts.flag("lifeline");
     let eval = Arc::new(Mutex::new(eval_socket()?));
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let mut out = std::io::stdout();
@@ -227,19 +220,47 @@ pub fn run(opts: &Opts) -> Res<()> {
     out.flush()?;
     // One viewer at a time: hostd connects once per phone viewer of the tab, and a second
     // capture of the same display would only double the work.
-    for stream in listener.incoming() {
-        let stream = match stream {
-            Ok(stream) => stream,
+    listener.set_nonblocking(true)?;
+    loop {
+        let mut fds = vec![listener.as_raw_fd()];
+        if lifeline {
+            fds.push(0);
+        }
+        wait_readable(&fds, None)?;
+        if lifeline_closed(lifeline) {
+            return Ok(());
+        }
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(error) => {
                 eprintln!("cmux-rd surface-source: accept: {error}");
                 continue;
             }
         };
-        if let Err(error) = session(stream, &secret, &cfg, &eval) {
+        // An accepted socket inherits the listener's O_NONBLOCK on macOS.
+        stream.set_nonblocking(false)?;
+        if let Err(error) = session(stream, &secret, &cfg, &eval, lifeline) {
             eprintln!("cmux-rd surface-source: session ended: {error}");
         }
     }
-    Ok(())
+}
+
+/// With `--lifeline`: whether hostd closed this source's stdin (it no longer wants the source).
+/// hostd writes nothing after the secret line, so a readable stdin is its end.
+fn lifeline_closed(lifeline: bool) -> bool {
+    if !lifeline {
+        return false;
+    }
+    let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+    // SAFETY: one valid pollfd for the call.
+    if unsafe { libc::poll(&mut pfd, 1, 0) } <= 0 {
+        return false;
+    }
+    let mut sink = [0u8; 256];
+    // SAFETY: the buffer is valid for its length.
+    let n = unsafe { libc::read(0, sink.as_mut_ptr().cast(), sink.len()) };
+    n == 0 || (n < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted)
 }
 
 /// One encode hostd asked for.
@@ -253,6 +274,7 @@ fn session(
     secret: &str,
     cfg: &SessionCfg,
     eval: &Mutex<Option<(UdpSocket, String)>>,
+    lifeline: bool,
 ) -> Res<()> {
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -300,7 +322,13 @@ fn session(
         if let Some((socket, _)) = eval.as_ref() {
             fds.push(socket.as_raw_fd());
         }
+        if lifeline {
+            fds.push(0);
+        }
         wait_readable(&fds, Some(1_000_000_000))?;
+        if lifeline_closed(lifeline) {
+            break Ok(());
+        }
         rects.clear();
         desktop.drain(&mut rects)?;
         if !rects.is_empty() {
