@@ -735,9 +735,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             max_moves,
             timeout,
             undo,
+            machine,
         }) => {
             super::rebalance::run(
-                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo, machine },
                 json_out,
             )
             .await
