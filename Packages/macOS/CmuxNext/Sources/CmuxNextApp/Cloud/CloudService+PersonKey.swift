@@ -36,8 +36,8 @@ extension CloudService {
     func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation, proceed: @escaping @MainActor @Sendable () -> Bool = { true }, cacheBusy: Bool = true) async -> Bool {
         if spareReadiness.isKeyed(session.machineID, scope: account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)) { return true } // keyed ahead in this app run (a warm spare, CloudSpareReadiness): no status read, no restart
         return await RemoteApprovalPreparations.shared.prepare(machine: session.machineID, daemonSaidSafe: preparation == .daemonSaidSafe,
-                                                        held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil,
-                                                        idle: { [machineAPI] in await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart == true },
+                                                        held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil, joinBudget: RemoteApprovalPreparations.startWait,
+                                                        idle: { [machineAPI] in await RemoteApprovalPreparations.bounded(RemoteApprovalPreparations.startWait) { await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart } == true },
                                                         restart: { [self] in guard !Task.isCancelled, await proceed() else { return false }; return await restartWithApprovals(session) == nil }, cacheBusy: cacheBusy)
     }
 
