@@ -202,8 +202,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every
-          # blob under the path one request at a time.
+          # restore, not git archive: archive fetched every blob one request at a time.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
@@ -270,6 +276,13 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/placement"
           # scripts/ci is outside this job's sparse checkout: without the flag restore finds no path.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/ci | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/placement" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/ci
 
       - name: Mint the owned-pool routing token
@@ -501,8 +514,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every
-          # blob under the path one request at a time.
+          # restore, not git archive: archive fetched every blob one request at a time.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
 
       - name: Refuse stale generator inputs
@@ -679,10 +698,23 @@ jobs:
     # takes no runner: on 11-21 10:00-17:00Z, 109 of 282 merged commits needed no repair, and the job's full
     # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
     # (a failed action-areas, an old base) runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
+    #
+    # On a pull request the job runs only on a re-run (run_attempt > 1), never on the head's first attempt: its
+    # patch (artifact pr-autofix-patch) is consumed only by ci-oops act_fixer after a mechanical red, and by a
+    # person who re-runs the job to get one (a fork PR: Re-run job on this one). act_fixer asks for that re-run
+    # (`gh api -X POST repos/OWNER/REPO/actions/jobs/ID/rerun`) when it acts on a red head whose run has no
+    # artifact, then waits for the artifact. It cost 28,441 runner-min/day on every head, and Leo, 2026-11-21:
+    # "de facto, im asking for 99% fewer minutes of ci time, period." A re-run reuses action-areas' outputs and
+    # the event's head and merge commit, so the repair is of exactly the red head. A re-run also skips the draft
+    # tier's term: the event payload of a re-run still says draft after the PR is ready, and a lane's red PR is
+    # usually a draft. A push event still runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # clippy compiles the changed crates (cached below).
-    timeout-minutes: 40
+    # clippy compiles the changed crates (cached below): 40 minutes when it can run (AUTOFIX_GATE_CLIPPY's clause
+    # below), 25 otherwise. On 2026-11-23 17:43-23:43Z, 65 of 948 runs ran into the 40-minute limit (about 10,400
+    # runner-min/day, a third of the job), 59 of them on Freestyle VMs stalled in the toolchain setups; with the
+    # setups bounded below, 98 % of the window's successful runs finish within 22 minutes.
+    timeout-minutes: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 40 || 25 }}
     permissions:
       contents: read
       pull-requests: read
@@ -738,8 +770,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
-          # restore, not git archive: archive of a partial clone fetched every blob under the paths one
-          # request at a time (1,584 s in one run on 2026-11-23); restore fetches them in one batch.
+          # restore, not git archive: archive fetched every blob one request at a time (1,584 s in one run on
+          # 2026-11-23); so does restore, hence the batched fetch first.
+          # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
+          # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
+          # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
+          # restore to fetch them itself.
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next scripts/ci | awk '$1 == "blob" { print $2 }' |
+            git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
+              --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next scripts/ci
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
 
@@ -802,13 +841,25 @@ jobs:
             docker.io/library/swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
             swift package dump-package > "$RUNNER_TEMP/package-dump.json"
 
+      # Node and Bun only for the repairs that run them, each bounded: on a Freestyle VM (2026-11-23 17:43-23:43Z)
+      # Setup Node took 479 s median, Setup Bun up to 812 s and the Rust toolchain 944 s median (p90 1,652 s), and
+      # those three held most of the runs that hit the job's limit. A setup that does not finish leaves its repairs
+      # to the base autofix (the Repair step says which), as the bounded Swift dump above does; the other repairs
+      # still run. Node is for vp fmt only: the strings repair is a no-op since #22042 (page strings are build
+      # output), yet every Packages/ change installed Node for it.
       - name: Setup Node
-        if: steps.areas.outputs.strings == 'true' || steps.areas.outputs.webviews == 'true'
+        id: node
+        if: steps.areas.outputs.webviews == 'true'
+        continue-on-error: true
+        timeout-minutes: 4
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Setup Bun
+        id: bun
+        continue-on-error: true
+        timeout-minutes: 4
         if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -816,24 +867,27 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Set up pinned cmux-tui Rust
+        id: rust
         if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # cargo clippy --fix builds what the clippy gate builds (cmux-tui-spec.yml): clang for bindgen,
       # and zig with the ghostty-next submodule for ghostty-vt-sys. Without them the build fails and
       # clippy leaves every lint for a person.
       - name: Install Linux build dependencies for clippy
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
 
       - name: Init the ghostty-next submodule for clippy
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install zig for clippy
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         env:
           # The clippy gate's build env (cmux-tui-spec.yml): zig's version from ghostty-next (the
           # default, ghostty, is not checked out here), the ghostty-next gitlink as the source, and a
@@ -844,9 +898,10 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache cargo build
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -855,7 +910,7 @@ jobs:
 
       # Before the other repairs, so their cargo fmt sees clippy's edits.
       - name: cargo clippy --fix
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         env:
           # The clippy gate's build env (cmux-tui-spec.yml).
           GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -867,7 +922,7 @@ jobs:
 
       # Packages installed without lifecycle scripts; this job has no write token.
       - name: vp fmt
-        if: steps.areas.outputs.webviews == 'true'
+        if: steps.areas.outputs.webviews == 'true' && steps.node.outcome == 'success' && steps.bun.outcome == 'success'
         working-directory: webviews
         run: |
           set -euo pipefail
@@ -911,9 +966,16 @@ jobs:
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
           JOB_INPUTS: ${{ steps.areas.outputs.jobinputs }}
+          CLIPPY: ${{ steps.areas.outputs.clippy }}
+          WEBVIEWS: ${{ steps.areas.outputs.webviews }}
+          RUST_SETUP: ${{ steps.rust.outcome }}
+          NODE_SETUP: ${{ steps.node.outcome }}
+          BUN_SETUP: ${{ steps.bun.outcome }}
         run: |
           set -euo pipefail
           args=()
+          # A bounded setup that did not finish (outcome failure) leaves the repairs that need it to the base autofix.
+          left() { echo "left: $1 (the $2 setup did not finish in its bound); the base autofix repairs it" | tee -a "$RUNNER_TEMP/autofix-left.txt"; }
           # Regenerated exports are copied in. The docs shortcuts and app-host
           # files follow the action exports only when this run regenerated them:
           # a settings-only artifact would rewrite them from the committed
@@ -923,6 +985,16 @@ jobs:
             args+=(--generated "$RUNNER_TEMP/action-exports")
             [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
+          if [[ "${BUN_SETUP:-}" == failure ]]; then
+            [[ "$SHORTCUTS" == true ]] && left "the docs shortcuts" Bun && SHORTCUTS=false
+            [[ "$APPHOST" == true ]] && left "the app-host generated files" Bun && APPHOST=false
+            [[ "${CLOUD:-}" == true ]] && left "the cloud wire clients" Bun && CLOUD=false
+          fi
+          if [[ "${RUST_SETUP:-}" == failure ]]; then
+            [[ "$FMT" == true ]] && left "cargo fmt" Rust && FMT=false
+            [[ "${CLIPPY:-}" == true ]] && left "cargo clippy --fix" Rust
+          fi
+          [[ "${WEBVIEWS:-}" == true && ( "${NODE_SETUP:-}" == failure || "${BUN_SETUP:-}" == failure ) ]] && left "vp fmt in webviews" "Node or Bun"
           if [[ "$GRAPH" == true && "${DUMP:-}" == success && -s "$RUNNER_TEMP/package-dump.json" ]]; then
             args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           elif [[ "$GRAPH" == true ]]; then
@@ -943,7 +1015,7 @@ jobs:
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           # A workflow job no router declares is recorded as runs-always (scripts/ci/job_inputs.py fix), never refused.
-          [[ "$JOB_INPUTS" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
+          [[ "${JOB_INPUTS:-}" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           cat "$RUNNER_TEMP/clippy.txt" "$RUNNER_TEMP/autofix-left.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true

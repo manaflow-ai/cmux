@@ -271,7 +271,7 @@ impl Supervisor {
             Self::server_approved_locked(inner, app)?;
             Self::admit_server_op(inner, app, op, origin)?;
         }
-        if inner.safe_mode.is_some() {
+        if super::safe_mode_bisect::held_off(inner, app) {
             return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
         }
         if self.config.host_binary.is_none() {
