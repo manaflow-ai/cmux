@@ -890,10 +890,17 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   let dstSum: any = null;
   let srcEv: any[] = [];
   let dstEv: any[] = [];
+  // A read that fails is not an empty journal: keep its error so the verdict says which it was.
+  const evErr: Record<string, string> = {};
+  const eventsOn = (side: MoveSide) =>
+    acpmuxOn(side, "events", session).then(
+      (evs: any) => { delete evErr[side.name]; return Array.isArray(evs) ? evs : (evErr[side.name] = `not a list: ${JSON.stringify(evs).slice(0, 120)}`, []); },
+      (e: Error) => { evErr[side.name] = e.message.slice(0, 200); return []; },
+    );
   const runsOf = (evs: any[]) => new Set(evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size;
   for (const until = Date.now() + 240_000; ; await sleep(5_000)) {
     [srcSum, dstSum] = await Promise.all([findSummary(a.src), findSummary(a.dst)]);
-    [srcEv, dstEv] = await Promise.all([acpmuxOn(a.src, "events", session).catch(() => []), acpmuxOn(a.dst, "events", session).catch(() => [])]);
+    [srcEv, dstEv] = await Promise.all([eventsOn(a.src), eventsOn(a.dst)]);
     const openSum = [srcSum, dstSum].find((s) => s && !s.error && s.status !== "closed");
     if (new Set([...srcEv, ...dstEv].filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size >= 1 && !openSum?.turn) break;
     if (Date.now() > until) break;
@@ -907,7 +914,8 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   // Every record the source held when the move began is in the surviving journal, under the same seq and kind.
   const bySeq = new Map(survivorEv.map((e: any) => [e.seq, e]));
   const missing = survivor ? before.filter((e) => !bySeq.has(e.seq) || bySeq.get(e.seq).kind !== e.kind) : before;
-  if (missing.length) lost.push(`${missing.length} of ${before.length} chat records (first seq ${missing[0].seq} ${missing[0].kind})`);
+  const unread = survivor ? evErr[survivor.name] : undefined;
+  if (missing.length) lost.push(`${missing.length} of ${before.length} chat records (first seq ${missing[0].seq} ${missing[0].kind})${unread ? ` [events on ${survivor!.name} unreadable: ${unread}]` : survivor && !survivorEv.length ? ` [events on ${survivor.name} read empty]` : ""}`);
   // The queued prompt's runs on each side, and overall: a moved journal carries the source's records, so a run
   // the source made before the move shows on both sides with the same seq and content and counts once.
   const qRec = (evs: any[]) => evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`);
