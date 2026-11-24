@@ -17,19 +17,40 @@
 // daemon that has no `_acpmux/account/sign_in`, the same gestures open the terminal tab as before.
 import { useId, useState } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
+import "../paneStrings";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
-import { SETTINGS_SENTENCES, type HarnessesRun, type ProviderAccount } from "../ops";
+import { SETTINGS_SENTENCES, type AccountCacheMiss, type HarnessesRun, type ProviderAccount } from "../ops";
 import { userMessage } from "../../shared/userMessage";
 import { t } from "../strings";
 import type { SettingsSignIn } from "./useSettingsSignIn";
 
 /** The families whose accounts Settings can add (a login folder per account, or an API key). */
 const ADDABLE: Record<string, string> = { codex: "ChatGPT", claude: "Claude" };
+
+const MISS_CAUSES = new Set(["expired", "compaction", "model", "effort"]);
+
+/** The usage block's hover line: "Last prompt cache miss at 14:05: the cache expired" (feature map
+ * `usage-per-account`, Leo 2026-11-23: "the last cache-miss cause"). Undefined with no miss known. */
+export function cacheMissLine(miss: AccountCacheMiss | undefined, locale?: string): string | undefined {
+  if (!miss || !Number.isFinite(miss.at) || miss.at <= 0) return undefined;
+  const cause = MISS_CAUSES.has(miss.cause) ? miss.cause : "unknown";
+  const when = new Date(miss.at).toLocaleString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    day: "numeric",
+  });
+  return t(
+    "settingsWindow.harnesses.accounts.lastCacheMiss",
+    when,
+    t(`settingsWindow.harnesses.accounts.cacheMiss.${cause}`),
+  );
+}
 
 /** "Authenticated as alex@example.com · ChatGPT Pro", or "Not signed in". */
 export function accountAuthText(account: ProviderAccount): string {
@@ -199,7 +220,13 @@ function AccountRow({
           )}
         </div>
         {account.usage && account.signedIn && (
-          <div className="harness-account-usage" data-account-usage="">
+          <div
+            className="harness-account-usage"
+            data-account-usage=""
+            /* tooltip-allow: the last cache miss's cause is not on screen (Leo: "a hover line names the last miss cause") */
+            title={cacheMissLine(account.usage.lastCacheMiss)}
+            data-cache-miss={account.usage.lastCacheMiss?.cause}
+          >
             {/* No family: the card's usage-page link opens through the agent pane's browser, which
                 Settings does not have. */}
             <PlanUsageCardBody limits={account.usage} />
