@@ -152,8 +152,7 @@ impl Places {
     /// and can only be discovered by the accepted import.
     fn classic_settings_present(&self, bundle_id: &str) -> bool {
         let prefs = self.probe_home.join("Library/Preferences");
-        self.probe_home.join(".config/cmux/cmux.json").is_file()
-            || self.config_home.join("cmux/cmux.json").is_file()
+        self.config_home.join("cmux/cmux.json").is_file()
             || cmux_classic_import::ghostty::source_path(&self.support, bundle_id).is_some()
             || cmux_classic_import::source::CHANNELS
                 .iter()
@@ -649,6 +648,7 @@ impl Mux {
     fn import_classic_sidecars(&self, places: &Places, bundle_id: &str) -> anyhow::Result<()> {
         cmux_classic_import::ghostty::import(
             &places.probe_home,
+            &places.config_home.join("cmux"),
             &places.support,
             bundle_id,
             &places.settings_directory,
@@ -811,7 +811,7 @@ pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
         support: home.join("Library/Application Support"),
         probe_home: home.to_path_buf(),
         config_home: home.join(".config"),
-        settings_directory: home.join(".config/cmux"),
+        settings_directory: home.join(".config").join("cmux"),
         xdg_state_home: None,
         tmp: home.join("tmp"),
     }

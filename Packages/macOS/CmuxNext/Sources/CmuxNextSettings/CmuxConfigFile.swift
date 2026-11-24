@@ -37,7 +37,12 @@ public actor CmuxConfigFile {
         if let path = environment[overrideKey], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return home.appending(path: ".config/cmux/cmux-next.json")
+        return file("cmux-next.json", under: home)
+    }
+
+    /// `<root>/.config/cmux/<name>`: NEXT's default file and Classic's import source share the folder.
+    private static func file(_ name: String, under root: URL) -> URL {
+        root.appending(path: ".config/cmux").appending(path: name)
     }
 
     /// Returns NEXT's settings URL, creating an empty settings file when it does not exist.
@@ -83,14 +88,10 @@ public actor CmuxConfigFile {
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
-        if let root = environment[BuildStatePaths.classicImportDirectoryKey], !root.isEmpty {
-            return URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
-                .appending(path: ".config/cmux/cmux.json")
+        let override = environment[BuildStatePaths.classicImportDirectoryKey].flatMap { root in
+            root.isEmpty ? nil : URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
         }
-        if let root = BuildStatePaths.current.classicImportDirectory {
-            return root.appending(path: ".config/cmux/cmux.json")
-        }
-        return home.appending(path: ".config/cmux/cmux.json")
+        return file("cmux.json", under: override ?? BuildStatePaths.current.classicImportDirectory ?? home)
     }
 
     /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or

@@ -30,8 +30,16 @@ pub fn source_path(support: &Path, bundle: &str) -> Option<PathBuf> {
 }
 
 /// Publish the whole layer at once. A previous import (including any subsequent edits)
-/// wins. An interrupted import never leaves a partially active layer.
-pub fn import(home: &Path, support: &Path, bundle: &str, config: &Path) -> io::Result<()> {
+/// wins. An interrupted import never leaves a partially active layer. `classic_config` is
+/// Classic's cmux config folder (`$XDG_CONFIG_HOME/cmux`, else under `home`): an include that
+/// points into it, or into Classic's other folders, is not copied.
+pub fn import(
+    home: &Path,
+    classic_config: &Path,
+    support: &Path,
+    bundle: &str,
+    config: &Path,
+) -> io::Result<()> {
     let destination = config.join("classic-ghostty");
     if destination.try_exists()? {
         return Ok(());
@@ -40,7 +48,7 @@ pub fn import(home: &Path, support: &Path, bundle: &str, config: &Path) -> io::R
     fs::create_dir_all(config)?;
     let stage = tempfile::Builder::new().prefix(".classic-ghostty-").tempdir_in(config)?;
     let mut classic_dirs = vec![
-        home.join(".config/cmux"),
+        classic_config.to_path_buf(),
         home.join(".local/state/cmux"),
         support.join("cmux"),
         support.join(bundle),
@@ -255,7 +263,9 @@ mod tests {
         std::os::unix::fs::symlink(target, stable.join(LAYER)).unwrap();
         let nested = stable.join("linked-config");
         fs::write(&nested, [0xff]).unwrap();
-        let run = || import(root.path(), &support, CHANNELS[0], &config);
+        let run = || {
+            import(root.path(), &root.path().join("classic-config"), &support, CHANNELS[0], &config)
+        };
         assert!(run().is_err());
         assert!(!config.join("classic-ghostty").exists());
         fs::write(nested, "font-size = 20\n").unwrap();
@@ -286,7 +296,9 @@ mod tests {
         .unwrap();
         fs::write(parts.join("font"), "font-size = 17\nconfig-file = ../config.ghostty\nbackground-image = ?\"a picture.png\"\n").unwrap();
         fs::write(parts.join("a picture.png"), [123, 42]).unwrap();
-        let run = || import(root.path(), &support, CHANNELS[1], &config);
+        let run = || {
+            import(root.path(), &root.path().join("classic-config"), &support, CHANNELS[1], &config)
+        };
         assert!(!layer.exists());
         run().unwrap();
         let imported = fs::read_to_string(layer.join(LAYER)).unwrap();
