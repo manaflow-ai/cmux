@@ -442,10 +442,15 @@ def without_failures(log: str, names: set[str]) -> str:
     texts = test_reds.log_lines(log)  # one per raw line
     skip = test_reds.echoed(texts)
     kept, taken = [], 0
+    parents: list[int] = []
     for n, (line, text) in enumerate(zip(raw, texts)):
         if n in skip:
             kept.append(line)
             continue
+        # Keep removed flakes in their own binary, including a child run printed in captured stdout.
+        if test_reds.CARGO_RUNNING.match(text):
+            parents.append(taken)
+            taken = 0
         if (match := FAILED_LINE.match(text)) and match.group(1) in names:
             taken += 1
             continue
@@ -454,7 +459,7 @@ def without_failures(log: str, names: set[str]) -> str:
                 passed, failed = int(counts.group(1)) + taken, max(int(counts.group(2)) - taken, 0)
                 state = "FAILED" if failed else "ok"
                 line = RESULT_COUNTS.sub(f"test result: {state}. {passed} passed; {failed} failed;", text, count=1)
-            taken = 0
+            taken = parents.pop() if parents else 0
         kept.append(line)
     return "\n".join(kept)
 

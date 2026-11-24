@@ -226,14 +226,14 @@ const optionRows = (scope = ".acpmux-env-popover") =>
 const rowLabel = (option: HTMLElement) => option.querySelector(".acpmux-menu-label")?.textContent ?? "";
 const cascadeRows = () => optionRows(".acpmux-env-cascade");
 
-// A new chat's list: Cloud is where it may run (`runMode`).
-const NEW_CHAT = { runMode: { mode: "persistent" as RunMode, onMode: () => undefined } };
+// A new chat's list: Cloud is where it may run, and Auto heads it (`runMode`).
+const NEW_CHAT = autoChat(false, []);
 
 test("the list is Auto, Cloud only, Machine…: no machine, count or Agent machines in it", async () => {
   const { container } = await renderDevices(DEVICES, NEW_CHAT);
   await open(container);
   expect(optionRows().map(rowLabel)).toEqual([
-    translate("composer.autoPlace"),
+    translate("composer.auto"),
     translate("composer.cloudOnly"),
     translate("composer.machineMenu"),
   ]);
@@ -241,8 +241,8 @@ test("the list is Auto, Cloud only, Machine…: no machine, count or Agent machi
   expect(document.querySelector(".acpmux-env-popover")!.textContent).not.toContain("gcp-agent-lane");
 });
 
-test("Auto is checked by default (This Mac is the pick), Machine… has a chevron, Cloud only none", async () => {
-  const { container } = await renderDevices(DEVICES, NEW_CHAT);
+test("Auto picked is checked, Machine… has a chevron, Cloud only none", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(true, []));
   await open(container);
   const [auto, cloud, machine] = optionRows();
   expect(auto!.querySelector("[data-current]")).not.toBeNull();
@@ -281,7 +281,7 @@ test("Machine… opens beside the list: the list stays; This Mac, the own machin
   const { container, picks } = await renderDevices(DEVICES, NEW_CHAT);
   await open(container);
   await choose('[data-action="machineMenu"]');
-  expect(optionRows().map(rowLabel)).toContain(translate("composer.autoPlace"));
+  expect(optionRows().map(rowLabel)).toContain(translate("composer.auto"));
   expect(document.querySelector(".acpmux-env-cascade")).not.toBeNull();
   expect(cascadeRows().map(rowLabel)).toEqual([
     translate("composer.thisMac"),
@@ -302,11 +302,8 @@ test("Machine… opens beside the list: the list stays; This Mac, the own machin
 });
 
 test("a pick in the Machine… cascade is the machine's pick and leaves Auto", async () => {
-  const manual: string[] = [];
-  const { container, picks } = await renderDevices(DEVICES, {
-    ...NEW_CHAT,
-    auto: { pick: "this Mac", selected: true, onManual: () => manual.push("manual") },
-  });
+  const log: string[] = [];
+  const { container, picks } = await renderDevices(DEVICES, autoChat(true, log));
   await open(container);
   await choose('[data-action="machineMenu"]');
   await act(async () =>
@@ -316,17 +313,13 @@ test("a pick in the Machine… cascade is the machine's pick and leaves Auto", a
   );
   await settle();
   expect(picks).toEqual(["gpu-box"]);
-  expect(manual).toEqual(["manual"]);
+  expect(log).toContain("auto:false");
   expect(document.querySelector(".acpmux-env-popover")).toBeNull();
 });
 
-test("a manual pick unchecks Auto and checks Machine… and the machine; Auto picked again calls onSelect", async () => {
+test("a manual pick unchecks Auto and checks Machine… and the machine; Auto picked again picks it", async () => {
   const chosen: string[] = [];
-  const { container } = await renderDevices(DEVICES, {
-    ...NEW_CHAT,
-    current: "gpu-box",
-    auto: { pick: "this Mac", selected: false, onSelect: () => chosen.push("auto") },
-  });
+  const { container } = await renderDevices(DEVICES, { ...autoChat(false, chosen), current: "gpu-box" });
   await open(container);
   const [auto, , machine] = optionRows();
   expect(auto!.querySelector("[data-current]")).toBeNull();
@@ -339,7 +332,7 @@ test("a manual pick unchecks Auto and checks Machine… and the machine; Auto pi
   ).not.toBeNull();
   await act(async () => optionRows()[0]!.click());
   await settle();
-  expect(chosen).toEqual(["auto"]);
+  expect(chosen).toEqual(["auto:true"]);
 });
 
 test("← and Escape go back one level: the cascade closes, the list stays", async () => {
@@ -419,7 +412,7 @@ test("without otherDevices (a started chat, the machine list) the main list has 
   const { container } = await renderDevices(DEVICES, { otherDevices: false });
   await open(container);
   expect(document.querySelector('.acpmux-env-popover [data-action="machineMenu"]')).toBeNull();
-  expect(document.querySelector('.acpmux-env-popover [data-action="auto"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="auto"]')).toBeNull();
 });
 
 // cmux#47677: the Where menu's Cloud row with no run-mode rows (before the host's check answered, a
@@ -442,6 +435,76 @@ test("with no run mode and the chat not on Cloud, the list offers no Cloud row t
     document.querySelector('.acpmux-env-popover [data-action="cloud"], .acpmux-env-popover [data-kind="cloud"]'),
   ).toBeNull();
   expect(connects).toEqual([]);
+});
+
+// Auto (autoWhereModel.ts; Leo, 2026-11-22: "the selection for auto as an environment choice between
+// cloud/local/whatever is the whole point"): a new chat's first row when the page offers it.
+function autoChat(picked: boolean, log: string[], mode: RunMode = "persistent") {
+  return {
+    runMode: {
+      mode,
+      onMode: (next: RunMode) => void log.push(`mode:${next}`),
+      auto: { picked, onPick: (on: boolean) => void log.push(`auto:${on}`), look: "orbit" as const },
+    },
+  };
+}
+
+test("Auto heads a new chat's list only when the page offers it", async () => {
+  const offered = await renderDevices(DEVICES, autoChat(false, []));
+  await open(offered.container);
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.auto"),
+    translate("composer.thisMac"),
+    translate("composer.cloud"),
+    translate("composer.otherDevices"),
+  ]);
+  const row = document.querySelector('.acpmux-env-popover [data-kind="auto"]')!;
+  expect(row.getAttribute("data-auto-look")).toBe("orbit");
+  expect(row.querySelector('.acpmux-auto-icon[data-look="orbit"]')).not.toBeNull();
+  expect(row.querySelector("[data-current]")).toBeNull();
+});
+
+test("the list has no Auto row without the page's offer", async () => {
+  const { container } = await renderDevices(DEVICES, NEW_CHAT);
+  await open(container);
+  expect(optionRows().map(rowLabel)).not.toContain(translate("composer.auto"));
+});
+
+test("picking Auto turns it on, closes the list and focuses the prompt", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(false, log));
+  await open(container);
+  await choose('[data-kind="auto"]');
+  expect(log).toEqual(["auto:true"]);
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("textarea"));
+});
+
+test("Auto picked is the one checked row, and the chip carries its look", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(true, []));
+  expect(container.querySelector(".acpmux-location-picker")?.getAttribute("data-auto-look")).toBe("orbit");
+  await open(container);
+  const checked = [...document.querySelectorAll(".acpmux-env-popover .acpmux-env-row[data-current]")];
+  expect(checked.map((row) => row.getAttribute("data-kind"))).toEqual(["auto"]);
+});
+
+test("with Auto picked, This Mac turns Auto off and the chat stays here", async () => {
+  const local: string[] = [];
+  const here = await renderDevices(DEVICES, autoChat(true, local));
+  await open(here.container);
+  await choose('[data-kind="local"]');
+  expect(local).toEqual(["auto:false"]);
+  // This Mac was already the machine: no machine pick, the prompt takes focus.
+  expect(here.picks).toEqual([]);
+  expect(document.activeElement).toBe(here.container.querySelector("textarea"));
+});
+
+test("with Auto picked, Cloud turns Auto off and makes Cloud the mode", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoChat(true, log));
+  await open(container);
+  await choose('[data-mode="cloud"]');
+  expect(log).toEqual(["auto:false", "mode:cloud"]);
 });
 
 // A started chat's Move to… list opens on where the chat runs now, checked: the person sees what

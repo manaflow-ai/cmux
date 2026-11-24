@@ -5,7 +5,6 @@ import { Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { Popover } from "../../ui/Popover";
 import { CascadeMenu } from "../../ui/CascadeMenu";
-import { AutoIcon, type AutoGlyph } from "./AutoIcon";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { translate as t, type StringKey } from "./i18n";
 import {
@@ -38,9 +37,12 @@ import {
   useMachineRefresh,
 } from "./environmentPickerModel";
 import { WithFacts } from "./chips/FactsHoverCard";
+import { AutoIcon } from "./AutoWhere";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";
+/// Auto's row (autoWhereModel.ts): where the chat runs is the daemon's call on Send.
+const AUTO_RUN = "\u0000auto-run";
 
 /// A machine's kind, which the search also matches ("ssh", "cloud").
 const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
@@ -128,7 +130,6 @@ export function EnvironmentPicker({
   unavailableExpanded = false,
   card,
   otherDevices = false,
-  auto,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -195,11 +196,6 @@ export function EnvironmentPicker({
   /// opens the person's own machines (no Cloud ones) in place, then Add Machine… (Austin,
   /// 2026-11-12). Needs `onConnect`; a started chat's list is its move instead.
   otherDevices?: boolean;
-  /// With `otherDevices` (a new chat): the Auto row, first and the default (Leo, 2026-11-23: "i think so.
-  /// i think this is good as a start."). `pick` is where Auto puts the chat now ("this Mac", "Cloud (Mac
-  /// busy)"), decided elsewhere; `selected` is whether Auto is the choice (a manual pick leaves it, for that
-  /// chat only); `onManual` runs when any other row is picked. Without it Auto is selected while This Mac is.
-  auto?: AutoPlace;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -277,8 +273,12 @@ export function EnvironmentPicker({
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const clouded = runMode?.mode === "cloud";
-  const checkedRow = sandboxed || clouded ? undefined : currentRow;
+  // Auto picked: no other row is checked until the daemon says where (autoWhereModel.ts).
+  const auto = runMode?.auto;
+  const autoPicked = auto?.picked === true;
+  const checkedRow = sandboxed || clouded || autoPicked ? undefined : currentRow;
   const persistent = () => {
+    if (autoPicked) auto?.onPick(false);
     if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
   };
   // ⌥ held while the list is open shows Cloud's other face (as a Mac menu's alternate).
@@ -315,10 +315,6 @@ export function EnvironmentPicker({
   // planes: group agent) are no place of a new chat. In Where it is so whatever the setup actions; in
   // the combined list only where a machine can be added. Cloud machines are Cloud's, in neither.
   const offersDevices = otherDevices && (listRows === "where" || (listRows === "combined" && onConnect !== undefined));
-  // Auto is the choice while the person made none: the app's own `auto.selected`, else while This Mac is
-  // the pick (a picker with no chat state to ask).
-  const autoSelected =
-    offersDevices && (auto ? auto.selected : sections.get(current) === "local" && !sandboxed && !clouded);
   const isPlainMachine = (environment: Environment) =>
     environment.kind !== "cloud" && !isCloudMachineRow(environment) && sections.get(environment.id) !== "local";
   const devices = useMemo(
@@ -337,9 +333,14 @@ export function EnvironmentPicker({
   const places = useMemo(
     () =>
       offersDevices
-        ? ["auto" as const, "cloud" as const, "machines" as const, ...devices.filter(environmentReady)].slice(0, 9)
+        ? [
+            ...(auto ? ["auto" as const] : []),
+            "cloud" as const,
+            "machines" as const,
+            ...devices.filter(environmentReady),
+          ].slice(0, 9)
         : numberedPlaces(environments, false),
-    [offersDevices, devices, environments],
+    [offersDevices, devices, environments, auto],
   );
   const numbers = useMemo(
     () =>
@@ -493,6 +494,8 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
+  // Auto heads a new chat's where-it-runs rows when the page offers it (opt in, per chat).
+  const autoRows = auto ? [AUTO_RUN] : [];
   // Which machine's list, and Other devices' list, end with Add Machine….
   const addMachine: Action | undefined =
     (listRows === "machines" || offersDevices) && onConnect
@@ -615,7 +618,7 @@ export function EnvironmentPicker({
     checkedRow?.startsWith(SAVED) === true &&
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   // A manual machine (This Mac or one of the person's own) is the pick: Machine… is checked, Auto is not.
-  const machinePicked = offersDevices && !autoSelected && !clouded && !sandboxed;
+  const machinePicked = offersDevices && !autoPicked && !clouded && !sandboxed;
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest
   // greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
   const readyFirst = (items: Environment[]) => [
@@ -645,18 +648,17 @@ export function EnvironmentPicker({
   const placeRows: string[] = offersDevices
     ? [MACHINES_MENU, ...(addMachine && !machinesMenu ? [addMachine.value] : [])]
     : [];
-  const placeAuto = offersDevices ? [AUTO_ROW] : [];
-  const main = card
+    const main = card
     ? [...cardActions, ...continueOn].map((action) => action.value)
     : [
-        ...placeAuto,
+        ...autoRows,
         ...placeLocal,
         ...(pickedOther && !offersDevices ? [pickedOther] : []),
         ...(move ? [move.value] : []),
         ...placeCloud,
         ...placeRows,
       ];
-  const where = [...placeAuto, ...placeLocal, ...placeCloud, ...placeRows];
+  const where = [...autoRows, ...placeLocal, ...placeCloud, ...placeRows];
   // The Machine… cascade: This Mac first, then the person's own machines, its own search, the ready
   // ones first and the long-down ones under its own Unavailable row; Add Machine… last.
   const cascadeWords = useMemo(() => cascadeQuery.trim().toLowerCase().split(/\s+/).filter(Boolean), [cascadeQuery]);
@@ -693,7 +695,11 @@ export function EnvironmentPicker({
           ? machines
           : listRows === "where" || listRows === "run"
             ? listRows === "run"
-              ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+              ? [
+                  ...autoRows,
+                  ...ordered.filter(isLocal).map((environment) => environment.id),
+                  ...(cloudRow ? [cloudRow] : []),
+                ]
               : where
             : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
@@ -719,8 +725,7 @@ export function EnvironmentPicker({
     onPick,
     persistent,
     cloudPicked: clouded,
-    autoPicked: autoSelected,
-    manual: auto?.onManual,
+    autoPicked,
   });
   latest.current = {
     places,
@@ -728,8 +733,7 @@ export function EnvironmentPicker({
     onPick,
     persistent,
     cloudPicked: clouded,
-    autoPicked: autoSelected,
-    manual: auto?.onManual,
+    autoPicked,
   };
   useMachineRefresh(open, onOpen);
 
@@ -789,7 +793,6 @@ export function EnvironmentPicker({
       event.stopPropagation();
       if (openRef.current) closeRef.current();
       latest.current.persistent();
-      latest.current.manual?.();
       if (environment.id !== latest.current.current) latest.current.onPick(environment.id);
       else focusPromptRef.current();
     };
@@ -819,17 +822,6 @@ export function EnvironmentPicker({
       openCascade("machines", true);
       return;
     }
-    // Auto: the default; the chat starts where the app decides, never a manual pick.
-    if (value === AUTO_ROW) {
-      close();
-      persistent();
-      auto?.onSelect?.();
-      if (sections.get(current) !== "local") {
-        const local = ordered.find(isLocal);
-        if (local) onPick(local.id);
-      } else focusPrompt();
-      return;
-    }
     const action = actions.find((candidate) => candidate.value === value);
     // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
     // stays open.
@@ -844,8 +836,17 @@ export function EnvironmentPicker({
       return;
     }
     close();
-    if (offersDevices) auto?.onManual?.();
+    if (value === AUTO_RUN) {
+      // Auto is a pick like Cloud: it changes no folder or machine, and Send asks where.
+      if (!autoPicked) {
+        if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
+        auto?.onPick(true);
+      }
+      focusPrompt();
+      return;
+    }
     if (value === CLOUD_RUN) {
+      if (autoPicked) auto?.onPick(false);
       // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
       if (sandboxFace) {
         if (sandboxed) focusPrompt();
@@ -865,7 +866,7 @@ export function EnvironmentPicker({
     else if (machine) onPick(value);
   };
   pickCloudRef.current = () => submit(CLOUD_RUN);
-  pickAutoRef.current = () => submit(AUTO_ROW);
+  pickAutoRef.current = () => submit(AUTO_RUN);
   openMachinesRef.current = () => {
     if (!open) setOpen(true);
     requestAnimationFrame(() => openCascade("machines", true));
@@ -914,6 +915,32 @@ export function EnvironmentPicker({
     return motion ? React.cloneElement(node, { "data-row-motion": motion }) : node;
   };
   const rowContent = (value: string, unavailableN: number = unavailableCount) => {
+    // Auto: the plain word, the other rows' size; its look is the icon (autoWhere.css). What it does
+    // is on its hover card.
+    if (value === AUTO_RUN && auto) {
+      return (
+        <WithFacts facts={[{ value: t("composer.autoRunDetail") }]}>
+          {(facts) => (
+            <span
+              {...facts}
+              className="acpmux-location-row acpmux-env-row acpmux-env-new"
+              data-kind="auto"
+              data-auto-look={auto.look}
+              data-current={autoPicked ? "" : undefined}
+            >
+              <AutoIcon look={auto.look} />
+              <span className="acpmux-menu-text acpmux-location-name">
+                <span className="acpmux-menu-label">{t("composer.auto")}</span>
+              </span>
+              {autoNumber !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{autoNumber}</kbd>}
+              <span className="acpmux-location-check" aria-hidden="true">
+                {autoPicked && <CheckIcon />}
+              </span>
+            </span>
+          )}
+        </WithFacts>
+      );
+    }
     if (value === CLOUD_RUN && sandboxFace) {
       return (
         <span
@@ -932,36 +959,11 @@ export function EnvironmentPicker({
         </span>
       );
     }
-    // Auto: the default place of a new chat. One line; what it does is on its hover card.
-    if (value === AUTO_ROW) {
-      return (
-        <WithFacts facts={[{ value: t("composer.autoPlaceDetail") }]}>
-          {(facts) => (
-            <span
-              {...facts}
-              className="acpmux-location-row acpmux-env-row acpmux-env-new"
-              data-kind="auto"
-              data-action="auto"
-              data-current={autoSelected ? "" : undefined}
-            >
-              <AutoIcon glyph={auto?.glyph} />
-              <span className="acpmux-menu-text acpmux-location-name">
-                <span className="acpmux-menu-label">{t("composer.autoPlace")}</span>
-              </span>
-              {autoNumber !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{autoNumber}</kbd>}
-              <span className="acpmux-location-check" aria-hidden="true">
-                {autoSelected && <CheckIcon />}
-              </span>
-            </span>
-          )}
-        </WithFacts>
-      );
-    }
     // Cloud as where the new chat runs: one line, as This Mac; what it does is on its hover card. It says
     // only Cloud, never the active team (https://github.com/manaflow-ai/cmux/issues/45695). In a new
     // chat's list it is Cloud only: always a fresh VM, the app sizes it (no size, no provider list).
     if (value === CLOUD_RUN) {
-      const checked = (listRows === "where" ? cloudChecked : clouded) && !autoSelected;
+      const checked = (listRows === "where" ? cloudChecked : clouded) && !autoPicked;
       return (
         <WithFacts facts={[{ value: t("composer.cloudRunDetail") }]}>
           {(facts) => (
@@ -1114,7 +1116,7 @@ export function EnvironmentPicker({
             className="acpmux-location-row acpmux-env-row"
             data-kind={environment.kind}
             data-current={
-              (environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoSelected ? "" : undefined
+              (environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoPicked ? "" : undefined
             }
             data-ready={greyed ? "false" : undefined}
             aria-disabled={greyed ? true : undefined}
@@ -1162,7 +1164,7 @@ export function EnvironmentPicker({
               )}
             {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
             <span className="acpmux-location-check" aria-hidden="true">
-              {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoSelected && (
+              {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && !autoPicked && (
                 <CheckIcon />
               )}
             </span>
@@ -1193,6 +1195,7 @@ export function EnvironmentPicker({
       ref={control}
       className="acpmux-location-picker"
       data-kind="computer"
+      data-auto-look={autoPicked ? auto?.look : undefined}
       data-face={faceStyle}
       data-rows={listRows}
       data-machine-card={card ? "" : undefined}
@@ -1344,20 +1347,6 @@ const MACHINES_MENU = ACTION + "machineMenu";
 /// The Machine… cascade's own Unavailable row.
 
 const UNAVAILABLE_OWN = ACTION + "unavailableOwn";
-/// A new chat's Auto row: the app picks where the chat starts (this Mac while it has room, else a Cloud VM).
-const AUTO_ROW = ACTION + "auto";
-
-/// A new chat's Auto row (EnvironmentPicker `auto`).
-export interface AutoPlace {
-  readonly pick: string;
-  readonly selected: boolean;
-  /// Auto is picked; the picker has already made the chat Persistent on this Mac.
-  readonly onSelect?: () => void;
-  /// A place other than Auto is picked.
-  readonly onManual?: () => void;
-  readonly glyph?: AutoGlyph;
-}
-
 /// One place a started chat can move (Move to…): `local` is this Mac, whose row says This Mac.
 export interface MoveTarget {
   readonly id: string;

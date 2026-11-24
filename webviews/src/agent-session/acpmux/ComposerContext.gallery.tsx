@@ -655,11 +655,6 @@ const openMachines: Play = async (ctx) => {
   row.dispatchEvent(new Event("pointerover", { bubbles: true }));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-cascade .acpmux-env-row"));
 };
-const AUTO_GLYPHS = {
-  shipped: { angle: 22, gap: 2.5 },
-  steep: { angle: 38, gap: 2 },
-  upright: { angle: 10, gap: 3.5 },
-};
 const placeVariants = {
   "place-auto": {
     height: 220,
@@ -679,12 +674,6 @@ const placeVariants = {
     props: { ...placeMachines, ...onMachine("huge-blue") },
     play: openMachines,
   },
-  "place-auto-cloud-busy": {
-    height: 220,
-    note: "Auto's chip says its pick: Auto · Cloud (Mac busy), from the Hybrid start's answer (a prop here).",
-    props: { ...placeMachines, autoPick: "Cloud (Mac busy)" },
-    play: openCombined,
-  },
   "place-no-own-machines": {
     height: 460,
     note: "No machine of the person's yet: Machine… still opens, with This Mac and Add Machine….",
@@ -694,24 +683,6 @@ const placeVariants = {
       peerInfo: { "lane-1": { group: "agent" as const, liveSessions: 1 } },
     },
     play: openMachines,
-  },
-  "place-glyph-shipped": {
-    height: 220,
-    note: "Auto glyph, SHIPPED: a laptop (left) and a cloud (right) split by a slash leaning 22 degrees with 2.5 units of gap, on the 24 grid at 1.5 stroke, as cmux#53295's set.",
-    props: { ...placeMachines, autoGlyph: AUTO_GLYPHS.shipped },
-    play: openCombined,
-  },
-  "place-glyph-steep": {
-    height: 220,
-    note: "Auto glyph, comparison: slash 38 degrees, gap 2. Reads as a lean line more than a split; the cloud half loses its left bump.",
-    props: { ...placeMachines, autoGlyph: AUTO_GLYPHS.steep },
-    play: openCombined,
-  },
-  "place-glyph-upright": {
-    height: 220,
-    note: "Auto glyph, comparison: slash 10 degrees, gap 3.5. Nearly a vertical divide; the angle Leo asked for is barely there and the halves shrink.",
-    props: { ...placeMachines, autoGlyph: AUTO_GLYPHS.upright },
-    play: openCombined,
   },
   "place-comparison-drill-in": {
     height: 300,

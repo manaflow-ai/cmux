@@ -9,7 +9,6 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
-import { AutoIcon, type AutoGlyph } from "./AutoIcon";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -91,6 +90,8 @@ import {
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
+import { AutoIcon } from "./AutoWhere";
+import { AUTO_LOOK } from "./autoWhereModel";
 import { useSameValue } from "./session-info/sameValue";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -160,8 +161,6 @@ export function ComposerContext({
   peerStates = NO_PEER_STATES,
   peerResources = NO_PEER_RESOURCES,
   peerInfo = NO_PEER_INFO,
-  autoPick = "this Mac",
-  autoGlyph,
   peerLinks = NO_PEER_LINKS,
   environments = false,
   started = false,
@@ -231,11 +230,6 @@ export function ComposerContext({
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's group and live sessions (`AcpmuxSnapshot.peerInfo`): which list a machine is in.
   peerInfo?: Record<string, PeerInfo>;
-  /// Where Auto puts a new chat now, as the chip says it ("Auto · this Mac", "Auto · Cloud (Mac busy)"): the
-  /// placement itself is decided elsewhere (the Hybrid start); this is its answer, "this Mac" until it says.
-  autoPick?: string;
-  /// Auto's glyph geometry (AutoIcon.tsx); the gallery compares them.
-  autoGlyph?: AutoGlyph;
   /// The computer control is the environment picker (EnvironmentPicker.tsx), with Local, SSH and
   /// Cloud sections and ⌥⌘1–9. The agent page always passes it (not behind Labs, Leo 2026-10-30);
   /// off, the plain Computer menu, for surfaces that pass nothing.
@@ -664,6 +658,9 @@ export function ComposerContext({
   useEffect(() => {
     if (arrivedId) arrive.current(arrivedId);
   }, [arrivedId]);
+  // Auto picked (autoWhereModel.ts): the Where chip says Auto in its look until the daemon says where.
+  const autoPicked = runMode?.auto?.picked === true && !readOnly;
+  const autoLook = runMode?.auto?.look ?? AUTO_LOOK;
   const newChats = started && onNewChat !== undefined;
   // What the folder chip opens (folderlessCloud.ts `folderMenu`): a Cloud chat's never lists this
   // Mac's folders or Add folder… once it runs on its machine, and is a label while its start is out.
@@ -996,27 +993,30 @@ export function ComposerContext({
     folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Other devices'.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
-  const whereName = sandboxPicked
-    ? t("composer.sandboxed")
-    : cloudSide
-      ? t("composer.cloud")
-      : offMac
-        ? (placeName ?? t("composer.machine"))
-        : t("composer.thisMac");
+  const whereName = autoPicked
+    ? t("composer.auto")
+    : sandboxPicked
+      ? t("composer.sandboxed")
+      : cloudSide
+        ? t("composer.cloud")
+        : offMac
+          ? (placeName ?? t("composer.machine"))
+          : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
   const wherePlace =
     (savedPick !== undefined || (cloudSide && !cloudPicked && !pageOnCloud)) && placeName && whereName !== placeName
       ? `${whereName} · ${placeName}`
       : whereName;
-  const whereIcon =
-    sandboxPicked || cloudSide ? (
-      <EnvironmentIcon kind="cloud" />
-    ) : offMac ? (
-      <DevicesIcon />
-    ) : (
-      <EnvironmentIcon kind="local" />
-    );
+  const whereIcon = autoPicked ? (
+    <AutoIcon look={autoLook} />
+  ) : sandboxPicked || cloudSide ? (
+    <EnvironmentIcon kind="cloud" />
+  ) : offMac ? (
+    <DevicesIcon />
+  ) : (
+    <EnvironmentIcon kind="local" />
+  );
   // The third chip: which machine while another machine is the pick; in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
@@ -1080,27 +1080,6 @@ export function ComposerContext({
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
-  // Auto (Leo, 2026-11-23: "i think so. i think this is good as a start."): a new chat starts on Auto, and
-  // a manual pick (This Mac, a machine, Cloud only) holds for this chat only, never the next one's default.
-  const [autoChosen, setAutoChosen] = useState(true);
-  const autoOffered = !readOnly && !moves && environmentsShown && layout !== "cloud-toggle";
-  const autoSelected =
-    autoOffered &&
-    autoChosen &&
-    selectedComputer === "local" &&
-    !savedPick &&
-    !cloudPicked &&
-    !sandboxPicked &&
-    !pageOnCloud;
-  const autoValue = t("composer.autoPlacePick", { pick: autoPick });
-  const autoPlace = {
-    pick: autoPick,
-    selected: autoSelected,
-    onSelect: () => setAutoChosen(true),
-    onManual: () => setAutoChosen(false),
-    ...(autoGlyph ? { glyph: autoGlyph } : {}),
-  };
-  const autoFace = <LocationFace icon={<AutoIcon glyph={autoGlyph} />} value={autoValue} chevron />;
   const combinedFace =
     waiting && waitingName ? (
       <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
@@ -1234,16 +1213,16 @@ export function ComposerContext({
                 label={t(CONTEXT_LABELS.environment)}
                 menu="Computer"
                 value={
-                  autoSelected
-                    ? autoValue
+                  autoPicked
+                    ? t("composer.auto")
                     : sandboxPicked || cloudPicked
                       ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
                       : placeName
                 }
                 face={
                   // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
-                  autoSelected ? (
-                    autoFace
+                  autoPicked ? (
+                    <LocationFace icon={<AutoIcon look={autoLook} />} value={t("composer.auto")} chevron />
                   ) : sandboxPicked || cloudPicked ? (
                     <LocationFace
                       icon={<EnvironmentIcon kind="cloud" />}
@@ -1257,7 +1236,6 @@ export function ComposerContext({
                 environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
                 // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
                 otherDevices={!readOnly && !moves}
-                {...(!readOnly && !moves ? { auto: autoPlace } : {})}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
                 {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
@@ -1279,13 +1257,12 @@ export function ComposerContext({
                   {...pickerProps}
                   label={t(CONTEXT_LABELS.environment)}
                   menu="Computer"
-                  value={autoSelected ? autoValue : wherePlace}
-                  face={autoSelected ? autoFace : <LocationFace icon={whereIcon} value={whereName} chevron />}
+                  value={wherePlace}
+                  face={<LocationFace icon={whereIcon} value={whereName} chevron />}
                   rows="where"
                   // Other devices opens the person's own machines in place; a pick there is the
                   // machine chip's pick (Austin, 2026-11-12: it was Remote, which opened that chip).
                   otherDevices
-                  auto={autoPlace}
                 />
                 {machineShown && (
                   <EnvironmentPicker
@@ -1535,7 +1512,7 @@ function normalizeCwd(cwd?: string): string | undefined {
 /// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row. A folder's
 /// name (`middle`) is cut in the middle, so its end survives: "atl…web", never "atla…" (design
 /// panel, compact composer).
-function LocationFace({
+export function LocationFace({
   icon,
   value,
   chevron,
