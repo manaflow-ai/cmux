@@ -100,6 +100,11 @@ pub struct SubagentTree {
     /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
     #[serde(default)]
     recent: std::collections::VecDeque<recent::RecentEntry>,
+    /// When the logged record being folded was written (`annotate_at`): a fold of the log
+    /// stamps a subagent's start and end with it, never with the moment it is read, so a
+    /// read resumed from a checkpoint and a whole read agree.
+    #[serde(skip)]
+    fold_at: Option<u64>,
     /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
     /// even when the running count did not (`hub/tap.rs`).
     #[serde(default)]
@@ -218,6 +223,14 @@ impl SubagentTree {
     /// the subagent the update belongs to, or `None` for the session's own.
     pub fn annotate(&mut self, params: &mut Value) -> Option<String> {
         self.annotate_live(params, true)
+    }
+
+    /// `annotate_live` of a logged record written at `at`, its time the one a start or end takes.
+    pub fn annotate_at(&mut self, params: &mut Value, live: bool, at: u64) -> Option<String> {
+        self.fold_at = Some(at);
+        let owner = self.annotate_live(params, live);
+        self.fold_at = None;
+        owner
     }
 
     /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
