@@ -116,12 +116,12 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
     /// Default's room above and below its location bar (Lucas 2026-11-20: "match chrome to be EXACTLY the same as chromium
     /// ... top-padding 6px bottom padding 6px"), Comfortable and Spacious that times their factor: Chrome's 6 pt (`TOOLBAR_INTERIOR_MARGIN`'s vertical inset in
     /// Chrome's layout constants), the bar's 34 pt in a 46 pt toolbar.
-    static let chromeToolbarGap: Double = 6
+    static let chromeToolbarGap: Double = 3
     /// Default's strip padding: 5 pt above, beside and under its tabs, 2 over Default-times-1's 3 (Lucas 2026-11-20: "make
     /// the top of the tabs 5px (so 2 more px)"); Comfortable and Spacious take it times their factor.
-    static let defaultStripPadding: Double = 5
+    static let defaultStripPadding: Double = 3
     /// Default's URL capitals: 11 pt, a point over Compact's 10.
-    static let defaultOmnibarCapHeight: Double = 11
+    static let defaultOmnibarCapHeight: Double = 8.5
     /// Default's star plate: its 16 pt star with Compact's padding (24 pt around 13.5), on whole pixels.
     static let defaultStarPlateSize: Double = 28
     /// Each built-in's bookmark star side. The star scales with the bar from Compact's 13.5 pt of ink (Lucas 2026-11-18:

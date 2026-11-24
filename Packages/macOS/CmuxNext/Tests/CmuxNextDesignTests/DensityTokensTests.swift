@@ -42,7 +42,7 @@ import Testing
         #expect(tokens.tokens["omnibarHeight"] == 34)
         #expect(tokens.tokens["omnibarCornerRadius"] == 9.5)
         #expect(tokens.toolbarButtonSize == 34)
-        #expect(tokens.tokens["omnibarFontSize"] == (11 - 0.31) / 0.70459)
+        #expect(tokens.tokens["omnibarFontSize"] == (8.5 - 0.31) / 0.70459)
         // Its search glyph is a little taller than Compact's too (`OmnibarCapitalsCenterTests.defaultsSearchGlyphIsALittleTaller`).
         #expect((tokens.tokens["omnibarIconSize"] ?? 0) > (DensityPreset.compact.tokens.tokens["omnibarIconSize"] ?? 0))
     }
@@ -92,7 +92,7 @@ import Testing
         func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }
         // Default's bar is Chrome's 34 pt, its corner Helium's ratio on it (`defaultsOmnibarIsChromes`).
         let chromeBar: [String: Double] = preset == .cozy
-            ? ["omnibarHeight": 34, "omnibarCornerRadius": 9.5, "omnibarFontSize": (11 - 0.31) / 0.70459,
+            ? ["omnibarHeight": 34, "omnibarCornerRadius": 9.5, "omnibarFontSize": (8.5 - 0.31) / 0.70459,
                "omnibarIconSize": DensityPreset.cozy.tokens.tokens["omnibarIconSize"] ?? 0,
                "omnibarStarGlyphSize": DensityPreset.cozy.tokens.tokens["omnibarStarGlyphSize"] ?? 0] : [:]
         for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {

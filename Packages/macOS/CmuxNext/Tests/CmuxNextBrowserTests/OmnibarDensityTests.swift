@@ -48,7 +48,7 @@ import Testing
         // 28 pt buttons (Lucas 2026-11-18: Compact's padding).
         let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
         #expect(metrics.barHeight == bar && metrics.buttonSize == (preset == .cozy ? 28 : bar), "\(preset)")
-        let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
+        let font = preset == .cozy ? CGFloat((8.5 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
         #expect(abs(metrics.fontSize - font) < 0.000_001, "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
     }
 
