@@ -23,8 +23,8 @@
 //!
 //! Metrics (DESIGN "Cell = 4 metrics"): `ttfc_ms` from adding the peer to the first attach
 //! that returns rows; `resume_ms` from the condition's end to the arrival on A's client of a
-//! marker prompted into the chat on B after the change (for the steady conditions, loss and
-//! latency, that is the marker's one-way latency under the condition); `delta_bytes` both ways
+//! marker prompted into the chat on B after the change (the steady conditions, loss and
+//! latency, end with a 5 s blip in the link, as `pair_matrix_desktop.rs` does); `delta_bytes` both ways
 //! through the shaper from the change to that arrival (`long`: bytes per minute over the hold);
 //! `fail` 1 when a run reached no content or no marker within 90 s, or saw a marker event's seq
 //! twice. Lines: `PAIRCELL {...}` with `"path":"direct-ssh"`, `PAIRCELL-NA {...}`.
@@ -688,7 +688,13 @@ async fn one_run(
                 tokio::time::sleep_until(until).await;
                 until
             }
-            _ => Instant::now(),
+            // loss, latency: steady links; resume after a 5 s blip in them, as
+            // pair_matrix_desktop.rs measures its steady rows.
+            _ => {
+                let until = shaper.blackout(Duration::from_secs(5));
+                tokio::time::sleep_until(until).await;
+                until
+            }
         };
         let (arrived, dup) = marker_round(rig, &client, condition).await;
         match arrived {
