@@ -5,8 +5,9 @@
 // (docs/design/make-cmux-yours-intro-walk.md in cmuxterm-hq):
 //   - zero layout shift: no named part of the screen moves or resizes when a pick is clicked, read two ways: the
 //     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after. A shift
-//     made only of the live preview's own parts (.onb-make-window reflowing to show a density) is the pick showing:
-//     reported per step as `previewCls` and in the summary as `preview_cls_max`, never failed;
+//     made only of the live preview's own parts (.onb-make-window reflowing to show a density) on a density pick is
+//     the pick showing: reported per step as `previewCls` and in the summary as `preview_cls_max`, never failed; on
+//     any other step it counts as CLS;
 //   - one publish per pick: each click on a choice sends exactly one op, and Skip sends exactly one;
 //   - Skip restores: after picks then Skip, the choices the page shows equal the ones it opened on. The mock answers
 //     as the host does (MakeItYoursStepModel.revert writes the opening choices back on Skip).
@@ -163,21 +164,24 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     await frames(page);
     await frames(page);
     const after = await page.evaluate(readBoxes, PARTS);
-    const { calls, cls, previewCls, shifted } = await page.evaluate(() => ({
+    const { calls, cls, previewCls, shifted, allShifted } = await page.evaluate(() => ({
       calls: globalThis.cmuxOnboardingMockCalls.map((call) => call.op),
       cls: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).reduce((sum, shift) => sum + shift.value, 0),
       previewCls: globalThis.cmuxLayoutShifts
         .filter((shift) => shift.preview)
         .reduce((sum, shift) => sum + shift.value, 0),
       shifted: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).flatMap((shift) => shift.sources),
+      allShifted: globalThis.cmuxLayoutShifts.flatMap((shift) => shift.sources),
     }));
+    // Only a density pick may reflow the preview; a preview shift on any other step is a shift like any other.
+    const reflows = label.startsWith("density=");
     const step = {
       step: label,
       ops: calls,
-      cls: Math.round(cls * 10000) / 10000,
-      previewCls: Math.round(previewCls * 10000) / 10000,
+      cls: Math.round((reflows ? cls : cls + previewCls) * 10000) / 10000,
+      previewCls: reflows ? Math.round(previewCls * 10000) / 10000 : 0,
       moved: moves(before, after),
-      shifted,
+      shifted: reflows ? shifted : allShifted,
     };
     steps.push(step);
     return step;
