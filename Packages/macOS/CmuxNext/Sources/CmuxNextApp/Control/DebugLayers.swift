@@ -174,7 +174,7 @@ enum DebugLayers {
                     "parking": parking.map(JSONValue.string) ?? .null,
                     "frame_in_window": rect(view.convert(view.bounds, to: nil)),
                     "rwhv_in_window": .bool(census.contentInWindow),
-                    "widget_drawing": .number(Double(census.widgetDrawing)),
+                    "widget_drawing": .number(Double(census.widgetDrawing)), "geometry": .string(view.inTreeGeometry),
                 ])
             }),
             // In-tree pages: page child windows that showed over this window (`WindowOverlayLayer`); must stay empty.
