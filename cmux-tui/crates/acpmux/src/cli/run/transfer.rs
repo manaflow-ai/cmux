@@ -211,7 +211,8 @@ async fn begin_with(
         begin_params.set("afterSeq", json!(staged.after_seq));
     }
     if let Some(bound) = turn_bound.filter(|_| after_turn) {
-        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
+        begin_params
+            .set("afterTurnTimeoutMs", json!(u64::try_from(bound.as_millis()).unwrap_or(u64::MAX)));
     }
     let begin = src.call("_acpmux/transfer_begin", begin_params, Wait::Turn, true).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
@@ -532,10 +533,20 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
-    let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
-    if let Err(e) = receiver_takes(begin, dst_init) {
+    let transfer_id = &begun.transfer_id;
+    if let Err(e) = receiver_takes(&begun.begin, dst_init) {
         return Err(abort_end(src, id, begun, e).await);
     }
+    // An optional bundle file the target does not list stays here: a target older than it would
+    // refuse the whole move for it (`capabilities::OPTIONAL_BUNDLE_FILES`).
+    let mut begin = begun.begin.clone();
+    let caps = "/_meta/acpmux/capabilities";
+    let left =
+        crate::capabilities::leave_out_untaken(&mut begin, |c| live::lists(dst_init, caps, c));
+    if let Some(line) = crate::capabilities::left_out_line(&left) {
+        eprintln!("acpmux: move {transfer_id}: {line}");
+    }
+    let begin = &begin;
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
