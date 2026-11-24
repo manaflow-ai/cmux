@@ -1,0 +1,169 @@
+/* Sidebar edge fade gallery (SidebarEdgeFadeDesigns.tsx). A glass sidebar over a colourful
+ * backdrop: the scroller's mask-image lets the backdrop's colour show through faded rows, so a
+ * mask reads differently from a painted band. Rows are 28 px (design/grid.md 5.4). */
+.sef-stage {
+  --sef-tone: var(--cmux-app-sidebar, var(--cmux-surface-background, Canvas));
+  --sef-ink: var(--cmux-text, CanvasText);
+  --sef-ink-2: var(
+    --cmux-text-secondary,
+    color-mix(in srgb, var(--sef-ink) 62%, transparent)
+  );
+  --sef-ink-3: var(
+    --cmux-text-tertiary,
+    color-mix(in srgb, var(--sef-ink) 42%, transparent)
+  );
+  --sef-row: var(--grid-row, 28px);
+  --sef-footer: 36px;
+  /* The mock's own geometry and backdrop, held as stage properties: a picture of the native
+   * sidebar (6 px row inset, 10 px row padding, 22 px avatar), not a web surface's metrics. */
+  --sef-sidebar-height: 520px;
+  --sef-scroll-pad-top: 6px;
+  --sef-row-inset: 6px;
+  --sef-row-pad: 10px;
+  --sef-dot: 8px;
+  --sef-avatar: 22px;
+  --sef-avatar-fill: var(--cmux-accent);
+  --sef-backdrop:
+    radial-gradient(circle at 15% 85%, #ff5f6d 0, transparent 45%),
+    radial-gradient(circle at 80% 75%, #ffc371 0, transparent 40%),
+    radial-gradient(circle at 70% 15%, #4facfe 0, transparent 45%),
+    radial-gradient(circle at 20% 20%, #43e97b 0, transparent 40%), #7b4397;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  background: var(--sef-backdrop);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--sef-ink);
+}
+
+.sef-sidebar {
+  position: relative;
+  width: 260px;
+  height: var(--sef-sidebar-height);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--sef-tone) var(--ds-glass-chrome-tint, 72%),
+    transparent
+  );
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--sef-ink) 18%, transparent);
+}
+
+.sef-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sef-scroll-pad-top) 0 8px;
+  scrollbar-width: none;
+}
+
+.sef-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* The list runs the full height, under the footer; the last rows can scroll clear of it. */
+.sef-sidebar[data-under-footer] .sef-scroll {
+  position: absolute;
+  inset: 0;
+  padding-bottom: calc(var(--sef-footer) + 8px);
+}
+
+.sef-header {
+  height: var(--sef-row);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  color: var(--sef-ink-3);
+  font-weight: 600;
+}
+
+.sef-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  height: var(--sef-row);
+  margin: 0 var(--sef-row-inset);
+  padding: 0 var(--sef-row-pad);
+  border-radius: 8px;
+}
+
+.sef-row[data-active] {
+  background: color-mix(in srgb, var(--sef-ink) 10%, transparent);
+}
+
+.sef-dot {
+  justify-self: center;
+  width: var(--sef-dot);
+  height: var(--sef-dot);
+  border-radius: 50%;
+}
+
+.sef-dot[data-unread] {
+  background: var(--cmux-status-unread, #0a84ff);
+}
+
+.sef-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sef-age {
+  color: var(--sef-ink-3);
+  font-size: var(--text-caption);
+}
+
+/* No background of its own: the sidebar glass (or the fading rows) shows behind it. */
+.sef-footer {
+  position: relative;
+  flex: none;
+  height: var(--sef-footer);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.sef-sidebar[data-under-footer] .sef-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.sef-avatar {
+  width: var(--sef-avatar);
+  height: var(--sef-avatar);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--sef-avatar-fill);
+  color: white;
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.sef-footer-space {
+  flex: 1;
+}
+
+.sef-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sef-ink-2);
+}
