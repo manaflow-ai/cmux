@@ -51,7 +51,7 @@ export default settingsPageEntry({
         shown,
         { selector: '[data-autocloud-action="new"]', action: "click" },
         { selector: "[data-autocloud-name]", action: "input", value: "Triage Sentry alerts" },
-        { selector: "[data-autocloud-trigger-type]", action: "select", value: "webhook" },
+        { selector: "[data-autocloud-trigger-type]", action: "change", value: "webhook" },
         { selector: "[data-autocloud-repo]", action: "input", value: "acme/web" },
         { selector: "[data-autocloud-prompt]", action: "input", value: "Look into this alert: {{event.url}}" },
         { selector: '[data-autocloud-action="save"]', action: "click" },

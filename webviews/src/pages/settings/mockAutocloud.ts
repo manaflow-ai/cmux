@@ -241,7 +241,7 @@ export const MOCK_AUTOCLOUD_DEPLOY: AutocloudAutomation = {
     whenText: "yesterday",
   },
   lastRunText: "Succeeded 1 day ago",
-  webhookUrl: "https://api.cmux.com/v1/hooks/auto_mock_deploy",
+  webhookUrl: "https://api.cmux.com/v1/automations/auto_mock_deploy/webhook",
   spec: {
     name: "Investigate failed deploys",
     trigger: { type: "webhook" },
@@ -552,7 +552,7 @@ function viewOf(id: string, spec: AutocloudSpec, enabled: boolean, revision: num
     actionText: `Starts ${harness} on ${spec.action.repo}`,
     lastRun: null,
     lastRunText: "Never ran",
-    webhookUrl: spec.trigger.type === "webhook" ? `https://api.cmux.com/v1/hooks/${id}` : null,
+    webhookUrl: spec.trigger.type === "webhook" ? `https://api.cmux.com/v1/automations/${id}/webhook` : null,
     spec: structuredClone(spec),
   };
 }
