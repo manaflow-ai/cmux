@@ -15,7 +15,10 @@ import CmuxNextSettings
     /// Called when ``toolsWidth`` changes, or the page loads again (the pane lays out again).
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
-    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
+    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool, accessoryRoom: CGFloat?)?
+    /// The most the row's accessories (the rolling summary) may take, in points (`PaneTabRowSharing.setTabRowAccessoryRoom`):
+    /// the room the pane's tabs leave at their full width (#53314); `.infinity` sets no limit.
+    var accessoryRoom: CGFloat = .infinity
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
     var tabsShown = true
     /// Native chrome holes, in the chat view's coordinates; Session Info adds its own overlay hole. Turned into the
@@ -65,7 +68,7 @@ import CmuxNextSettings
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
     var event: AgentPageEvent {
         .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0,
-                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
+                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false, accessoryRoom: offered?.accessoryRoom)
     }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the page draws no tools in the row. A page
@@ -92,7 +95,8 @@ import CmuxNextSettings
         let on = height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
-        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
+        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown,
+                    accessoryRoom: on ? accessoryRoomCSS(row.accessoryRoom / zoom) : nil)
         let shares = on && row.sharedWidth(zoom: zoom) != nil
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
@@ -117,6 +121,19 @@ import CmuxNextSettings
         row.offeredNativeRowTools = nativeRowTools
         let event = row.event
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
+    }
+
+    /// The widest the page's rolling summary is (header.css `.acpmux-chat-summary--inline`, 300px) plus its gap, and the
+    /// narrowest it shows at (header/tabRow.ts TAB_ROW_ACCESSORY_MIN): the room is offered in whole CSS pixels within
+    /// them, so a pane spring or a divider drag offers the row again only while the room is between the two.
+    static let accessoryRoomMax: CGFloat = 320
+    static let accessoryRoomMin: CGFloat = 160
+
+    /// `css` (the accessories' room in CSS pixels) as offered to the page: nil for no limit, 0 under the narrowest summary.
+    static func accessoryRoomCSS(_ css: CGFloat) -> CGFloat? {
+        guard css.isFinite else { return nil }
+        let room = min(accessoryRoomMax, max(0, css)).rounded(.down)
+        return room < accessoryRoomMin ? 0 : room
     }
 
     /// The color the pane's toolbar hole paints so the row reads as one surface (``PaneTabRowSharing/tabRowHoleFill``):
@@ -152,9 +169,12 @@ private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat
 extension AgentPageEvent {
     /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
     /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
-    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false) -> AgentPageEvent {
-        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
-                                               "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)])
+    /// `accessoryRoom`: the most the row's accessories (the rolling summary) may take, CSS pixels; nil sends none (no limit).
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false, accessoryRoom: CGFloat? = nil) -> AgentPageEvent {
+        var value: [String: JSONValue] = ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
+                                          "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)]
+        if let accessoryRoom { value["accessoryRoom"] = .number(Double(accessoryRoom)) }
+        return AgentPageEvent(kind: "tabRow", value: .object(value))
     }
 }
 
@@ -165,6 +185,7 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
     public func setTabRowTabs(shown: Bool) { model.tabRow.tabsShown = shown }
+    public func setTabRowAccessoryRoom(_ points: CGFloat) { model.tabRow.accessoryRoom = points }
     public var tabRowTakesLoneTab: Bool { true }
     public var tabRowHoleFill: CGColor? { model.tabRow.holeFill }
 }
