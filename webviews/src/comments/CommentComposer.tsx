@@ -6,11 +6,15 @@ export function CommentComposer({
   labels,
   onCancel,
   onSave,
+  placeholder,
+  saveLabel,
 }: {
   initialMessage?: string;
   labels: DiffCommentLabels;
   onCancel: () => void;
   onSave: (message: string) => void;
+  placeholder?: string;
+  saveLabel?: string;
 }) {
   const [message, setMessage] = useState(initialMessage);
   const focusOnMount = useCallback((node: HTMLTextAreaElement | null) => {
@@ -21,7 +25,7 @@ export function CommentComposer({
       <textarea
         ref={focusOnMount}
         className="comment-composer-input"
-        placeholder={labels.commentPlaceholder}
+        placeholder={placeholder ?? labels.commentPlaceholder}
         aria-label={labels.addComment}
         rows={3}
         value={message}
@@ -45,7 +49,7 @@ export function CommentComposer({
             disabled={message.trim() === ""}
             onClick={() => onSave(message)}
           >
-            {labels.saveComment}
+            {saveLabel ?? labels.saveComment}
           </button>
         </span>
       </div>

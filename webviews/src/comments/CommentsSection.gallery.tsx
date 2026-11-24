@@ -9,6 +9,7 @@ import type { SidebarCommentEntry } from "./annotations";
 import { CommentsSidebarSection, pullRequestReference } from "./CommentsSection";
 import { commentDisplayName } from "./format";
 import { fillCommentLabel, resolveCommentLabels } from "./labels";
+import { SavedComment } from "./SavedComment";
 import type { CommentsPostState, CommentsSendState, DiffCommentRecord, DiffReviewTarget } from "./types";
 
 const record = (id: string, filePath: string, line: number, message: string): DiffCommentRecord => ({
@@ -47,7 +48,16 @@ const REVIEW: DiffReviewTarget = {
 };
 const POSTED = { url: "https://github.com/acme/net/pull/482#pullrequestreview-1", posted: 2, inBody: 0 };
 
-type Design = "header" | "footer" | "link" | "review" | "review-replace" | "review-both";
+type Design =
+  | "header"
+  | "footer"
+  | "link"
+  | "review"
+  | "review-replace"
+  | "review-both"
+  | "thread-agent"
+  | "thread-resolved"
+  | "thread-reply";
 type Props = {
   design?: Design;
   count?: number;
@@ -62,7 +72,9 @@ function CommentsSendStage({ design = "header", count = 2, state = "idle", postS
   return (
     <aside style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 300 }}>
       <div style={{ flex: "1 1 auto" }} />
-      {design === "review" ? (
+      {design === "thread-agent" || design === "thread-resolved" || design === "thread-reply" ? (
+        <ThreadStage design={design} />
+      ) : design === "review" ? (
         <CommentsSidebarSection
           entries={list}
           hasDraft={false}
