@@ -211,6 +211,16 @@ import {
   useComputerUsePreview,
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
+import {
+  computerUseGate,
+  computerUseHold,
+  computerUseHoldText,
+  computerUseState,
+  holdOpensSetup,
+  useComputerUseState,
+  type ComputerUsePlace,
+} from "./computerUse/computerUseState";
+import { toolSlashCommands } from "./toolMentions";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
@@ -557,8 +567,14 @@ import { useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { handoffStrings } from "./handoff/strings";
-import { useExtensionCommands, withExtensionCommands } from "./composer/extensionCommands";
-import { continueTargets, mergedCommands, type CmuxCommand, type CmuxCommandResult } from "./cmuxCommands";
+import { useExtensionCommands, withExtensionCommands, withToolCommands } from "./composer/extensionCommands";
+import {
+  CmuxCommandRefused,
+  continueTargets,
+  mergedCommands,
+  type CmuxCommand,
+  type CmuxCommandResult,
+} from "./cmuxCommands";
 import { handleCmuxCommand as runCmuxCommand } from "./pane/cmuxCommands";
 import { chatMenuItems } from "./pane/chatMenu";
 import { newChatRunsElsewhere } from "./customizeCommand";
@@ -709,7 +725,9 @@ const settledBy = <T,>(promise: Promise<T>, until: number): Promise<T | undefine
   Promise.race([promise, new Promise<undefined>((settled) => setTimeout(settled, Math.max(0, until - Date.now())))]);
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
-const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
+// `need`: the width less the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY), what decides whether the pane offers the row.
+const reportTabRowTools = (width: number, need: number) =>
+  void callNative("pane.tabRowTools", { width, need }).catch(() => undefined);
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
 /// last resort only: the page reports its first paint once the chat's rows are in (`chatRead`) or
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
@@ -1176,6 +1194,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
+  /// Computer Use on this Mac, for a send that names `@computer-use` (toolMentions.ts, CMUX-682), and
+  /// the notice such a send raised (computerUse/ComputerUseSetupNotice.tsx): where the held send's
+  /// chat runs, undefined while no notice shows.
+  const computerUse = useComputerUseState();
+  const [computerUseAsked, setComputerUseAsked] = useState<ComputerUsePlace | undefined>();
+  // Set up since (in onboarding, then back here): the notice has nothing left to say. A chat off this
+  // Mac keeps its notice until dismissed or the next send.
+  const computerUseAsk = computerUseAsked && computerUseHold(computerUse, computerUseAsked);
+  const setUpComputerUse = () => {
+    setComputerUseAsked(undefined);
+    void callNative("action.run", { id: "palette.computerUse.setup" }).catch(sayActionRefusal(notices.transient));
+  };
+  /// Whether a send of `text` to a chat in `place` waits for Computer Use (`@computer-use` while the
+  /// app's latest push, `computerUseState()`, is not `ready`, or always for a chat off this Mac, which
+  /// has no Computer Use tools (#48541); decided at once, never on an answer still on its way). Not set
+  /// up, or a build that cannot run it (`holdOpensSetup`): the send's own Enter or click opens the setup
+  /// page (Lucas 2026-11-21: "when they hit send, we want to show the computer use setup page"; its one
+  /// grant credit, unspent, since nothing was sent), and the message stays. Turned off by the
+  /// organization, a chat off this Mac, or a host that did not open the page: the chat says why, and
+  /// `toast` too where no notice slot shows (New Tab). `opensSetup` false: a check after the send's own
+  /// key press or click (after an upload, a fork, a handshake, a seeded prompt): it holds and says why,
+  /// and never opens the setup page, which would spend whatever key the person pressed since.
+  const holdsForComputerUseSetup = (
+    text: string,
+    toast = false,
+    place: ComputerUsePlace = "here",
+    opensSetup = true,
+  ): boolean => {
+    const gate = computerUseGate(text, computerUseState(), place);
+    if (gate === "free") return false;
+    const say = () => {
+      setComputerUseAsked(place);
+      if (toast) notices.transient(translate(computerUseHoldText(gate).title), "computerUseSetup");
+    };
+    if (!opensSetup || !holdOpensSetup(gate)) say();
+    else {
+      setComputerUseAsked(undefined);
+      void callNative("action.run", { id: "palette.computerUse.setup" }).catch(say);
+    }
+    return true;
+  };
+  /// Where the shown chat runs, for `@computer-use`: the route-aware machine check the Session Info row
+  /// uses (chatMachine.ts), so a chat attached over the app's wire to another daemon is that machine's.
+  const shownChatPlace = (): ComputerUsePlace => {
+    const shown = snapshotRef.current;
+    const kind = shown ? chatMachineOf(shown.summary, undefined, shown.peerKinds, chatPlace(shown)).kind : "local";
+    return kind === "cloud" ? "cloud" : kind === "local" ? "here" : "machine";
+  };
+  // The bridge's long-lived handlers (`chat.side`) read the newest one, not the first render's.
+  const holdsForComputerUseSetupRef = useRef(holdsForComputerUseSetup);
+  holdsForComputerUseSetupRef.current = holdsForComputerUseSetup;
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -3074,6 +3143,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
   );
+  // Session Info's Carried memory (CarriedSection.tsx): the chat's carried files and proposals, and
+  // Accept or Drop, sent on the click with no await before it (acpmux takes it only from the person).
+  const carriedSessionId = snapshot.sessionId;
+  const readCarried = useCallback(
+    () =>
+      carriedSessionId
+        ? (directClient.current?.agentHome(carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
+  );
+  const resolveCarried = useCallback(
+    (change: { accept: string[]; drop: string[] }) =>
+      carriedSessionId
+        ? (directClient.current?.resolveAgentHome(change, carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
+  );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
   // Session Info's Changes row reads the folder's git changes (session-info/changeCounts.ts).
@@ -3443,6 +3529,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
           if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
             return Promise.reject(new Error(translate("error.notOpen")));
+          // `@computer-use` relayed to a subagent is held as the chat's own send is (CMUX-682): the
+          // composer keeps the message, and setup opens on this key press when that helps.
+          const place = shownChatPlace();
+          const gate = computerUseGate(message, computerUseState(), place);
+          if (gate !== "free" && holdsForComputerUseSetup(message, false, place))
+            return Promise.reject(new CmuxCommandRefused(translate(computerUseHoldText(gate).title)));
           // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
           // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
           // It settles once the chat took the message (`accepted`), not when the turn ends: from then the
@@ -3602,6 +3694,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () =>
       turnActionsFrom({
         showCall,
+        holdsRetry: (prompt) => holdsForComputerUseSetupRef.current(prompt, false, shownChatPlace()),
         restartChat,
         queuedMessageActionsRef,
         stableBranches,
@@ -5065,6 +5158,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
     // beside the chat), only where the header offers it.
     readChanges: quick ? undefined : readChanges,
+    // Carried memory: the chat's own panel, not Quick Chat's (useSessionInfo leaves a subagent's out).
+    readCarried: quick ? undefined : readCarried,
+    onResolveCarried: quick ? undefined : resolveCarried,
     onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
@@ -6651,6 +6747,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
   const extensionCommands = useExtensionCommands();
+  // Computer use and browser use in the `/` and `$` menus (toolMentions.ts), beside the skills.
+  const toolCommands = useMemo(() => toolSlashCommands(t), [t]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>([
       "import",
@@ -6676,7 +6774,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
-      commands: withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+      commands: withToolCommands(
+        withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
+        toolCommands,
+      ),
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
@@ -6720,6 +6821,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked,
     cloudModePick,
     extensionCommands,
+    toolCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -7081,6 +7183,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const focusComposer = () => composerHandle.current?.focus();
   useEffect(() => {
     return paneSnapshotEffect({
+      holdsForComputerUseSetupRef,
       scrollToBottomOnSendRef,
       sandbox,
       setWorkflowLabsEnabled,
@@ -7283,6 +7386,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// gesture, with `start` handed to the tab it opens under a one-time token (commandPlace.ts). That
   /// tab's first Send is its own Cloud start. A tab that did not open drops the hand-off.
   const openCloudChatWith = (start: { prompt?: string; cwd?: string }): Promise<unknown> => {
+    // A Cloud chat has no Computer Use tools (#48541): `/side --on cloud @computer-use …` opens nothing,
+    // and the composer keeps the command with the reason (CMUX-682).
+    if (start.prompt && holdsForComputerUseSetup(start.prompt, false, "cloud"))
+      return Promise.reject(new CmuxCommandRefused(translate(computerUseHoldText("cloud").title)));
     const store = handoffStore();
     const handoff = handCloudStart(store, start, Date.now());
     return callNative("action.run", { id: "palette.newCloudChat", ...(handoff ? { handoff } : {}) }).catch(
@@ -8154,12 +8261,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
+    // `@computer-use` starts nothing while Computer Use is not ready on this Mac, nor on another
+    // machine, which has no Computer Use tools (`holdsForComputerUseSetup`, #48541): decided before a
+    // folder grant or anything else spends the send's gesture, and the page keeps its text.
+    // After the handshake wait: it holds and says why; the submit's own key press asked first (pageSubmit.ts).
+    if (text && holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false))
+      return;
     const generation = ++newTabStartGeneration.current;
     const isCurrent = () => newTabStartGeneration.current === generation;
     const inherited = newTab?.cwd;
     const start = (folder?: string) =>
       void (async () => {
         if (!isCurrent()) return;
+        // Asked again once the folder is confirmed: Computer Use may have stopped meanwhile (holds, says why).
+        if (
+          text &&
+          holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false)
+        )
+          return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -9488,6 +9607,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     authPreflightPending,
     composerMic,
     importFile,
+    computerUseAsk,
+    computerUseAsked,
+    setUpComputerUse,
+    setComputerUseAsked,
+    holdsForComputerUseSetup,
   });
   // A handshake that still waits for acpmux: once it has waited long, one line says how long, with
   // Restart agent service. The person decides; the app never restarts a slow acpmux by itself.
@@ -10019,6 +10143,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowSideTab,
     closeWorkflowSideTab,
     showWorkflowAgent,
+    toolCommands,
+    holdsForComputerUseSetup,
     // Each pair as the render narrowed it (PaneBody.tsx `NewTabShown`, `CloudStartShown`).
     ...(showNewTab ? { showNewTab, newTab } : { showNewTab, newTab }),
     ...(cloudStartShown ? { cloudStartShown, cloudStart } : { cloudStartShown, cloudStart }),
