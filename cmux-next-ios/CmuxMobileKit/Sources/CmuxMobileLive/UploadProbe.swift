@@ -42,8 +42,12 @@ enum UploadProbe {
         }
         let startedAt = ContinuousClock.now
         var result: [String: Any] = [:]
+        // Per-hop timings (open, first chunk, stream, the Mac's save) go in the probe's JSON.
+        let timing = OSAllocatedUnfairLock<LinkUpload.Timing?>(initialState: nil)
+        let options = LinkUpload.Options(timing: { got in timing.withLock { $0 = got } })
         do {
-            result["path"] = try await LinkUpload.upload(fileAt: file, name: file.lastPathComponent, cwd: cwd, over: link)
+            result["path"] = try await LinkUpload.upload(.file(file), name: file.lastPathComponent, cwd: cwd, over: link,
+                                                         options: options)
         } catch let failure as LinkUpload.Failure {
             result["error"] = failure.code
             result["message"] = failure.message
@@ -58,6 +62,12 @@ enum UploadProbe {
         result["seconds"] = Double(took.seconds) + Double(took.attoseconds) / 1e18
         result["footprintBefore"] = before
         result["footprintPeak"] = peak.withLock { $0 }
+        if let hops = timing.withLock({ $0 }) {
+            result["hops"] = ["openMs": hops.openMs, "firstChunkMs": hops.firstChunkMs, "sendMs": hops.sendMs,
+                              "replyMs": hops.replyMs, "totalMs": hops.totalMs, "bytes": hops.bytes,
+                              "resumedFrom": hops.resumedFrom, "attempts": hops.attempts,
+                              "mbPerSecond": hops.megabytesPerSecond, "outcome": hops.outcome]
+        }
         log.info("upload probe: \(String(describing: result), privacy: .public)")
         guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
               let data = try? JSONSerialization.data(withJSONObject: result) else { return }
