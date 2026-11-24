@@ -71,6 +71,11 @@ let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
 let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit")
 let activates = !modes.contains("guest")
+// record (launch-ready.sh record=1): the app records every window from its first frame (`--record-launch`, a Debug or
+// bench build's DebugWindowRecord) into HOME_ROOT/record-LABEL, for the row's PERCEIVED numbers (launch_shift.py);
+// the recording ends a second before the settle's quit, so its frames.json is written first.
+let recordDir: String? = modes.contains("record") ? homeRoot.appendingPathComponent("record-\(label)").path : nil
+if let recordDir { try? FileManager.default.removeItem(atPath: recordDir) }
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -160,6 +165,7 @@ configuration.activates = activates
 configuration.addsToRecentItems = false
 configuration.environment = environment
 configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
+    + (recordDir.map { ["--record-launch", $0, "--record-launch-seconds", String(max(1, min(12, settle - 1)))] } ?? [])
 
 let requested = now()
 var app: NSRunningApplication?, start: Double?
@@ -600,6 +606,7 @@ if samplesLayout, window != nil {
                      "sidebar_samples": sidebarSamples, "complete": finished] as [String: Any]
 }
 if let moveQuit { row["movequit"] = moveQuit }
+if let recordDir { row["record_dir"] = recordDir }
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
 print("LR-RUN", String(decoding: data, as: UTF8.self))
