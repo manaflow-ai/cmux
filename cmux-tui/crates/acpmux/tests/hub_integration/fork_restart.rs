@@ -96,8 +96,17 @@ async fn conversation(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Value {
         .filter(|e| e.kind == "agent_message_chunk")
         .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
         .collect();
-    serde_json::from_str::<Value>(&text).unwrap_or_else(|e| panic!("{e}: {text}"))["prompts"]
-        .clone()
+    let history = serde_json::from_str::<Value>(&text).unwrap_or_else(|e| panic!("{e}: {text}"));
+    // acpmux's priming turn on a forked Claude (`hub/lifecycle.rs`) runs or not depending on
+    // when Claude Code reports its id, as in `fork_through.rs`: left out, the chat's turns stay.
+    let prompts = history["prompts"].as_array().unwrap_or_else(|| panic!("{history}"));
+    Value::Array(
+        prompts
+            .iter()
+            .filter(|p| *p != "This session was just forked. Reply with exactly: ready")
+            .cloned()
+            .collect(),
+    )
 }
 
 fn live_fork(id: &str, request: &str) -> Value {
