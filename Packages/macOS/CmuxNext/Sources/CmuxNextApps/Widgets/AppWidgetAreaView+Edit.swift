@@ -81,7 +81,7 @@ extension AppWidgetAreaView {
             menu.addItem(.separator())
         }
         for item in areaMenuItems() { menu.addItem(item) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     /// The area's own items (also the section header's menu): Edit Widgets or Done, Add Widget.

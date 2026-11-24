@@ -159,11 +159,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::GitWorktreeSetupRun
+        | ResourceOperation::ProjectActionsList
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
         | ResourceOperation::DiffCommentsDelete
-        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsSend
+        | ResourceOperation::DiffCommentsThread
+        | ResourceOperation::GitReviewStart
+        | ResourceOperation::GitReviewComment
+        | ResourceOperation::GitReviewPost => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -407,6 +413,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineChatAccess
         | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::CloudMachineChiefStart
+        | ResourceOperation::CloudMachineChiefResize
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,

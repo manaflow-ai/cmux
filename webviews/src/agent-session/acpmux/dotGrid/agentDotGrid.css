@@ -57,7 +57,6 @@
 }
 span.acpmux-dot-grid__dot {
   display: inline-block;
-  cursor: default;
 }
 .acpmux-dot-grid__dot[data-state="running"] {
   border-color: var(--dot-running);

@@ -17,10 +17,11 @@ tick window without input, and that the wheel moves the list (the accessibility 
 before and after an untraced sweep). Writes release-<label>.json to --out (default
 $NX_ARTIFACTS) and quits the app with $NX_APP_STOP.
 """
-import argparse, json, os, re, shutil, statistics, subprocess, sys, tempfile, time
+import argparse, hashlib, json, os, re, shlex, shutil, statistics, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--label", default="run")
@@ -217,15 +218,48 @@ def ticking_terminals():
     return terms
 
 
+TICK_MARKS = os.path.join(SCRATCH, "ticks")  # <term>.started / <term>.ended: each tick loop's own start and end
+
+
+def tick_marks(terms, kind):
+    """How many of `terms`' tick loops wrote their `kind` mark (started or ended)."""
+    return sum(1 for t in terms if os.path.exists(os.path.join(TICK_MARKS, f"{t}.{kind}")))
+
+
 def start_ticks(terms, seconds):
-    """Each ticking terminal reports OSC 7501 every --tick-ms for `seconds` (then idle; it ends by itself)."""
+    """Each ticking terminal reports OSC 7501 every --tick-ms for `seconds` (then idle; it ends by itself). Each loop
+    touches TICK_MARKS/<term>.started as it begins and <term>.ended after its last report."""
     ticks_each = int(seconds * 1000 / opts.tick_ms)
-    loop = (f"i=0; while [ $i -lt {ticks_each} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
-            f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {opts.tick_ms / 1000}; i=$((i + 1)); done; "
-            f"printf '\\033]7501;state=idle\\033\\\\'\n")
+    os.makedirs(TICK_MARKS, exist_ok=True)
+    for t in terms:
+        for kind in ("started", "ended"):
+            try:
+                os.unlink(os.path.join(TICK_MARKS, f"{t}.{kind}"))
+            except FileNotFoundError:
+                pass
+
+    def loop(t):
+        mark = shlex.quote(os.path.join(TICK_MARKS, t))
+        return (f": > {mark}.started; i=0; while [ $i -lt {ticks_each} ]; do if [ $((i % 2)) = 0 ]; then s=working; else s=idle; fi; "
+                f"printf '\\033]7501;state=%s\\033\\\\' $s; sleep {opts.tick_ms / 1000}; i=$((i + 1)); done; "
+                f"printf '\\033]7501;state=idle\\033\\\\'; : > {mark}.ended\n")
     with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(lambda t: cli("terminal", t, "write", "--text", loop), terms))
+        list(pool.map(lambda t: cli("terminal", t, "write", "--text", loop(t)), terms))
     return ticks_each * len(terms)
+
+
+def window_settled(what):
+    """Waits until two window screenshots in a row are the same picture (the window drew and is still)."""
+    shot = os.path.join(SCRATCH, "settle.png")
+
+    def picture():
+        cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id, "max_elements": 1,
+                                 "screenshot_out_file": shot}, timeout=120)
+        with open(shot, "rb") as handle:
+            return hashlib.sha1(handle.read()).hexdigest()
+
+    if wait_stable(picture, what, timeout=30, interval=0.3, reads=2, raise_on_timeout=False) is None:
+        print(f"note: {what}: the window did not settle in 30 s", flush=True)
 
 
 class Target:
@@ -472,7 +506,10 @@ def record(name, ticks, terms, profile):
     if ticks:
         start_ticks(terms, TICK_RUN_S)
         tick_end = time.monotonic() + TICK_RUN_S
-        time.sleep(1)  # harness: the tick programs are running before the recorder attaches
+        # The tick programs are running before the recorder attaches: every loop wrote its started mark.
+        if not wait_until(lambda: tick_marks(terms, "started") >= len(terms), f"{name}: the tick loops to start", timeout=15,
+                          raise_on_timeout=False):
+            safe_print(f"note: {name}: {tick_marks(terms, 'started')} of {len(terms)} tick loops started", flush=True)
     # The recorder's ktrace intermediates (1-12 GB each) go to a temp dir of this run, removed after the export.
     attach_at = time.time()
     xct_tmp = os.path.join(SCRATCH, "xctrace-tmp")
@@ -480,8 +517,22 @@ def record(name, ticks, terms, profile):
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid),
                              "--time-limit", "60s", "--output", path, "--no-prompt"],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, TMPDIR=xct_tmp + "/"))
+    # xctrace prints "Ctrl-C to stop the recording" once it is attached and recording; the gesture waits for that line.
+    lines, recording = [], threading.Event()
+
+    def read_recorder():
+        for line in proc.stdout:
+            lines.append(line)
+            if "ctrl-c to stop" in line.lower() or "starting recording" in line.lower():
+                recording.set()
+
+    reader = threading.Thread(target=read_recorder, daemon=True)
+    reader.start()
     ground()
-    time.sleep(4)  # harness: the recorder attaches before the gesture
+    wait_until(lambda: recording.is_set() or proc.poll() is not None, f"{name}: xctrace to attach", timeout=60,
+               raise_on_timeout=False)
+    if not recording.is_set():
+        safe_print(f"note: {name}: xctrace printed no recording line (exit {proc.poll()}): {''.join(lines)[-300:]}", flush=True)
     # This recording's ktrace intermediates: the files the recorder holds open now (removed after the export).
     held = subprocess.run(["lsof", "-p", str(proc.pid), "-Fn"], capture_output=True, text=True).stdout.splitlines()
     mine = {line[1:] for line in held if line.startswith("n") and os.path.basename(line[1:]).startswith("instruments")
@@ -490,10 +541,12 @@ def record(name, ticks, terms, profile):
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
     gesture_s = round(time.monotonic() - began, 2)
-    time.sleep(1)
+    time.sleep(1)  # sleep-ok: the recording keeps 1 s after the gesture, so its last frames' hitches are in the trace
     proc.send_signal(2)  # SIGINT ends the recording and writes the trace
     try:
-        out, _ = proc.communicate(timeout=240)
+        proc.wait(timeout=240)
+        reader.join(timeout=10)
+        out = "".join(lines)
     except subprocess.TimeoutExpired:
         proc.terminate()
         out = "timeout"
@@ -522,7 +575,10 @@ def record(name, ticks, terms, profile):
     shutil.rmtree(path, ignore_errors=True)
     shutil.rmtree(xct_tmp, ignore_errors=True)
     if tick_end:
-        time.sleep(max(0.0, tick_end - time.monotonic()) + 1)  # harness: the tick programs end before the next run
+        # The tick programs end before the next run: every loop wrote its ended mark.
+        if not wait_until(lambda: tick_marks(terms, "ended") >= len(terms), f"{name}: the tick loops to end",
+                          timeout=max(0.0, tick_end - time.monotonic()) + 30, raise_on_timeout=False):
+            safe_print(f"note: {name}: {tick_marks(terms, 'ended')} of {len(terms)} tick loops ended", flush=True)
     safe_print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
     return result
 
@@ -608,7 +664,7 @@ def prepare(app):
     cpu0 = cpu_ns(Target.pid)
     t0 = time.monotonic()
     ticks = start_ticks(app["terms"], 10)
-    time.sleep(11)  # harness: the measured tick window
+    time.sleep(11)  # sleep-ok: the measured tick window (10 s of ticks, no input)
     cpu1 = cpu_ns(Target.pid)
     app["tick_window"] = {"seconds": round(time.monotonic() - t0, 1), "ticks": ticks,
                           "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1) if cpu0 and cpu1 and ticks else None,
@@ -645,7 +701,7 @@ def floor_run(exe, variant, frame, label, i):
         quiet = wait_quiet(proc.pid)
         point_x, point_y = Target.bounds["x"] + 110, Target.bounds["y"] + 430
         Target.point, Target.screen_point = (110 * Target.scale, 430 * Target.scale), (point_x, point_y)
-        time.sleep(2)  # harness: the window is on screen and idle before the recorder attaches
+        window_settled(f"{label}-noticks-{i}: the floor window")  # on screen, drawn and still before the recorder attaches
         result = record(f"{label}-noticks-{i}", False, [], False)
         result["quiet"] = quiet
         return result
@@ -687,7 +743,7 @@ def cmux_runs(app, i, first):
     if first and "ticks" in opts.modes.split(","):
         cpu0, t0 = cpu_ns(Target.pid), time.monotonic()
         ticks = start_ticks(app["terms"], 10)
-        time.sleep(11)  # harness: the measured tick window (no input)
+        time.sleep(11)  # sleep-ok: the measured tick window (10 s of ticks, no input)
         cpu1 = cpu_ns(Target.pid)
         app["tick_window"] = {"ticks": ticks, "app_cpu_us_per_tick": round((cpu1 - cpu0) / 1000 / ticks, 1)
                               if cpu0 and cpu1 and ticks else None}
@@ -698,7 +754,7 @@ def cmux_runs(app, i, first):
         print(f"{app['label']} {mode} {i}: quiet {quiet}", flush=True)
         out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
         out[mode]["quiet"] = quiet
-        time.sleep(2)  # harness: settle between runs
+        window_settled(f"{app['label']}-{mode}-{i}: the window after the run")  # still before the next run's idle wait
     stop_b(app)
     note(app_pid() is None, f"{app['label']} round {i}: the app quit")
     return out

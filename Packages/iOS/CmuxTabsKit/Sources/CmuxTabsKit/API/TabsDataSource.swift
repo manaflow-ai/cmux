@@ -58,6 +58,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
+    /// The tab's own icon (a page's favicon) for its title row, drawn in place of
+    /// `systemImage`. nil: the symbol. Read in the card's body, so an observed source
+    /// swaps it in when it arrives.
+    func icon(for id: TabsKitTab.ID) -> UIImage?
     /// The tab grid is about to appear: refresh thumbnails now (once per
     /// opening; cards are not expected to update while the grid shows).
     func overviewWillAppear()
@@ -156,6 +160,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
+    public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}
@@ -190,6 +195,9 @@ extension EnvironmentValues {
     /// out at its own size (its long-press menu preview and its drag preview), so a card never
     /// takes its own size for the page's.
     @Entry public var tabsKitCardPageSize: CGSize? = nil
+    /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
+    /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
+    @Entry public var tabsKitOverviewColumns: Int = 2
 }
 
 /// Where and how a tab's live page is shown.

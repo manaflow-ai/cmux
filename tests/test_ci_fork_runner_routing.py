@@ -98,9 +98,6 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),
-    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
-        "report text that prints the lane's effective label, not a runs-on value"
-    ),
     ("cmux-next-fast-tier-seed.yml",
      '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
@@ -233,12 +230,7 @@ UNRESOLVED_NAME_EXEMPT = {
     ),
 }
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
-TRUSTED_RUNNER_EXTRA_JOBS = {
-    ("web-complexity-trusted.yml", "complexity"): (
-        "no longer required on main, but it reads untrusted pull request source as data under "
-        "pull_request_target, so only an ephemeral runner may take it"
-    ),
-}
+TRUSTED_RUNNER_EXTRA_JOBS: dict[tuple[str, str], str] = {}
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
 TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate")}
 
@@ -656,6 +648,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -675,7 +680,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:

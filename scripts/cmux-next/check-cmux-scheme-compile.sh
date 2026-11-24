@@ -62,6 +62,10 @@ kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
   kept_path=1
+elif [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  # The runner's per-stream DerivedData slot (glaeda disk registry): kept, never removed.
+  derived_data="$CMUX_DERIVED_DATA_SLOT"
+  kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-scheme-compile.XXXXXX")"
 fi

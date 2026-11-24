@@ -44,7 +44,10 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
-if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
+path = next((a for a in args[1:] if a.startswith("repos/")), "")
+limited_paths = state.get("rate_limited_paths", [])
+if (os.environ.get("GH_TOKEN") in state.get("rate_limited", []) or
+        any(fragment in path for fragment in limited_paths)):
     message = "gh: API rate limit exceeded for the repo installation (HTTP 403)"
     if state.get("rate_limit_header"):
         message += f"\nx-ratelimit-reset: {state['rate_limit_header']}"
@@ -54,7 +57,6 @@ open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "
 if args[:2] == ["run", "rerun"]:
     target = args[3] if args[2] == "--job" else args[2]
     sys.exit(0 if target not in state.get("rerun_fails", []) else 1)
-path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
     if state.get("delete_fails"):
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
@@ -338,6 +340,17 @@ class CommandTests(unittest.TestCase):
         self.assertIn("run 99; no attempt before ", result.stdout)
         self.assertIn("the repo installation's API limit", result.stdout)
         self.assertNotIn("installation ID", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
+    def test_published_candidate_metadata_rate_limit_names_the_deferred_run(self):
+        state = {"rate_limited_paths": ["/actions/workflows/cmux-tui-artifacts.yml/runs?"],
+                 "artifacts": [marker(31, 12)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[quota-only]", result.stdout)
+        self.assertIn("published tree; run 12; no attempt before ", result.stdout)
+        self.assertNotIn("published tree; run 99;", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
     def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):

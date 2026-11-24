@@ -1780,3 +1780,87 @@ fn a_trusted_agents_turn_may_call_only_the_mcp_servers_the_owner_named() {
     assert_eq!(h.brain.turn_gate("mcp__optchat__mcp", &list), Ok(()));
     finish(&mut h);
 }
+
+/// The Home cards the Chief posted, oldest first.
+fn cards(h: &Harness) -> Vec<cmux_conversation::Question> {
+    h.owner
+        .lock()
+        .unwrap()
+        .messages
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| match p {
+            Part::Question(q) => Some(q.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_home_card_says_who_asked_and_what_it_will_do() {
+    // Leo, 2026-10-20: "readable card with Allow/Deny, show who asked". The
+    // card's line names the subagent and its task and says what the call
+    // does, not the bare tool name.
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    h.settle_posts();
+    let cards = cards(&h);
+    assert_eq!(cards.len(), 1);
+    let item = &cards[0].items[0];
+    assert_eq!(
+        item.prompt, "a1 (Deploy the docs) asks to run `make deploy`",
+        "who asked, and what it will do"
+    );
+    let labels: Vec<_> = item.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["Allow once", "Deny"]);
+}
+
+#[test]
+fn a_newer_message_never_cancels_a_pending_home_approval() {
+    // Leo, 2026-10-20: "no silent auto-deny on newer messages". A tell that
+    // is read now stops the subagent's current step, and the step it stops
+    // is the one waiting on the person's card: acpmux cancels the request
+    // and the card turns into "This approval is no longer open". While a
+    // card waits, a tell waits for the step instead, and the Chief hears so.
+    use optchat_chief::tools::Orchestrator;
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    h.brain.step(Input::from(AgentEvent::SessionChanged(
+        serde_json::from_value(
+            json!({"sessionId": session, "name": "a1", "status": "running",
+            "harness": "claude-sr", "pendingPermissions": 1}),
+        )
+        .unwrap(),
+    )));
+    h.agents.inner.lock().unwrap().steering = true;
+    let cancels_before = h.agents.inner.lock().unwrap().cancels.len();
+    let spawner = owner_spawner(&h);
+    let answer =
+        run_with(&mut h, move || spawner.tell("a1", "also fix the typo")).unwrap_or_else(|e| e);
+    h.settle_posts();
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        !inner.steer_ids.iter().any(|(_, now)| *now),
+        "no tell is read now over a pending approval: {:?}",
+        inner.steer_ids
+    );
+    assert_eq!(
+        inner.cancels.len(),
+        cancels_before,
+        "nothing interrupted it"
+    );
+    assert_eq!(inner.steers.len(), 1, "the tell still reaches it");
+    drop(inner);
+    assert!(answer.contains("approval"), "the Chief hears why: {answer}");
+    assert_eq!(
+        answered(&h, "p1"),
+        None,
+        "nobody answered the person's card"
+    );
+    assert!(pending_prompt(&h));
+    assert!(!h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))),
+        "the card stays answerable");
+}

@@ -34,8 +34,8 @@ APP_JOBS = {
 # test_every_release_app_job_is_classified fails on a new one.
 APP_TOKEN_EXEMPT = {
     "build-sign-notarize-nightly": (
-        "signs and notarizes; its only github.token use is nightly_sign_yield.py reading newer runs, "
-        "which writes nothing to a release"
+        "signs and notarizes; its only github.token use is download-run-artifact.py reading the prepared "
+        "app artifact, which writes nothing to a release"
     ),
     "promote-nightly-next": (
         "mints its own release App token (step app-token) in nightly-next-promote and hands it to "
