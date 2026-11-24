@@ -330,6 +330,10 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(aliases = aliases::SKILL)]
     Skill,
+    /// A sub-agent's job on a fork of this machine: the job JSON on stdin, its frames on
+    /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
+    #[command(name = "sub-fork-job", hide = true)]
+    SubForkJob,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
