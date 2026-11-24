@@ -305,10 +305,16 @@ public struct RootView: View {
         // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
+            #if DEBUG
+            OpenMarks.shared?.begin("deep_link")
+            #endif
             if let opened = OpenedURL(url: url) { open(opened) }
         }
         // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            #if DEBUG
+            OpenMarks.shared?.begin("deep_link")
+            #endif
             guard let url = activity.webpageURL, let opened = OpenedURL(url: url) else { return }
             open(opened)
         }

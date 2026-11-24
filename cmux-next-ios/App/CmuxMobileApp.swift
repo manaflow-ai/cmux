@@ -121,6 +121,7 @@ struct CmuxMobileApp: App {
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
+            .overlay(alignment: .bottomTrailing) { OpenMarksProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
