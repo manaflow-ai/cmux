@@ -143,6 +143,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `paste` (``sendPasteAndSubmit(_:notSent:maybeSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
+    /// The daemon lists `send-typed-submit-v1`: `send {text, submit:true}`
+    /// with no `paste` writes Return a paste-burst window after the typed
+    /// text, in the same request (``sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    private var typedSubmit = false
+    /// Composer sends (by their id in `input`, `paste`) that go as typed text,
+    /// not a paste, where the request is built here (no Rust outbox).
+    private var typedSends: Set<Int> = []
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
@@ -484,6 +491,30 @@ public final class DaemonTerminalSession: TerminalSession {
         return true
     }
 
+    /// The composer's Send of a one-line draft to a full-screen program, as
+    /// one keyed `send {surface, text, submit:true}`: typed (vim takes a
+    /// bracketed paste as text even in normal mode), with Return in the same
+    /// request, so a link blip can never deliver the text without its Return
+    /// (Leo, 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). Held through a blip and sent once, like a pasted Send. False
+    /// against a daemon that does not list `send-typed-submit-v1` (one that
+    /// would write Return right behind the text, inside an agent's paste-burst
+    /// window): the screen keeps the mirror's path there.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, (pasteSubmit && typedSubmit) || !identified else { return false }
+        let id = Int(composerOutbox.pushTyped(text: text, nowMs: Self.milliseconds(now())))
+        #else
+        guard pasteSubmit, typedSubmit, !text.isEmpty else { return false }
+        let id = nextPaste
+        nextPaste += 1
+        typedSends.insert(id)
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
+        enqueueTyped(Data(text.utf8), paste: id)
+        return true
+    }
+
     /// Gives a composer paste up and tells the screen (once): "may have been sent" when an
     /// attempt went out (``composerOutbox``), else "not sent".
     private func pasteWasNotSent(_ id: Int?) {
@@ -493,6 +524,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let done = composerOutbox.giveUpSend(seq: UInt64(id)) else { return }
         composerSendEnded(done)
         #else
+        typedSends.remove(id)
         pasteNotSent.removeValue(forKey: id)?.notSent()
         #endif
     }
@@ -752,6 +784,7 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        typedSends.removeAll()
         echoDue = nil
         echoDueAckMs = nil
         tailProbe?.cancel()
@@ -1178,6 +1211,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
             // Attached: this daemon's answer (or its silence: an older one) settles the composer's
             // waiting Sends. One that takes no keys gives them up; they never went out.
             identified = true
@@ -1907,6 +1941,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        let typedSend = paste.map { typedSends.contains($0) } ?? false
         // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
         let timesEcho = typedBytes > 0 && paste == nil && !resent
         if timesEcho, echoDue == nil {
@@ -1927,7 +1962,7 @@ public final class DaemonTerminalSession: TerminalSession {
                         params = request
                     } else {
                         params = paste != nil
-                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
+                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": !typedSend, "submit": true]
                             : ["bytes": batch.base64EncodedString()]
                         if let key { params["key"] = key }
                     }
@@ -1982,6 +2017,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     composerAnswered(paste, .applied)
                     #else
                     pasteNotSent[paste] = nil
+                    typedSends.remove(paste)
                     #endif
                 }
             } catch {
@@ -2355,6 +2391,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let sendKeyCapability = "send-key-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
+    /// `send` with `submit` and typed text waits past a paste-burst window before Return.
+    static let typedSubmitCapability = "send-typed-submit-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
 
