@@ -14,7 +14,6 @@ import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
-import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
 /// Which workspace that is, plus frame and sidebar width, persist in the
@@ -39,7 +38,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
-        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace && $0.services.windows.deferredWindows.isEmpty } ?? false
     }, reserve: { [weak self] in
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in
@@ -94,6 +93,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
+    /// A new shell window's size (no saved frame).
+    static let defaultSize = NSSize(width: 1100, height: 720)
+
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
@@ -112,8 +114,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let registry = services.registry
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
+        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal)
         let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
+            contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -230,10 +233,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         titleObservation = WindowListTitleObservation.start(values: { [weak self] in
             guard let self else { return (nil, nil, false, false) }
-            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
-            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }, names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
-            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+            let local = self.services.machines.local, spaces = SidebarSpaceBar.profiles(local, window: self.state.id, windows: self.services.windows).count
+            return (spaceName: spaces > 1 ? local.store.profile(self.state.profileID)?.name : nil, // the strip's rule: no space shows until a second
                     workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
                         ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)
@@ -344,7 +347,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
-        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
+        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }; controller.layoutModel.enterShownFocus() // its focused pane's ring is read now (cmux#46908)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
@@ -407,7 +410,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         BackdropImageStore.shared.desktop.windowDidChange()
     }
     /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now, and tabs an agent drove off screen come back.
-    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) }; services.windows.recordSaver.launchImages.windowsChanged() }
 
     var sidebarObservation: Task<Void, Never>?
 

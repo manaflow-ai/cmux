@@ -12,6 +12,7 @@ import { runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/r
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { ROW_GAP_LOOKS } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 const broken = (result: SimResult, prefix: string) =>
@@ -19,11 +20,10 @@ const broken = (result: SimResult, prefix: string) =>
     .filter((violation) => violation.rule.startsWith(prefix))
     .map((violation) => `${violation.label}: ${violation.detail}`);
 
-// Rule (a) holds in every scenario. Two of them reproduce Leo's screenshot until its fix lands: a turn that
-// another agent's notice or message opens drew "Working for" flush (0px) under it, and the live "Thinking"
-// line 16px under it, where a person's prompt gives both the block gap (24). The cause: transcriptGrid.ts
-// rowMark makes a received row a one-line MARK_OTHER, and transcriptGap's "two one-line rows sit flush"
-// rule then gives the head 0. #48597 gives Working for the gap; the live Thinking line is still 16px there.
+// Rule (a) holds in every scenario. Two of them reproduce Leo's screenshot: a turn that another agent's
+// notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
+// flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
+// the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
     for (const rule of ["a-", "b-"]) {
@@ -43,11 +43,35 @@ const headGaps = (name: string) => {
 };
 
 for (const name of ["incoming-notice-turn", "incoming-message-turn"])
-  test(`chat simulator: ${name}: Thinking and Working for stand the block gap under another agent's line (Leo's screenshot)`, () => {
+  test(`chat simulator: ${name}: Thinking and Working for stand the head gap under another agent's line (Leo's screenshot)`, () => {
     const gaps = headGaps(name);
     expect(Object.keys(gaps)).toEqual(expect.arrayContaining(["thinking", "working"]));
-    expect({ thinking: gaps.thinking! >= 24, working: gaps.working! >= 24 }).toEqual({ thinking: true, working: true });
+    const want = ROW_GAP_LOOKS.shipped.workedAfterLine;
+    expect(want).toBeGreaterThan(0);
+    expect({ thinking: gaps.thinking, working: gaps.working }).toEqual({ thinking: want, working: want });
   });
+
+// ST-02, Leo, 2026-11-22 08:29Z (screenshot 1159): "this one seems to have an unnecessary gap due to being a recieved
+// message. these aren't categorized properly under our tool call formatting." Another agent's message received mid-turn
+// and a "Sent to" line are activity rows: at every step each stands exactly the gap a tool row would stand in its place.
+test("chat simulator: received-sent-as-activity: received and sent rows stand a tool row's gap at every step", () => {
+  const result = runSimulation(SCENARIOS["received-sent-as-activity"]!());
+  const seen = { received: 0, sent: 0 };
+  const off: string[] = [];
+  for (const step of result.traces)
+    for (const row of step.rows ?? []) {
+      if (!row.message) continue;
+      seen[row.message] += 1;
+      if (row.toolGap === undefined || row.gap !== row.toolGap)
+        off.push(`${step.label}: ${row.message} ${row.id} ${row.gap}px (a tool row: ${row.toolGap}px)`);
+    }
+  expect(off).toEqual([]);
+  expect(seen.received).toBeGreaterThan(0);
+  expect(seen.sent).toBeGreaterThan(0);
+  // And at the turn's end, folded, nothing else breaks.
+  expect(broken(result, "a-")).toEqual([]);
+  expect(broken(result, "b-")).toEqual([]);
+});
 
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
   const result = runSimulation(SCENARIOS.basic!());
@@ -64,9 +88,41 @@ const replayed = () => {
 test("chat simulator: a sanitized replay of a recorded lane chat keeps rule b", () => {
   expect(broken(replayed(), "b-")).toEqual([]);
 });
-// Red until the turn gap fix lands: the recorded chat's turns that other agents' messages open (#48597).
 test("chat simulator: a sanitized replay of a recorded lane chat keeps rule a", () => {
   expect(broken(replayed(), "a-")).toEqual([]);
+});
+
+// Leo, 2026-11-22 22:10Z, on the six minutes from 22:05 to 22:11Z this fixture replays (his acpmux
+// chat on cosmic-gray, sanitized): "IMMENSE BULLSHIT JUST HAPPENED. ENTIRE THING FUCKING BLANKED AND
+// FUCKING SHIFTED AND PLAYED SOME BULLSHIT ANIMATIONS WHEN YOU STARTED A SUBAGENT AND THE PANE JUST WENT
+// CRAZY STUPID". His screenshots showed ~15 "started working" rows a turn, each 6-12 chips, the chips
+// squeezed empty or to one or two letters. Rule (d): a turn has one start line, it names at most three
+// subagents, each by name and each one the pane saw start (one first read mid-run is not news), and
+// the chat never blanks, never moves a settled row, never ends a turn with only its action row, and
+// draws a steer where it was sent.
+const burst = (from = 0) => {
+  const records = parseRecords(readFileSync(join(FIXTURES, "leo-2205-subagent-burst.ndjson"), "utf8"));
+  expect(records.length).toBeGreaterThan(2_000);
+  return runSimulation(replayScenario("leo-2205-subagent-burst", records.slice(from)), { rowsInTraceUpTo: 0 });
+};
+describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () => {
+  const whole = burst();
+  for (const rule of [
+    "d-started-pill",
+    "d-started-lines",
+    "d-blank",
+    "d-shift",
+    "d-action-only",
+    "d-steer-order",
+    "b-",
+  ])
+    test(rule, () => expect(broken(whole, rule)).toEqual([]));
+  // The pane reads a chat's newest 400 records first (hub/settled_view.rs MAX_RECORDS), and again after
+  // a lag or a reconnect: subagents whose spawn is older than the read are first met mid-run. They are
+  // not drawn as starting now (they were the fake ten-chip "started working" rows).
+  for (const from of [400, 1_200])
+    test(`read from record ${from}: no start line for subagents it never saw start`, () =>
+      expect(broken(burst(from), "d-started")).toEqual([]));
 });
 
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {

@@ -50,25 +50,34 @@ on:
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
       - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
+      - "cmux-tui/crates/cmux-config/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
+      - "cmux-tui/crates/cmux-launch-image/**"
+      - "cmux-tui/crates/cmux-pane-pictures/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-launch-shell/**"
+      - "cmux-tui/crates/cmux-layout-cache/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-lifeline/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
+      - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
@@ -106,6 +115,12 @@ on:
         description: "Internal: the build rescue's owned pool, ffi-pool, promote or side (the build rescue sets it)"
         type: string
         default: ""
+      rescue_tried:
+        # The owned pools (ffi-pool, promote, side) this rescue chain has named, comma-separated, never empty: a rescued run whose build also
+        # gets no runner rescues again to an owned pool not in it (never Blacksmith), and leaves the build queued once all are tried.
+        description: "Internal: the owned pools the build rescue already named (the build rescue sets it)"
+        type: string
+        default: ""
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
 # waited for the whole older run, publish and re-pin included, before its own
@@ -119,6 +134,10 @@ on:
 # at a time on the same pull request.
 
 permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # The build's runner, as cmux-next.yml's macos-placement places a feat-cmux-next
@@ -152,7 +171,7 @@ jobs:
   placement:
     name: place the build
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
     environment:
@@ -450,13 +469,15 @@ jobs:
   # watches its own run's build (scripts/ci/app_ffi_rescue.py, hq#3690): queued with no runner for 20 minutes, it
   # dispatches this workflow on the same ref with the rescue inputs and cancels this run. The script reads the
   # Blacksmith switch: allowed, rescue=blacksmith (a live Blacksmith slot its placement finds, else rescue_pool; the
-  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run never rescues
-  # again. Nothing needs this job, so its result never gates the publish or the re-pin.
+  # build holds no secret); off or unset, rescue=owned (rescue_pool, never Blacksmith). A rescued run rescues again only
+  # to an owned pool no build of its chain sat on (inputs.rescue_tried; 2026-11-20, run 44734106982's build sat 110 min
+  # on the pool its rescue picked), so a chain ends after at most one rescue per owned pool. Nothing needs this job, so
+  # its result never gates the publish or the re-pin.
   rescue:
     name: rescue a build no runner took
     needs: placement
-    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && inputs.rescue == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (inputs.rescue == '' || inputs.rescue_tried != '') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 110
     permissions:
       actions: write
@@ -477,6 +498,7 @@ jobs:
           CI_FFI_RELEASE_POOL: ${{ vars.CI_FFI_RELEASE_POOL }}
           CI_NEXT_PROMOTE_POOL: ${{ vars.CI_NEXT_PROMOTE_POOL }}
           CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          RESCUE_TRIED: ${{ inputs.rescue_tried }}
         run: python3 scripts/ci/app_ffi_rescue.py
 
   macos-cross-shadow:
@@ -485,7 +507,7 @@ jobs:
     # !cancelled(): the placement is an ancestor, and a failed placement must
     # not skip what follows a build that ran past it.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     continue-on-error: true
     permissions:
@@ -536,7 +558,17 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache the pinned cctools-port ld64
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Cache the pinned cctools-port ld64 (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ runner.temp }}/macos-cross/cctools
@@ -603,7 +635,7 @@ jobs:
     # !cancelled(): a failed placement (an ancestor the build runs past) must
     # not skip the publish of a build that succeeded.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
     # dispatches) publish one at a time, so the second sees the first's
@@ -790,7 +822,7 @@ jobs:
     # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
     # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
     # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
@@ -872,7 +904,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
           fetch-depth: 0

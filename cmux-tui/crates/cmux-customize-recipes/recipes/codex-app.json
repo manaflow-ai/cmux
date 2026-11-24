@@ -1,0 +1,28 @@
+{
+  "cmuxProfile": 1,
+  "name": "codex-app",
+  "description": "Looks and works like the Codex app: a gray sidebar of chats by project, a white page, your prompts in gray pills, a large rounded composer, Shift-Command-O for a new Codex chat, a review button for the diff, a ring on a chat whose turn ended, and the Codex app's keys.",
+  "settings": {
+    "appearance.themeFile": "codex-app",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.density": "comfortable",
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "tabs.hideLoneChatTab": true,
+    "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.width": 1000,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "agentPane.attachmentView": "strip",
+    "diff.layout": "unified",
+    "notifications.attention.agentChats": "ring"
+  },
+  "files": {
+    "keybindings.json": "// The Codex app's keys (the codex-app recipe). Shift-Command-O was Restore Previous App Launch;\n// it stays in the Command Palette.\n[\n  { \"key\": \"cmd+shift+o\", \"command\": \"palette.newAgentChat\", \"args\": { \"harness\": \"codex\" } },\n  { \"key\": \"cmd+shift+e\", \"command\": \"agentPane.toggleFiles\" },\n  { \"key\": \"ctrl+shift+g\", \"command\": \"openDiffViewer\" },\n  { \"key\": \"ctrl+shift+m\", \"command\": \"agentPane.switchModel\" },\n  { \"key\": \"cmd+shift+leftbracket\", \"command\": \"prevSidebarTab\" },\n  { \"key\": \"cmd+shift+rightbracket\", \"command\": \"nextSidebarTab\" },\n  { \"key\": \"cmd+slash\", \"command\": \"palette.searchShortcuts\" }\n]\n"
+  }
+}

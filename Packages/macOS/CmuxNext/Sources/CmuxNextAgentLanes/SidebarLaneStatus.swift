@@ -42,6 +42,10 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
                 row.usageWarnings = usageWarnings(local)
+                // The agent's task list across its turns, whatever the other lane toggles say.
+                row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
+                // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).
+                if SidebarTunables.subagentFixture.value { row.subagents = SidebarSubagentFixture.subagents(workspace) }
                 if let chiefAvatar {
                     let owned = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab -> String? in
                         guard let ref = tab.agentSession, let id = ref.session,
@@ -55,6 +59,12 @@ enum SidebarLaneStatus {
                         return nil
                     }
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
+                }
+                // `experiments.agentBadges`' Done pill: a chat's finished turn nobody has seen, as the Priority view ranks it.
+                row.agentDone = local.contains { lane in
+                    let read = marks.state.read[lane.id] == AgentPriorityMarks.stamp(lane)
+                    if case .done = AgentPriorityRanking.state(lane, read: read) { return true }
+                    return false
                 }
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)
@@ -151,6 +161,18 @@ enum SidebarLaneStatus {
                 ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
             return (lane.since ?? .distantPast, text)
         }.max { $0.0 < $1.0 }?.1
+    }
+
+    /// The task progress a row shows for `lanes`: a working chat's list first, else the one changed
+    /// last; nil when none has steps left (a finished list says nothing a row needs).
+    static func taskProgress(_ lanes: [AgentActivityLane]) -> SidebarTaskProgress? {
+        let open = lanes.compactMap { lane in lane.taskList.flatMap { $0.isFinished ? nil : (lane, $0) } }
+        let pick = open.max { a, b in
+            let (aWorks, bWorks) = (a.0.state == .working, b.0.state == .working)
+            if aWorks != bWorks { return bWorks }
+            return (a.1.updatedAt ?? .distantPast) < (b.1.updatedAt ?? .distantPast)
+        }
+        return pick.map { SidebarTaskProgress(done: $0.1.done, total: $0.1.total, current: $0.1.current, next: $0.1.next) }
     }
 
     /// Each usage warning of `lanes`, once, in lane order.

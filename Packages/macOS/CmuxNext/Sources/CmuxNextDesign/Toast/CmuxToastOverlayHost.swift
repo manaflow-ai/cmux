@@ -10,8 +10,9 @@ public import AppKit
 /// that ends fades where it is, and a toast replaced under its id is swapped in one frame.
 ///
 /// Toasts never cover what they avoid (``CmuxToastAvoiding``: the agent chat's composer, which
-/// never moves for a toast, #37545): each toast rests above every avoided view under it, and moves
-/// when one changes (``reanchor(in:)``). The views that reserve room (``CmuxToastReserving``) hear
+/// never moves for a toast, #37545): each toast rests above every avoided view in the window, wherever
+/// it lies across, so a divider drag or a sidebar toggle never moves it (``CmuxToastAvoidance/floor(width:in:window:)``);
+/// it moves when an avoided view grows, shrinks, shows or hides (``reanchor(in:)``). The views that reserve room (``CmuxToastReserving``) hear
 /// where the toasts rest whenever that changes.
 ///
 /// ```swift
@@ -173,6 +174,9 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         // A successor of the newest toast shows in its slot at once, so a repeated toast never
         // blinks out and fades back in.
         let inPlace = previousNewest.map { old in swapped.contains { $0.serial == old.serial } } ?? false
+        // A working toast's result shows in its slot at once too, wherever that slot is: one card turns
+        // into its result (``CmuxToastTone/working``).
+        let resolvedIDs = Set(swapped.filter { $0.view.toast.tone == .working }.map(\.view.toast.id))
         var pending = presented.makeIterator()
         stack.entries = []
         var fresh: [Entry] = []
@@ -189,7 +193,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         for (entry, anchor) in zip(stack.entries, placed) {
             if fresh.contains(where: { $0.serial == entry.serial }) {
                 entry.handle.update(anchor: anchor)
-                if !(inPlace && entry.serial == toasts.last?.serial), !restyled.contains(entry.serial) {
+                if !(inPlace && entry.serial == toasts.last?.serial), !restyled.contains(entry.serial),
+                   !resolvedIDs.contains(entry.view.toast.id) {
                     CmuxToastMotion.appear(entry.view, rise: entry.view.tuning.rise)
                 }
             } else {

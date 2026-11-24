@@ -68,6 +68,10 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             observe()
         case .unhandledEscape, .unhandledKey, .resizePopup, .verificationPageWaiting, .designMode, .protectedMediaUnavailable:
             break
+        case .devTools(let command):
+            if let placement = command.placement { (tab as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (tab as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         case .takeFocus:
             chrome.perform(.focusAddressBar)
         case .openURL(let url, _):

@@ -1,18 +1,19 @@
 // Pure shaping for the Stats page: durations and counts in the person's language (Intl, so no
 // plural strings), the heatmap grid and the hour bars. The page and its tests share these.
 import type { DayStats, StatsSummary } from "./types";
+import { intl } from "../../ui/intl";
 
 const DAY_MS = 86_400_000;
 
 export function formatCount(value: number, language: string): string {
-  return new Intl.NumberFormat(language).format(value);
+  return intl.NumberFormat(language).format(value);
 }
 
 /** `3h 20m`, `45m`, `0m` in the person's language. */
 export function formatDuration(ms: number, language: string): string {
   const minutes = Math.round(ms / 60_000);
   const unit = (value: number, name: "hour" | "minute") =>
-    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   if (hours === 0) return unit(rest, "minute");
@@ -24,7 +25,7 @@ export function formatWait(ms: number, language: string): string {
   const total = Math.round(ms / 1000);
   if (total >= 600) return formatDuration(ms, language);
   const unit = (value: number, name: "minute" | "second") =>
-    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   if (minutes === 0) return unit(seconds, "second");
@@ -63,17 +64,19 @@ export function attentionRows(summary: StatsSummary): AttentionRow[] {
 
 /** `5 days` in the person's language. */
 export function formatDays(days: number, language: string): string {
-  return new Intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
+  return intl.NumberFormat(language, { style: "unit", unit: "day", unitDisplay: "long" }).format(days);
 }
 
 /** `Mon, Oct 12` for a `YYYY-MM-DD` day, in the person's language. */
 export function formatDay(day: string, language: string): string {
-  return new Intl.DateTimeFormat(language, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${day}T00:00:00Z`));
+  return intl
+    .DateTimeFormat(language, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    })
+    .format(new Date(`${day}T00:00:00Z`));
 }
 
 /**
@@ -82,15 +85,17 @@ export function formatDay(day: string, language: string): string {
  */
 export function stripLabel(day: string, fromEnd: number, rangeDays: number, language: string): string {
   if (rangeDays > 7 && fromEnd % 7 !== 0) return "";
-  return new Intl.DateTimeFormat(language, {
-    ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
-    timeZone: "UTC",
-  }).format(new Date(`${day}T00:00:00Z`));
+  return intl
+    .DateTimeFormat(language, {
+      ...(rangeDays > 7 ? { day: "numeric" } : { weekday: "short" }),
+      timeZone: "UTC",
+    })
+    .format(new Date(`${day}T00:00:00Z`));
 }
 
 /** `1 PM` or `13 Uhr` for an hour of the day, in the person's language. */
 export function formatHour(hour: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));
+  return intl.DateTimeFormat(language, { hour: "numeric", timeZone: "UTC" }).format(Date.UTC(2026, 0, 1, hour));
 }
 
 export interface HeatCell {

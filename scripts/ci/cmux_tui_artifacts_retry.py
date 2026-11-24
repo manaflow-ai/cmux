@@ -17,6 +17,12 @@ scripts/ci/upload-r2-object.py) is never retried: a rebuild is not
 byte-identical, so a retry cannot succeed. The run stays red and this script
 names the job.
 
+A build leg that failed on a rerun is not retried again. A rerun loses
+attempt 1's runner pick, and on 2026-11-19 58 of the 67 build legs that
+failed on a rerun died the same way (rustc killed by SIGKILL during the fat
+LTO build), and attempts 2 and 3 together cost 3,096 runner-min and published
+2 trees. A leg that ended cancelled or timed out is still retried (#42380).
+
 usage: cmux_tui_artifacts_retry.py --repo OWNER/NAME --run-id ID [--dry-run]
 Needs GH_TOKEN with actions: write and checks: read.
 """
@@ -33,6 +39,9 @@ MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
+# The reusable build workflow's legs: "build / build TARGET", "build-linux / build TARGET", and the
+# macOS fallback's legs under its own caller job.
+BUILD_LEG_MARK = " / build "
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,15 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     failed = [job for job in jobs if job.get("conclusion") in ("failure", "cancelled", "timed_out")]
     if not failed:
         return Decision("skip", "no job failed (the failure is not a job failure)")
+    if attempt >= 2:
+        rebuilt_red = [job["name"] for job in failed
+                       if job.get("conclusion") == "failure" and BUILD_LEG_MARK in (job.get("name") or "")]
+        if rebuilt_red:
+            return Decision(
+                "skip",
+                "build leg failed on rerun attempt " + str(attempt) + ": " + ", ".join(rebuilt_red)
+                + "; another rerun takes the same runner and fails the same way",
+            )
     conflicts = [
         job["name"]
         for job in failed

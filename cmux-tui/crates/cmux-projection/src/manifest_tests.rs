@@ -61,3 +61,42 @@ fn a_bad_or_doubled_path_is_refused() {
     assert!(Manifest::build(1, vec![file("a", 1), file("a/b", 1)]).is_err());
     assert!(Manifest::build(1, vec![file("a/b", 1), file("a", 1)]).is_err());
 }
+
+/// RFD 0007, "Tracked files the skip rules keep home": a kept file is listed with its stat and
+/// why, and the mark crosses the wire both ways between builds.
+#[test]
+fn a_file_kept_on_the_mac_keeps_its_stat_and_reason_across_the_wire_and_builds() {
+    let mut manifest =
+        Manifest::build(1, vec![file("k8s/test/key.pem", 1704), file("k8s/a", 2)]).unwrap();
+    let key = manifest.resolve("k8s/test/key.pem").unwrap();
+    manifest.keep_home(key, "secret: key files are shared only on purpose").unwrap();
+    assert!(manifest.keep_home(manifest.resolve("k8s").unwrap(), "x").is_err(), "a folder");
+    assert!(manifest.keep_home(key, "").is_err(), "no reason");
+    assert_eq!(manifest.entry(key).unwrap().size, 1704);
+
+    let decoded = Manifest::decode(&manifest.encode().unwrap()).unwrap();
+    assert_eq!(decoded, manifest);
+    assert_eq!(decoded.kept(key), Some("secret: key files are shared only on purpose"));
+    assert_eq!(decoded.kept(manifest.resolve("k8s/a").unwrap()), None);
+    assert_eq!(decoded.kept_count(), 1);
+
+    // An older Mac sends the entries alone: they decode, nothing kept.
+    #[derive(Serialize, Deserialize)]
+    struct Older {
+        entries: Vec<Entry>,
+    }
+    let older = Older { entries: manifest.entries.clone() };
+    let raw = bincode::serialize(&older).unwrap();
+    let decoded = Manifest::decode(&zstd::encode_all(raw.as_slice(), 3).unwrap()).unwrap();
+    assert_eq!(decoded.entries, manifest.entries);
+    assert_eq!(decoded.kept_count(), 0);
+    // An older machine reads a newer manifest's entries and leaves the rest.
+    let raw = bincode::serialize(&manifest).unwrap();
+    let older: Older = bincode::deserialize(&raw).unwrap();
+    assert_eq!(older.entries, manifest.entries);
+
+    // A kept mark on a folder is refused at decode.
+    let mut bad = manifest;
+    bad.kept.insert(ROOT, "x".into());
+    assert!(Manifest::decode(&bad.encode().unwrap()).is_err());
+}

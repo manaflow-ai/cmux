@@ -14,15 +14,10 @@ use serde_json::{Value, json};
 
 pub(super) const NAME: &str = "wrap_up";
 /// What every chat with the tool is told: when to call it and how.
-pub(super) const STEER: &str = "When you end a turn that did work, call wrap_up as your last \
-step: recap says in two or three plain sentences what changed and where things stand, including \
-what is not done or not verified. When the turn leaves the person a decision (a choice of \
-approach, a go-ahead), add ask, one short question, and actions, one or two answers with your \
-pick first; their click comes back as their next message. Leave ask out when nothing waits on \
-them. When the person corrected you this turn, or a command failed and a later one worked, add \
-learned: at most three short facts about this project worth keeping in its instructions file \
-(\"Use pnpm, not npm.\", \"Tests need DATABASE_URL set.\"); the person accepts or dismisses each. \
-Leave learned out otherwise. Then end the turn without repeating the recap.";
+pub(super) const STEER: &str = "When a turn did work, call wrap_up as your last step: a two or \
+three sentence recap including what is not done or verified; ask and actions only when a decision \
+waits on the person; learned only after a correction or a failed then working command. Then end \
+the turn without repeating the recap.";
 /// The most answers the box draws.
 const MAX_ACTIONS: usize = 2;
 /// The longest answer a button takes.
@@ -43,14 +38,14 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "End a turn with the next-step box the person sees under your answer: a short recap of what changed and where things stand and, when the turn leaves them a decision, one question with one or two answer buttons. A button's click is sent as their next message. Call it once, as the turn's last step.",
+        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "recap": {"type": "string", "description": format!("Two or three short sentences, at most {MAX_RECAP} characters: what is now true or changed, then where it stands, including what is not done or not verified. One past {RECAP_CEILING} is cut at a sentence end, and the result says so.")},
-                "ask": {"type": "string", "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them. A longer one is cut, and the result says so.")},
-                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask: one or two answers, a few words each and at most {MAX_ACTION} characters, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now. Longer ones, or more than {MAX_ACTIONS}, are cut, and the result says so.")},
-                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"), each at most {MAX_FACT} characters. Each is shown to the person to accept or dismiss. Longer ones, extra lines or more than {MAX_LEARNED} facts are cut, and the result says so.")}
+                "recap": {"type": "string", "description": format!("Two or three sentences on changes, verification and unfinished work, at most {MAX_RECAP} characters. Trimmed above {RECAP_CEILING}.")},
+                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters.")},
+                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now.")},
+                "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then successful command, offer up to {MAX_LEARNED} one-line project facts for the person to accept (at most {MAX_FACT} characters each).")}
             },
             "required": ["recap"]
         }
@@ -84,9 +79,47 @@ fn trim_to(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
+/// Other names callers give each field, taken as that field when it is missing ("eh close
+/// enough"): cmuxterm-hq#18786, 14 wrap_up calls in 7 days on one VM sent `summary` and were
+/// refused with "recap is required". Leo, 2026-11-20: "Like we need a bunch of synonyms for
+/// code for you guys where it just goes 'eh close enough' and works".
+const ALIASES: &[(&str, &[&str])] = &[
+    ("recap", &["summary", "message", "text", "result"]),
+    ("ask", &["question"]),
+    ("actions", &["options", "buttons", "answers"]),
+    ("learned", &["lessons", "facts"]),
+];
+
+/// ARGS with each alias moved to its field when that field is missing, and one line per alias
+/// taken (`summary taken as recap`).
+fn canonical(args: &Value) -> (Value, Vec<String>) {
+    let Some(map) = args.as_object() else {
+        return (args.clone(), Vec::new());
+    };
+    let mut map = map.clone();
+    let mut said = Vec::new();
+    for (field, names) in ALIASES {
+        if map.get(*field).is_some_and(|v| !v.is_null()) {
+            continue;
+        }
+        if let Some((name, value)) = names
+            .iter()
+            .find_map(|name| map.get(*name).filter(|v| !v.is_null()).map(|v| (*name, v.clone())))
+        {
+            map.remove(name);
+            map.insert((*field).to_owned(), value);
+            said.push(format!("{name} taken as {field}"));
+        }
+    }
+    (Value::Object(map), said)
+}
+
 /// The call's input checked: a recap, and an ask with its answers when there is one. A field
 /// past its bound is cut (`trim_to`), never refused; each cut is one line of the second value.
+/// A field sent under another name (ALIASES) is taken as that field.
 pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
+    let (args, _) = canonical(args);
+    let args = &args;
     let text =
         |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
     let mut notes = Vec::new();
@@ -104,17 +137,41 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     let recap = text("recap").ok_or("recap is required: two or three sentences on what changed")?;
     let recap = cut("recap", recap, RECAP_CEILING, &mut notes);
     let ask = text("ask").map(|a| cut("ask", a, MAX_ASK, &mut notes));
-    let list = |key: &str, what: &str| -> Result<Vec<&str>, String> {
+    let list = |key: &str, what: &str, notes: &mut Vec<String>| -> Result<Vec<String>, String> {
+        let items = |list: &[Value]| -> Vec<String> {
+            list.iter()
+                .filter_map(|item| item.as_str().map(str::trim).filter(|v| !v.is_empty()))
+                .map(str::to_owned)
+                .collect()
+        };
         match args.get(key) {
             None | Some(Value::Null) => Ok(Vec::new()),
-            Some(Value::Array(list)) => Ok(list
-                .iter()
-                .filter_map(|item| item.as_str().map(str::trim).filter(|v| !v.is_empty()))
-                .collect()),
+            Some(Value::Array(list)) => Ok(items(list)),
+            // One string where a list goes is a list of it ("eh close enough"): the census of
+            // 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md) counted
+            // 54 wrap_up calls in 48 h on one VM refused "learned is a list". A string that is a
+            // JSON list (`"[\"a\", \"b\"]"`) is read as that list.
+            Some(Value::String(s)) if s.trim().is_empty() => Ok(Vec::new()),
+            Some(Value::String(s)) => {
+                let parsed = serde_json::from_str::<Vec<Value>>(s.trim()).ok();
+                // Otherwise each non-empty line is one item: a fact per line, as a list holds them.
+                let lines: Vec<String> = (s.lines().map(str::trim))
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                notes.push(match (&parsed, lines.len()) {
+                    (Some(_), _) => format!("{key} given as a JSON string; read as its list"),
+                    (None, 1) => format!("{key} given as one string; read as a list of it"),
+                    (None, n) => {
+                        format!("{key} given as one string; read as a list of its {n} lines")
+                    }
+                });
+                Ok(parsed.map_or(lines, |list| items(&list)))
+            }
             Some(_) => Err(what.to_owned()),
         }
     };
-    let mut actions = list("actions", "actions is a list of one or two short strings")?;
+    let mut actions = list("actions", "actions is a list of one or two short strings", &mut notes)?;
     if actions.len() > MAX_ACTIONS {
         notes.push(format!("{} actions given; the first {MAX_ACTIONS} kept", actions.len()));
         actions.truncate(MAX_ACTIONS);
@@ -125,7 +182,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
     if !actions.is_empty() && ask.is_none() {
         return Err("actions answer an ask; add the question, or leave actions out".to_owned());
     }
-    let mut learned = list("learned", "learned is a list of up to three short facts")?;
+    let mut learned = list("learned", "learned is a list of up to three short facts", &mut notes)?;
     if learned.len() > MAX_LEARNED {
         notes.push(format!("{} learned facts given; the first {MAX_LEARNED} kept", learned.len()));
         learned.truncate(MAX_LEARNED);
@@ -135,7 +192,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             let what = format!("learned fact {}", n + 1);
             // One line, as the memory inbox keeps it (`memory_inbox::learned_facts`).
             let line = fact.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
-            if line != *fact {
+            if line != fact.as_str() {
                 notes.push(format!("{what} cut to its first line"));
             }
             cut(&what, line, MAX_FACT, &mut notes)
@@ -155,8 +212,10 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
 }
 
 pub(super) fn call(args: &Value) -> Value {
+    let (_, said) = canonical(args);
     match check(args) {
-        Ok((shown, notes)) => {
+        Ok((shown, mut notes)) => {
+            notes.splice(0..0, said);
             let text = if shown["ask"].is_string() {
                 "Shown to the person under your answer, with the question. End your turn now; their answer comes as their next message."
             } else {
@@ -199,8 +258,8 @@ mod tests {
             json!({}),
             json!({"recap": "  "}),
             json!({"recap": "Done.", "actions": ["Yes"]}),
-            json!({"recap": "Done.", "ask": "Open?", "actions": "Yes"}),
-            json!({"recap": "Done.", "learned": "Use pnpm."}),
+            json!({"recap": "Done.", "learned": 3}),
+            json!({"recap": "Done.", "ask": "Open?", "actions": {"a": "Yes"}}),
         ] {
             assert!(check(&bad).is_err(), "{bad}");
         }
@@ -287,6 +346,47 @@ mod tests {
         }
         let at = "x".repeat(RECAP_CEILING);
         assert_eq!(shown(json!({"recap": at}))["recap"], at);
+    }
+
+    /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
+    /// 54 wrap_up calls in 48 h on one VM sent `learned` as one string and were refused "learned
+    /// is a list". A string is a list of it (of its lines, or the list a JSON string spells), and
+    /// the result says so.
+    #[test]
+    fn a_string_where_a_list_goes_is_read_as_a_list_and_said_so() {
+        let one = call(&json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
+        assert_eq!(one["isError"], false, "{one}");
+        assert_eq!(one["structuredContent"]["learned"], json!(["Use pnpm, not npm."]), "{one}");
+        let text = one["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("learned given as one string; read as a list of it"), "{text}");
+        let lines = shown(json!({"recap": "Done.", "learned": "Use pnpm.\n\n  Rebase first.\n"}));
+        assert_eq!(lines["learned"], json!(["Use pnpm.", "Rebase first."]));
+        let spelled = shown(json!({"recap": "Done.", "learned": "[\"a\", \"b\"]"}));
+        assert_eq!(spelled["learned"], json!(["a", "b"]));
+        let asked = shown(json!({"recap": "Done.", "ask": "Merge?", "actions": "Yes"}));
+        assert_eq!(asked["actions"], json!(["Yes"]));
+        assert!(shown(json!({"recap": "Done.", "learned": "  "})).get("learned").is_none());
+    }
+
+    /// cmuxterm-hq#18786: the refused call of 2026-11-21T15:24Z sent `summary`, not `recap`.
+    #[test]
+    fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
+        let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
+        let result = call(&json!({"summary": summary}));
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"]["recap"], summary);
+        assert!(result["structuredContent"].get("trimmed").is_none());
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("summary taken as recap"), "{text}");
+        assert_eq!(
+            shown(
+                json!({"message": "Done.", "question": "Open a PR?", "options": ["Yes", "No"], "lessons": ["Use pnpm."]})
+            ),
+            json!({"recap": "Done.", "ask": "Open a PR?", "actions": ["Yes", "No"], "learned": ["Use pnpm."]})
+        );
+        // The field itself wins over an alias sent beside it.
+        assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
+        assert!(check(&json!({"summary": "  "})).is_err());
     }
 
     #[test]

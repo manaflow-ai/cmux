@@ -11,7 +11,12 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  memo,
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
 } from "react";
+import { virtualRowStyle } from "../../ui/VirtualList";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import { chipFace as faceFor, harnessFace } from "./chipFace";
 import { agentDisplayName, picksOwnModel } from "./agents";
@@ -33,6 +38,7 @@ import { useHarnessUpdates } from "./harnessUpdateList";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
+import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
@@ -43,6 +49,8 @@ import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
 import { QuickModelColumns } from "./QuickModelColumns";
+import { EffortPicker } from "./EffortPicker";
+import { PickerChoiceGroup } from "./PickerChoiceGroup";
 import { UsedMark } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
@@ -62,6 +70,7 @@ import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor }
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
+import { intl } from "../../ui/intl";
 type ModelChoice = {
   id: string;
   name: string;
@@ -377,6 +386,219 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   );
 }
 
+/// The model list's scroller: the ScrollArea viewport the rows scroll in.
+const MODELS_VIEWPORT = "acpmux-mp-models-viewport";
+
+type ModelRowProps = {
+  rowId: string;
+  modelId: string;
+  index: number;
+  /** The list's model rows, for aria-setsize: only the rows near the viewport are in the DOM. */
+  setsize: number;
+  name: string;
+  active: boolean;
+  checked: boolean;
+  /** The "used here" mark, on the row the chat ran while another harness's pick is held. */
+  used?: ComponentProps<typeof UsedMark>["look"];
+  /** The row's harness mark (Starred and search list several harnesses). */
+  showMark: boolean;
+  mark?: string;
+  /** A searched effort and fast mode the pick lands with ("High · Fast"). */
+  combo?: string;
+  unavailable?: string;
+  disabled: boolean;
+  favorite: boolean;
+  starLabel: string;
+  starTitle: string;
+  style: CSSProperties;
+  onHover(index: number): void;
+  onPick(index: number): void;
+  onStar(modelId: string): void;
+};
+
+/// One model row. Its props are values and stable callbacks, and the list's `style` is the same
+/// object while the row keeps its place (virtualRowStyle), so a hover re-renders the two rows whose
+/// highlight moves, one model's change its own row, and a scroll only the rows it brings in.
+const ModelRow = memo(function ModelRow({
+  rowId,
+  modelId,
+  index,
+  setsize,
+  name,
+  active,
+  checked,
+  used,
+  showMark,
+  mark,
+  combo,
+  unavailable,
+  disabled,
+  favorite,
+  starLabel,
+  starTitle,
+  style,
+  onHover,
+  onPick,
+  onStar,
+}: ModelRowProps) {
+  return (
+    <div className="group relative flex items-center" style={style}>
+      <PickerOption
+        type="button"
+        id={rowId}
+        data-key={`model:${modelId}`}
+        selected={active}
+        aria-checked={checked}
+        aria-posinset={index + 1}
+        aria-setsize={setsize}
+        className={`acpmux-mp-row ${modelRow} ${rowFill(active)} ${checked ? "pr-14" : "pr-8"}${active ? " acpmux-mp-active" : ""}`}
+        onPointerEnter={() => onHover(index)}
+        disabled={disabled}
+        onClick={() => onPick(index)}
+        active={active}
+      >
+        {showMark && <AgentMark agent={mark} size={14} reserve />}
+        <span className="acpmux-menu-label min-w-0 truncate">{name}</span>
+        {used && <UsedMark look={used} />}
+        <span className="flex-1" />
+        {combo !== undefined && <span className="acpmux-mp-combo flex-none text-detail text-dim">{combo}</span>}
+        {unavailable && <span className="flex-none text-detail text-dim">{unavailable}</span>}
+      </PickerOption>
+      <span className="pointer-events-none absolute right-1.5 flex items-center">
+        <button
+          type="button"
+          className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorite ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+          aria-label={starLabel}
+          aria-pressed={favorite}
+          title={starTitle}
+          onClick={() => onStar(modelId)}
+        >
+          <StarGlyph filled={favorite} size={14} />
+        </button>
+        {checked && (
+          <span className="grid size-6 place-items-center text-muted">
+            <CheckIcon />
+          </span>
+        )}
+      </span>
+    </div>
+  );
+});
+
+/// A scroller's height, or the window's while it has no layout (a pane not laid out yet, JSDOM),
+/// so the list still draws a viewport of rows rather than none.
+const laidOutHeight = (scroller: Element, height: number) =>
+  height || (scroller.ownerDocument.defaultView?.innerHeight ?? 0);
+
+/// Where the model rows sit in their scroller: the spacer's offset in it (folder profiles and the
+/// Connect row come first), the row height the density and interface scale give (--ui-row-height),
+/// and the scroller's height.
+type RowsView = { margin: number; row: number; height: number };
+
+/// The model rows the list's viewport shows, one viewport more on each side, and the active row
+/// (so aria-activedescendant names a row in the DOM), placed in a spacer as tall as every row: a
+/// long catalog (a router's hundreds of models, a search across harnesses) draws what is in view.
+/// Rows are one height, so the range is arithmetic on the scroll position, no pass over the rows.
+/// The rows scroll with the rest of the list (folder profiles above, More models below) in its
+/// ScrollArea. The active row comes into view (nearest edge) when it changes, as the picker opens
+/// on the chat's model and the arrows move it: the render that moves it draws the rows at the
+/// place it scrolls to, and the scroll follows in the same commit.
+function ModelRows({
+  count,
+  active,
+  activeKey,
+  renderRow,
+}: {
+  count: number;
+  active: number;
+  /** Changes when the active row does (its element id). */
+  activeKey: string | undefined;
+  renderRow(index: number, style: CSSProperties): ReactNode;
+}) {
+  const space = useRef<HTMLDivElement>(null);
+  const scroller = () => space.current?.closest<HTMLElement>(`.${MODELS_VIEWPORT}`) ?? null;
+  const measure = (): RowsView | undefined => {
+    const node = space.current;
+    const viewport = scroller();
+    if (!node || !viewport) return undefined;
+    const row = node.querySelector<HTMLElement>('[role="option"]')?.offsetHeight || 28;
+    return {
+      margin: node.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop,
+      row,
+      height: laidOutHeight(viewport, viewport.clientHeight),
+    };
+  };
+  const [view, setView] = useState<RowsView>();
+  const [top, setTop] = useState(0);
+  // The active row the list last brought into view, and the scroll position that takes.
+  const [followed, setFollowed] = useState<string>();
+  const [scrollTo, setScrollTo] = useState<number>();
+  if (view && followed !== activeKey) {
+    setFollowed(activeKey);
+    if (activeKey !== undefined && active >= 0 && active < count) {
+      const rowTop = view.margin + active * view.row;
+      const next =
+        rowTop < top ? rowTop : rowTop + view.row > top + view.height ? rowTop + view.row - view.height : top;
+      if (next !== top) {
+        setTop(next);
+        setScrollTo(next);
+      }
+    }
+  }
+  useLayoutEffect(() => {
+    const viewport = scroller();
+    if (!viewport) return;
+    const scrolled = () => setTop(viewport.scrollTop);
+    scrolled();
+    viewport.addEventListener("scroll", scrolled, { passive: true });
+    const resized = () =>
+      setView((previous) => {
+        const next = measure();
+        return next && previous && sameView(previous, next) ? previous : next;
+      });
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(resized) : undefined;
+    observer?.observe(viewport);
+    return () => {
+      viewport.removeEventListener("scroll", scrolled);
+      observer?.disconnect();
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- subscribes once; `scroller` and `measure` read refs.
+  }, []);
+  // After each render: the place the rows start may move (a folder row above loads), and a jump's
+  // scroll lands. Its write is read back, as the scroller clamps it. Every state it sets keeps its
+  // value when nothing moved, so the render it asks for settles.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the layout each commit; settles as above.
+  useLayoutEffect(() => {
+    const viewport = scroller();
+    if (viewport && scrollTo !== undefined) {
+      viewport.scrollTop = scrollTo;
+      setScrollTo(undefined);
+      setTop(viewport.scrollTop);
+    }
+    const next = measure();
+    if (next) setView((previous) => (previous && sameView(previous, next) ? previous : next));
+  });
+  const indexes: number[] = [];
+  const hasActive = active >= 0 && active < count;
+  if (view) {
+    const span = Math.max(1, Math.ceil(view.height / view.row));
+    const first = Math.max(0, Math.floor((top - view.margin) / view.row) - span);
+    const last = Math.min(count - 1, Math.floor((top - view.margin + view.height) / view.row) + span);
+    if (hasActive && active < first) indexes.push(active);
+    for (let index = first; index <= last; index++) indexes.push(index);
+    if (hasActive && active > last) indexes.push(active);
+  } else if (hasActive) indexes.push(active);
+  const row = view?.row ?? 28;
+  return (
+    <div ref={space} className="acpmux-mp-model-rows" style={{ position: "relative", height: count * row }}>
+      {indexes.map((index) => renderRow(index, virtualRowStyle(index * row, row)))}
+    </div>
+  );
+}
+
+const sameView = (a: RowsView, b: RowsView) =>
+  Math.abs(a.margin - b.margin) < 0.5 && a.row === b.row && a.height === b.height;
+
 /// The composer model picker: one harness-and-model button opens a stable two-column picker.
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
@@ -398,10 +620,12 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     claudeConnect,
     usage,
-    quick,
+    reasoningMenu,
     fork,
     onSetUpPick,
   } = props;
+  const quick = reasoningMenu ? undefined : props.quick;
+  const layoutEffort = reasoningMenu ? props.quick?.effort : undefined;
   acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -562,12 +786,25 @@ export function ModelPicker(props: ModelPickerProps) {
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
+  // The search's keys, made once per catalog (and pane language) while the picker is open: a key
+  // then filters with them, typing on filters the last matches (modelSearch.ts).
+  const searchIndex = useMemo(
+    () =>
+      modelsNeeded
+        ? new ModelSearchIndex(
+            harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry)),
+            (entry) => choicesFor(entry, lang),
+            (entry) => entry.name,
+          )
+        : undefined,
+    [modelsNeeded, harnesses, offered, lang],
+  );
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (!modelsNeeded) return owner;
-    if (searching) {
-      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry));
-      for (const { model, entry } of searchModels(searchable, parsed, lang)) owner.set(model, entry);
+    if (searching && searchIndex) {
+      // searchModels' matches, in its order, from the index's keys (nothing made per model per key).
+      for (const row of searchIndex.find(parsed)) owner.set(row.model, row.entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && !needsSetup(entry))
@@ -590,28 +827,34 @@ export function ModelPicker(props: ModelPickerProps) {
     harnesses,
     olderOpen,
     parsed,
+    searchIndex,
     searching,
     selected,
     starredView,
     runsHere,
     needsSetup,
-    offered,
     harness,
     lang,
   ]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   const rowCount = visible.length;
-  const olderCount =
-    !modelsNeeded || searching || starredView || (selected && needsSetup(selected))
-      ? 0
-      : shownSections(selected, runsHere, lang).older.length;
+  // Memoized: shownSections scans the harness's models, and a hover re-renders the picker.
+  const olderCount = useMemo(
+    () =>
+      !modelsNeeded || searching || starredView || (selected && needsSetup(selected))
+        ? 0
+        : shownSections(selected, runsHere, lang).older.length,
+    [modelsNeeded, searching, starredView, selected, needsSetup, runsHere, lang],
+  );
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(refreshDate))
+    ? intl
+        .DateTimeFormat(currentLanguage(), {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+        .format(new Date(refreshDate))
     : undefined;
   const refreshTitle = (() => {
     const label =
@@ -710,10 +953,33 @@ export function ModelPicker(props: ModelPickerProps) {
       if (second !== undefined) cancelAnimationFrame(second);
     };
   }, [open, focusPrompt]);
+  // The compact menu stays open after a pick (#50998), so it closes later: by Escape, the chip, or a
+  // press outside it. The prompt takes the keyboard then only when the close left it nowhere (the
+  // page, the chip, the menu that went), never from a field or control the outside press focused.
+  // Two frames, as the columns menu's own return to the chip: a pointerup's focus lands first.
   useEffect(() => {
     if (quickOpen || !quickPicked.current) return;
     quickPicked.current = false;
-    focusPrompt();
+    const doc = trigger.current?.ownerDocument;
+    const view = doc?.defaultView;
+    if (!doc || !view) {
+      focusPrompt();
+      return;
+    }
+    const frame = (run: () => void) =>
+      typeof view.requestAnimationFrame === "function" ? view.requestAnimationFrame(run) : view.setTimeout(run, 0);
+    let cancelled = false;
+    frame(() =>
+      frame(() => {
+        if (cancelled) return;
+        const active = doc.activeElement;
+        if (!active || active === doc.body || active === trigger.current || active.closest(".acpmux-cols"))
+          focusPrompt();
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     // A held pick of another harness opens on its tab: the picker shows what the next message runs.
@@ -763,11 +1029,8 @@ export function ModelPicker(props: ModelPickerProps) {
   // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
   // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
   // viewport, so a pointer hover (always over a visible row) never scrolls.
+  // The list draws only the rows near its viewport, so ModelRows scrolls to the active row by index.
   const activeRowId = visible[active] ? modelRowId(visible[active].id) : undefined;
-  useLayoutEffect(() => {
-    if (!open || !activeRowId) return;
-    menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
-  }, [open, activeRowId]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -785,15 +1048,21 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [close, open]);
   useEffect(
     () =>
-      registerPicker(modelText, () =>
-        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
-      ),
+      registerPicker(modelText, () => {
+        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+        if (root.current?.closest("[inert]")) return;
+        if (quick === undefined) showRef.current();
+        else if (open) close();
+        else setQuickOpen(true);
+      }),
     [modelText, quick, open, close],
   );
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
+        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
+        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
@@ -1075,19 +1344,33 @@ export function ModelPicker(props: ModelPickerProps) {
       setLocalRefreshStatus("error");
     }
   };
-  const toggleFavorite = (modelId: string) => {
-    setFavorites((current) => {
-      const next = new Set(current);
-      if (next.has(modelId)) next.delete(modelId);
-      else next.add(modelId);
-      try {
-        globalThis.localStorage?.setItem("cmux.model-picker.favorites", JSON.stringify([...next]));
-      } catch {
-        // Storage is optional in gallery and private browsing contexts.
-      }
-      return next;
-    });
-  };
+  const toggleFavorite = useCallback(
+    (modelId: string) => {
+      setFavorites((current) => {
+        const next = new Set(current);
+        if (next.has(modelId)) next.delete(modelId);
+        else next.add(modelId);
+        try {
+          globalThis.localStorage?.setItem("cmux.model-picker.favorites", JSON.stringify([...next]));
+        } catch {
+          // Storage is optional in gallery and private browsing contexts.
+        }
+        return next;
+      });
+    },
+    [setFavorites],
+  );
+  // The model rows' handlers take the row's index and stay the same functions, so a memoized row
+  // re-renders only when its own values change; a pick reads the list as last drawn.
+  const hoverRow = useCallback((index: number) => setActive(index), [setActive]);
+  const pickLatest = useRef<(index: number) => void>(() => {});
+  useLayoutEffect(() => {
+    pickLatest.current = (index) => {
+      const model = visible[index];
+      if (model) selectModel(model);
+    };
+  });
+  const pickRow = useCallback((index: number) => pickLatest.current(index), []);
   /// Shows a rail tab's models (click or arrow key); `clear` drops the typed query.
   const showTab = (id: string | undefined, index: number, clear = false) => {
     setActiveHarness(index);
@@ -1220,7 +1503,8 @@ export function ModelPicker(props: ModelPickerProps) {
         },
       ));
   const chipHarness = face.mark;
-  const { detail, detailShort } = face;
+  const detail = reasoningMenu === "separate" && layoutEffort ? undefined : face.detail;
+  const detailShort = detail ? face.detailShort : undefined;
   const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
   const chipLabel = face.name;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
@@ -1247,6 +1531,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
+  const columnEffort = reasoningMenu === "column" && !selectedOther ? layoutEffort : undefined;
   const folderProfiles = harnesses.filter((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
@@ -1275,6 +1560,21 @@ export function ModelPicker(props: ModelPickerProps) {
   // With its logo hidden, the chip's shortest name also stands in for the row's icon step
   // (composerRowFit.ts `modelMark`), so a narrow row keeps naming the model, never an empty chip.
   const asIcon = showChipIcon ? "" : " icon";
+  const effortFace = detail && (
+    <>
+      <span className="acpmux-model-detail" data-fit-part="effort" data-fit-forms={detailShort ? "full" : "full short"}>
+        {detail}
+      </span>
+      {detailShort && (
+        <span
+          className="acpmux-model-detail acpmux-fit-label"
+          data-fit-part="effort"
+          data-fit-forms="short"
+          data-label={detailShort}
+        />
+      )}
+    </>
+  );
   const chipFace = (
     <>
       {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
@@ -1341,7 +1641,7 @@ export function ModelPicker(props: ModelPickerProps) {
       onSelect: () => setModelChipIcon(!showChipIcon),
     },
   ];
-  return (
+  const modelPicker = (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
@@ -1457,24 +1757,7 @@ export function ModelPicker(props: ModelPickerProps) {
               onMore={more}
             >
               {chipFace}
-              {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
-              {detail && (
-                <span
-                  className="acpmux-model-detail"
-                  data-fit-part="effort"
-                  data-fit-forms={detailShort ? "full" : "full short"}
-                >
-                  {detail}
-                </span>
-              )}
-              {detail && detailShort && (
-                <span
-                  className="acpmux-model-detail acpmux-fit-label"
-                  data-fit-part="effort"
-                  data-fit-forms="short"
-                  data-label={detailShort}
-                />
-              )}
+              {effortFace}
               {forkGlyph}
             </QuickModelColumns>
           </>
@@ -1505,6 +1788,7 @@ export function ModelPicker(props: ModelPickerProps) {
               {...press}
             >
               {chipFace}
+              {reasoningMenu && effortFace}
               {forkGlyph}
               <ChevronIcon />
             </PickerButton>
@@ -1515,6 +1799,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
+          data-reasoning-column={columnEffort ? true : undefined}
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
@@ -1690,7 +1975,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 </button>
               )}
             </div>
-            <ScrollArea fade className="min-h-0 flex-1">
+            <ScrollArea fade className="min-h-0 flex-1" viewportClassName={MODELS_VIEWPORT}>
               <PickerOptionList
                 id={`${menuId}-models`}
                 className="acpmux-mp-models"
@@ -1807,63 +2092,50 @@ export function ModelPicker(props: ModelPickerProps) {
                         : noMatchesText}
                   </div>
                 ) : (
-                  visible.map((model, index) => {
-                    const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
-                    // The checked row is what the next message runs: a held pick, else the chat's model.
-                    const checked = held
-                      ? model.id === held.model && !!owners.get(model)?.ids.includes(held.harness)
-                      : ran;
-                    return (
-                      <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>
-                        <PickerOption
-                          type="button"
-                          id={modelRowId(model.id)}
-                          data-key={`model:${model.id}`}
-                          selected={index === active}
-                          aria-checked={checked}
-                          className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
-                          onPointerEnter={() => setActive(index)}
-                          disabled={Boolean(model.unavailable || model.defaultChoice)}
-                          onClick={() => selectModel(model)}
+                  <ModelRows
+                    count={rowCount}
+                    active={active}
+                    activeKey={activeRowId}
+                    renderRow={(index, style) => {
+                      const model = visible[index]!;
+                      const owner = owners.get(model);
+                      const ran = model.id === props.model && !!owner?.ids.includes(harness ?? "");
+                      // The checked row is what the next message runs: a held pick, else the chat's model.
+                      const checked = held ? model.id === held.model && !!owner?.ids.includes(held.harness) : ran;
+                      const favorite = favorites.has(model.id);
+                      return (
+                        <ModelRow
+                          key={`${owner?.id}:${model.id}`}
+                          rowId={modelRowId(model.id)}
+                          modelId={model.id}
+                          index={index}
+                          setsize={rowCount}
+                          name={model.name}
                           active={index === active}
-                        >
-                          {(starredView || searching) && (
-                            <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
-                          )}
-                          <span className="acpmux-menu-label min-w-0 truncate">{model.name}</span>
-                          {ran && used && <UsedMark look={used} />}
-                          <span className="flex-1" />
-                          {searching && (parsed.effort || parsed.fast) && (
-                            <span className="acpmux-mp-combo flex-none text-detail text-dim">
-                              {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          )}
-                          {model.unavailable && (
-                            <span className="flex-none text-detail text-dim">{unavailableText}</span>
-                          )}
-                        </PickerOption>
-                        <span className="pointer-events-none absolute right-1.5 flex items-center">
-                          <button
-                            type="button"
-                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
-                            aria-label={`${starredText}: ${model.name}`}
-                            aria-pressed={favorites.has(model.id)}
-                            title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
-                            onClick={() => toggleFavorite(model.id)}
-                          >
-                            <StarGlyph filled={favorites.has(model.id)} size={14} />
-                          </button>
-                          {checked && (
-                            <span className="grid size-6 place-items-center text-muted">
-                              <CheckIcon />
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })
+                          checked={checked}
+                          used={ran ? used : undefined}
+                          showMark={starredView || searching}
+                          mark={owner?.mark ?? owner?.id}
+                          combo={
+                            searching && (parsed.effort || parsed.fast)
+                              ? [modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
+                                  .filter(Boolean)
+                                  .join(" · ")
+                              : undefined
+                          }
+                          unavailable={model.unavailable ? unavailableText : undefined}
+                          disabled={Boolean(model.unavailable || model.defaultChoice)}
+                          favorite={favorite}
+                          starLabel={`${starredText}: ${model.name}`}
+                          starTitle={t(favorite ? "picker.unstar" : "picker.star")}
+                          style={style}
+                          onHover={hoverRow}
+                          onPick={pickRow}
+                          onStar={toggleFavorite}
+                        />
+                      );
+                    }}
+                  />
                 )}
                 {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
                   <button
@@ -1907,24 +2179,59 @@ export function ModelPicker(props: ModelPickerProps) {
                 </div>
               )
             )}
-            {fastMode && (
-              <div className="flex-none border-t-[0.5px] border-edge p-1.5">
-                <button
-                  type="button"
-                  className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-pressed={fastModeIsOn(fastMode)}
-                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
-                >
-                  <span>{fastMode.name}</span>
-                  <span className="text-detail text-dim">
-                    {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
-                  </span>
-                </button>
-              </div>
+            {reasoningMenu && fastMode?.choices && !selectedOther ? (
+              <PickerChoiceGroup
+                label={fastMode.name}
+                name={menuId + "-speed"}
+                choices={fastMode.choices}
+                current={fastMode.currentValue}
+                onPick={fastMode.onPick}
+                horizontal
+              />
+            ) : (
+              fastMode &&
+              !reasoningMenu && (
+                <div className="flex-none border-t-[0.5px] border-edge p-1.5">
+                  <button
+                    type="button"
+                    className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
+                    aria-pressed={fastModeIsOn(fastMode)}
+                    onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
+                  >
+                    <span>{fastMode.name}</span>
+                    <span className="text-detail text-dim">
+                      {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
+                    </span>
+                  </button>
+                </div>
+              )
             )}
           </div>
+          {columnEffort && (
+            <PickerChoiceGroup
+              label={t("picker.reasoning")}
+              name={menuId + "-reasoning"}
+              choices={columnEffort.levels.map((level) => ({ value: level.id, name: level.name }))}
+              current={columnEffort.current}
+              onPick={columnEffort.onPick}
+            />
+          )}
         </PickerDialog>
       )}
     </span>
+  );
+  if (reasoningMenu !== "separate" || !layoutEffort) return modelPicker;
+  return (
+    <>
+      {modelPicker}
+      <EffortPicker
+        label="Reasoning"
+        efforts={layoutEffort.levels}
+        current={layoutEffort.current}
+        onPick={layoutEffort.onPick}
+        slider={layoutEffort.slider}
+        sliderStyle={layoutEffort.sliderStyle}
+      />
+    </>
   );
 }

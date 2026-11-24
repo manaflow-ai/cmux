@@ -17,15 +17,41 @@ export function recordedFiles(
   );
 }
 
+/// An image file a prompt sent as its link, not its bytes: an image past the prompt's budget goes
+/// as the link to its saved original (promptBudget.ts `originalLink`, no type or size), as does a
+/// dropped image file's link chip. The bubble draws it as the image it is, read from its file
+/// (UserBubble.tsx `SentLinkedImage`), never as a nameless "0 byte" file chip (Leo, 2026-11-22:
+/// "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?"). Its path, or undefined.
+export function linkedImagePath(file: {
+  kind?: string;
+  mimeType?: string;
+  companionOf?: number;
+  text?: string;
+  uri?: string;
+  path?: string;
+}): string | undefined {
+  if (file.kind !== undefined && file.kind !== "file") return undefined;
+  if (file.companionOf !== undefined || file.text) return undefined;
+  if (file.mimeType && file.mimeType !== "application/octet-stream" && !file.mimeType.startsWith("image/"))
+    return undefined;
+  const path = file.path ?? attachmentPath(file.uri);
+  return path && LINKED_IMAGE.test(path) ? path : undefined;
+}
+const LINKED_IMAGE = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp)$/i;
+
 /// A file part that is an image's retained original: drawn as the image, never again as a file.
 export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
   return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
-/// The sent thumbnail's height (conversation.css).
-export const SENT_IMAGE_HEIGHT = 120;
-/// The widest a sent image draws: a wider one shrinks to it, whole.
-const SENT_IMAGE_MAX_WIDTH = 320;
+/// The sent thumbnail's height (conversation.css): the tallest a sent image draws, and a sent video's
+/// tile. Was 120 with a 320 cap on width, which drew a wide screenshot as a strip of unreadable text
+/// above its bubble (Leo, 2026-11-21: "you guys or we kinda messed up the rendering ... if you sent it
+/// iinline you prob shouldn't have such odd stuff").
+export const SENT_IMAGE_HEIGHT = 160;
+/// The widest a sent image draws: a wider one shrinks to it, whole. The bubble's column (70% of the
+/// chat, conversation.css) scales it down further in a narrow chat.
+export const SENT_IMAGE_MAX_WIDTH = 480;
 
 /// A video tile's width at SENT_IMAGE_HEIGHT: the shape its composer chip had (`shape`,
 /// composer/videoShape.ts), else its size's within the same bounds; square only while neither is known.

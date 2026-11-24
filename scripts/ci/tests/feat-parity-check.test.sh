@@ -258,6 +258,34 @@ status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
 printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
+# A BASE neither origin nor github.com serves is no verdict (exit 3, the pool poster's setup fault), never
+# exit 1, which the poster reads as the change's red. github.com is pointed at a path that does not exist.
+for mode in clippy-changed react-doctor; do
+  ARGS=("$mode" 0123456789abcdef0123456789abcdef01234567)
+  : >"$TMP/calls"
+  status=0; out=$(run CMUX_CI_STEP_KEY=k GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$TMP/no-such-repo/.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/) || status=$?
+  [[ "$status" == 3 ]] || fail "$mode with an unfetchable BASE must exit 3 (no verdict), got $status: $out"
+  grep -q 'base: cannot fetch' <<<"$out" || fail "$mode did not say BASE is missing: $out"
+  [[ ! -s "$TMP/calls" ]] || fail "$mode ran tools with no BASE: $(calls)"
+done
+# BASE is the base tip; the comparison point is where HEAD meets it, even in a pool worker's depth-1 checkout of HEAD.
+# cmux#53262 (2026-11-24): merge-base found nothing at depth 1, BASE itself stood in, and the panic ratchet charged
+# the branch for a file the base rewrote 20 commits after the branch was cut.
+O="$TMP/origin"
+git_fixture_init "$O" && git -C "$O" config uploadpack.allowAnySHA1InWant true
+oc() { git -C "$O" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1"; }
+oc root; for i in 1 2 3; do oc "trunk $i"; done
+fork=$(git -C "$O" rev-parse HEAD)
+git -C "$O" checkout -q -b side; for i in 1 2 3; do oc "side $i"; done
+head=$(git -C "$O" rev-parse HEAD)
+git -C "$O" checkout -q -; for i in $(seq 1 20); do oc "base $i"; done
+tip=$(git -C "$O" rev-parse HEAD)
+P="$TMP/pool"
+git_fixture_init "$P" && git -C "$P" remote add origin "file://$O"
+git -C "$P" fetch -q --no-tags --depth=1 origin "$head" && git -C "$P" checkout -q --detach FETCH_HEAD
+ARGS=(react-doctor "$tip")
+out=$( (cd "$P" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1) || true
+grep -q "^base: $fork$" <<<"$out" || fail "a depth-1 HEAD must be compared with its merge base $fork, not the tip $tip: $out"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ -z "$(calls)" ]] || fail "tools ran for a refused request: $(calls)"

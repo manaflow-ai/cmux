@@ -16,6 +16,13 @@
 //! copy would send (`copy_files`, `copy_bytes`), and writes nothing, so the
 //! person decides whether the copy goes.
 //!
+//! A full push with no `--head-first` (Move to Cloud's) projects the folder first
+//! (`sync_cli/project.rs`, as a new Cloud chat's folder is): the machine mounts a
+//! stat-only manifest and reads each file's bytes from this Mac on first use, so
+//! the chat moves at once whatever the folder's size. Projection off, a machine
+//! without `projection-v1` or a projection that fails seeds or copies as below.
+//! `--since-last` of a projected folder projects it again as it is now.
+//!
 //! `--since-last` sends only what changed since this Mac's last push of the
 //! same folder to the same machine folder ([`record`]): a delta bundle after
 //! a seed (nothing at all when nothing changed), or a re-push of the copy
@@ -82,6 +89,7 @@ mod held;
 mod hop;
 mod pull;
 mod record;
+mod route;
 
 pub(super) use hop::{
     abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
@@ -108,7 +116,8 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
        cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]
        cmux link seed move --from-socket PATH --socket PATH [LOCAL_FOLDER] FROM_FOLDER TO_FOLDER";
 
-/// Time between two `git.seed.status` requests.
+/// Longest time between two `git.seed.status` requests (the first waits are shorter:
+/// [`super::spans::PollWait`]).
 const STATUS_EVERY: Duration = Duration::from_millis(500);
 /// Longest a seed job is waited for (a first clone of a big repository).
 const SEED_DEADLINE: Duration = Duration::from_secs(45 * 60);
@@ -202,6 +211,8 @@ pub(super) struct Pushed {
     pub(super) fallback: Option<SeedError>,
     /// The machine answered at the seed's head and still fills the rest.
     pub(super) filling: bool,
+    /// `projected`: the machine's answer to the projection (`sync_cli/project.rs`).
+    pub(super) projected: Option<Value>,
 }
 
 impl Pushed {
@@ -220,6 +231,9 @@ impl Pushed {
         }
         if self.filling {
             line.set("filling", json!(true));
+        }
+        if let Some(projected) = &self.projected {
+            line.set("projected", projected.clone());
         }
         if let Some(fallback) = &self.fallback {
             line.set("fallback_code", json!(fallback.code));
@@ -320,10 +334,20 @@ pub(super) fn run(args: &[String]) -> i32 {
                 push_since_last(&socket, &local, &remote)
             } else if seed_only {
                 push_seed_only(&socket, &local, &remote, head_first.as_deref())
+            } else if head_first.is_none()
+                && let Some(projected) = project_first(&socket, &local, &remote)
+            {
+                Ok(projected)
             } else {
                 push(&socket, &local, &remote, head_first.as_deref())
             };
-            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
+            pushed
+                .map(|pushed| {
+                    let mut line = pushed.json();
+                    line.set("sync_phases", super::spans::take());
+                    line
+                })
+                .map_err(|error| SeedError::of(&error).line())
         }
         Command::Clone { socket, repo, git_ref, remote } => {
             clone(&socket, &repo, git_ref.as_deref(), &remote).map_err(|error| error.line())
@@ -472,6 +496,9 @@ struct Machine<'a> {
     seeds: bool,
     /// It serves `git-seed-hold-v2` ([`held`]).
     holds: bool,
+    /// It serves `git-seed-carry-v1`: a fresh folder takes this Mac's pack of the base instead
+    /// of a clone ([`plan_carry`]).
+    carries: bool,
 }
 
 impl<'a> Machine<'a> {
@@ -489,8 +516,9 @@ impl<'a> Machine<'a> {
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
+        let carries = lacks(cmux_tui_core::git_seed::GIT_SEED_CARRY_CAPABILITY).is_none();
         let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
-        Ok(Self { socket, id, seeds, holds })
+        Ok(Self { socket, id, seeds, holds, carries })
     }
 
     fn outdated() -> SeedError {
@@ -616,13 +644,118 @@ fn refusal(local: &Path, fallback: SeedError) -> SeedError {
     }
 }
 
+/// Move to Cloud's full push (`cmux link seed push LOCAL REMOTE`, no `--head-first`): the folder
+/// is projected (`sync_cli/project.rs`) when projected moves are on (`cmux link project moves
+/// on`; off until Bring Back Local brings a projection's edits home) and the machine serves it, as a new
+/// Cloud chat's folder is, so the chat moves at once whatever the folder's size or whether it is a
+/// git repository, its files read from this Mac on first use. None when it is not, or the
+/// projection fails: the seed or copy goes as before. A seed record of an earlier push of the
+/// folder there is dropped, so neither `--since-last` nor Bring Back Local builds on it.
+fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
+    if !sync_cli::project::moves_enabled() {
+        return None;
+    }
+    let local = std::fs::canonicalize(local).ok()?;
+    if route::enabled() && !routed_to_projection(&local) {
+        return None;
+    }
+    let key = sync_cli::project::move_key(remote);
+    match sync_cli::project::restart(socket, &local, remote, &key) {
+        Ok(Ok(answer)) => {
+            let _ = record::forget(&local, remote);
+            Some(projected(&answer))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link seed push: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link seed push: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
+/// With [`route::enabled`]: whether the estimate over this Mac's uplink routes the folder to a
+/// projection (RFD 0066 piece 9). A whole snapshot is not built yet (RFD 0066 pieces 2-3), so
+/// that route, and an estimate that fails, leave the seed or copy to go as before. The
+/// snapshot behind a listing-first route is not built yet either: the line says when the
+/// laptop could sleep once it is.
+fn routed_to_projection(local: &Path) -> bool {
+    let Ok(estimate) = sync_cli::estimate::of_folder(local) else {
+        return false;
+    };
+    // A rate this Mac never measured is the router's conservative default.
+    let uplink = if estimate.measured { estimate.rate } else { route::DEFAULT_UPLINK };
+    let mut route = route::choose(estimate.folder_bytes, estimate.folder_files, uplink);
+    // A listing cut short counts at least this much: never a whole snapshot.
+    if !estimate.complete && route == route::Route::WholeSnapshot {
+        route = route::Route::ListingFirstSnapshotBehind;
+    }
+    let sleep = route::sleep_minutes(estimate.folder_bytes, uplink);
+    eprintln!(
+        "cmux link seed push: route {route:?} ({}, {} files, uplink {uplink} B/s{}; the laptop could sleep in {sleep} min once a snapshot uploads behind)",
+        sync_cli::bytes_text(estimate.folder_bytes),
+        estimate.folder_files,
+        if estimate.measured { "" } else { ", default rate: none measured" },
+    );
+    route != route::Route::WholeSnapshot
+}
+
+/// A push that projected: the machine's answer to it.
+fn projected(answer: &Value) -> Pushed {
+    Pushed {
+        mode: "projected",
+        unchanged: false,
+        bundle_bytes: 0,
+        head: None,
+        work: None,
+        skipped_files: Value::Array(Vec::new()),
+        copy: None,
+        fallback: None,
+        filling: false,
+        projected: Some(answer.get("data").cloned().unwrap_or_default()),
+    }
+}
+
+/// `--since-last` of a folder [`project_first`] projected: projected again, as it is now (the
+/// chat may have changed it since, until the move froze it), in place of the older manifest. It
+/// never falls back to a copy, which would write the whole folder into the projection.
+fn project_again(socket: &Path, local: &Path, remote: &str, key: &str) -> anyhow::Result<Pushed> {
+    let failed = |why: String| {
+        SeedError::new(
+            "sync_failed",
+            format!("{} could not be projected again: {why}", local.display()),
+        )
+    };
+    match sync_cli::project::restart(socket, local, remote, key) {
+        Ok(Ok(answer)) => Ok(projected(&answer)),
+        Ok(Err(why)) => Err(failed(format!("{why:?}")).into()),
+        Err(error) => Err(failed(format!("{error:#}")).into()),
+    }
+}
+
 /// [`push`] with `--since-last` (module docs), for `cmux link agent move
-/// --sync seed` too. Its errors' codes are [`failure_code`]'s.
+/// --sync seed` too. Its errors' codes are [`failure_code`]'s. A folder the last push projected
+/// is projected again ([`project_again`]).
 pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
-    let machine = Machine::read(socket)?;
-    let local = std::fs::canonicalize(local).map_err(|error| {
+    let canonical = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
+    let machine = Machine::read(socket)?;
+    if let Some(on) = sync_cli::project::projected_at(remote)
+        && on.local == canonical
+        && machine.id.as_deref().unwrap_or_default() == on.machine
+    {
+        return project_again(socket, &canonical, remote, &on.chat);
+    }
+    let local = canonical;
     let no_previous = |why: &str| SeedError::new("seed.no_previous", why);
     let Some(mut record) = record::load(&local, remote)? else {
         return Err(no_previous("this Mac never pushed this folder to that machine folder").into());
@@ -661,13 +794,15 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     };
     let bundle = LocalBundle::new()?;
     let previous = PreviousSeed { head, index, work, stash: record.stash };
-    let planned = plan::plan_since(&local, &bundle.file, &previous).map_err(|fallback| {
-        let code = match fallback.code {
-            FallbackCode::NoPrevious => "seed.no_previous".to_string(),
-            code => format!("seed.{}", code.as_str()),
-        };
-        SeedError::new(code, fallback.why)
-    })?;
+    let planned =
+        super::spans::time("seed.plan_since", || plan::plan_since(&local, &bundle.file, &previous))
+            .map_err(|fallback| {
+                let code = match fallback.code {
+                    FallbackCode::NoPrevious => "seed.no_previous".to_string(),
+                    code => format!("seed.{}", code.as_str()),
+                };
+                SeedError::new(code, fallback.why)
+            })?;
     if planned.unchanged {
         return Ok(seeded("delta", &planned, &Ended::Done(Value::Null)));
     }
@@ -699,8 +834,10 @@ fn seed_full(
     if !machine.seeds {
         return Err(Attempt::Fallback(Machine::outdated()));
     }
-    let bundle = LocalBundle::new().map_err(Attempt::Failed)?;
-    let mut planned = plan::plan(local, &bundle.file).map_err(from_plan)?;
+    let mut bundle = LocalBundle::new().map_err(Attempt::Failed)?;
+    let mut planned =
+        super::spans::time("seed.plan", || plan::plan(local, &bundle.file)).map_err(from_plan)?;
+    plan_carry(machine, local, &planned, &mut bundle);
     let existed = sync_cli::remote_kind(machine.socket, remote)
         .map_err(|error| Attempt::Failed(SeedError::of(&error)))?
         .is_some();
@@ -712,6 +849,7 @@ fn seed_full(
         && let Some(tip) = planned.bases.last().filter(|tip| **tip != planned.params.base).cloned()
     {
         planned = plan::plan_with_base(local, &bundle.file, &tip).map_err(from_plan)?;
+        plan_carry(machine, local, &planned, &mut bundle);
         result = run_seed(machine.socket, remote, &planned, &bundle, head_first);
     }
     match result {
@@ -730,10 +868,33 @@ fn seed_full(
     }
 }
 
+/// The base's pack beside the bundle when the machine serves `git-seed-carry-v1` and this Mac
+/// may carry it (`seed::carry`); else none, and the machine clones. A failure here is never the
+/// seed's: it only costs the clone it would have saved.
+fn plan_carry(machine: &Machine<'_>, local: &Path, planned: &Planned, bundle: &mut LocalBundle) {
+    bundle.carry = None;
+    if !machine.carries || !super::seed::carry::enabled() || planned.params.since.is_some() {
+        return;
+    }
+    let out = bundle.folder.join("carry.pack");
+    let packed = super::spans::time("seed.carry_pack", || {
+        super::seed::carry::pack(local, &planned.params.base, &out)
+    });
+    if let Ok(bytes) = packed {
+        bundle.carry = Some((out, bytes));
+    }
+}
+
 /// [`settle_fill`] over the machine's own calls.
 fn settle(machine: &Machine<'_>, remote: &str, record: &mut Record) -> Result<(), SeedError> {
     let mut whole = || checkout_whole(machine.socket, remote);
-    settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut whole, record, deadline())
+    settle_fill(
+        &mut machine_calls(machine.socket),
+        &mut status_wait(),
+        &mut whole,
+        record,
+        deadline(),
+    )
 }
 
 /// The streamed copy, kept as this folder's last push.
@@ -783,6 +944,7 @@ fn copied(
         copy: Some(line),
         fallback,
         filling: filling.is_some(),
+        projected: None,
     }
 }
 
@@ -824,6 +986,8 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         .map(|item| {
             let kind = if item.why.starts_with("a separate git repository") {
                 "repository"
+            } else if item.why.starts_with("a big file") {
+                "big"
             } else {
                 "secret"
             };
@@ -840,6 +1004,7 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         copy: None,
         fallback: None,
         filling: ended.filling().is_some(),
+        projected: None,
     }
 }
 
@@ -863,17 +1028,36 @@ fn run_seed(
     // A big upload goes through this part file first (sync_cli remote.rs);
     // a failed one leaves it.
     let part = format!("{parent}/.{file}.cmux-sync-part");
-    let total = planned.bundle_bytes;
+    let carry_bytes = bundle.carry.as_ref().map_or(0, |(_, bytes)| *bytes);
+    let total = planned.bundle_bytes + carry_bytes;
     let mut report = throttled();
     report(json!({"phase": "upload", "bytes_done": 0, "bytes_total": total}), true);
+    let mut laps = super::spans::Laps::new("seed");
+    // The carry pack first, beside the bundle; its progress counts toward the same total.
+    let carry_target = bundle.carry.as_ref().map(|_| format!("{parent}/{file}.carry"));
+    let carry_part =
+        carry_target.as_ref().map(|_| format!("{parent}/.{file}.carry.cmux-sync-part"));
+    let mut carried = None;
+    if let (Some((path, _)), Some(target)) = (&bundle.carry, &carry_target) {
+        let uploaded = sync_cli::upload(socket, path, target, &mut |done| {
+            report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), false);
+        });
+        // A pack that did not go up only costs the clone it would have saved.
+        carried = uploaded.is_ok().then(|| target.clone());
+    }
     let uploaded = sync_cli::upload(socket, &bundle.file, &target, &mut |done| {
+        let done = done + carry_bytes;
         report(json!({"phase": "upload", "bytes_done": done, "bytes_total": total}), done >= total);
     });
+    laps.mark("upload");
     let result = uploaded.map_err(|error| SeedError::of(&error)).and_then(|()| {
         let mut start = serde_json::to_value(&planned.params)
             .map_err(|error| SeedError::new("seed.bad_request", error.to_string()))?;
         start.set("folder", json!(remote));
         start.set("bundle", json!(target));
+        if let Some(carry) = &carried {
+            start.set("carry", json!(carry));
+        }
         let head_first = head_first.filter(|subpath| asks_head_first(planned, subpath));
         if let Some(subpath) = head_first {
             start.set("head_first", json!(true));
@@ -883,9 +1067,14 @@ fn run_seed(
         }
         start_and_wait(socket, start, head_first.is_some())
     });
+    laps.mark("job");
     // The machine copied it when the job started; gone already after a seed.
     let _ = sync_cli::delete_remote(socket, &target);
     let _ = sync_cli::delete_remote(socket, &part);
+    for path in carry_target.iter().chain(carry_part.iter()) {
+        let _ = sync_cli::delete_remote(socket, path);
+    }
+    laps.mark("cleanup");
     result
 }
 
@@ -953,8 +1142,10 @@ fn machine_calls(socket: &Path) -> impl FnMut(&str, Value) -> Result<Value, Seed
     }
 }
 
-fn pause() {
-    std::thread::sleep(STATUS_EVERY);
+/// The wait between two `git.seed.status` requests of one job.
+fn status_wait() -> impl FnMut() {
+    let mut wait = super::spans::PollWait::up_to(STATUS_EVERY);
+    move || wait.sleep("seed.status poll")
 }
 
 fn deadline() -> Instant {
@@ -1006,7 +1197,7 @@ fn barrier_ready(bytes: Option<&[u8]>) -> bool {
 /// `git.seed.start` with `start`, then its job's status until it ends (or,
 /// with `head_ready`, until its head is in place).
 fn start_and_wait(socket: &Path, start: Value, head_ready: bool) -> Result<Ended, SeedError> {
-    seed_job(&mut machine_calls(socket), &mut pause, start, head_ready, deadline())
+    seed_job(&mut machine_calls(socket), &mut status_wait(), start, head_ready, deadline())
 }
 
 /// [`start_and_wait`] through `call`, `pause` between two requests.
@@ -1045,7 +1236,10 @@ fn wait_job(
     loop {
         let status = call("git.seed.status", json!({"job": job}))?;
         match status.get("state").and_then(Value::as_str) {
-            Some("done") => return Ok(Ended::Done(status)),
+            Some("done") => {
+                super::spans::remote("git.seed.start", &status);
+                return Ok(Ended::Done(status));
+            }
             Some("failed") => {
                 return Err(SeedError {
                     install_url: status
@@ -1171,6 +1365,8 @@ fn unique() -> String {
 struct LocalBundle {
     folder: PathBuf,
     file: PathBuf,
+    /// The `git-seed-carry-v1` pack beside it and its bytes ([`plan_carry`]).
+    carry: Option<(PathBuf, u64)>,
 }
 
 impl LocalBundle {
@@ -1182,7 +1378,7 @@ impl LocalBundle {
             SeedError::new("sync_failed", format!("cannot make a folder for the bundle: {error}"))
         })?;
         let file = folder.join("seed.bundle");
-        Ok(Self { folder, file })
+        Ok(Self { folder, file, carry: None })
     }
 }
 

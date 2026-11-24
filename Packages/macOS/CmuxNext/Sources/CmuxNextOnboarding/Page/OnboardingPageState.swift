@@ -1,5 +1,6 @@
 import CmuxNextAgentIntegrations
 import CmuxNextBrowserImport
+import CmuxNextSettings
 import Foundation
 
 /// The onboarding page's state (`webviews/src/pages/onboarding/ops.ts`, `OnboardingState`): what
@@ -91,6 +92,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let bookmarks: Int
         let history: Int
         let openTabs: Int
+        let extensions: Int
         let cookies: Int
         let passwords: Int
         let searchEngines: Int
@@ -99,6 +101,7 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             bookmarks = counts.bookmarks
             history = counts.history
             openTabs = counts.openTabs
+            extensions = counts.extensions
             cookies = counts.cookies
             passwords = counts.passwords
             searchEngines = counts.searchEngines
@@ -244,6 +247,10 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let note: String?
         let showsRestart: Bool
         let comebacks: Int
+        /// The done view: the person's Allow got the last grant on (the window closes by itself).
+        let finished: Bool
+        /// The Screenshots row's screen capture note (``ComputerUseStepModel/confirmsCapture``).
+        let confirmsCapture: Bool
 
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -253,29 +260,11 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encodeNullable(note, forKey: .note)
             try c.encode(showsRestart, forKey: .showsRestart)
             try c.encode(comebacks, forKey: .comebacks)
+            try c.encode(finished, forKey: .finished)
+            try c.encode(confirmsCapture, forKey: .confirmsCapture)
         }
 
-        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks }
-    }
-
-    /// One coding agent of the cmux Tools step: `ready`, `added`, `conflict` or `failed`
-    /// (``AgentToolsAgent/State``). No icon: the page draws the agent's mark from its id.
-    struct AgentToolsRow: Encodable, Equatable {
-        let id: String
-        let name: String
-        let state: String
-    }
-
-    /// The cmux Tools step (ops.ts `AgentToolsState`).
-    struct AgentTools: Encodable, Equatable {
-        let rows: [AgentToolsRow]
-        let loaded: Bool
-        /// The answer in the settings file: `ask`, `on` or `off`.
-        let choice: String
-        let applying: Bool
-        let failed: Bool
-        /// The person answered in this window (Add or Not Now).
-        let answered: Bool
+        private enum Keys: String, CodingKey { case helperIcon, rows, allGranted, note, showsRestart, comebacks, finished, confirmsCapture }
     }
 
     /// One background of Make cmux Yours (ops.ts `MakeItYoursBackground`).
@@ -321,8 +310,11 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
     let agents: Agents?
     let importer: Importer?
     let computerUse: ComputerUse?
-    let agentTools: AgentTools?
     let makeItYours: MakeItYours?
+    /// The Agents step's sign-in rows and providers' readiness (``OnboardingSignIn``); left out when
+    /// null (a daemon without `_acpmux/account/readiness`, or another step), so the page is as before.
+    var signInAccounts: JSONValue = .null
+    var signInReadiness: JSONValue = .null
 
     /// Every field `ops.ts` types `T | null` is sent, as null when absent: the page reads `null`, never a
     /// missing key. (Synthesized `Encodable` leaves a nil out, so each such struct encodes itself.)
@@ -333,25 +325,30 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         try container.encodeNullable(agents, forKey: .agents)
         try container.encodeNullable(importer, forKey: .importer)
         try container.encodeNullable(computerUse, forKey: .computerUse)
-        try container.encodeNullable(agentTools, forKey: .agentTools)
         try container.encodeNullable(makeItYours, forKey: .makeItYours)
+        if signInReadiness != .null {
+            try container.encode(signInAccounts, forKey: .signInAccounts)
+            try container.encode(signInReadiness, forKey: .signInReadiness)
+        }
     }
 
-    private enum Keys: String, CodingKey { case step, footer, agents, importer, computerUse, agentTools, makeItYours }
+    private enum Keys: String, CodingKey {
+        case step, footer, agents, importer, computerUse, makeItYours, signInAccounts, signInReadiness
+    }
 }
 
 extension OnboardingPageState {
     /// The state of `model`'s window; `images` draws the icons (nil until drawn).
     @MainActor
-    init(model: OnboardingModel, images: OnboardingPageImages) {
+    init(model: OnboardingModel, images: OnboardingPageImages, signIn: (accounts: JSONValue, readiness: JSONValue)? = nil) {
         step = model.step.rawValue
         footer = Footer(primary: Self.primary(model), primaryEnabled: model.canAdvance, skip: Self.skip(model),
                         showsBack: model.flowProgress != nil, backEnabled: model.canGoBack, progress: model.flowProgress)
         agents = model.step == .agents ? Self.agents(model.agents, images) : nil
         importer = model.step == .importData ? Self.importer(model.importer, images) : nil
         computerUse = model.step == .computerUse ? Self.computerUse(model.computerUse, images) : nil
-        agentTools = model.step == .agentTools ? Self.agentTools(model.agentTools) : nil
         makeItYours = model.step == .makeItYours ? Self.makeItYours(model.makeItYours) : nil
+        if let signIn { (signInAccounts, signInReadiness) = signIn }
     }
 
     @MainActor
@@ -362,22 +359,13 @@ extension OnboardingPageState {
                            loaded: model.loaded)
     }
 
-    /// The footer's quiet button: Skip Importing over the Keychain explainer; on cmux Tools, Not Now
-    /// until the person answered, then none (`none`: only Done is left).
+    /// The footer's quiet button: Skip Importing over the Keychain explainer.
     @MainActor
     static func skip(_ model: OnboardingModel) -> String {
         switch model.step {
         case .importData where model.importer.isConfirmingPasswords: "skipImporting"
-        case .agentTools: model.agentTools.answered ? "none" : "notNow"
         default: "skip"
         }
-    }
-
-    @MainActor
-    static func agentTools(_ model: AgentToolsStepModel) -> AgentTools {
-        AgentTools(rows: model.agents.map { AgentToolsRow(id: $0.id, name: $0.name, state: $0.state.rawValue) },
-                   loaded: model.loaded, choice: model.choice.rawValue, applying: model.applying,
-                   failed: model.failed, answered: model.answered)
     }
 
     /// `OnboardingModel.primaryTitle`, as the page's label key.
@@ -387,7 +375,6 @@ extension OnboardingPageState {
         switch model.step {
         case .agents, .makeItYours: return "continue"
         case .computerUse: return "done"
-        case .agentTools: return model.agentTools.answered ? "done" : "addTools"
         case .importData:
             if importer.phase == .detecting { return "detecting" }
             if importer.phase == .idle { return "findBrowsers" }
@@ -512,7 +499,7 @@ extension OnboardingPageState {
                         GrantRow(pane: pane.rawValue, control: control(pane, model), icon: images.grant(pane))
                     },
                     allGranted: model.allGranted, note: note(model), showsRestart: model.permissions.helperFailed,
-                    comebacks: model.comebacks)
+                    comebacks: model.comebacks, finished: model.finished, confirmsCapture: model.confirmsCapture)
     }
 
     /// The row's trailing control for the current grants.

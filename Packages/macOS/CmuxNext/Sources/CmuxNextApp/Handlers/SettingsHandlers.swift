@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAppCore
+import CmuxNextAppTry
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import os
 
@@ -17,13 +19,12 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        SettingsCustomizationActions().bind(into: registry, effect: { route, focus in
+            try context.services.settingsWindow.show(section: nil, focus: focus, route: route)
+            return .done
+        }, refuse: { [weak registry] in registry?.refuse(thrown: $0) })
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
-        // Showing the Settings tab is local and immediate: the effect is done on this turn.
-        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
-            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
-            return .done
-        })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
@@ -53,7 +54,8 @@ enum SettingsHandlers {
         WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] },
+                            openLink: { [weak services = context.services] url in services.map { SidebarCardFeed.openUpdateLink(url, services: $0) } })
         // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
         // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
         registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in
@@ -69,6 +71,7 @@ enum SettingsHandlers {
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         LiveWebHandlers.bind(into: registry, context: context)
+        AppTryActions.bind(into: registry, bundled: context.services.bundledCLI, window: { context.activeWindow?.window })
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

@@ -38,7 +38,7 @@ fn every_reader_is_named_and_unknown_ones_are_refused() {
             "reader": reader, "path": empty.path().join("none").to_string_lossy(),
             "profile": dir, "sessions": dir, "profileDirectory": "Default", "head": "[]",
             "engine": {"name": "K", "search": "https://kagi.com/?q={searchTerms}"},
-            "builtIn": {},
+            "builtIn": {}, "copyRoot": dir,
         });
         let reply = read(fields(request), None).expect(reader);
         assert!(reply.get("ok").is_some() || reply["error"]["kind"].is_string(), "{reply}");

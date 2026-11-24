@@ -1,6 +1,7 @@
 //! Sign-in flows: the code exchange, the dev shortcut and their outcomes.
 
 use super::Coordinator;
+use super::state::{Loading, PendingCode, Session};
 use crate::event::{AfterTeams, AuthFailure, Effect, SignInFlow, SignInKind};
 use crate::model::AuthUser;
 
@@ -13,15 +14,15 @@ impl Coordinator {
         sets_loading: bool,
         fx: &mut Vec<Effect>,
     ) {
-        if kind == SignInKind::VerifyCode && !self.has_pending_code {
+        if kind == SignInKind::VerifyCode && self.pending_code == PendingCode::None {
             fx.push(Effect::SignInFailed { flow: None, failure: AuthFailure::InvalidCode });
             return;
         }
-        self.sign_in_attempt_counter = self.sign_in_attempt_counter.wrapping_add(1);
+        self.generations.sign_in_attempt = self.generations.sign_in_attempt.wrapping_add(1);
         let flow = SignInFlow {
-            generation: self.session_generation,
-            attempt: self.sign_in_attempt_counter,
-            sign_out_epoch: self.sign_out_epoch,
+            generation: self.generations.session,
+            attempt: self.generations.sign_in_attempt,
+            sign_out_epoch: self.generations.sign_out_epoch,
             kind,
             sets_loading,
         };
@@ -35,8 +36,7 @@ impl Coordinator {
         result: Result<(), AuthFailure>,
         fx: &mut Vec<Effect>,
     ) {
-        let current = flow.generation == self.session_generation
-            && flow.sign_out_epoch == self.sign_out_epoch;
+        let current = self.flow_is_current(flow);
         if let Err(failure) = result {
             self.active_sign_in_flows.remove(&flow.attempt);
             fx.push(Effect::SignInFailed { flow: Some(flow), failure });
@@ -48,35 +48,37 @@ impl Coordinator {
             return;
         }
         if flow.kind == SignInKind::External {
-            self.is_loading = true;
-            fx.push(Effect::SetLoading(true));
+            self.set_loading(Loading::Busy, fx);
             fx.push(Effect::ClearExternalSignInFailureDetail);
             return self.complete_sign_in(flow, fx);
         }
         fx.push(Effect::CheckOnline(flow));
     }
 
-    /// Whether `flow` is still registered: a finished or failed flow is not.
+    /// Whether `flow` is still registered exactly as it began: a finished or
+    /// failed flow is not, nor one whose fields differ from the registered one.
     pub(super) fn flow_is_active(&self, flow: SignInFlow) -> bool {
-        self.active_sign_in_flows.contains_key(&flow.attempt)
+        self.active_sign_in_flows.get(&flow.attempt) == Some(&flow)
     }
 
     /// Whether no sign-out or newer session has landed since `flow` began.
     pub(super) fn flow_is_current(&self, flow: SignInFlow) -> bool {
-        flow.generation == self.session_generation && flow.sign_out_epoch == self.sign_out_epoch
+        flow.generation == self.generations.session
+            && flow.sign_out_epoch == self.generations.sign_out_epoch
     }
 
     pub(super) fn complete_sign_in(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
-        if self.token_store_write_high_water < flow.attempt {
+        let high_water = &mut self.generations.store_write_high_water;
+        if *high_water < flow.attempt {
             fx.push(Effect::RecordLatestSignInRefreshToken);
         }
-        self.token_store_write_high_water = self.token_store_write_high_water.max(flow.attempt);
-        if flow.generation != self.session_generation {
+        *high_water = (*high_water).max(flow.attempt);
+        if flow.generation != self.generations.session {
             // A sign-out (or newer session) landed during the exchange. Roll
             // back the tokens it re-stored, unless a newer attempt owns the store.
-            let sign_out_began = flow.sign_out_epoch != self.sign_out_epoch;
-            if (sign_out_began || !self.is_authenticated)
-                && self.token_store_write_high_water == flow.attempt
+            let sign_out_began = flow.sign_out_epoch != self.generations.sign_out_epoch;
+            if (sign_out_began || !self.is_authenticated())
+                && self.generations.store_write_high_water == flow.attempt
             {
                 fx.push(Effect::ClearLocalSession);
             }
@@ -94,8 +96,7 @@ impl Coordinator {
     ) {
         let loading_was_set = loading_was_set || flow.kind == SignInKind::External;
         if loading_was_set {
-            self.is_loading = false;
-            fx.push(Effect::SetLoading(false));
+            self.set_loading(Loading::Idle, fx);
         }
         self.finish_sign_in_flow(flow, fx);
         fx.push(Effect::SignInFailed { flow: Some(flow), failure });
@@ -108,12 +109,11 @@ impl Coordinator {
 
     pub(super) fn succeed_sign_in(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
         if flow.sets_loading || flow.kind == SignInKind::External {
-            self.is_loading = false;
-            fx.push(Effect::SetLoading(false));
+            self.set_loading(Loading::Idle, fx);
         }
         self.finish_sign_in_flow(flow, fx);
         if flow.kind == SignInKind::VerifyCode {
-            self.has_pending_code = false;
+            self.pending_code = PendingCode::None;
             fx.push(Effect::DropPendingCode);
         }
         fx.push(Effect::SignInSucceeded(flow));
@@ -133,18 +133,18 @@ impl Coordinator {
             self.advance_session_generation(true, fx);
             true
         } else {
-            let transition = !self.is_authenticated
-                || self.current_user.as_ref().map(|current| current.id.as_str()) != Some(&user.id);
+            let transition = match &self.session {
+                Session::SignedOut { .. } | Session::Restoring { .. } => true,
+                Session::RestoringSignedIn { user: current }
+                | Session::SignedIn { user: current } => current.id != user.id,
+            };
             if transition {
                 self.advance_session_generation(true, fx);
             }
             transition
         };
-        let generation = self.session_generation;
-        self.current_user = Some(user.clone());
-        self.is_authenticated = true;
-        self.is_restoring_session = false;
-        self.publish_session_identity(fx);
+        let generation = self.generations.session;
+        self.set_session(Session::SignedIn { user: user.clone() }, fx);
         self.save_cached_user(user, fx);
         self.set_has_tokens(fx);
         self.begin_team_refresh(generation, runs_hook, after, fx);

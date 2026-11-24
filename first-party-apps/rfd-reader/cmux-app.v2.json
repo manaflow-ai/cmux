@@ -4,7 +4,7 @@
   "id": "local/rfd-reader",
   "name": { "en": "RFDs" },
   "version": "0.1.0",
-  "description": { "en": "Read a repository's design documents (docs/rfd/NNNN-slug.md) and reading notes (docs/reading/YYYY-MM-DD-slug.md), a tab each: lists by last update or read date with state and tag filters, full-text search, review comments beside the lines they refer to, previews of linked RFDs and notes, a Cmd-/ jump-to, the source of a note in a browser tab, and a new RFD or reading note as a pull request without a clone." },
+  "description": { "en": "Read a repository's RFDs (docs/rfd) and reading notes (docs/reading), a tab each: filter by state and tag, search the full text, see review comments beside their lines, preview linked docs, jump with Cmd-/, and propose a new RFD or note as a pull request without a clone." },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "GPL-3.0-or-later",

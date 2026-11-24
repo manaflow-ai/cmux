@@ -56,7 +56,7 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
-            chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
+            chrome.toolbarButtons.presentGlass(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
         })
     }
 
@@ -100,8 +100,8 @@ enum BrowserToolbarHandlers {
         }
         let list = services.cache.pageRequests.downloads
         buttons.refresh()
-        if finished { return BrowserDownloadsPopup.shared.showFinished(list, buttons: buttons, showFolder: showFolder) }
-        BrowserDownloadsPopup.shared.toggle(list, buttons: buttons, showFolder: showFolder)
+        if finished { return BrowserDownloadsPopup.shared.showFinished(list, registry: services.registry, buttons: buttons, showFolder: showFolder) }
+        BrowserDownloadsPopup.shared.toggle(list, registry: services.registry, buttons: buttons, showFolder: showFolder)
         return true
     }
 
@@ -143,41 +143,131 @@ enum BrowserToolbarHandlers {
             profileActions: !services.cache.browserTabs.isIncognitoTab(key))
     }
 
-    /// The More menu (cx-6qwm): buttons not in the toolbar (and Extensions while none is pinned), new
-    /// tab and windows, zoom, the browser's own pages, page tools, more tools, Settings, Help, then
-    /// Show in Toolbar (cx-d0d.81). Catalog rows the tab cannot run drop out; no engine prints yet.
+    /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass, as ChatGPT Atlas's: the hidden toolbar
+    /// buttons (and Extensions while none is pinned) and Show in Toolbar (cx-d0d.81) in Tools; no Design Mode row.
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
         let buttons = entry.chrome?.toolbarButtons
         if entry.chrome?.offersExtensionsMenuInMore == true { entries.append(.action("browser.extensions.menu")) }
         for button in buttons?.menuButtons ?? [] {
             switch button {
-            case .designMode: entries.append(.action("toggleBrowserDesignMode"))
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
             case .profile: entries.append(.action("browser.profile.choose"))
             case .theme: entries.append(.choices("browserTheme"))
-            // Zoom, Bookmark Manager and Downloads are rows of their own below.
+            // Zoom is the zoom row; Bookmark Manager and Downloads are rows of their own.
             // The media hub only while a tab has media.
             case .media: if buttons?.hasContent(.media) == true { entries.append(.action("browser.media.show")) }
-            case .zoom, .favorites, .downloads, .overflow: break
+            case .designMode, .zoom, .favorites, .downloads, .overflow: break
             }
         }
-        if !entries.isEmpty { entries.append(.separator) }
-        entries += [
-            .action("newTab.default"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
-            .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
-            .action("bookmark.manager"), .action("browserShowHistory"),
-            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
-            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
-            .action("history.clear"), .separator,
-            .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
-            .folder(.tools, [
-                .action("toggleBrowserFocusMode"), .action("palette.browserOpenDefault"),
-                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .action("importFromBrowser"),
-            ]), .separator,
-            .action("openSettings"), .action("help.documentation"),
-        ]
-        let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
-        return buttons?.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings)) ?? menu
+        // Show in Toolbar's rows run the palette's Pin or Unpin Browser Toolbar Button… (one handler).
+        let pin = BrowserToolbarButtonsSetting.menuToggle(settings)
+        let show = buttons?.showInToolbarItem(enabled: pin.enabled) { [weak registry] in runToolbarPin($0.rawValue, registry: registry, fallback: pin.toggle) }
+        return registry.makeBrowserMoreMenu(tabKey: entry.key, buttons: entries, chromium: entry.tab.engineKind == .cef,
+                                            toolsFooter: show.map { [$0] } ?? []) { buttons?.zoomRow($0) }
+    }
+}
+
+/// Palette rows of hand-built browser and tab bar menus (also `browser.toolbar.togglePin`, the More menu's Show in
+/// Toolbar rows, and `tabs.toolbar.togglePin`, the palette's Pin or Unpin Tab Bar Button…), which run these actions
+/// themselves so the menu and
+/// the palette run one handler:
+/// - `browser.goToHistoryEntry` (`entry`: the offset from the current page): a row of the Back and
+///   Forward buttons' entry menus (`BrowserChromeView.goToBackForwardEntry`, through
+///   `BrowserTabIntent.goToHistoryEntry`); the palette lists the focused tab's entries
+///   (`browserBackForwardEntries`).
+/// - `browser.download.*` (`download`: the download's id): the rows of a download's menu in the
+///   Downloads popup (``BrowserDownloadsMenu``); the palette lists the downloads, newest first (`browserDownloads`).
+extension BrowserToolbarHandlers {
+    static let downloadActions: [ActionID] = [
+        "browser.download.open", "browser.download.reveal", "browser.download.togglePause",
+        "browser.download.retry", "browser.download.cancel", "browser.download.copyLink",
+    ]
+
+    static func bindMenuRows(into registry: ActionRegistry, context: AppActionContext) {
+        bindDownloads(into: registry, list: { context.services.cache.pageRequests.downloads })
+        bindBackForward(into: registry, page: { BrowserHitHandlers.page($0, context) })
+        bindToolbarPin(into: registry, settings: { [weak services = context.services] in services?.settings })
+        PaneToolbar.bindTogglePin(into: registry, settings: { [weak services = context.services] in services?.settings })
+    }
+
+    /// Pin or Unpin Browser Toolbar Button… (`button`: a ``BrowserToolbarButton`` id): the More menu's Show in Toolbar
+    /// rows run it (``overflowMenu(for:registry:settings:)``). The palette lists the pinnable buttons, the pinned ones
+    /// marked (`browserToolbarButtons`), and offers it while the list is the person's (not managed), as the rows are enabled.
+    static func bindToolbarPin(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
+        registry.bindEffect("browser.toolbar.togglePin", isEnabled: {
+            settings().map { !BrowserToolbarButtonsSetting.isManaged(in: $0) } ?? false
+        }, effect: { invocation in
+            guard let settings = settings(),
+                  let button = invocation["button"]?.stringValue.flatMap(BrowserToolbarButton.init(rawValue:)), button.isPinnable else { return .done }
+            BrowserToolbarButtonsSetting.toggle(button.rawValue, in: settings)
+            return .done
+        })
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserToolbarButtons else { return other?(source) ?? [] }
+            let pinned = settings().map { BrowserToolbarButtonsSetting.current($0).pinned } ?? []
+            return BrowserToolbarButton.pinnable.map { button in
+                ActionEnumCase(value: button.rawValue, title: button.pinTitle, symbol: pinned.contains(button.rawValue) ? "pin.fill" : "pin")
+            }
+        }
+    }
+
+    /// A Show in Toolbar row: the palette's Pin or Unpin Browser Toolbar Button… on `button`; where it does not run
+    /// (no registry, the list is managed), the row's own toggle, as before.
+    static func runToolbarPin(_ button: String, registry: ActionRegistry?, fallback: (String) -> Void) {
+        let invocation = ActionInvocation(arguments: ["button": .string(button)], origin: .user)
+        if registry?.perform("browser.toolbar.togglePin", invocation: invocation) != true { fallback(button) }
+    }
+
+    /// The downloads rows over `list` (the App's one downloads list). The palette offers them while it lists a download.
+    static func bindDownloads(into registry: ActionRegistry, list: @escaping @MainActor () -> BrowserDownloadList) {
+        for id in downloadActions {
+            registry.bindEffect(id, isEnabled: { !list().items.isEmpty }, effect: { invocation in
+                let downloads = list()
+                let wanted = invocation["download"]?.stringValue
+                guard let download = downloads.items.first(where: { $0.id.uuidString == wanted }),
+                      BrowserDownloadsMenu.perform(id, on: download, list: downloads) else {
+                    return .refused(BrowserHitStrings.downloadUnavailable)
+                }
+                return .done
+            })
+        }
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserDownloads else { return other?(source) ?? [] }
+            return list().items.reversed().map { ActionEnumCase(value: $0.id.uuidString, title: $0.filename, subtitle: BrowserDownloadsMenu.status($0)) }
+        }
+    }
+
+    /// Go Back or Forward to… on `page(invocation)` (the invocation's tab, else the focused one).
+    static func bindBackForward(into registry: ActionRegistry, page: @escaping @MainActor (ActionInvocation) -> (any BrowserTab)?) {
+        let listing = { @MainActor (invocation: ActionInvocation) -> (any BrowserBackForwardListing)? in
+            page(invocation) as? any BrowserBackForwardListing
+        }
+        registry.bindEffect("browser.goToHistoryEntry", effect: { invocation in
+            guard let tab = listing(invocation), let list = tab.navigationList() else { return .refused(MiscHandlerStrings.noBrowser) }
+            // The offset is typed text: an addition that overflows (Int.max past a nonzero current) is no entry, not a trap.
+            guard let offset = invocation["entry"]?.stringValue.flatMap({ Int($0) }), offset != 0,
+                  case let (index, overflow) = list.current.addingReportingOverflow(offset), !overflow,
+                  list.entries.indices.contains(index) else {
+                return .refused(BrowserHitStrings.historyNoEntry)
+            }
+            tab.goToEntry(offset: offset)
+            return .done
+        })
+        // Left out where the tab has no earlier or later page (the menus show only then).
+        ActionTargetVisibility.gate("browser.goToHistoryEntry", in: registry) { invocation in
+            guard let list = listing(invocation)?.navigationList() else { return MiscHandlerStrings.noBrowser }
+            return list.back.isEmpty && list.forward.isEmpty ? BrowserHitStrings.historyNoEntry : nil
+        }
+        let other = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.browserBackForwardEntries else { return other?(source) ?? [] }
+            guard let list = listing(ActionInvocation())?.navigationList() else { return [] }
+            return (list.back + list.forward).map { row in
+                ActionEnumCase(value: String(row.offset), title: row.entry.menuTitle, subtitle: row.entry.url?.absoluteString)
+            }
+        }
     }
 }

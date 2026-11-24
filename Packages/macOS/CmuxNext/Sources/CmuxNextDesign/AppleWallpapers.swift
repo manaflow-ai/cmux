@@ -31,7 +31,7 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// The picker's title for them.
     public static var collectionTitle: String {
-        String(localized: "backdrop.collection.apple", defaultValue: "Apple Wallpapers", bundle: .module)
+        String(localized: "backdrop.collection.apple", defaultValue: "Apple Wallpapers", bundle: .localizedModule)
     }
 
     /// The picker collection of every moving wallpaper.
