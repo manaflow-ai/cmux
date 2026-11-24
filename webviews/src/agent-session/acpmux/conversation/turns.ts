@@ -1560,9 +1560,10 @@ function foldsTurn(
   // The harness's own measure of the turn counts too: a wake that came after the answer moves the
   // clock's start to itself, so the clock alone reads 0 over work the turn did before it.
   const clock = turnClock(user, body, turnStartedAtMs, summary).durationMs;
-  const durationMs =
-    clock === undefined && summary.durationMs === undefined ? undefined : Math.max(clock ?? 0, summary.durationMs ?? 0);
-  return worthFolding(workRowCount(user, body), durationMs);
+  // A span stamped at one moment measured nothing (`spanDuration`): a synthesized end, such as a
+  // background turn's, reads 0, which is no time known, so its rows decide.
+  const measured = Math.max(clock ?? 0, summary.durationMs ?? 0);
+  return worthFolding(workRowCount(user, body), measured > 0 ? measured : undefined);
 }
 
 /// Where `body` draws the "Worked for" of the turn `user` opened, or -1 for none.
