@@ -1,0 +1,18 @@
+[package]
+name = "cmux-terminal-find"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Terminal find: case, whole-word and regex matching over a terminal's soft-wrapped rows, newest match first, in pages a caller fetches without holding the terminal"
+
+[dependencies]
+regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
