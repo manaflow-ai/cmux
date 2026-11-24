@@ -50,6 +50,7 @@ import "./NextStepCard.css";
 /// `nextStepCardHeight`).
 const BLOCKED: Record<AnswerBlock, { icon: string; text: StringKey }> = {
   watching: { icon: "action.watching", text: "question.cannotAnswer.watching" },
+  bridged: { icon: "action.watching", text: "question.cannotAnswer.bridged" },
   subagent: { icon: "agent.bot", text: "question.cannotAnswer.subagent" },
   disconnected: { icon: "status.disconnected", text: "question.cannotAnswer.disconnected" },
   remote: { icon: "cloud", text: "question.cannotAnswer.remote" },
@@ -235,13 +236,20 @@ export const NextStepCard = memo(function NextStepCard({
           ))}
         </div>
       ) : (
-        <ul className="acpmux-next-step__answers" data-read-only="">
+        <ul
+          className="acpmux-next-step__answers"
+          data-read-only=""
+          // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops a list's role, and VoiceOver its count, when CSS hides the markers
+          role="list"
+        >
           {ask.options.map((option, index) => (
             <li key={option.label} className="acpmux-next-step__answer">
               <span className="acpmux-question-number" aria-hidden="true">
                 {index + 1}
               </span>
               <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
+              {/* Hidden, as on a live row that is not first: the label wraps where the live one does. */}
+              <ArrowRight size={12} className="acpmux-next-step__arrow" />
             </li>
           ))}
         </ul>

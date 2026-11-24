@@ -302,10 +302,16 @@ export function nextStepCardHeight(
   ask: NextStepAsk,
   width: number,
   settled?: { answer?: string; superseded?: boolean },
+  /// The chat's text scale, which the transcript's body and caption steps follow
+  /// (conversation.css `.acpmux-scroll` `--cv-text-scale`). The card's spacing tokens are fixed px in
+  /// the pane (desktop.css), at every Interface Size and density.
+  textScale = chatDensityTextScale(),
 ): number {
+  const bodySize = body.size * textScale;
+  const bodyLine = body.lineHeight * textScale;
   const room = Math.max(1, width - 32);
-  const prose = (value: string, available = room) =>
-    textHeight(plainText(value), available, body.size, body.lineHeight);
+  const prose = (value: string, available = room) => textHeight(plainText(value), available, bodySize, bodyLine);
+  // The recap box's hairline, a device line at any size.
   if (!ask.question) return ask.recap ? 24 + 1 + prose(ask.recap, room - 1) : 0;
   if (settled && (settled.answer !== undefined || settled.superseded)) {
     const made = ask.options.find((option) => option.key && option.label === settled.answer)?.key;
@@ -322,15 +328,16 @@ export function nextStepCardHeight(
   const detailLines = ask.detail ? prose(ask.detail) : 0;
   let height = 16 + 28;
   if (ask.recap) height += 2 + prose(ask.recap) + 8;
-  height +=
-    2 + Math.min(8 * titleLine, question) + (ask.detail ? 2 + Math.min(4 * body.lineHeight, detailLines) : 0) + 8;
+  height += 2 + Math.min(8 * titleLine, question) + (ask.detail ? 2 + Math.min(4 * bodyLine, detailLines) : 0) + 8;
   // Show more: its caption line, 4 px tucked under the text and 8 px over the answers.
-  if (question > 8 * titleLine + 0.5 || detailLines > 4 * body.lineHeight + 0.5) height += -4 + caption.lineHeight + 8;
-  // A row's label: the row's 8 px padding each side, the 20 px number, the 12 px arrow, 10 px apart.
-  const labelRoom = Math.max(1, width - 16 - 16 - 20 - 12 - 2 * 10);
+  if (question > 8 * titleLine + 0.5 || detailLines > 4 * bodyLine + 0.5)
+    height += -4 + 8 + caption.lineHeight * textScale;
+  // A row's label: the row's 8 px padding each side, the 20 px number, the 12 px arrow, 10 px apart
+  // (a read-only row keeps the arrow's room, hidden, so its label wraps where a live row's does).
+  const labelRoom = Math.max(1, width - (16 + 16 + 20 + 12 + 2 * 10));
   ask.options.forEach((option, index) => {
     const label = option.key ? translate(option.key) : plainText(option.label);
-    height += (index ? 2 : 0) + Math.max(36, 16 + textHeight(label, labelRoom, body.size, body.lineHeight));
+    height += (index ? 2 : 0) + Math.max(36, 16 + textHeight(label, labelRoom, bodySize, bodyLine));
   });
   return height + (ask.options.length ? 8 + 36 : 0);
 }

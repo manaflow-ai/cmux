@@ -99,7 +99,7 @@ describe("NextStepCard", () => {
     expect(html).toContain("Needs your input");
     expect(html).toContain("Add a hook that pushes them to the background?");
     expect(html.match(/<li class="acpmux-next-step__answer"/g)).toHaveLength(3);
-    expect(html).toContain('<ul class="acpmux-next-step__answers" data-read-only=""');
+    expect(html).toContain('<ul class="acpmux-next-step__answers" data-read-only="" role="list"');
     for (const label of ["Yes, add the hook", "Not now", "Fix CI first"]) expect(html).toContain(label);
     // Nothing to press or type, and nothing that claims a key.
     expect(html).not.toContain("<button");
@@ -112,6 +112,7 @@ describe("NextStepCard", () => {
   test("the last row names why, for every pane that cannot send", () => {
     const reasons = {
       watching: "Take over to answer",
+      bridged: "Reply below to answer",
       subagent: "Answer in the main chat",
       disconnected: "Not connected",
       remote: "Not available from here",

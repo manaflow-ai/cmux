@@ -49,7 +49,7 @@ test("a Restart reaches only the chat its row was drawn for, never the next chat
 // that sends never draws one and a pane that cannot always has one.
 test("a pane names why it takes no answer exactly when it offers no Restart", () => {
   for (const connected of [true, false])
-    for (const sessionId of ["s1", undefined])
+    for (const sessionId of ["s1", "", undefined])
       for (const watching of [true, false])
         for (const readOnly of [true, false])
           for (const canSend of [true, false]) {
@@ -58,7 +58,7 @@ test("a pane names why it takes no answer exactly when it offers no Restart", ()
           }
 });
 
-test("the reason is the first thing in the way: the connection, a subagent's pane, View Only, then the composer", () => {
+test("the reason is the first thing in the way: the connection, a subagent's pane, the composer, then View Only", () => {
   const chat = { connected: true, sessionId: "s1", watching: false, readOnly: false, canSend: true };
   expect(answerBlock(chat)).toBeUndefined();
   expect(answerBlock({ ...chat, connected: false, watching: true, readOnly: true, canSend: false })).toBe(
@@ -66,7 +66,11 @@ test("the reason is the first thing in the way: the connection, a subagent's pan
   );
   expect(answerBlock({ ...chat, sessionId: undefined })).toBe("disconnected");
   expect(answerBlock({ ...chat, readOnly: true, watching: true })).toBe("subagent");
-  expect(answerBlock({ ...chat, watching: true, canSend: false })).toBe("watching");
+  // Taking over leaves a remote chat's limit in place, so the remote reason comes first.
+  expect(answerBlock({ ...chat, watching: true, canSend: false })).toBe("remote");
+  expect(answerBlock({ ...chat, watching: true })).toBe("watching");
+  // A bridged desktop or terminal session takes a reply from the composer without a take over.
+  expect(answerBlock({ ...chat, watching: true, bridged: true })).toBe("bridged");
   expect(answerBlock({ ...chat, canSend: false, note: "composer.remoteUnavailable" })).toBe("remote");
   expect(answerBlock({ ...chat, canSend: false, note: "composer.originUnknown" })).toBe("origin");
   expect(answerBlock({ ...chat, canSend: false })).toBe("remote");

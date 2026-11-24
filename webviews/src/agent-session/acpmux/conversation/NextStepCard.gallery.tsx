@@ -26,6 +26,8 @@ type Props = {
   /// An ask given whole (a wrap-up's recap), in place of one parsed from `text`.
   given?: NextStepAsk;
   superseded?: boolean;
+  /// A larger chat text (Text Size): the factor the app sets on the page, which the card's text follows.
+  textScale?: number;
 };
 
 // Themes the shipped box must stay readable in, set as the app's applyTheme would (theme.ts): a dark
@@ -64,7 +66,7 @@ const CHOICES = `${PROSE}\n\n[taste] Which fix first?\n- Add the hook\n- Not now
 // rest in place, the answers under it in their order.
 const LONG = `${PROSE}\n\n[irreversible] Should I promote tonight's nightly to everyone now? It carries the session store migration, which rewrites every saved chat on first launch, keeps no copy of the old store once it finishes, and cannot be rolled back on a machine that has run it, so a bug in it would reach every chat everyone has, including the archived ones and the ones synced from another computer. The canary group ran it for six hours with no crash reports, but only twelve machines were in it, none of them with more than two thousand chats, so are you fine with promoting it before a bigger store has run it? The canary log and the migration's dry run on a copy of the biggest store we have are linked in the lane.`;
 
-function NextStepInPane({ look, text, reply, palette, lines, blocked, given, superseded }: Props) {
+function NextStepInPane({ look, text, reply, palette, lines, blocked, given, superseded, textScale }: Props) {
   const ask = given ?? nextStepAsk(text)!;
   const answer = reply === undefined ? undefined : chosenAnswer(ask, reply);
   // The transcript's first height for this card at its drawn width (cardHeight.ts), beside the height
@@ -74,9 +76,14 @@ function NextStepInPane({ look, text, reply, palette, lines, blocked, given, sup
     const frame = host.current;
     const card = frame?.querySelector<HTMLElement>(".acpmux-next-step");
     if (!frame || !card) return;
+    // The chat's text scale, as the host sets it: the transcript's text follows it (.acpmux-scroll
+    // --cv-text-scale); outside the transcript, as here, the same steps follow the Interface Size.
+    if (textScale !== undefined)
+      for (const name of ["--cmux-chat-text-scale", "--cmux-interface-scale"])
+        document.documentElement.style.setProperty(name, String(textScale));
     const measure = () => {
       const box = card.getBoundingClientRect();
-      frame.dataset.estimate = String(nextStepCardHeight(ask, box.width, { answer, superseded }));
+      frame.dataset.estimate = String(nextStepCardHeight(ask, box.width, { answer, superseded }, textScale ?? 1));
       frame.dataset.drawn = String(box.height);
     };
     measure();
@@ -214,6 +221,17 @@ export default componentEntry({
       "none",
     ),
     "box-watching": blockedVariant("watching", "View Only: the same card read only; its last row says to take over."),
+    "box-bridged": blockedVariant("bridged", "A bridged desktop session: read only; reply below to answer."),
+    "box-watching-large": {
+      note: "View Only at a larger Interface Size and text: the estimate scales as the card does.",
+      props: { look: "box" as Look, text: WRAPPING, blocked: "watching" as AnswerBlock, textScale: 1.2 },
+    },
+    "wrap-up-recap-large": given(RECAP, "The wrap-up at a larger size.", { textScale: 1.2 }),
+    "wrap-up-recap-answered-large": given(RECAP, "Answered at a larger size.", { reply: "Yes", textScale: 1.2 }),
+    "box-long-large": {
+      ...long("A very long ask at a larger size: Show more scales too."),
+      props: { look: "box" as Look, text: LONG, textScale: 1.2 },
+    },
     "box-subagent": blockedVariant("subagent", "A subagent's own pane: read only; answer in the main chat."),
     "box-disconnected": blockedVariant("disconnected", "Not connected: read only."),
     "box-remote": blockedVariant("remote", "A remote Codex or opencode chat this Mac cannot send to: read only."),

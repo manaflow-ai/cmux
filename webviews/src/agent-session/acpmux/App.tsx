@@ -566,6 +566,7 @@ import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetry
 import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
+import { bridgedWatch } from "./watchBannerModel";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
 import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
@@ -3497,7 +3498,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const restartChat = restartOwner(restartChatInput);
   // Why the pane takes no answer (an ask's card says it): the same tests as restartOwner, named.
-  const answerBlocked = answerBlock({ ...restartChatInput, note: remoteComposer(snapshot).note });
+  const answerBlocked = answerBlock({
+    ...restartChatInput,
+    note: remoteComposer(snapshot).note,
+    bridged: bridgedWatch(snapshot.summary),
+  });
   // The questions waiting on the person, in the composer hat (question/hatModel.ts): this chat's
   // own, the tagged ask its last turn ended on, and those of the chats it started. The list keeps its
   // identity while it draws the same, so a streamed chunk never redraws the hat.

@@ -105,6 +105,11 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
   const HOLDS = [
     "box-choices",
     "box-watching",
+    "box-bridged",
+    "box-watching-large",
+    "wrap-up-recap-large",
+    "wrap-up-recap-answered-large",
+    "box-long-large",
     "box-subagent",
     "box-disconnected",
     "box-remote",
@@ -153,7 +158,10 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
             });
             expect(Math.abs(read.drawn - read.estimate)).toBeLessThan(1);
             // A card that cannot send has nothing to press or type, and says why.
-            if (/watching|subagent|disconnected|remote|origin|guest/.test(variant) && !variant.includes("no-answers")) {
+            if (
+              /watching|bridged|subagent|disconnected|remote|origin|guest/.test(variant) &&
+              !variant.includes("no-answers")
+            ) {
               expect(read.controls).toBe(0);
               expect(read.reason).not.toBe("");
             }
