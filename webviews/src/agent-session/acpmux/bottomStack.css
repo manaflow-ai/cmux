@@ -65,7 +65,7 @@
   pointer-events: none;
 }
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-asks-stack > :not(.acpmux-pending-ask),
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-asks-stack > .acpmux-pending-ask > .acpmux-next-step,
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head),
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-asks-stack :is(.acpmux-pending-ask__label, .acpmux-pending-ask__dismiss) {
   pointer-events: auto;
 }
