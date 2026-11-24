@@ -829,6 +829,13 @@ impl Hub {
         if let Some(id) = carried {
             answer.set("continues", json!(id));
         }
+        // The agent program its harness runs here: a receiver with no harness of that name
+        // checks `--as` against it and names its own one for the same agent (`transfer_in.rs`).
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness).or(meta.family);
+        if let Some(family) = family {
+            answer.set("harnessFamily", json!(family));
+        }
         if let Some(p) = prefix {
             let named =
                 json!({"prepareId": p.prepare_id, "afterSeq": p.after_seq, "token": p.token});
