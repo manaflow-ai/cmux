@@ -1527,6 +1527,13 @@ try {
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
