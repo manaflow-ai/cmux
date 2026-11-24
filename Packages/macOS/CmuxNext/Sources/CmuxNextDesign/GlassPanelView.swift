@@ -204,6 +204,18 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func layout() { during { super.layout() } }
+    /// A subtree layout skipped while nobody saw this glass (``layoutSubtree(withOldSize:)``), owed once it shows.
+    private var owesLayout = false {
+        didSet { if !owesLayout, oldValue { needsLayout = true } }
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if owesLayout, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if owesLayout, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
     override func updateConstraints() { during { super.updateConstraints() } }
     override func viewWillDraw() { during { super.viewWillDraw() } }
     /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one, and
@@ -220,7 +232,10 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         super.viewWillMove(toWindow: newWindow)
     }
 
-    override func viewDidMoveToWindow() { during { super.viewDidMoveToWindow() } }
+    override func viewDidMoveToWindow() {
+        during { super.viewDidMoveToWindow() }
+        if owesLayout, window != nil, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty { owesLayout = false }
+    }
     override func viewDidChangeEffectiveAppearance() { during { super.viewDidChangeEffectiveAppearance() } }
 
     /// The scope this view counts its window in, counted on the first update that finds one. A
@@ -246,6 +261,15 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
     // the read happens) through these, not through the public methods above.
     @objc(_layoutSubtreeWithOldSize:)
     func layoutSubtree(withOldSize oldSize: NSSize) {
+        // A glass nobody sees (hidden, under a hidden view, or with no size) skips its subtree's layout: AppKit lays out
+        // hidden subtrees too, and each pass re-rendered this glass's SwiftUI graph. Every frame of the sidebar's slide
+        // re-solved the window and re-rendered four such graphs (the sidebar's hidden updated card, a hidden Home pane's
+        // header glass: about 10% of each frame's main thread, cmux21). It lays out once shown or sized again.
+        if isHiddenOrHasHiddenAncestor || bounds.isEmpty {
+            owesLayout = true
+            needsLayout = false
+            return
+        }
         GlassLayoutCensus.record(self)
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
         let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
