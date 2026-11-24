@@ -1012,6 +1012,7 @@ function TranscriptView({
   /// (jumpLatestLands.experiment.ts `on`; design dp-c070192381 "the fade after landing").
   const jumpLandsOn = useExperimentArm(jumpLatestLands) === "on";
   const [jumpRiding, setJumpRiding] = useState(false);
+  const jumpShownAtPress = useRef(false);
   /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
@@ -5873,7 +5874,7 @@ function TranscriptView({
     );
     // Jump to latest's own ride (not a send's): with jumpLatestLands on, the button stays through it.
     // Set after animateScroll, whose stopScroll ends a ride it replaces (that ride's cancel clears it).
-    setJumpRiding(jumpLandsOn && !send && duration > 0);
+    setJumpRiding(jumpLandsOn && !send && duration > 0 && jumpShownAtPress.current);
   };
   // A scrollbar drag may cross the estimated room above the loaded rows while a page is in flight.
   // Keep that native drag target and consume the room as pages land; without it, handleScroll
@@ -6125,7 +6126,9 @@ function TranscriptView({
     handleScroll(node);
   };
   // Jump to latest: transcript/jumpWiring.ts `jumpToLatestWith`.
-  const jumpToLatest = (focused: boolean, path?: string) =>
+  const jumpToLatest = (focused: boolean, path?: string) => {
+    // jumpLatestLands: what the button showed at the press, before following again re-renders it hidden.
+    jumpShownAtPress.current = jumpShown.current;
     jumpToLatestWith(
       {
         ref,
@@ -6151,6 +6154,8 @@ function TranscriptView({
       focused,
       path,
     );
+    jumpShownAtPress.current = false;
+  };
   jumpToLatestRef.current = jumpToLatest;
   // Toggle Terminal and Chat (togglePlace.ts): the turn the terminal showed, at the top of the view,
   // set before the pane shows. A cut, never a glide: the pane is hidden while it moves, so the first
@@ -6985,11 +6990,10 @@ function TranscriptView({
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
   // never brings the arrow up (Leo, 2026-11-06: "way too discontinuous", the arrow came up mid-fold
   // under load).
-  // jumpLatestLands `on`: while Jump to latest's ride is in flight the button keeps what it showed at
-  // the press, so it fades once the view lands, not as the ride starts (design dp-c070192381).
-  if (jumpLandsOn && jumpRiding) {
-    // Held as it was.
-  } else if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
+  // jumpLatestLands `on`: a ride pressed from a shown button keeps it shown until the view lands, so
+  // it fades then, not as the ride starts (design dp-c070192381).
+  if (jumpLandsOn && jumpRiding) jumpShown.current = true;
+  else if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
   // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
