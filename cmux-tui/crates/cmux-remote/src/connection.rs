@@ -1147,6 +1147,10 @@ impl ClientConnection {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut group = self.group.read().await.clone();
+        // The link this recovery replaces failed: its QUIC connection would hold the next
+        // stream on the dead path until iroh's 15 s path idle timeout (then a 10 s close), the
+        // ~30 s reconnect the black-hole bench measured. A fresh dial takes one handshake.
+        group.abandon();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
