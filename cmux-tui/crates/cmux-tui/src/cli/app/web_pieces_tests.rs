@@ -671,3 +671,27 @@ fn fetch_reads_each_answer_of_the_server() {
     let url = file_url(&format!("http://127.0.0.1:{port}/"), "nightly");
     assert!(matches!(fetch(&url, None), Fetched::Failed(_)));
 }
+
+/// The base the person names with `--base` passes the egress gate in enforce mode; a host
+/// nobody named is still refused.
+#[test]
+fn the_named_base_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "base-web-pieces-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let base = format!("https://{host}/web/");
+    let words = [
+        "app",
+        "web-pieces",
+        "check",
+        "--state",
+        "/tmp/s",
+        "--channel",
+        "nightly",
+        "--base",
+        &base,
+    ];
+    assert!(matches!(parse(&args(&words)), Ok(Some(_))));
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-base-web-pieces-test.org", "test").is_err());
+}

@@ -158,9 +158,15 @@ pub(super) fn is_sha(text: &str) -> bool {
 }
 
 fn base_url() -> String {
-    std::env::var("CMUX_WEB_BUNDLES_BASE")
-        .ok()
+    base_url_from(std::env::var("CMUX_WEB_BUNDLES_BASE").ok())
+}
+
+/// The bundles base: `CMUX_WEB_BUNDLES_BASE` when set, else files.cmux.com.
+fn base_url_from(named: Option<String>) -> String {
+    named
         .filter(|base| !base.is_empty())
+        // The person named this base (CMUX_WEB_BUNDLES_BASE); a redirect off it is still checked.
+        .inspect(|base| cmux_egress::allow_named(base))
         .unwrap_or_else(|| DEFAULT_BASE.to_owned())
         .trim_end_matches('/')
         .to_owned()

@@ -195,6 +195,8 @@ pub(super) fn resolve(
         .clone()
         .or_else(|| env(API_ENV))
         .filter(|a| !a.trim().is_empty())
+        // The person named this API (--cloud-api or the env); a redirect off it is still checked.
+        .inspect(|a| cmux_egress::allow_named(a.trim()))
         .ok_or_else(|| format!("name the cmux API with --cloud-api URL or {API_ENV}"))?;
     let credential = match &command.credential_file {
         // The error names neither the path nor the file's contents (a pasted secret could be in either).

@@ -53,7 +53,13 @@ HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose reso
 looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
 site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
-reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+reserved names (`.local`, `.lan`, `.internal`, `.home.arpa` too) pass. The gate's host list is generated from this
+page, so the two stay equal.
+
+A host you name passes only from where the code reads your setting: a flag, an environment variable, a config file
+or a field you fill in (`cmux_egress::allow_named`), never from a host the code holds or a server answers with. The
+gate checks each redirect hop again, so a listed or named host that redirects elsewhere reaches only another listed
+or named host.
 
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
 (Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
@@ -110,6 +116,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
+| `release-assets.githubusercontent.com` | connects | a release file github.com redirects to: an agent's installer or a fork's release, when you install or update it; GitHub learns the file asked for |
+| `objects.githubusercontent.com` | connects | the same release and log files, on GitHub's older download host |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
@@ -135,6 +143,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
+| `auth.openai.com` | connects | OpenAI sign-in, opened when you sign Codex in; the gateway's Codex sign-in refreshes its token here (`cmux inference gateway --codex-auth`) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
@@ -241,7 +250,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `nytimes.com` | opens | a site the address bar suggests before it is in your history |
 | `ollama.com` | opens | a provider's download page, opened from Settings |
 | `openai.com` | opens | a site the address bar suggests before it is in your history |
-| `auth.openai.com` | opens | OpenAI sign-in, opened when you sign Codex in |
 | `developers.openai.com` | opens | setup docs for an agent, opened from onboarding |
 | `platform.openai.com` | opens | a page to get an API key, opened from Settings |
 | `www.qwant.com` | opens | a search engine, when you search with it |

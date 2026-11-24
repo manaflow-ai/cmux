@@ -347,11 +347,16 @@ impl Chain {
         };
         let mut remotes = Vec::new();
         if let Ok(index) = std::env::var("CMUX_PROJECTION_PEER_INDEX") {
+            // The person named this host (CMUX_PROJECTION_PEER_INDEX, when a URL); a redirect off
+            // it is still checked. Peer bases the index lists are server data, never allowed.
+            let _ = named(&index);
             remotes.extend(peers_in(&get, &index));
         }
         if let Some(base) = std::env::var("CMUX_PROJECTION_CACHE_URL")
             .ok()
-            .and_then(|url| crate::s3::http_base(&url))
+            // The person named this host (CMUX_PROJECTION_CACHE_URL); a redirect off it is
+            // still checked.
+            .and_then(|url| named(&url))
         {
             let token = std::env::var("CMUX_PROJECTION_CACHE_TOKEN_FILE")
                 .ok()
@@ -585,6 +590,15 @@ impl Chain {
         let order = self.order(&self.nearest_peers());
         self.one(oid, &order, failures, &rejected).map(|(_, bytes)| bytes)
     }
+}
+
+/// `value`'s http(s) base when it is a URL the person set (an env var or flag, never an index's
+/// contents), its host let through the egress gate; `None` (and nothing allowed) for a file path.
+#[must_use]
+pub fn named(value: &str) -> Option<String> {
+    let base = crate::s3::http_base(value)?;
+    cmux_egress::allow_named(&base);
+    Some(base)
 }
 
 /// The peers a peer index names: `index` is a file, or an `http(s)` URL asked once with a short

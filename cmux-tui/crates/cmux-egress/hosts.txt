@@ -18,6 +18,7 @@ api.stack-auth.com
 api.x.ai
 app.notion.com
 app.slack.com
+auth.openai.com
 avatars.githubusercontent.com
 calendar.google.com
 camo.githubusercontent.com
@@ -71,6 +72,7 @@ mobile-api.cmux.dev
 models.dev
 monitoring.googleapis.com
 o4507547940749312.ingest.us.sentry.io
+objects.githubusercontent.com
 openaccess-api.clevelandart.org
 openaccess-cdn.clevelandart.org
 opencode.ai
@@ -80,6 +82,7 @@ private-user-images.githubusercontent.com
 pypi.org
 raw.githubusercontent.com
 registry.npmjs.org
+release-assets.githubusercontent.com
 share-dev.cmux.dev
 share-staging.cmux.dev
 share.cmux.dev

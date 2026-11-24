@@ -101,6 +101,8 @@ impl Inputs<'_> {
         (self.var)("CMUX_CODEROUTER_URL")
             .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
             .filter(|u| u.starts_with("https://"))
+            // The person named this host (CMUX_CODEROUTER_URL); a redirect off it is still checked.
+            .inspect(|u| cmux_egress::allow_named(u))
     }
 
     /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
@@ -552,5 +554,16 @@ mod tests {
         assert!(inputs.cmux_config());
         std::fs::write(m.home.join(".codex/config.toml"), "model_provider = \"azure\"\n").unwrap();
         assert!(!inputs.cmux_config());
+    }
+
+    #[test]
+    fn the_named_coderouter_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let m = machine(Some("owner"), true);
+        let var = vars(&[("CMUX_CODEROUTER_URL", "https://coderouter-named-test.org")]);
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        assert_eq!(inputs.team_origin().as_deref(), Some("https://coderouter-named-test.org"));
+        assert!(cmux_egress::check("coderouter-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-coderouter-test.org", "test").is_err());
     }
 }

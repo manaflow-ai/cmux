@@ -214,9 +214,7 @@ mod cli {
                 .extend(locks.split(':').filter(|lock| !lock.is_empty()).map(PathBuf::from));
         }
         let git_dir = git_dir.canonicalize()?;
-        if let Some(url) =
-            args.heartbeat.clone().or_else(|| env("CMUX_PROJECTION_SEED_HEARTBEAT_URL"))
-        {
+        if let Some(url) = heartbeat_url(args.heartbeat.clone(), env) {
             let repo =
                 args.repo.clone().or_else(|| env("CMUX_PROJECTION_SEED_REPO")).ok_or_else(
                     || anyhow::anyhow!("--heartbeat needs --repo OWNER/NAME\n{USAGE}"),
@@ -392,6 +390,33 @@ mod cli {
         };
         git::fetch_missing(git_dir, &rest)?;
         Ok(missing.len())
+    }
+
+    /// The seed heartbeat URL: `--heartbeat`, else `CMUX_PROJECTION_SEED_HEARTBEAT_URL`.
+    fn heartbeat_url(flag: Option<String>, env: impl Fn(&str) -> Option<String>) -> Option<String> {
+        let url = flag.or_else(|| env("CMUX_PROJECTION_SEED_HEARTBEAT_URL"))?;
+        // The person named this host (--heartbeat); a redirect off it is still checked.
+        let _ = peers::named(&url);
+        Some(url)
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn a_named_heartbeat_url_passes_the_gate_and_others_do_not() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let env = |name: &str| {
+            (name == "CMUX_PROJECTION_SEED_HEARTBEAT_URL")
+                .then(|| "https://seed-heartbeat-named-test.org/v1/seeds".to_owned())
+        };
+        assert_eq!(
+            heartbeat_url(None, env).as_deref(),
+            Some("https://seed-heartbeat-named-test.org/v1/seeds")
+        );
+        let flag = Some("https://seed-heartbeat-flag-named-test.org/b".to_owned());
+        assert!(heartbeat_url(flag, env).is_some());
+        assert!(cmux_egress::check("seed-heartbeat-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("seed-heartbeat-flag-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-seed-heartbeat-test.org", "test").is_err());
     }
 
     #[cfg(test)]

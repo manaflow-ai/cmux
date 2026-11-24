@@ -20,7 +20,7 @@ use super::contract::{
 };
 use super::{
     DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
-    public_key_line, with_team_env,
+    public_key_line, source, with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -843,4 +843,20 @@ async fn a_park_allocated_before_any_key_asks_once_more_and_pins_only_a_key() {
     let (_, keyless) = asks(vec![Ok(None)]);
     let failure = park_for_key(allocated(), keyless, every).await.unwrap_err();
     assert_eq!(failure, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
+}
+
+/// The cmux API the person names with `--cloud-api` passes the egress gate in enforce
+/// mode; a host nobody named is still refused.
+#[test]
+fn the_named_cloud_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "cloud-api-carrier-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let args = parse(&words(&format!(
+        "dial --machine {VM} --cloud-api https://{host} --cloud-token-file /t"
+    )))
+    .unwrap();
+    let _ = source(&args);
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-cloud-api-carrier-test.org", "test").is_err());
 }

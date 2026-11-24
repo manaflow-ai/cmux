@@ -767,3 +767,25 @@ fn a_hub_reaped_elsewhere_is_ended_without_a_signal() {
         assert!(why.contains("reaped elsewhere"), "{why}");
     }
 }
+
+/// The VM API and platform the person names pass the egress gate in enforce mode; a
+/// host nobody named, and an empty flag, still name nothing.
+#[test]
+fn the_named_vm_api_and_platform_pass_the_gate() {
+    use super::super::tunnel_cli::named_origin;
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let (flag, env) = ("vm-api-flag-tunnel-test.org", "vm-api-env-tunnel-test.org");
+    assert!(cmux_egress::check(flag, "test").is_err());
+    assert!(cmux_egress::check(env, "test").is_err());
+    let picked = named_origin(None, Some(format!("https://{env}")));
+    assert_eq!(picked.as_deref(), Some("https://vm-api-env-tunnel-test.org"));
+    assert!(cmux_egress::check(env, "test").is_ok());
+    assert_eq!(
+        named_origin(Some(format!("https://{flag}")), Some("https://ignored.example".into()))
+            .as_deref(),
+        Some("https://vm-api-flag-tunnel-test.org")
+    );
+    assert!(cmux_egress::check(flag, "test").is_ok());
+    assert_eq!(named_origin(Some(" ".into()), None), None);
+    assert!(cmux_egress::check("unrelated-vm-api-tunnel-test.org", "test").is_err());
+}

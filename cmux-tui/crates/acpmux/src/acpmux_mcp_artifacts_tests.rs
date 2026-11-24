@@ -667,3 +667,12 @@ fn legacy_fallback_obeys_only_the_old_api_inline_and_rpc_contract() {
     );
     assert!(legacy_inline_files(&[one("too-big.bin".into(), (8 << 20) + 1)]).is_none());
 }
+
+#[test]
+fn the_named_artifacts_origin_passes_the_egress_gate_and_nothing_else_does() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let named = "https://artifacts-named-test.debussy.workers.dev";
+    assert_eq!(base_url(Some(named), &ArtifactsConfig::default(), None), named);
+    assert!(cmux_egress::check("artifacts-named-test.debussy.workers.dev", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-artifacts-test.debussy.workers.dev", "test").is_err());
+}

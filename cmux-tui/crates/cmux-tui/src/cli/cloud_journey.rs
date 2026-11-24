@@ -483,6 +483,15 @@ pub(super) fn run(global: &GlobalArgs, args: &Args) -> i32 {
     }
 }
 
+/// Lets the API past the egress gate when the person named it (`--api` or
+/// `CMUX_CLOUD_API_URL`); a `--backend` name resolves to a listed host, and a redirect
+/// off either is still checked.
+fn allow_named_api(args: &Args, api: &str) {
+    if args.api.is_some() || args.backend.is_empty() {
+        cmux_egress::allow_named(api);
+    }
+}
+
 async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
     let json_out = matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
     let (backend_api, stack_project, stack_key) = match (&args.api, args.backend.as_str()) {
@@ -506,6 +515,7 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         (None, name) => resolve_backend(name)?,
     };
     let api = cmux_cloud_api::session::secure_origin(backend_api.trim())?;
+    allow_named_api(args, &api);
     let name = if args.backend.is_empty() { "custom".to_owned() } else { args.backend.clone() };
     let stub_nonce = random_hex(6);
     let login = match &args.model_stub {

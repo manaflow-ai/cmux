@@ -49,3 +49,16 @@ fn each_build_names_the_scheme_it_registers() {
     assert_eq!(scheme_of(&nightly, Some("cmux-nightly")), "cmux-nightly");
     assert_eq!(scheme_of(&nightly, Some("1 bad")), "cmux-nightly");
 }
+
+/// The room the person names in `CMUX_SHARE_ROOM_URL` passes the egress gate in enforce
+/// mode; a host nobody named is still refused.
+#[test]
+fn the_named_room_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "room-share-room-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    assert_eq!(named_room(&format!(" https://{host} ")), format!("https://{host}"));
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert_eq!(named_room(" "), "");
+    assert!(cmux_egress::check("unrelated-room-share-room-test.org", "test").is_err());
+}

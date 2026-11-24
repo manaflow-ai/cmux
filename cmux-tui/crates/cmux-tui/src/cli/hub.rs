@@ -350,7 +350,9 @@ pub(super) fn parse(
         Some(p) => Some(
             super::cloud_client_session::secure_origin(p.trim())
                 .map_err(|m| m.replace("the cmux API", "the cmux platform"))?,
-        ),
+        )
+        // The person named this platform (--platform or the env); a redirect off it is still checked.
+        .inspect(|p| cmux_egress::allow_named(p)),
         None => None,
     };
     Ok((Common { platform, team, token }, verb))

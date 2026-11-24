@@ -191,3 +191,16 @@ fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
         ("tok".to_owned(), None)
     );
 }
+
+/// The cmux API the person names with `--api` passes the egress gate in enforce mode; a
+/// host nobody named is still refused.
+#[test]
+fn the_named_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "api-gateway-admin-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let api = format!("https://{host}");
+    assert!(parse(&words(&["status", "--personal", "--api", &api]), &env).is_ok());
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-api-gateway-admin-test.org", "test").is_err());
+}

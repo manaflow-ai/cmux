@@ -206,14 +206,17 @@ pub async fn run(
 
 fn freestyle_client(env: &dyn Fn(&str) -> Option<String>) -> Result<Freestyle, String> {
     let key = freestyle_key(env)?;
-    let base =
-        nonblank(env("FREESTYLE_API_URL")).unwrap_or_else(|| freestyle::DEFAULT_BASE.to_owned());
+    let base = nonblank(env("FREESTYLE_API_URL"))
+        .map(http::named)
+        .unwrap_or_else(|| freestyle::DEFAULT_BASE.to_owned());
     Ok(Freestyle::new(&base, key.expose().to_owned(), runner::PURPOSE))
 }
 
 fn jit_client(args: &Args, env: &dyn Fn(&str) -> Option<String>) -> Result<Jit, String> {
     let token = github_token(env, &gh_auth_token)?;
-    let base = nonblank(env("GITHUB_API_URL")).unwrap_or_else(|| crate::github::API.to_owned());
+    let base = nonblank(env("GITHUB_API_URL"))
+        .map(http::named)
+        .unwrap_or_else(|| crate::github::API.to_owned());
     Ok(Jit::new(&base, token, &args.org))
 }
 
@@ -663,7 +666,35 @@ async fn park(
 
 #[cfg(test)]
 mod tests {
-    use super::wait_news;
+    use super::{Args, freestyle_client, jit_client, wait_news};
+
+    fn env_of(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    }
+
+    #[test]
+    fn a_named_freestyle_api_url_passes_the_gate_and_others_do_not() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let env = env_of(&[
+            ("FREESTYLE_API_KEY", "key"),
+            ("FREESTYLE_API_URL", "https://runner-freestyle-named-test.org"),
+        ]);
+        assert!(freestyle_client(&env).is_ok());
+        assert!(cmux_egress::check("runner-freestyle-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-runner-freestyle-test.org", "test").is_err());
+    }
+
+    #[test]
+    fn a_named_github_api_url_passes_the_gate_and_others_do_not() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let env = env_of(&[
+            ("GITHUB_TOKEN", "token"),
+            ("GITHUB_API_URL", "https://runner-github-named-test.org/api/v3"),
+        ]);
+        assert!(jit_client(&Args::default(), &env).is_ok());
+        assert!(cmux_egress::check("runner-github-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-runner-github-test.org", "test").is_err());
+    }
 
     #[test]
     fn wait_news_names_each_change_once() {

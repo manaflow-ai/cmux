@@ -236,3 +236,16 @@ fn synced_records_are_checked() {
     assert!(SyncRecord { kind: "binary".into(), ..good.clone() }.check().is_err());
     assert!(SyncRecord { reference: "acme/notes".into(), ..good }.check().is_err());
 }
+
+#[test]
+fn a_named_registry_passes_the_gate_and_others_do_not() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let base = "https://extensions-registry-named-test.org".to_owned();
+    assert_eq!(named_registry_base(Some(base.clone())), base);
+    // A plain-http registry is refused, falls back to the default, and is not let through.
+    let plain = "http://extensions-registry-plain-test.org".to_owned();
+    assert_eq!(named_registry_base(Some(plain)), DEFAULT_REGISTRY);
+    assert!(cmux_egress::check("extensions-registry-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("extensions-registry-plain-test.org", "test").is_err());
+    assert!(cmux_egress::check("unrelated-extensions-registry-test.org", "test").is_err());
+}

@@ -12,8 +12,8 @@
 //! - hosts the person named (a self-hosted server, an API endpoint, an SSH or
 //!   git host): the code that reads such a setting calls [`allow_named`];
 //! - loopback, IP literals and reserved names (`localhost`, `.test`,
-//!   `.example`, `.invalid`, `.local`), which never reach a third party by
-//!   name.
+//!   `.example`, `.invalid`, `.local`, `.lan`, `.internal`), which never reach
+//!   a third party by name.
 //!
 //! [`Mode::Enforce`] refuses the rest; [`Mode::Log`] only reports it. The mode
 //! is `CMUX_EGRESS` (`enforce`, `log` or `off`) when set, else enforce in a
@@ -42,6 +42,12 @@ use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 /// The `connects` hosts of docs/privacy.md, one per line; `*` stands for one
 /// part of a name filled in at run time (`*.atlassian.net`).
 const HOSTS_TXT: &str = include_str!("../hosts.txt");
+
+/// Where github.com hands a release download by redirect. The gate checks each hop, so a
+/// release fetched from a github.com URL (an agent install, a fork's release asset, a job's
+/// log) lands on one of these; each has a `connects` row in docs/privacy.md.
+pub const GITHUB_DOWNLOAD_REDIRECTS: [&str; 2] =
+    ["release-assets.githubusercontent.com", "objects.githubusercontent.com"];
 
 /// The environment variable that picks the mode.
 pub const MODE_ENV: &str = "CMUX_EGRESS";
@@ -193,9 +199,18 @@ fn label_matches(pattern: &str, label: &str) -> bool {
 fn is_local(host: &str) -> bool {
     host.parse::<IpAddr>().is_ok()
         || host == "localhost"
-        || [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
+        || [
+            ".localhost",
+            ".test",
+            ".example",
+            ".invalid",
+            ".local",
+            ".lan",
+            ".internal",
+            ".home.arpa",
+        ]
+        .iter()
+        .any(|suffix| host.ends_with(suffix))
         || host == "example.com"
         || host.ends_with(".example.com")
 }
@@ -454,9 +469,23 @@ mod tests {
             "app.localhost",
             "x.test",
             "example.com",
+            "metadata.google.internal",
+            "printer.lan",
         ] {
             assert_eq!(verdict(host), Verdict::Local, "{host}");
         }
+    }
+
+    /// A github.com release download redirects to GitHub's asset hosts; those hops pass in
+    /// enforce mode, and another githubusercontent host does not.
+    #[test]
+    fn github_download_redirects_pass() {
+        set_mode(Mode::Enforce);
+        for host in GITHUB_DOWNLOAD_REDIRECTS {
+            assert_eq!(verdict(host), Verdict::Listed, "{host}");
+            assert!(check(&format!("https://{host}/x"), "cmux_egress::tests").is_ok());
+        }
+        assert_eq!(verdict("unrelated.githubusercontent.com"), Verdict::Unlisted);
     }
 
     #[test]

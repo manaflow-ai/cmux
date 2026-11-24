@@ -509,3 +509,20 @@ fn interactive_calls_pass_when_background_used_the_unreserved_share() {
     assert!(!admits(MAX_CALLS, &interactive));
     assert!(PASS_HEADERS.contains(&PRIORITY_HEADER), "the priority goes upstream too");
 }
+
+/// The cmux API and the upstream the person names pass the egress gate in enforce mode;
+/// a host nobody named is still refused.
+#[test]
+fn the_named_api_and_upstream_pass_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let (api_host, up_host) =
+        ("api-inference-gateway-test.org", "upstream-inference-gateway-test.org");
+    assert!(cmux_egress::check(api_host, "test").is_err());
+    assert!(cmux_egress::check(up_host, "test").is_err());
+    let (api, upstream) = (format!("https://{api_host}"), format!("https://{up_host}/v1/"));
+    let words = args(&["--api", &api, "--upstream", &upstream, "--token-file", "/t"]);
+    assert!(parse(&words, &no_env).is_ok());
+    assert!(cmux_egress::check(api_host, "test").is_ok());
+    assert!(cmux_egress::check(up_host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-inference-gateway-test.org", "test").is_err());
+}

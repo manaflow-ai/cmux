@@ -158,6 +158,9 @@ pub(crate) fn resolve_layered_source(
     if !(coderouter_url.starts_with("https://") || coderouter_url.starts_with("http://")) {
         return None;
     }
+    // The machine's settings named this router (CMUX_CODEROUTER_URL); a redirect off it is
+    // still checked.
+    cmux_egress::allow_named(&coderouter_url);
     Some(UsageSource { coderouter_url, vm_id })
 }
 

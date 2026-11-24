@@ -256,3 +256,20 @@ fn poller_publishes_readout_then_clears_it_when_the_endpoint_disappears() {
     assert!(hits.load(Ordering::Acquire) >= 2);
     mux.shutdown();
 }
+
+/// The router this machine's settings name in `CMUX_CODEROUTER_URL` passes the egress gate
+/// in enforce mode; a host nobody named is still refused.
+#[test]
+fn the_named_coderouter_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "router-coderouter-usage-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let env = |key: &str| match key {
+        CODEROUTER_URL_VAR => Some(format!("https://{host}")),
+        VM_ID_VAR => Some("vm-123".to_owned()),
+        _ => None,
+    };
+    assert!(resolve_layered_source(env, &[], None).is_some());
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-coderouter-usage-test.org", "test").is_err());
+}

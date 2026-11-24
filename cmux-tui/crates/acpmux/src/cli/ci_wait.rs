@@ -518,10 +518,7 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
     if !valid_repo(&repo) {
         return Err(AppError::usage(format!("{repo:?} is not OWNER/REPO")).into());
     }
-    let api = std::env::var("GITHUB_API_URL")
-        .ok()
-        .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| "https://api.github.com".into());
+    let api = api_url(std::env::var("GITHUB_API_URL").ok());
     let cache = Cache::new(Cache::default_dir().ok_or_else(|| anyhow!("no cache folder"))?);
     let mut reader = Reader::new(api.trim_end_matches('/').to_owned(), token().await?, cache)?;
     let started = Instant::now();
@@ -564,6 +561,15 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
         "pending" => Err(AppError::timeout(what).into()),
         _ => Ok(()),
     }
+}
+
+/// The GitHub API origin: `GITHUB_API_URL` when set, else github.com's.
+fn api_url(named: Option<String>) -> String {
+    named
+        .filter(|u| !u.is_empty())
+        // The person named this host (GITHUB_API_URL); a redirect off it is still checked.
+        .inspect(|u| cmux_egress::allow_named(u))
+        .unwrap_or_else(|| "https://api.github.com".into())
 }
 
 #[cfg(test)]

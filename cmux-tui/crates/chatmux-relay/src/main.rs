@@ -53,6 +53,16 @@ fn env_string(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
+/// The worker origin: `--backend`, else `CHATMUX_BACKEND_URL`, else `CMUX_RELAY_BACKEND_URL`, else
+/// the default.
+fn backend_url(flag: Option<String>, env: impl Fn(&str) -> Option<String>) -> String {
+    let named =
+        flag.or_else(|| env("CHATMUX_BACKEND_URL")).or_else(|| env("CMUX_RELAY_BACKEND_URL"));
+    // The person named this host (--backend or its env); a redirect off it is still checked.
+    named.as_deref().into_iter().for_each(cmux_egress::allow_named);
+    named.unwrap_or_else(|| DEFAULT_BACKEND.to_owned()).trim_end_matches('/').to_owned()
+}
+
 fn node_platform() -> &'static str {
     match std::env::consts::OS {
         "macos" => "darwin",
@@ -586,14 +596,7 @@ async fn main() {
         }
     };
 
-    let backend = parsed
-        .backend
-        .clone()
-        .or_else(|| env_string("CHATMUX_BACKEND_URL"))
-        .or_else(|| env_string("CMUX_RELAY_BACKEND_URL"))
-        .unwrap_or_else(|| DEFAULT_BACKEND.to_owned())
-        .trim_end_matches('/')
-        .to_owned();
+    let backend = backend_url(parsed.backend.clone(), env_string);
     let web_base = env_string("CHATMUX_WEB_URL")
         .unwrap_or_else(|| "https://chatmux.dev".to_owned())
         .trim_end_matches('/')
@@ -720,4 +723,19 @@ async fn main() {
         SessionState { first_connect: true, first_run, managed: false },
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_named_backend_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let named = "https://relay-main-named-test.org/";
+        let env = |name: &str| (name == "CMUX_RELAY_BACKEND_URL").then(|| named.to_owned());
+        assert_eq!(backend_url(None, env), "https://relay-main-named-test.org");
+        assert!(cmux_egress::check("relay-main-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-relay-main-test.org", "test").is_err());
+    }
 }

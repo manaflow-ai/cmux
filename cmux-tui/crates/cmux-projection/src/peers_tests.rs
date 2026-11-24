@@ -507,3 +507,19 @@ fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     .unwrap();
     assert_eq!(json["repos"][0]["repo"], "manaflow-ai/cmux");
 }
+
+#[test]
+fn a_named_cache_or_index_url_passes_the_gate_and_others_do_not() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    assert_eq!(
+        named("https://projection-cache-named-test.org/blobs/").as_deref(),
+        Some("https://projection-cache-named-test.org/blobs")
+    );
+    assert!(named("http://projection-index-named-test.org/v1/seeds").is_some());
+    // A file index names no host, so nothing is let through.
+    assert_eq!(named("/var/lib/cmux/projection-index-named-test.org.json"), None);
+    assert!(cmux_egress::check("projection-cache-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("projection-index-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("projection-index-named-test.org.json", "test").is_err());
+    assert!(cmux_egress::check("unrelated-projection-cache-test.org", "test").is_err());
+}

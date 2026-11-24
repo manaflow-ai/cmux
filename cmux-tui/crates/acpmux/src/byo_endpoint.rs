@@ -187,6 +187,8 @@ pub fn check_base_url(url: &str) -> Result<String, UrlError> {
     if parsed.fragment().is_some() {
         return bad("baseUrl may not have a #fragment");
     }
+    // The person named this host (a BYO endpoint's baseUrl); a redirect off it is still checked.
+    cmux_egress::allow_named(host);
     Ok(url.trim_end_matches('/').to_owned())
 }
 

@@ -57,6 +57,9 @@ impl Config {
         if !self.store.starts_with("https://") && !self.store.starts_with("http://127.0.0.1") {
             bail!("store must be https://ORIGIN or fs:/path, not {}", self.store);
         }
+        // The person named this host (session-cloud.json's store); a redirect off it is still
+        // checked.
+        cmux_egress::allow_named(&self.store);
         let credential = match std::env::var("CMUX_SESSION_CLOUD_TOKEN") {
             Ok(token) => token,
             Err(_) => {
@@ -70,3 +73,7 @@ impl Config {
         Ok(Box::new(HttpStore::new(&self.store, &credential)?))
     }
 }
+
+#[cfg(test)]
+#[path = "config_egress_tests.rs"]
+mod egress_tests;

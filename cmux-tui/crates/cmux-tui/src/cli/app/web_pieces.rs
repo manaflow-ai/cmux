@@ -148,8 +148,14 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
             Command::Check(Check {
                 state: state_dir(options.value("state")).ok_or_else(usage)?,
                 channel: channel.to_owned(),
-                base: base_url(options.value("base").unwrap_or(DEFAULT_BASE))
-                    .map_err(UsageError::new)?,
+                base: base_url(
+                    options
+                        .value("base")
+                        // The person named this base (--base); a redirect off it is still checked.
+                        .inspect(|b| cmux_egress::allow_named(b))
+                        .unwrap_or(DEFAULT_BASE),
+                )
+                .map_err(UsageError::new)?,
                 active: options.value("active").map(key_arg).transpose()?,
                 kept: options.values("kept").into_iter().map(key_arg).collect::<Result<_, _>>()?,
                 offline: options.flag("offline"),

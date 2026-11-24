@@ -96,6 +96,8 @@ pub fn admit(
             message: "request body is larger than 1 MiB".into(),
         });
     }
+    // The person granted this host (net:<host> on the app); a redirect off it is still checked.
+    cmux_egress::allow_named(&host);
     Ok(FetchRequest { url: url.to_string(), method, headers, body })
 }
 

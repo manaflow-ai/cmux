@@ -67,11 +67,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
     if config.base_url.is_empty() {
         return Err(anyhow!("machine wake is enabled without baseUrl"));
     }
-    let url = format!(
-        "{}/v1/machines/leases/{}/wake",
-        config.base_url.trim_end_matches('/'),
-        path_segment(&lease)
-    );
+    let url = wake_url(config, &lease);
     let client =
         crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
@@ -83,6 +79,17 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         return Err(anyhow!("machine wake returned {}", response.status()));
     }
     Ok(true)
+}
+
+/// The wake endpoint for `lease` under `machineWake.baseUrl`.
+fn wake_url(config: &MachineWakeConfig, lease: &str) -> String {
+    // The person named this host (machineWake.baseUrl); a redirect off it is still checked.
+    cmux_egress::allow_named(&config.base_url);
+    format!(
+        "{}/v1/machines/leases/{}/wake",
+        config.base_url.trim_end_matches('/'),
+        path_segment(lease)
+    )
 }
 
 /// One `peerWake` run (`Peer::wake` runs it once per wake window, on a blocking thread):
@@ -123,5 +130,21 @@ mod tests {
             Some("l2".into())
         );
         assert_eq!(paused_lease(&json!({"tags": {"lease": "l3"}, "status": "idle"})), None);
+    }
+
+    #[test]
+    fn the_configured_wake_host_passes_the_egress_gate_and_nothing_else_does() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let config = MachineWakeConfig {
+            enabled: true,
+            base_url: "https://machine-wake-named-test.org/".into(),
+            token: None,
+        };
+        assert_eq!(
+            wake_url(&config, "l1"),
+            "https://machine-wake-named-test.org/v1/machines/leases/l1/wake"
+        );
+        assert!(cmux_egress::check("machine-wake-named-test.org", "test").is_ok());
+        assert!(cmux_egress::check("unrelated-machine-wake-test.org", "test").is_err());
     }
 }

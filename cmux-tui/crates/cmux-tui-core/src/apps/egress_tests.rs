@@ -40,3 +40,17 @@ fn sandboxed_apps_never_reach_the_network() {
         "scope.missing"
     );
 }
+
+#[test]
+fn a_granted_host_passes_the_gate_and_others_do_not() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let g = grants(&["net:app-fetch-granted-test.org", "net:*.app-fetch-wild-test.org"]);
+    assert!(admit(&json!({ "url": "https://app-fetch-granted-test.org/x" }), &g, false).is_ok());
+    let ungranted = json!({ "url": "https://app-fetch-ungranted-test.org/" });
+    assert!(admit(&ungranted, &g, false).is_err());
+    assert!(cmux_egress::check("app-fetch-granted-test.org", "test").is_ok());
+    // Only the host asked for, never a grant's whole domain.
+    assert!(cmux_egress::check("other.app-fetch-wild-test.org", "test").is_err());
+    assert!(cmux_egress::check("app-fetch-ungranted-test.org", "test").is_err());
+    assert!(cmux_egress::check("unrelated-app-fetch-test.org", "test").is_err());
+}

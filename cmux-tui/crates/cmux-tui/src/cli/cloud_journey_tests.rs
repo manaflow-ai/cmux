@@ -139,3 +139,26 @@ fn run_tags_look_like_the_ts_tags() {
     assert!(tag.starts_with("jr-"));
     assert!(tag[3..].bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()));
 }
+
+/// The API the person names with `--api` passes the egress gate in enforce mode; an API a
+/// `--backend` name resolved to is not added, and a host nobody named is still refused.
+#[test]
+fn the_named_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let (named, resolved) = ("api-cloud-journey-test.org", "backend-cloud-journey-test.org");
+    let args = |backend: &str, api: Option<String>| Args {
+        backend: backend.to_owned(),
+        api,
+        team: None,
+        model_stub: None,
+        prompt: String::new(),
+        chat_budget: Duration::from_secs(1),
+        out: None,
+    };
+    assert!(cmux_egress::check(named, "test").is_err());
+    allow_named_api(&args("", Some(format!("https://{named}"))), &format!("https://{named}"));
+    assert!(cmux_egress::check(named, "test").is_ok());
+    allow_named_api(&args("staging", None), &format!("https://{resolved}"));
+    assert!(cmux_egress::check(resolved, "test").is_err());
+    assert!(cmux_egress::check("unrelated-cloud-journey-test.org", "test").is_err());
+}

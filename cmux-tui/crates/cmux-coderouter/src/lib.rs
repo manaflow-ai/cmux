@@ -283,6 +283,9 @@ impl Upstream {
         if bearer.is_empty() || bearer.len() > 8192 || bearer.contains(['\r', '\n']) {
             anyhow::bail!("upstream bearer is invalid");
         }
+        // The person named this host (their selected environment's router, pushed by the app
+        // over the admin socket); a redirect off it is still checked.
+        cmux_egress::allow_named(origin);
         Ok(Self {
             origin: origin.trim_end_matches('/').to_owned(),
             bearer: Secret::new(bearer),
@@ -915,3 +918,7 @@ async fn authorize(
 #[cfg(test)]
 #[path = "relay_error_tests.rs"]
 mod relay_error_tests;
+
+#[cfg(test)]
+#[path = "upstream_egress_tests.rs"]
+mod upstream_egress_tests;

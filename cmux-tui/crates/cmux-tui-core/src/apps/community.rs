@@ -711,9 +711,20 @@ pub(super) fn wants(args: &Value) -> bool {
 }
 
 fn registry_base() -> String {
-    std::env::var(REGISTRY_ENV)
-        .ok()
+    named_registry_base(std::env::var(REGISTRY_ENV).ok())
+}
+
+/// `CMUX_EXTENSIONS_REGISTRY` when it is https (or local), its host let through the egress gate;
+/// else [`DEFAULT_REGISTRY`].
+fn named_registry_base(value: Option<String>) -> String {
+    value
         .filter(|base| base.starts_with("https://") || base.starts_with("http://127.0.0.1"))
+        .map(|base| {
+            // The person named this host (CMUX_EXTENSIONS_REGISTRY); a redirect off it is
+            // still checked.
+            cmux_egress::allow_named(&base);
+            base
+        })
         .unwrap_or_else(|| DEFAULT_REGISTRY.to_string())
 }
 

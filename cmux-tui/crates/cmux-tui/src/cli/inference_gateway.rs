@@ -279,6 +279,8 @@ pub(super) fn parse(
         .or_else(|| env("CMUX_CLOUD_API_URL"))
         .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
     let api = secure_origin(&api)?;
+    // The person named this API (--api or CMUX_CLOUD_API_URL); a redirect off it is still checked.
+    cmux_egress::allow_named(&api);
     if enable_once.is_some() && !personal {
         return Err("--enable-once turns your own gateway on; it goes with --personal".into());
     }
@@ -323,6 +325,8 @@ pub(super) fn parse(
                     return Err("--upstream must be https, or plain http to this computer or a private network".into());
                 }
             }
+            // The person named this upstream (--upstream); a redirect off it is still checked.
+            cmux_egress::allow_named(url.as_str());
             Upstream::Proxy { base: base.trim_end_matches('/').to_owned(), key_file }
         }
         (Some(auth), None) => {

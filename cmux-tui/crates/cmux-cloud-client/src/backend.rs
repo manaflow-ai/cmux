@@ -29,6 +29,8 @@ pub fn platform_origin_from(env: impl Fn(&str) -> Option<String>) -> Option<Stri
         .filter_map(&env)
         .map(|value| value.trim().to_owned())
         .find(|value| !value.is_empty())
+        // The person named this hub (CMUX_PLATFORM_ORIGIN); a redirect off it is still checked.
+        .inspect(|origin| cmux_egress::allow_named(origin))
 }
 
 /// [`platform_origin_from`] of this process's environment.
@@ -130,5 +132,20 @@ mod tests {
             Some("https://u.example")
         );
         assert_eq!(read(None, None), None);
+    }
+
+    /// A hub the person names in `CMUX_PLATFORM_ORIGIN` passes the egress gate in enforce
+    /// mode; a host nobody named is still refused.
+    #[test]
+    fn the_named_platform_origin_passes_the_gate() {
+        cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+        let host = "hub-named-backend-test.org";
+        assert!(cmux_egress::check(host, "test").is_err());
+        let origin = platform_origin_from(|key| {
+            (key == PLATFORM_ORIGIN_ENV).then(|| format!("https://{host}"))
+        });
+        assert_eq!(origin.as_deref(), Some("https://hub-named-backend-test.org"));
+        assert!(cmux_egress::check(host, "test").is_ok());
+        assert!(cmux_egress::check("unrelated-hub-backend-test.org", "test").is_err());
     }
 }

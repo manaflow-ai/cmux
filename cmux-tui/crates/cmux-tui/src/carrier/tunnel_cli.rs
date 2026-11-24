@@ -132,6 +132,12 @@ pub(crate) fn parse_keys(line: &[u8]) -> Result<(Zeroizing<[u8; 32]>, InstallKey
     Ok((wg, install))
 }
 
+/// The origin the person named (`--vm-api` else `CMUX_VM_API_URL`, or
+/// `--platform`), let past the egress gate; a redirect off it is still checked.
+pub(crate) fn named_origin(flag: Option<String>, env: Option<String>) -> Option<String> {
+    flag.or(env).filter(|v| !v.trim().is_empty()).inspect(|v| cmux_egress::allow_named(v.trim()))
+}
+
 /// The VM API of the deployment whose platform origin is `platform`.
 pub(crate) fn vm_api_of(platform: &str) -> Option<&'static str> {
     use cmux_cloud_environment as env;
@@ -217,10 +223,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Ok(keys) => keys,
             Err(why) => return usage(why),
         };
-    let platform = args
-        .platform
-        .clone()
-        .filter(|p| !p.trim().is_empty())
+    let platform = named_origin(args.platform.clone(), None)
         .or_else(cmux_cloud_client::backend::platform_origin_env);
     let Some(platform) = platform else {
         return usage(&format!(
@@ -232,11 +235,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(origin) => origin,
         Err(why) => return usage(&why),
     };
-    let vm_api = args
-        .vm_api
-        .clone()
-        .or_else(|| std::env::var(VM_API_ENV).ok())
-        .filter(|v| !v.trim().is_empty())
+    let vm_api = named_origin(args.vm_api.clone(), std::env::var(VM_API_ENV).ok())
         .or_else(|| vm_api_of(&platform).map(str::to_owned));
     let Some(vm_api) = vm_api else {
         return usage(&format!("name the VM API with --vm-api URL or {VM_API_ENV}"));

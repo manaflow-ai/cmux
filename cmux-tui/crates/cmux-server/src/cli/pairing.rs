@@ -51,7 +51,7 @@ pub(super) fn app_view(ctx: &Context<'_>) -> Value {
 
 pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     // Validate before creating a directory, key, HTTP client or socket.
-    let api = pairing::api_origin(args.value("api-origin").unwrap_or(pairing::DEFAULT_API))?;
+    let api = pairing::named_api_origin(args.value("api-origin"))?;
     let invite = args.value("invite").map(pairing::invite::normalize).transpose()?;
     let name = args.value("name").map(str::to_owned).unwrap_or_else(pairing::info::name);
     if name.trim().is_empty()

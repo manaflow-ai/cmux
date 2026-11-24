@@ -264,3 +264,18 @@ fn finds_codex_device_link_and_code() {
     assert_eq!(device_prompt("starting...\n"), None);
     assert_eq!(device_prompt("https://auth.openai.com/codex/device\n"), None);
 }
+
+/// The cmux API the person names with `--api` passes the egress gate in enforce mode; a
+/// host nobody named is still refused.
+#[test]
+fn the_named_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "api-inference-setup-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let none = |_: &str| None;
+    let api = format!("https://{host}");
+    let words = args(&["--machine", "vm_abcdefghij0123456789", "--api", &api, "--path", "device"]);
+    assert!(parse(&words, &none).is_ok());
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-api-inference-setup-test.org", "test").is_err());
+}

@@ -83,6 +83,7 @@ impl Freestyle {
         let key = env("FREESTYLE_API_KEY").filter(|k| !k.is_empty())?;
         let base = env("FREESTYLE_API_URL")
             .filter(|b| !b.is_empty())
+            .map(crate::http::named)
             .unwrap_or_else(|| DEFAULT_BASE.to_owned());
         Some(Self {
             base: base.trim_end_matches('/').to_owned(),

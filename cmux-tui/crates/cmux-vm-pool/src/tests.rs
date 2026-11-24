@@ -531,3 +531,16 @@ fn no_floor_by_default_every_idle_machine_pauses() {
     paused.sort();
     assert_eq!(paused, vec!["id-fsp-a".to_owned(), "id-fsp-b".to_owned()]);
 }
+
+#[test]
+fn a_named_freestyle_api_url_in_the_pool_passes_the_gate_and_others_do_not() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let env = |key: &str| match key {
+        "FREESTYLE_API_KEY" => Some("key".to_owned()),
+        "FREESTYLE_API_URL" => Some("https://pool-freestyle-named-test.org/".to_owned()),
+        _ => None,
+    };
+    assert!(freestyle::Freestyle::from_env(&env).is_some());
+    assert!(cmux_egress::check("pool-freestyle-named-test.org", "test").is_ok());
+    assert!(cmux_egress::check("unrelated-pool-freestyle-test.org", "test").is_err());
+}

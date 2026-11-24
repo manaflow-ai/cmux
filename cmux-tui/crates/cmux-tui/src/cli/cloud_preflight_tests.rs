@@ -100,3 +100,17 @@ fn parse_defaults_and_refusals() {
     assert!(parse(&words(&["--token-file", "/t"]), &none).is_err());
     assert!(parse(&words(&["--bogus"]), &none).is_err());
 }
+
+/// The cmux API the person names with `--api` passes the egress gate in enforce mode; a
+/// host nobody named is still refused.
+#[test]
+fn the_named_api_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "api-cloud-preflight-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    let api = format!("https://{host}");
+    let none = |_: &str| None;
+    assert!(parse(&words(&["--api", &api, "--token-file", "/t"]), &none).is_ok());
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert!(cmux_egress::check("unrelated-api-cloud-preflight-test.org", "test").is_err());
+}

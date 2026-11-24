@@ -225,13 +225,9 @@ impl Default for ServiceOptions {
             poll: Duration::from_secs(1),
             max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
-            api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
-                .unwrap_or_default()
-                .split(',')
-                .map(str::trim)
-                .filter(|entry| !entry.is_empty())
-                .map(str::to_string)
-                .collect(),
+            api_origins: named_api_origins(
+                &std::env::var("CMUX_CLOUD_API_ORIGINS").unwrap_or_default(),
+            ),
             snapshot_backoff: SnapshotBackoff::default(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
@@ -241,6 +237,21 @@ impl Default for ServiceOptions {
             }),
         }
     }
+}
+
+/// The origins `CMUX_CLOUD_API_ORIGINS` lists (comma-separated), each let through the egress gate.
+fn named_api_origins(value: &str) -> Vec<String> {
+    let origins: Vec<String> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect();
+    for origin in &origins {
+        // The person named this host (CMUX_CLOUD_API_ORIGINS); a redirect off it is still checked.
+        cmux_egress::allow_named(origin);
+    }
+    origins
 }
 
 #[derive(Default)]
@@ -1700,3 +1711,7 @@ pub use owner_wire::{OwnerWire, OwnerWireError};
 #[cfg(test)]
 #[path = "service_presence_order_tests.rs"]
 mod presence_order_tests;
+
+#[cfg(test)]
+#[path = "service_egress_tests.rs"]
+mod egress_tests;

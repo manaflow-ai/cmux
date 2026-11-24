@@ -219,3 +219,16 @@ fn unpack_refuses_a_path_that_climbs_out() {
     assert!(unpack(&bytes, &dir, &layer).is_err());
     assert!(!dir.exists());
 }
+
+/// The bundles base the person names in `CMUX_WEB_BUNDLES_BASE` passes the egress gate in
+/// enforce mode; a host nobody named is still refused.
+#[test]
+fn the_named_bundles_base_passes_the_gate() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "bundles-customize-pr-test.org";
+    assert!(cmux_egress::check(host, "test").is_err());
+    assert_eq!(base_url_from(Some(format!("https://{host}/b/"))), format!("https://{host}/b"));
+    assert!(cmux_egress::check(host, "test").is_ok());
+    assert_eq!(base_url_from(None), DEFAULT_BASE.trim_end_matches('/'));
+    assert!(cmux_egress::check("unrelated-bundles-customize-pr-test.org", "test").is_err());
+}
