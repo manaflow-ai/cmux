@@ -834,6 +834,9 @@ class Loop:
         t = time.time()
         ok, output = self.builder.build(daemons)
         entry["build_secs"] = round(time.time() - t, 3)
+        # The crates this build compiled (cargo's "Compiling NAME vX" lines): an edit that reaches more
+        # than the edited crate and its dependents is a settings mismatch, not the front end.
+        entry["compiled"] = re.findall(r"^\s*Compiling (\S+) v", output, re.M)
         if not ok:
             errors = [line for line in output.splitlines() if line.startswith(("error", "warning: build failed"))]
             entry.update(outcome="build_failed", errors=errors[:10] or output.strip().splitlines()[-10:])
@@ -1125,6 +1128,55 @@ def host_pids(state: Path) -> dict[str, int]:
     return found
 
 
+class MeasureApp:
+    """The app side of `measure --app`: one connection to the daemon held open, and on its drop the app's
+    reconnect (50 ms, then `server ensure` from the app's file until one answers, as DaemonConnection
+    and its endpoint provider do)."""
+
+    def __init__(self, app_file: Path, swapper: "Swapper"):
+        self.file, self.swapper = app_file, swapper
+        self.stopped = threading.Event()
+        self.conn: socket.socket | None = None
+        self.thread = threading.Thread(target=self.run, daemon=True, name="rust-live-measure-app")
+        self.connect()
+        self.thread.start()
+
+    def connect(self) -> None:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.connect(str(self.swapper.sock))
+        self.conn = conn
+
+    def run(self) -> None:
+        while not self.stopped.is_set():
+            try:
+                if self.conn is not None and self.conn.recv(65536):
+                    continue
+            except OSError:
+                pass
+            if self.stopped.is_set():
+                return
+            self.conn = None
+            delay = 0.05
+            while not self.stopped.wait(delay):
+                ensure = self.swapper.cli(self.file, "server", "ensure", timeout=30)
+                if ensure.returncode == 0:
+                    try:
+                        self.connect()
+                        break
+                    except OSError:
+                        pass
+                delay = min(delay * 2, 1.0)
+
+    def close(self) -> None:
+        self.stopped.set()
+        if self.conn is not None:
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self.thread.join(timeout=35)
+
+
 def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round(fraction * (len(ordered) - 1))))
@@ -1152,9 +1204,16 @@ def command_measure(args) -> int:
     env.update(ACPMUX_HOME=str(work / "acpmux"), XDG_CONFIG_HOME=str(work / "xdg"))
     env.update(CMUX_TUI_STATE_DIR=str(work / "sessions"), CMUX_TUI_HOST_EXE_DIR=str(work / "host-exe"),
                CMUX_TUI_SHELL_INTEGRATION="none", SHELL="/bin/sh")
-    report: dict = {"tree": str(tree), "host": socket.gethostname(), "runs": [], "build_host": args.build_host or "here"}
+    report: dict = {"tree": str(tree), "host": socket.gethostname(), "runs": [], "build_host": args.build_host or "here",
+                    "cpus": os.cpu_count(), "load_procs": args.load, "app_handoff": args.app,
+                    # What the build inherits that changes what cargo compiles (a CI worker's env sets some).
+                    "build_env": {k: v for k, v in os.environ.items() if k.startswith(("CARGO_", "RUSTC", "RUSTFLAGS",
+                                                                                      "SCCACHE_"))}}
     builder = Builder(tree, state, args.build_host, args.target)
-    swapper = Swapper("rust-live-measure", str(sock), env)
+    swapper = Swapper("rust-live-measure", str(sock), env, state=work / "swapper" if args.app else None)
+    load = [subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True) for _ in range(args.load)]
+    app: MeasureApp | None = None
     swaps: list[dict] = []
     swapped = threading.Condition()
 
@@ -1180,10 +1239,20 @@ def command_measure(args) -> int:
         if not ok:
             raise RuntimeError("warm build failed: " + output.strip()[-2000:])
         first = builder.fetch(["cmux-tui"], state / "builds" / "0-warm")["cmux-tui"]
+        if args.app:
+            # The daemon runs from an app bundle's bin/cmux, so each swap is the app handoff; a thread plays
+            # the app's reconnect (DaemonConnection: first retry 50 ms after the drop, then its own ensure).
+            app_file = work / "cmux DEV.app" / "Contents" / "Resources" / "bin" / "cmux"
+            app_file.parent.mkdir(parents=True)
+            shutil.copy2(first, app_file)
+            (app_file.parent / "cmux-tui").symlink_to("cmux")
+            first = app_file
         ensure = swapper.cli(first, "server", "ensure")
         if ensure.returncode != 0:
             raise RuntimeError(f"server ensure: {(ensure.stderr or ensure.stdout).strip()}")
         wait_until("daemon", time.monotonic() + 30, lambda: request(sock, {"cmd": "identify"}))
+        if args.app:
+            app = MeasureApp(first, swapper)
         terms = []
         for i in range(args.terminals):
             created = request(sock, {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
@@ -1225,7 +1294,7 @@ def command_measure(args) -> int:
             entry = swaps[seen] if len(swaps) > seen else {"outcome": "timed_out"}
             result = {"run": run_index, "outcome": entry.get("outcome"), **{k: entry.get(k) for k in (
                 "detect_secs", "sync_secs", "build_secs", "transfer_secs", "swap_secs", "save_to_swapped_secs", "swap",
-                "bytes", "errors", "error")}}
+                "bytes", "compiled", "errors", "error")}}
             if entry.get("outcome") == "swapped":
                 ident = request(sock, {"cmd": "identify"})
                 answered_at = time.time()
@@ -1258,10 +1327,15 @@ def command_measure(args) -> int:
     except Exception as error:  # noqa: BLE001 - the report says what failed
         report["error"] = str(error)
     finally:
+        for proc in load:  # only the load this measurement started
+            proc.kill()
+            proc.wait()
         loop.stop_event.set()
         loop.builder.cancel()
         if watcher is not None:
             watcher.join(timeout=60)  # never restore the file or remove state under a live watcher
+        if app is not None:
+            app.close()
         edit_path.write_text(original)
         try:
             ident = request(sock, {"cmd": "identify"})
@@ -1333,6 +1407,9 @@ def main() -> int:
             p.add_argument("--terminals", type=int, default=3)
             p.add_argument("--timeout", type=float, default=300)
             p.add_argument("--keep", action="store_true")
+            p.add_argument("--app", action="store_true",
+                           help="run the daemon from an app bundle's bin/cmux, so each swap is the app handoff")
+            p.add_argument("--load", type=int, default=0, help="busy processes to run beside it (duress)")
     sub.add_parser("stop")
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
