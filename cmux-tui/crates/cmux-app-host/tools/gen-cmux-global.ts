@@ -64,6 +64,7 @@ const CLOUD_API_CALLS = [
   "cloud.machine.share_chat",
   "cloud.machine.chief_start",
   "cloud.machine.chief_resize",
+  "cloud.machine.fork",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",

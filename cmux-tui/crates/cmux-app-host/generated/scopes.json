@@ -489,6 +489,10 @@
       "scope": "cloud:read",
       "class": "read"
     },
+    "cloud.usage.current": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
     "cloud.vm.attention.emit": {
       "scope": "cloud:execute",
       "class": "mutation"
@@ -2205,6 +2209,7 @@
     "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.fork",
     "cloud.machine.io",
     "cloud.machine.link_token",
     "cloud.machine.resize",
