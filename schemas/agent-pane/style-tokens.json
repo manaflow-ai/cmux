@@ -40,7 +40,7 @@
       "name": "--agent-link",
       "kind": "color",
       "owner": "webviews/src/agent-session/shared/styles.css",
-      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css"],
+      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css", "webviews/src/ui/glass/glass.css"],
       "about": "Links in the rest of the pane (chips, cards, the composer)."
     },
     {
