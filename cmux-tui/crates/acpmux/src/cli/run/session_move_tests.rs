@@ -361,9 +361,35 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
                 wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
             }
         });
+        // The target's daemon: a dry run that gets as far as a plan asks it, read-only, whether
+        // it takes the chat (`target_ask`), and nothing else.
+        let target_socket = socket_dir.path().join("target.sock");
+        let target_listener = tokio::net::UnixListener::bind(&target_socket).unwrap();
+        let target_server = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            // The client's own initialize, then the move's (whose reply it keeps).
+            let asked = [method::INITIALIZE, method::INITIALIZE, "_acpmux/transfer_preflight"];
+            for expected in asked {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, params } =
+                    Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "a dry run only asks the target");
+                if called != method::INITIALIZE {
+                    assert_eq!(params.unwrap_or_default()["manifest"]["sessionId"], "chat");
+                }
+                let result = json!({"takes": true});
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
         let client = Client::connect(&socket).await.unwrap();
-        let target =
-            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let about =
+            RemoteDaemon { socket: target_socket.to_string_lossy().into_owned(), ..about_ok(None) };
+        let target = Target { name: "target".into(), ssh: String::new(), probed: Some(about) };
         let mut targets =
             Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
         let args = MoveArgs {
@@ -394,6 +420,12 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             assert_eq!(outcome.error.is_some(), expected.is_some());
         }
         server.await.unwrap();
+        if expected.is_none() && !detached {
+            target_server.await.expect("the planned dry run asked the target");
+        } else {
+            // Refused before a plan: the target was never reached.
+            target_server.abort();
+        }
     }
 }
 
