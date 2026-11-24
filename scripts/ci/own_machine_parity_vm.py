@@ -8,12 +8,61 @@ localhost). Run by .github/workflows/own-machine-parity-vm.yml; the build is its
 
   own_machine_parity_vm.py --app-a APP --app-b APP --work DIR --out DIR
 """
-import argparse, json, os, plistlib, pwd, socket, subprocess, sys, time
+import argparse, glob, json, os, plistlib, pwd, re, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cmux_next_pair_e2e as r  # noqa: E402
 
 B_NAME = "parity-b"
+
+
+def enroll_name(tag):
+    """The name a sign-in join gives this Mac (acpmux cli/cloud_join/enroll.rs `enroll_name`): the host
+    name's first label, lowercased (`host` when it is not a plain name), then `-<tag>`, at most 63
+    characters. CMUX_NEXT_MOBILE_DEVICE_NAME names only the iPhone host, never the hub's machine row."""
+    first = socket.gethostname().split(".")[0].lower()
+    base = first if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}", first) else "host"
+    t = re.sub(r"[^a-z0-9-]", "", tag.lower()).strip("-")
+    return (f"{base}-{t}" if t else base)[:63].rstrip("-")
+
+
+def acpmux_evidence(app, tag, out, label):
+    """Why B did or did not show on A: each build's acpmux home (~/.acpmux/builds/*, under $HOME and the
+    account home) with its join status, machine list and log tails, plus the app's debug log tail.
+    Best effort, bounded, redacted."""
+    homes = {os.path.expanduser("~"), pwd.getpwuid(os.getuid()).pw_dir}
+    acpmux = os.path.join(app, "Contents/Resources/bin/acpmux")
+    parts = []
+    for home in sorted(homes):
+        for d in sorted(glob.glob(os.path.join(home, ".acpmux", "builds", "*"))):
+            parts.append(f"== {d}")
+            files = []
+            for root, dirs, names in os.walk(d):
+                if root[len(d):].count(os.sep) >= 3:
+                    dirs[:] = []
+                files += [os.path.join(root, n) for n in names]
+            parts.append("files: " + ", ".join(os.path.relpath(f, d) for f in files[:200]))
+            env = dict(os.environ, ACPMUX_HOME=d)
+            for argv in (["host", "join", "--status", "--json"], ["machine", "list", "--json"]):
+                try:
+                    p = subprocess.run([acpmux, *argv], env=env, capture_output=True, text=True, timeout=30)
+                    parts.append(f"$ acpmux {' '.join(argv)} -> {p.returncode}\n{p.stdout[-4000:]}{p.stderr[-2000:]}")
+                except (OSError, subprocess.TimeoutExpired) as e:
+                    parts.append(f"$ acpmux {' '.join(argv)}: {type(e).__name__}")
+            for f in files:
+                if f.endswith((".log", ".jsonl")) or "log" in os.path.basename(f):
+                    try:
+                        with open(f, "rb") as fh:
+                            fh.seek(max(0, os.fstat(fh.fileno()).st_size - (64 << 10)))
+                            parts.append(f"-- tail {os.path.relpath(f, d)}\n" + fh.read().decode(errors="replace"))
+                    except OSError:
+                        pass
+    debug_log = f"/tmp/cmux-debug-{tag}.log"
+    if os.path.isfile(debug_log):
+        with open(debug_log, "rb") as fh:
+            fh.seek(max(0, os.fstat(fh.fileno()).st_size - (128 << 10)))
+            parts.append(f"-- tail {debug_log}\n" + fh.read().decode(errors="replace"))
+    r.save_redacted(out, f"acpmux-{label}.txt", "\n".join(parts), 3000)
 
 
 def launch(app, label, work, out, account):
@@ -90,10 +139,17 @@ def main():
         folder = os.path.join(a.work, "picked-folder")
         os.makedirs(folder, exist_ok=True)
         sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() or "unknown"
+        b_name = enroll_name(tag_b)
+        print(f"B's sign-in join name: {b_name}", flush=True)
         res = subprocess.run(["bun", "scripts/cmux-next/machine-join-e2e.ts", "--scenario", "own-machine-parity", "--a-socket", sock_a,
-                              "--b-name", B_NAME, "--folder", os.path.realpath(folder), "--runs", "3",
+                              "--b-name", b_name, "--folder", os.path.realpath(folder), "--runs", "3",
                               "--report", os.path.join(os.path.realpath(a.out), "own-machine-parity.json"), "--sha", sha], env=env)
         print("harness exit", res.returncode, flush=True)
+        for app, tag, label in ((a.app_a, tag_a, "a"), (a.app_b, tag_b, "b")):
+            try:
+                acpmux_evidence(app, tag, a.out, label)
+            except Exception as e:  # noqa: BLE001
+                print(f"evidence {label}: {type(e).__name__}", flush=True)
         return res.returncode  # 0 pass, 1 fail, 3 not-built: the job fails with the harness
     finally:
         for s in streams:
