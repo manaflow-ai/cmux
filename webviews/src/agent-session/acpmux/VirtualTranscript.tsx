@@ -3366,7 +3366,9 @@ function TranscriptView({
   // for as long as the page took (Leo, 2026-11-06: "it, like, thinks that I can, and then it doesn't
   // actually let me scroll up ... it pushes me back to the bottom"). `room` keeps a tail shorter than
   // the view where it was drawn, at the view's foot.
-  const [roomGone, setRoomGone] = useState<{ sessionId?: string; firstId: string; room: number } | undefined>();
+  const [roomGone, setRoomGone] = useState<
+    { sessionId?: string; firstId: string; room: number; end: number } | undefined
+  >();
   // The view's height and saved place for a cold open's estimate (`roughAbove`), read without making
   // either an input of it.
   const coldView = useRef({ height, openAt });
@@ -3595,8 +3597,12 @@ function TranscriptView({
       canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
         ? roomGone
         : undefined;
+    // What is left once the room went keeps the short tail's end where it was then (`giveRoomNearTop`), not a
+    // number of pixels: rows that draw shorter than their estimate get the difference back above them. A fixed
+    // room let a tail 13 px under the view's height fall back to the top, and the view then followed the latest
+    // row down those 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream).
     const reserved = gone
-      ? { reserve: gone.room, state: undefined }
+      ? { reserve: Math.max(0, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
@@ -5543,7 +5549,7 @@ function TranscriptView({
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
-    setRoomGone({ sessionId, firstId: first.id, room: next });
+    setRoomGone({ sessionId, firstId: first.id, room: next, end: next + measured.layout.totalHeight - room });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
   // again before the frame paints.
