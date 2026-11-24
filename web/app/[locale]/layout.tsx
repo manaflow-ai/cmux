@@ -75,7 +75,6 @@ export default async function LocaleLayout({
     logo: "https://cmux.com/logo.png",
     sameAs: [
       "https://github.com/manaflow-ai/cmux",
-      "https://twitter.com/manaflowai",
     ],
   };
   const webSiteJsonLd = {
