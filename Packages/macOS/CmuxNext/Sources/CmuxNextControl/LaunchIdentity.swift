@@ -45,19 +45,25 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// shims and the `cmux mcp serve` an agent starts read the file the app
     /// wrote, not the shared one. Nil on the shared file.
     public var configFile: String?
+    /// This launch's egress mode (``egressModeKey``): the value the launch passed, else
+    /// ``childEgressMode(_:)`` for the build. Its terminals get it over any remembered login
+    /// environment's `CMUX_EGRESS` (``terminalEnvironment``), so a shell or the bundled CLI in a
+    /// NIGHTLY or DEV terminal enforces as the app does.
+    public var egressMode: String?
 
     /// The settings-file override (`CmuxConfigFile.overrideKey`; cmux-tui
     /// `user_settings::CONFIG_OVERRIDE`).
     public static let configFileKey = "CMUX_NEXT_CONFIG_FILE"
 
     public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil,
-                build: BuildIdentity? = nil, configFile: String? = nil) {
+                build: BuildIdentity? = nil, configFile: String? = nil, egressMode: String? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
         self.compatibilityLink = compatibilityLink
         self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
         self.configFile = configFile
+        self.egressMode = egressMode ?? Self.childEgressMode(self.build)
     }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
@@ -73,6 +79,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         // what the app wrote (`TerminalEnvironment` forwards no `CMUX_NEXT_*`
         // knob from the app's environment on its own).
         if let configFile { environment[Self.configFileKey] = configFile }
+        if let egressMode { environment[Self.egressModeKey] = egressMode }
         return environment
     }
 
@@ -107,7 +114,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Pure resolution. `bundledEnvironment` is the bundle's own
     /// `Info.plist` `LSEnvironment`; `processEnvironment` is consulted only
-    /// for ``socketOverrideKey`` and ``configFileKey``.
+    /// for ``socketOverrideKey``, ``configFileKey`` and ``egressModeKey``.
     public static func resolve(
         bundleID: String?,
         bundledEnvironment: [String: String],
@@ -124,8 +131,10 @@ public struct LaunchIdentity: Sendable, Equatable {
         let tag = ControlSocketPath.shared.bundleTag(bundle) ?? shipped
         let build = BuildIdentity(bundleID: bundle, bundledTag: shipped)
         let configFile = configFile(processEnvironment: processEnvironment, home: home)
+        let egressMode = processEnvironment[egressModeKey].flatMap { $0.isEmpty ? nil : $0 }
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build, configFile: configFile)
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build, configFile: configFile,
+                                  egressMode: egressMode)
         }
         let paths = ControlSocketPath.shared
         // The build's own socket name (per-build isolation S3), in the state
@@ -136,7 +145,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             ?? (path: paths.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home),
                 link: paths.compatibilityLink(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home))
         return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build,
-                              configFile: configFile)
+                              configFile: configFile, egressMode: egressMode)
     }
 
     /// A fleet artifact is sometimes launched directly from its staged
