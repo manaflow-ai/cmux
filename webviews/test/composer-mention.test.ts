@@ -1,5 +1,6 @@
-// Typing @ in the agent chat composer offers other chats and the chat's folders and files (cx-ncc.68,
-// Codex and Claude desktop app parity).
+// Typing @ in the agent chat composer offers the plugins (Computer Use, Browser Use) first, then, for a
+// specific word (a `.` or `/`, or four letters or more), the chat's folders and files (cx-ncc.68,
+// CMUX-682, Codex parity). It lists no other chats.
 // The composer gallery's plays type into the real prompt in Chromium against the gallery host's
 // `file.search` answer; this checks each play passed and what the page asked the host.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -71,36 +72,37 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     return result;
   };
 
-  test("@ then letters lists the chat's matching files and Return writes the path", async () => {
+  test("@ then four letters lists the chat's matching files and Return writes the path", async () => {
     const result = await play("mention-picker");
     expect(playFailures(result.report)).toEqual([]);
-    expect(result.searches).toContain("rea");
+    expect(result.searches).toContain("read");
   });
 
   test("after picking a path markdown escapes, typing on leaves the picker closed", async () => {
     const result = await play("mention-escaped-path");
     expect(playFailures(result.report)).toEqual([]);
-    expect(result.searches).toEqual(["ini"]);
+    expect(result.searches).toEqual(["init"]);
   });
 
-  test("@proje lists other chats, then folders, then the chat folder's files", async () => {
+  test("@proje lists folders, then the chat folder's files, and no chat", async () => {
     const result = await play("mention-mixed");
     expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toContain("proje");
   });
 
-  test("picking another chat writes its title and full id", async () => {
+  test("a word of another chat's title lists no chat", async () => {
     const result = await play("mention-session-pick");
     expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("coord");
   });
 
-  test("a chat named for a long prompt does not take @app from the file", async () => {
+  test("beside a chat named for a long prompt, @app.ts lists the file and Return writes it", async () => {
     const result = await play("mention-file-over-prompt-chat");
     expect(playFailures(result.report)).toEqual([]);
-    expect(result.searches).toContain("app");
+    expect(result.searches).toContain("app.ts");
   });
 
-  test("a bare @ lists the most recent other chats", async () => {
+  test("a bare @ lists the plugins and no chat", async () => {
     const result = await play("mention-recent-chats");
     expect(playFailures(result.report)).toEqual([]);
   });
