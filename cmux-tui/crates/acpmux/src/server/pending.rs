@@ -42,12 +42,24 @@ pub fn redact_message_hosts(v: &mut Value) -> bool {
 /// The `_acpmux/permission_pending` notification. The record's
 /// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
 /// peer's session) are what a relayed allow's decision proof covers
-/// (`hub/person.rs`, cx-0q7o).
-pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
+/// (`hub/person.rs`, cx-0q7o). `macLocked`, for this daemon's own session only (`local`), says
+/// this Mac's screen was locked when it was sent:
+/// nobody can answer the Mac's own prompt, so the request waits for the person (their phone or
+/// the unlocked Mac), and nothing answers it for them (design/lock-bridge.md, item 3). A peer's
+/// session runs on another Mac, whose lock this daemon cannot read, so it gets no `macLocked`.
+pub(super) fn permission_pending(
+    session_id: &str,
+    rec: &EventRecord,
+    via: &str,
+    local: bool,
+) -> Value {
     let mut p = rec.msg.clone();
     p.set("sessionId", Value::String(session_id.to_owned()));
     p.set("seq", json!(rec.seq));
     p.set("via", Value::String(via.to_owned()));
+    if local {
+        p.set("macLocked", Value::Bool(crate::mac_lock::locked()));
+    }
     p
 }
 
@@ -70,20 +82,25 @@ pub(super) fn peer_permission_pending(
 }
 
 /// A record as `_acpmux/event` sends it.
+/// A prompt record whose images predate their kept size gets it here (`hub/image_size.rs`), so
+/// every view draws each image at its final shape from the first frame.
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
+    let mut msg = rec.msg.clone();
+    crate::hub::image_size::fill_record_sizes(&rec.kind, &mut msg);
     let event = crate::protocol::events::SessionEvent {
         session_id: session_id.to_owned(),
         seq: rec.seq,
         at: rec.at,
         dir: rec.dir.clone(),
         kind: rec.kind.clone(),
-        msg: rec.msg.clone(),
+        msg,
     };
     serde_json::to_value(event).unwrap_or(Value::Null)
 }
 
 /// [`event_value`] that takes the record, so its message moves instead of being copied.
-pub fn into_event_value(session_id: &str, rec: EventRecord) -> Value {
+pub fn into_event_value(session_id: &str, mut rec: EventRecord) -> Value {
+    crate::hub::image_size::fill_record_sizes(&rec.kind, &mut rec.msg);
     json!({
         "sessionId": session_id,
         "seq": rec.seq,
