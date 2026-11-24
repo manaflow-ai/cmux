@@ -78,17 +78,19 @@ def run_console_wrapper_without_console_user(*command: str, exit_status: int = 6
                                             capture: bool = False) -> subprocess.CompletedProcess[str]:
     """scripts/ci/run-in-console-session.sh on a runner whose console belongs to root.
 
-    `{launcher}` in the command names a stand-in run-app-host-xcodebuild.sh that
-    prints a line without a newline and exits `exit_status`. With `capture`, the
-    wrapper runs the way CI's app-host steps do, through run-and-capture.sh.
+    `{launcher}` in the command names a stand-in run-app-host-xcodebuild.sh, and
+    `xcodebuild` on PATH is a stand-in too; both print a line without a newline
+    and exit `exit_status`. With `capture`, the wrapper runs the way CI's
+    app-host steps do, through run-and-capture.sh.
     """
     with tempfile.TemporaryDirectory() as shims:
         stat = Path(shims) / "stat"
         stat.write_text("#!/bin/sh\necho root\n", encoding="utf-8")
         stat.chmod(0o755)
         launcher = Path(shims) / "run-app-host-xcodebuild.sh"
-        launcher.write_text(f"#!/bin/sh\nprintf 'Testing failed:'\nexit {exit_status}\n", encoding="utf-8")
-        launcher.chmod(0o755)
+        for tool in (launcher, Path(shims) / "xcodebuild"):
+            tool.write_text(f"#!/bin/sh\nprintf 'Testing failed:'\nexit {exit_status}\n", encoding="utf-8")
+            tool.chmod(0o755)
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("CMUX_APP_HOST_") and key != "CMUX_CI_FILE_CAPTURE_ACTIVE"}
         env.update(PATH=f"{shims}{os.pathsep}{env.get('PATH', '')}", RUNNER_TEMP=shims)
@@ -256,11 +258,25 @@ class SignatureTests(unittest.TestCase):
         self.assertIn(f"::warning::{NO_CONSOLE_WARNING}", run.stderr)
         self.assertEqual(failure_annotations(run.stderr), [])
 
+    def test_a_gui_test_command_behind_env_or_bash_is_still_the_gui_command(self) -> None:
+        # ci-macos.yml passes CMUX_TAG through env; a step may also start the runner through bash.
+        for command in (("env", "CMUX_TAG=x", "{launcher}"), ("bash", "{launcher}")):
+            with self.subTest(command=command):
+                run = run_console_wrapper_without_console_user(*command)
+                self.assertEqual(run.returncode, 65, run.stderr)
+                self.assertEqual(len(failure_annotations(run.stderr)), 1, run.stderr)
+
     def test_another_command_failing_without_a_console_user_keeps_its_plain_exit(self) -> None:
         # Cleanup and CLI tests do not need a GUI session: their failure stays theirs.
-        run = run_console_wrapper_without_console_user("sh", "-c", "exit 3")
-        self.assertEqual(run.returncode, 3)
-        self.assertEqual(failure_annotations(run.stderr), [])
+        for command, status in ((("sh", "-c", "exit 3"), 3),
+                                # A later operand naming a test tool is not the command (sh's $0 here).
+                                (("sh", "-c", "exit 3", "xcodebuild"), 3),
+                                # ci-macos.yml's CLI product tests call xcodebuild directly, with no GUI session.
+                                (("env", "TEST_RUNNER_HOME=/tmp", "xcodebuild", "test-without-building"), 65)):
+            with self.subTest(command=command):
+                run = run_console_wrapper_without_console_user(*command)
+                self.assertEqual(run.returncode, status)
+                self.assertEqual(failure_annotations(run.stderr), [])
 
     def test_an_ambiguous_console_warning_does_not_outweigh_test_failures(self) -> None:
         log = f"##[warning]{NO_CONSOLE_WARNING}\n{TEST_FAILED}"
