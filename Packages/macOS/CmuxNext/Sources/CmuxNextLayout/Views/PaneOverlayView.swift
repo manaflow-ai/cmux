@@ -93,7 +93,7 @@ final class PaneOverlayView: NSView {
     private var attentionMark: AttentionMark?
     /// The ring is drawn for the current mark. A mark that arrived while the look was
     /// `none` has no ring yet, so turning the look on still shows it.
-    private var attentionRingShown = false
+    private(set) var attentionRingShown = false
     /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
@@ -133,6 +133,13 @@ final class PaneOverlayView: NSView {
 
     /// The attention ring's running animations and model opacity (for tests and `debug.layers`).
     var attentionAnimationKeys: [String] { attention.animationKeys() ?? [] }
+    /// The attention ring (and its glow) draws nothing while held; its mark, pulse and dismiss blink go on underneath (cmux#46908).
+    var holdsAttention = false {
+        didSet {
+            guard holdsAttention != oldValue else { return }
+            CATransaction.begin(); CATransaction.setDisableActions(true); attention.isHidden = holdsAttention; CATransaction.commit()
+        }
+    }
     var attentionOpacity: Float { attention.opacity }
 
     /// Whether the focus ring or glow is showing (for `debug.layers`).

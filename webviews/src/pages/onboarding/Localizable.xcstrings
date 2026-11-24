@@ -2097,6 +2097,137 @@
         }
       }
     },
+    "onboarding.agents.none.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Claude Code or Codex, then sign in from Settings."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثبّت Claude Code أو Codex، ثم سجّل الدخول من الإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalirajte Claude Code ili Codex, pa se prijavite u Postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer Claude Code eller Codex, og log ind fra Indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere Claude Code oder Codex und melde dich in den Einstellungen an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala Claude Code o Codex e inicia sesión desde Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installez Claude Code ou Codex, puis connectez-vous dans Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa Claude Code o Codex, poi accedi da Impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code か Codex をインストールし、設定からサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើង Claude Code ឬ Codex រួចចូលពីការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code나 Codex를 설치한 다음 설정에서 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer Claude Code eller Codex, og logg på fra Innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstaluj Claude Code lub Codex, a potem zaloguj się w Ustawieniach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instale o Claude Code ou o Codex e entre pelos Ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установите Claude Code или Codex и войдите в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง Claude Code หรือ Codex แล้วลงชื่อเข้าจากการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code veya Codex kurun, sonra Ayarlar’dan giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установіть Claude Code або Codex, а потім увійдіть у налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài Claude Code hoặc Codex, rồi đăng nhập trong Cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 Claude Code 或 Codex，然后在设置中登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝 Claude Code 或 Codex，然後在設定中登入。"
+          }
+        }
+      }
+    },
     "onboarding.agents.signIn": {
       "extractionState": "manual",
       "localizations": {
@@ -14174,6 +14305,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "隨機名畫"
+          }
+        }
+      }
+    },
+    "onboarding.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is offline. Sign-ins and installs work once it’s back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الـ Mac غير متصل بالإنترنت. سيعمل تسجيل الدخول والتثبيت عند عودة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije na mreži. Prijave i instalacije rade kad se veza vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er offline. Login og installationer virker, når den er tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist offline. Anmelden und Installieren funktionieren, sobald er wieder online ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no tiene conexión. Los inicios de sesión y las instalaciones funcionarán cuando vuelva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac est hors ligne. Connexions et installations fonctionneront dès son retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac è offline. Accessi e installazioni funzioneranno quando torna online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはオフラインです。接続が戻るとサインインとインストールができます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះគ្មានអ៊ីនធឺណិត។ ការចូល និងការដំឡើងនឹងដំណើរការពេលវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 오프라인입니다. 연결이 돌아오면 로그인과 설치가 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er frakoblet. Pålogging og installering virker når den er tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac jest offline. Logowanie i instalacje zadziałają po powrocie sieci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac está offline. Logins e instalações funcionam quando a conexão voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не в сети. Вход и установка заработают, когда сеть вернётся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ออฟไลน์อยู่ การลงชื่อเข้าและการติดตั้งจะใช้ได้เมื่อกลับมาออนไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac çevrimdışı. Bağlantı dönünce giriş ve kurulumlar çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не в мережі. Вхід і встановлення запрацюють, коли мережа повернеться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đang ngoại tuyến. Đăng nhập và cài đặt sẽ hoạt động khi có mạng lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 处于离线状态。恢复联网后即可登录和安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 目前離線。恢復連線後即可登入和安裝。"
           }
         }
       }
