@@ -50,7 +50,42 @@ function storageValue(): Record<string, Record<string, boolean>> {
 }
 
 function notify(): void {
+  named.clear();
   for (const listener of listeners) listener();
+}
+
+/// Per chat (with its views), each id a stored key names (every stretch between colons) to the
+/// choices that name it, built once per change (`notify` clears it) for a chat a row asks about.
+const named = new Map<string, Map<string, string>>();
+
+/// The reader's choices on the lines of chat `sessionId` (all its views) whose keys name one of `ids`
+/// (a row's id, its calls' ids), as one string: "" when there are none. A row's placed height and
+/// remembered estimate hold only for the string they were taken with (rowOpenState.ts). O(ids) after
+/// one O(choices) index per change.
+export function choicesNaming(sessionId: string | undefined, ids: Iterable<string>): string {
+  const chat = sessionId || DEFAULT_SESSION;
+  let index = named.get(chat);
+  if (!index) {
+    index = new Map();
+    for (const [id, session] of load()) {
+      if (id !== chat && !id.startsWith(`${chat}#`)) continue;
+      const view = id.slice(chat.length);
+      for (const [key, value] of session)
+        for (const part of new Set(key.split(":"))) {
+          if (part === "") continue;
+          const entry = `${view}${key}=${value ? 1 : 0}`;
+          const before = index.get(part);
+          index.set(part, before === undefined ? entry : `${before},${entry}`);
+        }
+    }
+    named.set(chat, index);
+  }
+  let out = "";
+  for (const id of ids) {
+    const found = index.get(id);
+    if (found !== undefined) out += out === "" ? found : `;${found}`;
+  }
+  return out;
 }
 
 function save(sessionId: string, key: string, value: boolean): void {
@@ -334,6 +369,10 @@ function useDisclosureSessionId(): string {
 /// The key of a tool call's own line (a lone call, a command, an MCP call), the same wherever the call
 /// draws: on its own, in a group, in a run (TurnRows.tsx). A fold that holds the call opens for it.
 export const callDisclosureKey = (id: string) => `${CALL_PREFIX}${id}`;
+
+/// The key of an `acpmux send`'s message row (SentMessageLine.tsx `AcpmuxSendLine`): the call's id,
+/// and the message's place in a batch (sentMessageLineModel.ts `sendKey`).
+export const sendDisclosureKey = (id: string, index?: number) => `send:${index === undefined ? id : `${id}#${index}`}`;
 
 /// The keys of the calls among `items` (`callDisclosureKey`), for the fold that holds them (`members`).
 export function callDisclosureKeys(items: readonly { tool?: { id: string } }[]): string[] {

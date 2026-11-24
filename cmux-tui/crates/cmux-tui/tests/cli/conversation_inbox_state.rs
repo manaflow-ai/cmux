@@ -13,28 +13,28 @@ use super::*;
 
 /// A JSON-lines client of the daemon's Unix socket that keeps the events it
 /// reads while waiting for a reply.
-struct Unix {
+pub(super) struct Unix {
     reader: BufReader<Box<dyn transport::Stream>>,
     writer: Box<dyn transport::Stream>,
     next: u64,
-    events: VecDeque<Value>,
+    pub(super) events: VecDeque<Value>,
 }
 
 impl Unix {
-    fn open(socket: &std::path::Path) -> Self {
+    pub(super) fn open(socket: &std::path::Path) -> Self {
         let stream = transport::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let writer = stream.try_clone_box().unwrap();
         Self { reader: BufReader::new(stream), writer, next: 1, events: VecDeque::new() }
     }
 
-    fn read(&mut self) -> Value {
+    pub(super) fn read(&mut self) -> Value {
         let mut line = String::new();
         assert!(self.reader.read_line(&mut line).unwrap() > 0, "daemon closed the connection");
         serde_json::from_str(&line).unwrap()
     }
 
-    fn reply(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn reply(&mut self, cmd: &str, params: Value) -> Value {
         let id = self.next;
         self.next += 1;
         let mut body = params.as_object().cloned().unwrap_or_default();
@@ -51,7 +51,7 @@ impl Unix {
         }
     }
 
-    fn request(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn request(&mut self, cmd: &str, params: Value) -> Value {
         let value = self.reply(cmd, params);
         assert_eq!(value["ok"], true, "{cmd} failed: {value}");
         value["data"].clone()
@@ -59,7 +59,7 @@ impl Unix {
 
     /// Every event before the `conversation-changed` message event whose
     /// `client_msg_id` is `marker`.
-    fn events_before(&mut self, marker: &str) -> Vec<Value> {
+    pub(super) fn events_before(&mut self, marker: &str) -> Vec<Value> {
         let mut seen = Vec::new();
         loop {
             let event = self.events.pop_front().unwrap_or_else(|| self.read());
@@ -112,7 +112,7 @@ fn rejected(reply: &Value, code: &str) {
 }
 
 /// The newest WebSocket address in the daemon's log (a restart binds anew).
-fn last_ws_addr(server: &HeadlessServer) -> String {
+pub(super) fn last_ws_addr(server: &HeadlessServer) -> String {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let tail = server.stderr_tail();
@@ -131,7 +131,7 @@ fn last_ws_addr(server: &HeadlessServer) -> String {
 /// Stops the daemon (SIGKILL: no shutdown path runs) and starts a new one on
 /// the same socket, state directory and config; returns the new WebSocket
 /// address.
-fn restart(server: &mut HeadlessServer) -> String {
+pub(super) fn restart(server: &mut HeadlessServer) -> String {
     let before = server.stderr_tail().matches("WebSocket control at ws://").count();
     let _ = server.child.kill();
     let _ = server.child.wait();

@@ -5,14 +5,16 @@
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
 #       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
-#       [--manual-pairing | --no-auth] [--backend <origin|tag-stack|dev>]
+#       [--manual-pairing | --approve-first | --no-auth] [--backend <origin|tag-stack|dev>]
 #
 # --backend: the Cloud backend this tag's Mac and iPhone builds talk to, chosen at launch, no rebuild.
 #   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
 #                 removed, and the phone's kept override cleared
 #   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
 #                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
-#                 another command)
+#                 another command). The stack runs the tag's API, mobile Worker and device hub; both
+#                 apps use all three from the one origin (the Mac from its client-config, the phone
+#                 from the next two ports), and the phone's receipt must name the stack's mobile Worker.
 #   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
 #                 refuse it too, and Release builds ignore every override).
@@ -27,6 +29,18 @@
 #                     (and not marked used): the person pairs by hand, to dogfood pairing. The
 #                     proof keeps the sign-in checks (and the credential-free relaunch) and drops
 #                     the paired ones and the Mac relaunch. "pairing left to you (--manual-pairing)".
+#   --approve-first   signed in as usual, no pairing code, and the tagged Mac launched with
+#                     CMUX_NEXT_IPHONE_APPROVE_FIRST=1 (its dev auto-approve off; a Mac of the tag
+#                     that already runs is quit first): the phone picks the tagged Mac and asks, and
+#                     the Mac shows "Allow “<phone>” (<key>) to connect to this Mac?". The proof: the
+#                     receipt names the tagged Mac; the Mac itself shows the request and the prompt
+#                     (review_mac.py allow-state); the report says so, with the Mac's name and app,
+#                     before it waits for the person's Allow (CNX_REVIEW_ALLOW_TIMEOUT, default 600 s);
+#                     once the Mac lists the phone as paired, a credential-free relaunch is linked
+#                     and the Mac lists it paired and connected (no Mac relaunch). Unattended, the
+#                     phone's line says where the prompt waits and what to do next. A phone the
+#                     tag's Mac paired before is not asked again: that is reported, not passed
+#                     (remove it in the Mac's Settings > Mobile first).
 #   --no-auth         no credentials and no code; the first launch carries the DEBUG-only
 #                     CMUX_MOBILE_CLEAR_AUTH=1, which drops the tag's stored session, so the app
 #                     opens at the welcome screen as on a fresh install. The proof: the receipt
@@ -86,7 +100,7 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,84p' "$0"; }
+usage() { sed -n '2,98p' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -95,9 +109,16 @@ TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
+# A tag stack's own mobile Worker (cloud-dev-stack.sh url --service mobile): the phone's receipt must name it.
+BACKEND_MOBILE_URL=""
+# The phone's origins when the stack has a public one (cloud-dev-stack.sh url --public): the same stack behind the
+# authenticating gateway, which a phone reaches off the tailnet too. The Mac keeps the tailnet origin.
+BACKEND_PHONE_URL="" BACKEND_PHONE_MOBILE_URL=""
 # What the phone gets (default `paired`, the hand-off every dev build must reach):
 #   paired   signed in with the personal account and paired with the same-tag Mac by its code
 #   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
+#   approve  --approve-first: signed in, no pairing code, the Mac's dev auto-approve off; the
+#            person presses Allow on the Mac
 #   none     --no-auth: no credentials, no code, and the tag's stored session cleared first
 PHONE_MODE=paired
 
@@ -125,7 +146,7 @@ NO_PHONE=0
 REPORT_MAC="not built"
 REPORT_SIM="not run"
 MAC_JOB="" SIM_STEP="" SHA=""
-STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID=""
+STATE="" TAG_STATE="" MAC_APP="" MAC_SOCKET="" MAC_DEVICE_ID="" MAC_BUILD_SPACE=""
 # The phones that passed, as " udid udid " (a string, so an empty set needs no array expansion,
 # which aborts under set -u on macOS's bash 3.2).
 PASSED_PHONES=" "
@@ -155,7 +176,9 @@ review_report() {
 retry_command() {
   printf 'cmux-next-ios/scripts/review.sh --tag %s' "$SLUG"
   [[ -z "$REQUESTED_DEVICE_ID" ]] || printf ' --device-id %s' "$REQUESTED_DEVICE_ID"
-  case "$PHONE_MODE" in manual) printf ' --manual-pairing' ;; none) printf ' --no-auth' ;; esac
+  case "$PHONE_MODE" in
+    manual) printf ' --manual-pairing' ;; approve) printf ' --approve-first' ;; none) printf ' --no-auth' ;;
+  esac
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
   [[ -z "$BACKEND_ARG" ]] || printf ' --backend %s' "$BACKEND_ARG"
 }
@@ -172,7 +195,18 @@ review_resolve_backend() {
       out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
       out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
       BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
-      BACKEND_REPORT="$BACKEND_URL (this tag's stack)" ;;
+      # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
+      # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
+      BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
+      BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub)"
+      # Its public origin, when it has one, is the phone's: it works away from the tailnet too.
+      local pub=""
+      pub="$("$stack" url --tag "$SLUG" --public 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || pub=""
+      if [[ -n "$pub" ]]; then
+        BACKEND_PHONE_URL="$(mac_py backend-check "$pub")" || die "--backend tag-stack: the stack's public URL $pub is not a tag stack origin"
+        BACKEND_PHONE_MOBILE_URL="$("$stack" url --tag "$SLUG" --public --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_PHONE_MOBILE_URL=""
+        BACKEND_REPORT="$BACKEND_REPORT; the phone: $BACKEND_PHONE_URL (its public origin)"
+      fi ;;
     *)
       BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
       BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
@@ -208,12 +242,40 @@ fleet_submit_mac() {
     fi
   fi
   local out
-  # cmux-next needs no shared dev backend (AGENTS.md): the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
+  # The default builder at any pin. A head whose app FFI sources are ahead of app-ffi-pin.json builds
+  # on the Linux pool like any other (hq#16145, #16334, #16431): the build links the newest published
+  # release with the head's FFI inputs, or cross-builds the library, or the whole xcframework when the
+  # headers changed. Until 2026-11-23 such a head went to `--builder mac`, queued for hours for the few
+  # Macs, and failed there when its headers changed (job cb3e5fa3159ea9806ae980fe); with FFI commits
+  # every half hour the pin is behind nearly always. cmux-next needs no shared dev backend (AGENTS.md):
+  # the tag's own local mode.
+  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+    { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
+}
+
+# The simulator step's key for this head. The controller answers a key with the step it already
+# names, finished or not, so a key whose step failed or was cancelled would hand back that failure on
+# every rerun: each such step bumps $STATE/sim-attempt (sim_step_ended) and the next run gets a new key.
+sim_key() {
+  local attempt
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  printf 'cnx-ios-handoff-%s-%s' "$SLUG" "${SHA:0:12}"
+  [[ ! "$attempt" =~ ^[1-9][0-9]*$ ]] || printf -- '-r%s' "$attempt"
+}
+
+# The step failed or was cancelled on the fleet (its own state, not only this client's exit: a
+# follow that was interrupted while the step still runs keeps its key, so a rerun re-attaches).
+sim_step_ended() {
+  local step="$1" attempt
+  [[ -n "$step" ]] || return 1
+  cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
+  printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
 }
 
 # The iPhone app's simulator step, in the background; the same --key re-attaches to it. It is
@@ -223,7 +285,7 @@ fleet_start_sim() {
   # while cmux-ci run follows the step, so it is never detached; cmux-next-ios-sim.sh handoff reads it.
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
     --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
-    --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
+    --key "$(sim_key)")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
   cmux_ci "${args[@]}" >"$STATE/sim-step.log" 2>"$STATE/sim-step.err" &
@@ -254,8 +316,22 @@ fleet_finish_sim() {
     REPORT_SIM="BLOCKED: the fleet refused scripts/ci/cmux-next-ios-sim.sh at $SHA: its handoff mode is not on feat-cmux-next yet (the fleet runs only the reviewed script); rerun after it lands: $(retry_command)"
     return 1
   fi
+  # The controller cancels a tag's still-queued step when a newer head of the same tag sends one ("superseded by
+  # <step> (a newer head of this lane)"): nothing failed, this head is just no longer the tag's. It was
+  # reported as "the fleet iPhone build failed (exit 76)" (step f06392e4d16521e2f9762f4b, 2026-11-19).
+  if [[ $rc -ne 0 ]] && grep -q "superseded by" "$STATE/sim-step.err" 2>/dev/null; then
+    local newer
+    # A rerun of this head sends a new step instead of this superseded one again.
+    sim_step_ended "$SIM_STEP" || true
+    newer="$(sed -n 's/.*superseded by \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
+    REPORT_SIM="BLOCKED: not a failure: step ${SIM_STEP:-not created} was superseded by ${newer:-a newer step}, sent for a newer head of tag $SLUG; a newer review.sh run of this tag owns it; review.sh builds the checkout's HEAD, so to review ${SHA:0:12} again, check it out and rerun: $(retry_command)"
+    return 1
+  fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
-    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log); retry: $(retry_command)"
+    local next=""
+    # A rerun at this head sends a new step, not this one's failure again.
+    ! sim_step_ended "$SIM_STEP" || next=" (a rerun sends a new step)"
+    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log)$next; retry: $(retry_command)"
     return 1
   fi
   rm -f "$STATE/ios.zip"
@@ -325,10 +401,24 @@ mac_install() {
     fi
     echo "==> replacing this tool's install of $SLUG at ${recorded_sha:0:12} with $SHA"
     mac_quit_installed || { REPORT_MAC="BLOCKED: the tag's earlier build (${recorded_sha:0:12}) did not quit"; return 1; }
-    rm -rf "$MAC_APP"
   fi
+  # The new app is copied beside the old one and swapped in by renames. macOS App Management may refuse
+  # every change inside an installed app's bundle ("Operation not permitted") while the bundle itself
+  # can still be renamed: emptying it in place left half an app with no Info.plist, recorded as
+  # installed (2026-11-18). The old bundle goes to the tag's state folder (same volume), then is removed
+  # as far as macOS lets it; what stays there never runs.
+  local staged="$MAC_APP.installing" aside="$TAG_STATE/replaced/${recorded_sha:-none}-$$.app"
   mkdir -p "$(dirname "$MAC_APP")"
-  ditto "$built" "$MAC_APP"
+  rm -rf "$staged" 2>/dev/null || true
+  ditto "$built" "$staged" ||
+    { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the Mac app of job $MAC_JOB did not copy into place (ditto failed)"; return 1; }
+  if [[ -d "$MAC_APP" ]]; then
+    mkdir -p "$(dirname "$aside")"
+    mv "$MAC_APP" "$aside" ||
+      { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the tag's earlier app could not be moved aside"; return 1; }
+    rm -rf "$aside" 2>/dev/null || true
+  fi
+  mv "$staged" "$MAC_APP" || { REPORT_MAC="BLOCKED: the new Mac app could not be moved into place"; return 1; }
   printf '%s %s\n' "$SHA" "$MAC_JOB" >"$record"
   MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
 }
@@ -354,9 +444,24 @@ mac_quit_installed() {
 # cmux carries that app's CMUX_NEXT_CLOUD_ENV=prod (and the rest of its CMUX_* values), which the
 # tagged build takes as its Cloud environment: it then never signs in to the dev account
 # (seen 2026-11-14). The tag's own LSEnvironment is all it needs, so it starts from an empty one.
+# --approve-first adds CMUX_NEXT_IPHONE_APPROVE_FIRST=1: the dev build's auto-approve of its own
+# tag's phone is off, so the Mac shows its Allow prompt (IPhoneDevAutoApprove).
 mac_open() {
+  local extra=()
+  [[ "$PHONE_MODE" != approve ]] || extra=(--env CMUX_NEXT_IPHONE_APPROVE_FIRST=1)
   env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-    TMPDIR="${TMPDIR:-/tmp}" "${MAC_OPEN:-/usr/bin/open}" -g --env CMUX_NEXT_NO_ACTIVATE=1 "$MAC_APP"
+    TMPDIR="${TMPDIR:-/tmp}" "${MAC_OPEN:-/usr/bin/open}" -g --env CMUX_NEXT_NO_ACTIVATE=1 ${extra[@]+"${extra[@]}"} "$MAC_APP"
+}
+
+# Quit the tagged Mac app as the person does and wait until it is gone.
+mac_quit_and_wait() {
+  mac_py quit "$MAC_SOCKET" || return 1
+  local i
+  for i in $(seq 1 60); do
+    pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  ! pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1
 }
 
 # The tag's backend.json (review_mac.py backend-write): the app reads it at launch, so a running app
@@ -390,6 +495,12 @@ mac_check_backend() {
 # Launch it in the background (never frontmost) unless it runs, and wait for the personal account.
 mac_start() {
   mac_apply_backend || return 1
+  # --approve-first: a running copy may have its auto-approve on, so it starts again with it off.
+  if [[ "$PHONE_MODE" == approve ]] && mac_py wait-socket "$MAC_SOCKET" --timeout 2; then
+    echo "==> --approve-first: quitting the running tagged Mac app to start it with its auto-approve off"
+    mac_quit_and_wait ||
+      { REPORT_MAC="$REPORT_MAC; BLOCKED: the running tagged Mac app did not quit for --approve-first"; return 1; }
+  fi
   if ! mac_py wait-socket "$MAC_SOCKET" --timeout 2; then
     echo "==> launching the tagged Mac app in the background"
     mac_open ||
@@ -397,6 +508,12 @@ mac_start() {
     mac_py wait-socket "$MAC_SOCKET" --timeout 120 ||
       { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app never answered on its control socket"; return 1; }
   fi
+  # The cloud data space the tagged Mac's requests and hostd carry: every phone receipt must name it, or
+  # the phone lists none of this Mac's devices (and another space's Macs instead).
+  MAC_BUILD_SPACE="$(mac_py space "$MAC_APP")" ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: could not read the tagged Mac app's build space"; return 1; }
+  [[ "$MAC_BUILD_SPACE" == dev:* ]] ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app has no build space of its own (${MAC_BUILD_SPACE:-the default space})"; return 1; }
   local account
   account="$(mac_py account "$MAC_SOCKET" --timeout 120)" ||
     { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is not signed in (it signs in from ~/.secrets/cmuxterm-dev.env as ~/.config/cmux/dev-account)"; return 1; }
@@ -405,8 +522,9 @@ mac_start() {
     REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is signed in as $account, not the personal account $PERSONAL_ACCOUNT"
     return 1
   fi
-  # --manual-pairing / --no-auth: no code is handed to a phone, so none is required here.
-  [[ "$PHONE_MODE" == paired ]] || return 0
+  # --manual-pairing / --no-auth: no code is handed to a phone and no link is proven, so none is
+  # required here. --approve-first proves the link, so it needs the Mac's id too.
+  [[ "$PHONE_MODE" == paired || "$PHONE_MODE" == approve ]] || return 0
   local why
   # The id phones pair with, from the Mac's own pairing link: also shows the page can offer a code.
   MAC_DEVICE_ID="$(mac_py mac-id "$MAC_SOCKET" --timeout 90 2>&1)" ||
@@ -416,13 +534,7 @@ mac_start() {
 
 # Quit the tagged Mac app as the person does and start it again (the Tag Opener's relaunch).
 mac_restart() {
-  mac_py quit "$MAC_SOCKET" || return 1
-  local i
-  for i in $(seq 1 60); do
-    pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1 || break
-    sleep 1
-  done
-  ! pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1 || return 1
+  mac_quit_and_wait || return 1
   local before="$MAC_DEVICE_ID"
   mac_start || return 1
   [[ "$MAC_DEVICE_ID" == "$before" ]]
@@ -440,8 +552,8 @@ phone_launch_and_check() {
   local udid="$1" client="$2" launch="$3" pair_url="${4:-}" nonce rc=0 session mac_id=""
   session="$launch"
   [[ "$launch" != clear ]] || session=signed_out
-  # Only the paired hand-off checks the Mac; --manual-pairing and --no-auth prove sign-in state only.
-  [[ "$PHONE_MODE" != paired ]] || mac_id="$MAC_DEVICE_ID"
+  # The paired hand-off and --approve-first check the Mac; --manual-pairing and --no-auth prove sign-in state only.
+  case "$PHONE_MODE" in paired|approve) mac_id="$MAC_DEVICE_ID" ;; esac
   nonce="$(cmux_attach_readiness_nonce)"
   # In a subshell's environment, never on a command line (ps would show it).
   if ! (
@@ -450,7 +562,7 @@ phone_launch_and_check() {
     export DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client"
     # --backend: the first launch names the tag's backend (`default`: the build's own, clearing a kept one);
     # every later launch carries nothing and must keep it, as the person's own launches do.
-    case "$launch" in auto_login|clear) export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND="${BACKEND_URL:-default}" ;; esac
+    case "$launch" in auto_login|clear) export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND="${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}" ;; esac
     if [[ "$launch" == auto_login ]]; then
       export DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$PERSONAL_EMAIL" DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$PERSONAL_PASSWORD"
       [[ -z "$pair_url" ]] || export DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL="$pair_url"
@@ -462,7 +574,12 @@ phone_launch_and_check() {
     PHONE_REASON="could not launch the app ($launch; is the phone locked? unlock it)"
     return 1
   fi
-  local deadline=$((SECONDS + ${CNX_REVIEW_RECEIPT_TIMEOUT:-180})) verdict="" receipt
+  # REVIEW_WANT=asking (--approve-first): the receipt passes once the phone is on the tagged Mac, linked or not.
+  local wait="${CNX_REVIEW_RECEIPT_TIMEOUT:-180}"
+  # The mobile Worker the phone's receipt must name: its public one when the phone has the public origin.
+  local phone_mobile="$BACKEND_MOBILE_URL"
+  [[ -z "$BACKEND_PHONE_URL" ]] || phone_mobile="$BACKEND_PHONE_MOBILE_URL"
+  local deadline=$((SECONDS + wait)) verdict="" receipt
   receipt="$(mktemp "${TMPDIR:-/tmp}/cnx-review-receipt.XXXXXX")"
   while :; do
     rm -f "$receipt"
@@ -470,7 +587,9 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}")" || rc=$?
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}" \
+        ${phone_mobile:+--mobile-api "$phone_mobile"} ${REVIEW_WANT:+--want "$REVIEW_WANT"} \
+        ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
@@ -482,7 +601,7 @@ phone_launch_and_check() {
   mkdir -p "$STATE/phone-$udid"
   if [[ -f "$receipt" ]]; then mv "$receipt" "$STATE/phone-$udid/receipt.json"; else rm -f "$receipt"; fi
   if [[ $rc -ne 0 ]]; then
-    PHONE_REASON="$launch launch: $verdict (after ${CNX_REVIEW_RECEIPT_TIMEOUT:-180} s)"
+    PHONE_REASON="$launch launch: $verdict (after $wait s)"
     return 1
   fi
   PHONE_VERDICT="$verdict"
@@ -542,6 +661,9 @@ phone_review() {
       phone_launch_and_check "$udid" "$client" restored || return 1
       PHONE_LINE="$label: installed, $signed_in; credential-free relaunch: $PHONE_VERDICT; pairing left to you (--manual-pairing)"
       return 0 ;;
+    approve)
+      phone_approve "$udid" "$label" "$client" || return 1
+      return 0 ;;
     none)
       phone_launch_and_check "$udid" "$client" clear || return 1
       phone_launch_and_check "$udid" "$client" signed_out || return 1
@@ -563,6 +685,103 @@ phone_review() {
   mac_sees_phone "$udid" || { PHONE_REASON="the tagged Mac does not list this phone as paired and connected"; return 1; }
   phone_launch_and_check "$udid" "$client" restored || return 1
   PHONE_LINE="$label: installed, $first; Mac sees it paired and connected; credential-free relaunch: $PHONE_VERDICT"
+}
+
+# One field of a JSON object (empty when absent or null).
+json_field() {
+  /usr/bin/python3 -I -c 'import json, sys
+try:
+    v = json.loads(sys.argv[1] or "{}").get(sys.argv[2])
+except (ValueError, AttributeError):
+    v = None
+print("" if v is None else v)' "$1" "$2"
+}
+
+# The tagged Mac app's name as the person sees it in the Dock ("cmux DEV <tag>"): several dev builds on one
+# computer share the Mac's name, so the report names the app too.
+mac_app_label() {
+  local name=""
+  [[ -z "${MAC_APP:-}" ]] || name="$(basename "$MAC_APP" .app)"
+  printf '%s' "${name:-cmux DEV $SLUG}"
+}
+
+# --approve-first: no code. The tagged Mac (its dev auto-approve off) shows "Allow “<phone>” (<key>) to connect to
+# this Mac?", which only the person answers. In order:
+#  1. the Mac's paired phones before the phone starts: its paired list outlives its relaunch, so a phone it
+#     paired earlier links at once and is never asked (reported, not passed);
+#  2. the phone signs in and picks the tagged Mac from the account's Mac list (its receipt, --want asking);
+#  3. the Mac shows its request within 60 s (review_mac.py allow-state: the request under Connection Requests
+#     and the open prompt's title), and the run says where, by the Mac's name and app, before it waits;
+#  4. the person's Allow: the Mac lists the phone as paired (CNX_REVIEW_ALLOW_TIMEOUT, default 600 s);
+#  5. a credential-free relaunch is linked with the tagged Mac, which lists the phone paired and connected.
+# The link is proven by the relaunch, never by the first launch's receipt: the app stops writing that one 180 s
+# after launch (DogfoodReadiness.window), so an Allow pressed later never reached it, and a run with a person at
+# the Mac still timed out "not paired in time" (pv1121e-ap, 2026-11-21).
+phone_approve() {
+  local udid="$1" label="$2" client="$3" before ids id json state mac prompt asked allowed where shown
+  local timeout="${CNX_REVIEW_ALLOW_TIMEOUT:-600}" args=()
+  before="$(mac_py phones "$MAC_SOCKET" 2>/dev/null | /usr/bin/python3 -I -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin).get("phones") or []
+except (ValueError, AttributeError):
+    rows = []
+print("\n".join(str(r.get("id", "")).lower() for r in rows if isinstance(r, dict) and r.get("paired")))' 2>/dev/null)" || before=""
+  REVIEW_WANT=asking phone_launch_and_check "$udid" "$client" auto_login || return 1
+  asked="$PHONE_VERDICT"
+  ids="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" phone-ids "$STATE/phone-$udid/receipt.json" 2>/dev/null)" ||
+    { PHONE_REASON="signed in, but its receipt names none of the phone's device ids"; return 1; }
+  for id in $ids; do args+=(--phone-id "$id"); done
+  json="$(mac_py allow-state "$MAC_SOCKET" ${args[@]+"${args[@]}"} --until asked --timeout 60 2>/dev/null)" || json=""
+  state="$(json_field "$json" state)" mac="$(json_field "$json" mac_name)" prompt="$(json_field "$json" prompt)"
+  where="the tagged Mac “${mac:-?}” ($(mac_app_label))"
+  if [[ "$asked" == *"paired and linked with"* ]]; then
+    for id in $ids; do
+      if printf '%s\n' "$before" | grep -qixF -- "$id"; then
+        PHONE_REASON="not asked: $where had paired this phone before this run, so it linked with no Allow prompt; to see the prompt, remove the phone in that Mac's Settings > Mobile and rerun"
+        return 1
+      fi
+    done
+    # The person pressed Allow before the first receipt.
+    allowed="$asked (allowed on the Mac “${mac:-?}”, --approve-first)"
+  else
+    case "$state" in
+      waiting|paired) ;;
+      off) PHONE_REASON="iPhone connections are off on $where (Settings > Mobile > Allow iPhone connections); only the person turns them on"; return 1 ;;
+      *) PHONE_REASON="the phone is signed in and on $where, but that Mac shows no request from it after 60 s (its Settings > Mobile lists the phones it sees)"; return 1 ;;
+    esac
+    if [[ -n "$prompt" ]]; then
+      shown="shows “${prompt}” (also under Connection Requests in its Settings > Mobile)"
+    else
+      shown="lists the request under Connection Requests in its Settings > Mobile, but shows no Allow prompt (it shows on a window of that app on screen)"
+    fi
+    if [[ "$state" == waiting ]]; then
+      if [[ -n "$prompt" ]]; then
+        echo "==> $label: waiting for Allow on the Mac: “${prompt}” is showing on $where; press Allow there (up to $timeout s)"
+      else
+        echo "==> $label: waiting for Allow on the Mac: $where $shown; press Allow there (up to $timeout s)"
+      fi
+      json="$(mac_py allow-state "$MAC_SOCKET" ${args[@]+"${args[@]}"} --until answered --timeout "$timeout" 2>/dev/null)" || json=""
+      state="$(json_field "$json" state)"
+      case "$state" in
+        paired) ;;
+        gone) PHONE_REASON="the request is gone from $where without an Allow (Don't Allow, or the phone signed out)"; return 1 ;;
+        off) PHONE_REASON="iPhone connections were turned off on $where while it waited for Allow"; return 1 ;;
+        *)
+          PHONE_REASON="waiting for Allow on the Mac: nobody pressed Allow in $timeout s. The tagged Mac “${mac:-?}” ($(mac_app_label)) $shown, and the phone is signed in and waiting for it, not linked yet. Next: at that Mac, rerun this command and press Allow when the prompt shows"
+          return 1 ;;
+      esac
+      if [[ -n "$prompt" ]]; then shown=", which showed “${prompt}”"; else shown=", which listed its request (no prompt on screen)"; fi
+    else
+      shown=""  # allowed between the receipt and the Mac's first answer
+    fi
+    allowed="${asked%%, on the tagged Mac*}, asked $where$shown; allowed on the Mac (--approve-first)"
+  fi
+  phone_launch_and_check "$udid" "$client" restored || return 1
+  local relaunched="$PHONE_VERDICT"
+  mac_sees_phone "$udid" ||
+    { PHONE_REASON="allowed, and a credential-free relaunch is linked, but the tagged Mac does not list this phone as paired and connected"; return 1; }
+  PHONE_LINE="$label: installed, $allowed; credential-free relaunch: $relaunched; Mac sees it paired and connected"
 }
 
 phone_after_mac_restart() {
@@ -599,6 +818,8 @@ main() {
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
       --workspace) WORKSPACE="${2:-}"; shift 2 ;;
       --manual-pairing) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=manual; shift ;;
+      # --approve-first: the person's Allow on the Mac pairs the phone (no code, no auto-approve).
+      --approve-first) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=approve; shift ;;
       # --no-auth implies no pairing, whatever order the flags come in.
       --no-auth) PHONE_MODE=none; shift ;;
       --backend) BACKEND_ARG="${2:-}"; [[ -n "$BACKEND_ARG" ]] || die "--backend needs a value"; shift 2 ;;

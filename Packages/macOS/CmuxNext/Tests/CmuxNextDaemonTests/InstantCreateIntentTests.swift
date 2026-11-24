@@ -113,6 +113,41 @@ struct InstantCreateIntentTests {
         #expect(surfaces() == [daemonSurface])
     }
 
+    /// RED at base: the daemon's workspace came with its screen and an empty pane, and the stand-in's screen was shown
+    /// beside it: two screens (the screen bar and an empty screen) until the first tab, then one (Leo, 2026-11-18: "a 2
+    /// part animation going from as if it had an invisible split, then into the main page new page display").
+    @Test func theDaemonsEmptyScreenNeverShowsBesideTheStandIn() throws {
+        let store = Self.store()
+        let key = WorkspaceKey.generate(), tab = Self.page(), transaction = ClientTransactionID.generate()
+        store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: "2", tab: tab), index: nil),
+                     transaction: transaction)
+        let shown = try #require(store.workspace(id: key.rawValue))
+        let standIn = try #require(shown.screens.first)
+
+        let pane = PaneID(rawValue: 10), screen = ScreenID(rawValue: 11)
+        var created = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9), key: key, name: "2",
+                                        screens: [ScreenSnapshot(id: screen, active: true, activePane: pane, layout: .leaf(pane),
+                                                                 panes: [PaneSnapshot(id: pane, tabs: [])])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.base, created]))
+        #expect(shown.screens.count == 1, "one screen while the stand-in shows: \(shown.screens.map(\.handle))")
+        #expect(shown.screens.first === standIn, "the stand-in's screen stays the one shown")
+        #expect(store.screensByHandle[screen] == nil, "the daemon's empty screen is not in the records yet")
+
+        // A daemon batch about the workspace lifts and restores the overlay: still one screen, the same one.
+        created.name = "renamed"
+        store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [Self.base, created]))
+        #expect(shown.screens.count == 1 && shown.screens.first === standIn)
+
+        // The first tab: the daemon's screen alone, under the same workspace model.
+        created.screens[0].panes[0].tabs = [TabSnapshot(surface: SurfaceID(rawValue: 12), kind: .conversation)]
+        store.noteSettledAtNextSnapshot(transaction)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 4, workspaces: [Self.base, created]))
+        #expect(store.workspace(id: key.rawValue) === shown)
+        #expect(shown.screens.map(\.handle) == [screen])
+        #expect(shown.screens.flatMap(\.panes).flatMap(\.tabs).map(\.surface) == [SurfaceID(rawValue: 12)])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     @Test func refusedNewWorkspaceLeavesNothing() {
         let store = Self.store()
         let key = WorkspaceKey.generate()
