@@ -67,7 +67,7 @@ public enum ConversationMarkdownLinks {
         let source = text as NSString
         let matches = pattern.matches(in: text, range: NSRange(location: 0, length: source.length))
         guard !matches.isEmpty else { return (text, [], mentions) }
-        let output = NSMutableString()
+        let output = NSMutableString(string: "")
         var links: [ConversationTextLink] = []
         var cursor = 0
         // (old start, old end, the label's old range when it is source text, its new length) for remapping mentions.
