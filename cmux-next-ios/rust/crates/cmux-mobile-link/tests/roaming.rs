@@ -518,10 +518,16 @@ async fn wireguard_mac_takes_the_turn_allocation_its_stun_silent_roam_missed() {
     )
     .await;
     eprintln!("stun-silent Mac roam: {run:?}");
+    // By the server's relay range, not `is_relayed`: the allocation is
+    // released when the link closes, which races this check.
     let relayed = |endpoints: &[String]| {
-        endpoints
-            .iter()
-            .any(|endpoint| endpoint.parse::<std::net::SocketAddr>().is_ok_and(|addr| turn.is_relayed(&addr)))
+        let addrs: Vec<std::net::SocketAddr> = endpoints.iter().filter_map(|e| e.parse().ok()).collect();
+        let host_port = addrs.first().map(|addr| addr.port());
+        addrs.iter().any(|addr| {
+            addr.ip().is_loopback()
+                && Some(addr.port()) != host_port
+                && turn.relay_ports.contains(&addr.port())
+        })
     };
     assert!(!run.mac_endpoints_before.is_empty() && !relayed(&run.mac_endpoints_before), "{run:?}");
     // Its STUN wait (1.5 s) and allocation window (2 s) end well before 6 s.
