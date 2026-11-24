@@ -150,7 +150,7 @@ impl Dialer for TailnetDialer {
         let hinted = direct_candidates(host, port, self.mode, self.hints.as_ref());
         let resolved = match resolve_dial_target(host, port).await {
             Ok(addresses) => addresses,
-            Err(error) if !hinted.is_empty() => Vec::new(),
+            Err(_) if !hinted.is_empty() => Vec::new(),
             Err(error) => return Err(error),
         };
         let addresses = merge_direct_candidates(&hinted, &resolved);

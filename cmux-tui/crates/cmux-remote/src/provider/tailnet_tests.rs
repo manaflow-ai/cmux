@@ -1,7 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use super::{PeerPath, TailnetCarrierMode, TailnetHints, add_candidates};
+use super::{PeerPath, TailnetCarrierMode, TailnetHints, add_candidates, add_candidates_on_port};
 
 struct Hints {
     own: Vec<IpAddr>,
@@ -87,7 +87,7 @@ fn derp_tailnet_address_is_skipped_even_when_on_is_requested() {
     assert_eq!(add_candidates(&existing, "peer", TailnetCarrierMode::On, &hints), existing);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_blackholed_tailnet_candidate_falls_back_on_the_next_hedge() {
     let existing = [address("192.0.2.10:7319")];
     let hints = Hints {

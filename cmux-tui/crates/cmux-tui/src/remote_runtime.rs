@@ -37,11 +37,11 @@ use cmux_remote::identity::{
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, NoTailnetHints,
-    ProviderError, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, TailnetCarrierMode, TailnetDialer, TailnetHints, TransportProvider,
-    UnixProvider, sanitized_route, sanitized_route_text, spawn_relay_daemon_registration,
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
+    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
+    RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TailnetCarrierMode,
+    TailnetDialer, TailnetHints, TransportProvider, UnixProvider, sanitized_route,
+    sanitized_route_text, spawn_relay_daemon_registration,
 };
 #[cfg(feature = "iroh-transport")]
 use cmux_remote::provider::{
@@ -500,6 +500,9 @@ impl TransportProvider for RoutedRelayProvider {
 /// `direct_carrier_auth` lets `ws`/`wss` routes dial with carrier authentication
 /// (`remote connect --carrier`): the daemon is expected to serve a trusted-network
 /// listener, as cmux Cloud machines do behind the owner's private network.
+/// Tailscale candidates stay off here; the connect path uses
+/// [`client_provider_registry_with_tailnet`].
+#[cfg(test)]
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,
@@ -514,7 +517,7 @@ pub fn client_provider_registry(
         direct_dialer,
         direct_carrier_auth,
         TailnetCarrierMode::Off,
-        Arc::new(NoTailnetHints),
+        Arc::new(cmux_remote::provider::NoTailnetHints),
     )
 }
 
