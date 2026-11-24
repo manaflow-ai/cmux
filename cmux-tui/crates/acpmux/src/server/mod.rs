@@ -2803,6 +2803,7 @@ mod sign_in_follow;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
+mod chat_place;
 pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
