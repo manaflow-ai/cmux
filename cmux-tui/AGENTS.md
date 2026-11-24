@@ -48,7 +48,8 @@ your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`). To see a 
 
 The Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
 and Zig builds: warm your own box before the build. The workflows, `scripts/blacksmith-*.sh`, and
-the `tests/test_testbox_*` guards live here.
+the `tests/test_testbox_*` guards live here. Team members start and stop boxes with the maintainer
+tooling in the private repo.
 
 Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
 inside `cmux-tui/` locally (needs the Zig that `ghostty-next/build.zig.zon` sets as `minimum_zig_version`, and `git submodule update --init ghostty ghostty-next`; see
