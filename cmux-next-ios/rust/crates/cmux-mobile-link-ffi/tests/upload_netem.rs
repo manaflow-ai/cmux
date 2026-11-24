@@ -553,6 +553,9 @@ async fn upload_netem_cell() {
     drop(child.stdin.take());
     let _ = child.wait();
     drop(server);
+    // `exit` skips destructors: remove the workdir (the source and the Mac's copy) first, or
+    // every run leaves its file behind in the temp dir.
+    drop(workdir);
     // A capped run leaves tasks mid-send; leave without waiting for them.
     std::process::exit(0);
 }
