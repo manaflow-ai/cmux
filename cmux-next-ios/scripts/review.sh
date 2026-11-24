@@ -437,7 +437,10 @@ fleet_finish_sim() {
   # The step's sign-in session comes from this Mac while cmux-ci run follows it (hq build-fleet sign_in). A
   # delivery the controller dropped ("no session was delivered within 10m0s", step 1e1c4a5c2700774f73411917 while
   # the controller timed out, 2026-11-24) says nothing about the build: send one new step, once.
-  if [[ $rc -ne 0 ]] && grep -q "no session was delivered" "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null; then
+  # A controller restart under the step loses it the same way: "the controller no longer lists this run as the
+  # step's (409 Conflict)" (step df827ca8f4eb26596c17942e, hq#22711, 2026-11-24).
+  if [[ $rc -ne 0 ]] && grep -qE "no session was delivered|no longer lists this run as the step" \
+    "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null; then
     # The step's own log says it ended; a status read that fails (the controller timing out, as when the
     # delivery was lost) must not resend under the dead step's key, which answers with that step again.
     sim_step_ended "$SIM_STEP" || sim_next_attempt
