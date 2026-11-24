@@ -114,6 +114,14 @@ impl Mirror {
         self.held.extend(hashes);
     }
 
+    /// Drops hashes the phone deleted: they are asked for again when a row
+    /// names them, and a later `have` leaves them out.
+    pub fn forget(&mut self, hashes: impl IntoIterator<Item = BlobHash>) {
+        for hash in hashes {
+            self.held.remove(&hash);
+        }
+    }
+
     /// Forgets the rows and rev but keeps the held blobs: a relaunch with a
     /// persisted blob cache and no persisted manifest.
     pub fn relaunch(&mut self) {
