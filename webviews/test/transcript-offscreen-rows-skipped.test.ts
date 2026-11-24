@@ -7,11 +7,14 @@
 //
 // A row mounted that far from the view now has its contents skipped until it comes near
 // (conversation/offscreenRows.ts). The run wheels up through older pages and counts, among the
-// mounted rows more than FAR_VIEWPORTS above the view, those whose contents the page laid out. It
+// mounted rows more than FAR_VIEWPORTS window heights above the window, those whose contents the
+// page laid out. It
 // fails when any is, and when a row that came into view since misdraws: one whose rendered height is
 // not the height the transcript placed it at (the row under it then overlaps it or leaves a gap), or
 // whose gap under it no longer takes a click (the clip content-visibility brings along).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { godLog } from "../bench/godFixture";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
@@ -32,8 +35,10 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
   }
 
   const TURNS = 1200;
-  /// Rows this many viewports or more above the view must not be laid out.
-  const FAR_VIEWPORTS = 1.5;
+  /// Rows this many window heights or more above the window must not be laid out: past the margin in
+  /// which Chromium renders a content-visibility: auto element ahead of the view. Measured here: rows
+  /// up to 2.45 window heights above were drawn, none past 2.5.
+  const FAR_VIEWPORTS = 2.6;
 
   const log = godLog("small", { turns: TURNS, imageEvery: 25, chainEvery: 150 });
   const lead: PapercutStep[] = log.events.map((event) => [
@@ -88,12 +93,16 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
         // Placed offsets from the thread's top, which is read once: no layout read of a row itself.
         const thread = scroller.querySelector<HTMLElement>(".acpmux-thread")!;
         const threadTop = thread.getBoundingClientRect().top - box.top;
-        const farAbove = rows.filter((row) => {
+        // How many window heights above the window's top a row's placed bottom is (negative: below it).
+        // Chromium renders a content-visibility: auto row within a margin of the window (FAR_VIEWPORTS).
+        const above = (row: HTMLElement) => {
           const top = Number.parseFloat(row.style.top) + Number.parseFloat(row.style.marginTop || "0");
           const height = Number.parseFloat(row.style.containIntrinsicHeight.replace("auto", "")) || 0;
-          return threadTop + top + height < -box.height * far;
-        });
+          return -(box.top + threadTop + top + height) / window.innerHeight;
+        };
+        const farAbove = rows.filter((row) => above(row) > far);
         const laid = farAbove.filter(laidOut);
+        const laidAt = laid.map((row) => Math.round(above(row) * 10) / 10);
         // Rows on screen: each placed where it draws (the next row's top is its bottom and gap), and
         // its gap under it hit by a click there.
         const shown = rows
@@ -118,14 +127,21 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
           const rowRect = row.getBoundingClientRect();
           if (rect.top < rowRect.bottom) continue;
           gapsChecked += 1;
+          // A clipped gap lets the click through to the thread under the rows.
           const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-          if (!hit || !row.contains(hit)) gapMisses.push(row.dataset.rowId ?? "?");
+          if (!hit || (scroller.contains(hit) && !hit.closest(".acpmux-row")))
+            gapMisses.push(`${row.dataset.rowId ?? "?"}:${hit?.className ?? "none"}`);
         }
         return {
           mounted: rows.length,
           offscreenClass: rows.filter((row) => row.classList.contains("acpmux-row--offscreen")).length,
           farAbove: farAbove.length,
           laidOutFarAbove: laid.length,
+          laidAt,
+          skippedNearest:
+            Math.round(Math.min(...rows.filter((row) => !laidOut(row) && above(row) > 0).map(above)) * 10) / 10,
+          laidAbove: rows.filter((row) => laidOut(row) && above(row) > 0).length,
+          skippedAbove: rows.filter((row) => !laidOut(row) && above(row) > 0).length,
           shown: shown.length,
           shownSkippable: shown.filter((row) => row.classList.contains("acpmux-row--offscreen")).length,
           overlaps,
@@ -133,12 +149,112 @@ await requireBrowserLane("transcript-offscreen-rows-skipped.test.ts", async () =
           gapMisses,
         };
       }, FAR_VIEWPORTS);
-      console.log(`transcript-offscreen-rows-skipped: ${JSON.stringify({ pages, ...census })}`);
+      // Pixels: the rows in view that mounted skipped draw exactly as they do without the class. A row
+      // drops it once rendered (`shownSkippable` 0); kept, its paint containment set text a pixel off.
+      const scroller = page.locator(".acpmux-scroll");
+      const painted = () =>
+        page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      await painted();
+      const settled = await scroller.screenshot({ animations: "disabled" });
+      await painted();
+      const withClass = await scroller.screenshot({ animations: "disabled" });
+      // Two shots of nothing changed: what the page changes on its own between shots.
+      const steady = settled.equals(withClass);
+      const unmarked = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+        const shown = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row--offscreen")].filter(
+          (row) => {
+            const rect = row.getBoundingClientRect();
+            return rect.bottom > box.top && rect.top < box.bottom;
+          },
+        );
+        for (const row of shown) row.classList.remove("acpmux-row--offscreen");
+        return shown.length;
+      });
+      await painted();
+      const withoutClass = await scroller.screenshot({ animations: "disabled" });
+      const samePixels = withClass.equals(withoutClass);
+      if (process.env.SHOTS_DIR) {
+        fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+        fs.writeFileSync(path.join(process.env.SHOTS_DIR, "settled.png"), settled);
+        fs.writeFileSync(path.join(process.env.SHOTS_DIR, "with-class.png"), withClass);
+        fs.writeFileSync(path.join(process.env.SHOTS_DIR, "without-class.png"), withoutClass);
+      }
+      // Find in Chat finds text in a row whose contents the page skips: it reads the rows' text, not
+      // their layout.
+      const target = await page.evaluate(() => {
+        const skipped = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row--offscreen")].find(
+          (row) =>
+            ![...row.children].some(
+              (child) =>
+                !child.classList.contains("acpmux-row__gap") &&
+                (child as HTMLElement).checkVisibility({ contentVisibilityAuto: true }),
+            ) && /[A-Za-z]{6,}/.test(row.textContent ?? ""),
+        );
+        return skipped ? { id: skipped.dataset.rowId!, word: /[A-Za-z]{6,}/.exec(skipped.textContent!)![0] } : null;
+      });
+      // Every mounted row that holds the word gets a highlight, skipped or laid out.
+      let find: { skippedHolding: number; skippedMissed: string[]; laidHolding: number; laidMissed: string[] } | null =
+        null;
+      if (target) {
+        await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), target.word);
+        await page.waitForSelector(".acpmux-find .find-pill__field");
+        find = await page.evaluate(async (word) => {
+          const highlighted = () => {
+            const registry = (globalThis.CSS as unknown as { highlights?: Map<string, Set<Range>> }).highlights;
+            const ids = new Set<string>();
+            for (const name of ["acpmux-find", "acpmux-find-active"])
+              for (const range of registry?.get(name) ?? []) {
+                const id = range.startContainer.parentElement?.closest(".acpmux-row")?.getAttribute("data-row-id");
+                if (id) ids.add(id);
+              }
+            return ids;
+          };
+          for (let frame = 0; frame < 60 && highlighted().size === 0; frame += 1)
+            await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+          // Two frames more: the reveal may move the view and mount other rows first.
+          for (let frame = 0; frame < 2; frame += 1)
+            await new Promise((done) => requestAnimationFrame(() => done(undefined)));
+          const ids = highlighted();
+          const needle = word.toLowerCase();
+          const result = {
+            skippedHolding: 0,
+            skippedMissed: [] as string[],
+            laidHolding: 0,
+            laidMissed: [] as string[],
+          };
+          for (const row of document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")) {
+            if (!(row.textContent ?? "").toLowerCase().includes(needle)) continue;
+            const skipped = ![...row.children].some(
+              (child) =>
+                !child.classList.contains("acpmux-row__gap") &&
+                (child as HTMLElement).checkVisibility({ contentVisibilityAuto: true }),
+            );
+            const id = row.dataset.rowId ?? "?";
+            if (skipped) {
+              result.skippedHolding += 1;
+              if (!ids.has(id)) result.skippedMissed.push(id);
+            } else {
+              result.laidHolding += 1;
+              if (!ids.has(id)) result.laidMissed.push(id);
+            }
+          }
+          return result;
+        }, target.word);
+      }
+      console.log(
+        `transcript-offscreen-rows-skipped: ${JSON.stringify({ pages, ...census, unmarked, steady, samePixels, findTarget: target, find })}`,
+      );
       expect(pages).toBeGreaterThanOrEqual(1);
       expect(census.farAbove).toBeGreaterThanOrEqual(10);
       expect(census.laidOutFarAbove).toBe(0);
       expect(census.overlaps).toEqual([]);
       expect(census.gapMisses).toEqual([]);
+      expect(census.shownSkippable).toBe(0);
+      if (steady) expect(samePixels).toBe(true);
+      // A row the find leaves out for its own reasons (a hidden copy, a fold) is left out laid out too.
+      if (find)
+        expect(find.skippedMissed.length <= find.laidMissed.length || find.skippedMissed.length === 0).toBe(true);
     } finally {
       await pane.close();
     }
