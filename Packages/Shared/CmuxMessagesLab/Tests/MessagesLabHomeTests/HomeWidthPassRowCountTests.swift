@@ -11,7 +11,7 @@ import Testing
 /// A width change measured the parts near the viewport exactly and estimated the others, but it still walked every
 /// loaded row (`RowBuilder.rewidth`) and set every row in the model again (`TranscriptModel.set`: a key set, a
 /// dictionary of the old rows and a new index over all of them). With 5000 loaded rows that walk was most of a frame,
-/// so the Home could not follow its pane in a key resize and was held (`PaneKeyResizeHeld`, cmux#41105).
+/// so the Home could not follow its pane in a key resize and was held (cmux#41105).
 ///
 /// The transcripts here have 50 and 500 rows, not 5000: a Debug test bundle measures every message of a 5000-row
 /// transcript two times for each drag, and one test then gives no result for more than the 180 s of the suite
