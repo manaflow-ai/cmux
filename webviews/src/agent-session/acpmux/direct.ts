@@ -8518,7 +8518,16 @@ export class AcpmuxDirectClient {
     ) {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
-      this.steersOnStart.delete(id);
+      // A steer acpmux held for its turn never runs when it is refused or withdrawn: its bubble,
+      // the only place it shows (`steersOnStart`), fails with Retry, or goes, instead of waiting
+      // as sent forever.
+      if (this.steersOnStart.delete(id) && event.kind !== "dequeued") {
+        if (event.kind === "prompt_refused") this.failStartSteer(id, msg.error);
+        else {
+          settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
+          this.optimisticPromptTexts.delete(id);
+        }
+      }
       this.queueAuthors.delete(id);
       this.queueEdited.delete(id);
       if (event.kind === "queue_removed" && id)
@@ -14477,6 +14486,37 @@ export class AcpmuxDirectClient {
     this.emit();
     return true;
   }
+  /// A steer acpmux held for its turn (`steersOnStart`), then refused: its bubble, already
+  /// delivered, says so with Retry, as a send that failed does.
+  private failStartSteer(promptId: string, error: unknown): void {
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row) return;
+    const message = typeof error === "string" && error ? error : translate("transport.refused");
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    const delivery: PromptDelivery = {
+      ...entry.delivery,
+      state: "failed",
+      failedAt: Date.now(),
+      hop: "acpmux",
+      error: message,
+    };
+    entry.delivery = delivery;
+    this.rows.set(entry.rowId, {
+      ...row,
+      pending: false,
+      failed: true,
+      error: failedSendText(new Error(message), false, attachments),
+      delivery,
+      version: row.version + 1,
+    });
+    this.failedPrompts.set(entry.rowId, {
+      input: this.optimisticPromptInputs.get(promptId) ?? row.text ?? "",
+      attachments,
+      promptId,
+    });
+  }
+
   /// The lost prompt drawn by `drawLostPrompt` never showed in acpmux's record: its row fails with
   /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
   /// line apart from the row while the row still looks sent. False when there is no such row.
