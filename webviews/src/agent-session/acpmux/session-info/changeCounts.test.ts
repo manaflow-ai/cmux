@@ -28,3 +28,12 @@ test("uncommitted work wins; a clean tree falls back to the branch's own commits
   const fails = () => Promise.reject(new Error("Not a git repository"));
   expect(await readChangeCounts(fails)).toBeUndefined();
 });
+
+test("the reply's file count rides along when it has one", () => {
+  expect(countsOf({ additions: 2, deletions: 2, total_files: 1, files: [{}] })).toEqual({
+    additions: 2,
+    deletions: 2,
+    files: 1,
+  });
+  expect(countsOf({ additions: 5, deletions: 0, files: [{}, {}] })).toEqual({ additions: 5, deletions: 0, files: 2 });
+});
