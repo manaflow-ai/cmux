@@ -316,6 +316,25 @@ async function settle(rootPid: number, focused: Page): Promise<boolean> {
 }
 
 async function measure(rootPid: number, items: Item[], focused: Page): Promise<Sample> {
+  // Loading a rung leaves garbage (the seeded chats' parse and render temporaries: x50 held 1.8-2.2 GB live against 855 MB
+  // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
+  // landed inside the window of x50 in every run (610, 658, 326, 794 ms/s), a load cost read as the rung's steady state.
+  // Collect it first, once per isolate as the heap reading below does, and log what that took: the load's cost stays visible.
+  const gcPids = renderers(rootPid);
+  const gcTicks0 = gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+  await Promise.all(
+    items
+      .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
+      .map((item) =>
+        Promise.race([
+          item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
+          new Promise((resolve) => setTimeout(resolve, 20_000)),
+        ]),
+      ),
+  );
+  console.log(
+    `SIM-LADDER   load collection ${Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000)} ms of renderer CPU`,
+  );
   const settled = await settle(rootPid, focused);
   if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
   const pids = renderers(rootPid);
