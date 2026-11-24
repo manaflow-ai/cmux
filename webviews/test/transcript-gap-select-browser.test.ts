@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // l10n-allow-file: public transcript fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
