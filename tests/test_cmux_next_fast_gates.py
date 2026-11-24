@@ -1227,14 +1227,14 @@ class ScriptBehavior(unittest.TestCase):
         module = load(SCRIPT)
         with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
             log_dir = Path(tmp)
-            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "pass"])]],
+            first = module.run_gate_batch([[("crash ratchet", [sys.executable, "-c", "print(\'gate output\')"])]],
                                           Path(tmp), None, log_dir)
-            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "pass"])]],
+            second = module.run_gate_batch([[("webviews checks", [sys.executable, "-c", "print(\'gate output\')"])]],
                                            Path(tmp), None, log_dir)
             self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
             self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
-            self.assertTrue((log_dir / "crash-ratchet.log").read_text())
-            self.assertTrue((log_dir / "webviews-checks.log").read_text())
+            self.assertIn("gate output", (log_dir / "crash-ratchet.log").read_text())
+            self.assertIn("gate output", (log_dir / "webviews-checks.log").read_text())
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
