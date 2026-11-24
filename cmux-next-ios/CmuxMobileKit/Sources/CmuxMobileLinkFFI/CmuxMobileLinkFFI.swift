@@ -3351,6 +3351,172 @@ public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 
 
 
 
+public protocol LinkProgressClockProtocol: AnyObject, Sendable {
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+    func lastProgressMs()  -> UInt64?
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+    func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64)  -> UInt64?
+    
+}
+open class LinkProgressClock: LinkProgressClockProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_linkprogressclock(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_linkprogressclock_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_linkprogressclock(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+open func lastProgressMs() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_last_progress_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+open func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_stall_left_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(startedMs),
+        FfiConverterUInt64.lower(stallMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkProgressClock: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LinkProgressClock
+
+    public static func lift(_ handle: UInt64) throws -> LinkProgressClock {
+        return LinkProgressClock(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LinkProgressClock) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkProgressClock {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LinkProgressClock, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lift(_ handle: UInt64) throws -> LinkProgressClock {
+    return try FfiConverterTypeLinkProgressClock.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lower(_ value: LinkProgressClock) -> UInt64 {
+    return FfiConverterTypeLinkProgressClock.lower(value)
+}
+
+
+
+
+
+
 /**
  * Receives a screen session's events on a library thread. Implementations
  * should hand off quickly (a decode queue, the main actor).
@@ -8460,6 +8626,92 @@ public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) ->
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Why keys held for a detached terminal are dropped.
+ */
+
+public enum HeldKeysExpiryReason: Equatable, Hashable {
+    
+    /**
+     * The terminal's reconnect gave up.
+     */
+    case gaveUp
+    /**
+     * The Mac was offline and the link made no progress for the hold.
+     */
+    case offline
+    /**
+     * A key waited past the ceiling.
+     */
+    case ceiling
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HeldKeysExpiryReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeldKeysExpiryReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .gaveUp
+        
+        case 2: return .offline
+        
+        case 3: return .ceiling
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HeldKeysExpiryReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .gaveUp:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .offline:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .ceiling:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lift(_ buf: RustBuffer) throws -> HeldKeysExpiryReason {
+    return try FfiConverterTypeHeldKeysExpiryReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lower(_ value: HeldKeysExpiryReason) -> RustBuffer {
+    return FfiConverterTypeHeldKeysExpiryReason.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Link state events, in order: `Connecting`, then `Connected` (or
  * `Disconnected` when the dial fails), then any number of `PathChanged`,
  * `Rtt`, `Media` and `Suspect`, then one `Disconnected`.
@@ -9672,6 +9924,30 @@ fileprivate struct FfiConverterOptionTypeChatEditStep: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHeldKeysExpiryReason.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHeldKeysExpiryReason.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionSequenceTypeChatAttachment: FfiConverterRustBuffer {
     typealias SwiftType = [ChatAttachment]?
 
@@ -9714,6 +9990,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
         case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -10475,6 +10776,25 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
+ * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
+ * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
+ * any. `hold_ms` bounds silence on the link while offline; `ceiling_ms` a key's age. Ages, not
+ * instants, so the terminal's own clock and the link's need not share an origin.
+ */
+public func heldKeysExpiry(typedAgesMs: [UInt64], gaveUp: Bool, offlineAgeMs: UInt64?, progressAgeMs: UInt64?, holdMs: UInt64, ceilingMs: UInt64) -> HeldKeysExpiryReason?  {
+    return try!  FfiConverterOptionTypeHeldKeysExpiryReason.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_held_keys_expiry(
+        FfiConverterSequenceUInt64.lower(typedAgesMs),
+        FfiConverterBool.lower(gaveUp),
+        FfiConverterOptionUInt64.lower(offlineAgeMs),
+        FfiConverterOptionUInt64.lower(progressAgeMs),
+        FfiConverterUInt64.lower(holdMs),
+        FfiConverterUInt64.lower(ceilingMs),$0
+    )
+})
+}
+/**
  * Which device opens `url`, a link the person opened on the phone.
  */
 public func linkOpenSide(url: String) -> LinkOpenSide  {
@@ -10734,6 +11054,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
@@ -11045,6 +11368,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_source() != 22030) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_last_progress_ms() != 56760) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_progressed() != 37804) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_stall_left_ms() != 48741) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenobserver_on_candidate() != 24716) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11211,6 +11543,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_linkprogressclock_new() != 49746) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
