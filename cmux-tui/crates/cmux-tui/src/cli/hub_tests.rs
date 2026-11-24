@@ -79,6 +79,27 @@ fn hub_refuses_a_key_in_argv_and_bad_arguments() {
 }
 
 #[test]
+fn hub_call_named_args() {
+    let verb =
+        parse_ok(r#"call test.run --enabled true --tag=--draft --label="true" --list [1,2]"#);
+    let request = request_of(&verb);
+    assert_eq!(
+        request.body.unwrap()["args"],
+        json!({
+            "enabled": true, "tag": "--draft", "label": "true", "list": [1, 2],
+        })
+    );
+    for input in [
+        "call test.run --amount",
+        "call test.run --amount --charge ch_1",
+        "call test.run --amount 100 --amount 200",
+        "call test.run --args {} --amount 100",
+    ] {
+        assert!(parse(&words(input), &no_env).is_err(), "{input}");
+    }
+}
+
+#[test]
 fn hub_common_flags_and_origin() {
     let env = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "t".to_owned());
     let (common, _) = parse(&words("connections --team acme"), &env).unwrap();
