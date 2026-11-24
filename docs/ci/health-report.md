@@ -46,7 +46,7 @@ not as a billing total. The header states how many runs were sampled.
 Failure and cancelled minutes are the interesting columns. Success minutes are
 the price of CI; the rest is the price of CI not working. One exception:
 `cmux-tui-testbox-warmup.yml` holds a Testbox VM for a maintainer session, and
-the session's cleanup (`scripts/blacksmith-testbox-demo.sh`) cancels the run on
+the session's cleanup cancels the run on
 purpose, so its cancelled minutes are the session itself.
 
 ### Queue wait (created → started) per runner label

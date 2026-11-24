@@ -118,6 +118,14 @@ impl ComposerOutbox {
         inner.outbox.push(text, submit, at)
     }
 
+    /// A tap on Send of a one-line draft for a full-screen program at `now_ms`: typed, then
+    /// Return, in one request (`send-typed-submit-v1`). Returns the Send's number.
+    pub fn push_typed(&self, text: String, now_ms: u64) -> u64 {
+        let mut inner = self.inner();
+        let at = inner.at(now_ms);
+        inner.outbox.push_typed(text, at)
+    }
+
     /// The next request to send, in tap order behind those in flight (up to
     /// `cmux_composer_send::MAX_IN_FLIGHT`), when a keyed daemon is attached.
     pub fn next_request(&self) -> Option<ComposerSendRequest> {
