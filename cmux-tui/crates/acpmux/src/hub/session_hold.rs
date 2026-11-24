@@ -164,7 +164,12 @@ impl Hub {
         if held {
             // Best effort: a busy chat is held all the same.
             let paused = self.pause(session).await.ok();
-            answer.set("paused", json!(paused.is_some_and(|p| p["paused"] == true)));
+            answer.set(
+                "paused",
+                json!(
+                    paused.is_some_and(|p| p.get("paused").and_then(Value::as_bool) == Some(true))
+                ),
+            );
         } else if was {
             self.resume_restored(std::slice::from_ref(session));
         }

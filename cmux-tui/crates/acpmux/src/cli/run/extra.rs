@@ -231,14 +231,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let v = client.request(method::MUX_FLEET_HOLD, params).await?;
                 if json_out {
                     print_json(&v);
-                } else if v["fleetHold"]["on"] == true {
-                    let allow = v["fleetHold"]["allow"].as_array().map_or_else(String::new, |a| {
-                        a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
-                    });
+                } else if v.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true) {
+                    let allow = v
+                        .pointer("/fleetHold/allow")
+                        .and_then(Value::as_array)
+                        .map_or_else(String::new, |a| {
+                            a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        });
                     println!(
                         "fleet hold on{}; allowed: {}",
-                        v["held"]
-                            .as_u64()
+                        v.get("held")
+                            .and_then(Value::as_u64)
                             .map(|n| format!(", {n} sessions held"))
                             .unwrap_or_default(),
                         if allow.is_empty() { "none".to_owned() } else { allow }
@@ -260,7 +263,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else if held {
                 println!(
                     "held{}: messages wait in its inbox; its person's prompt, opening it, or `acpmux session release {session}` lets it run",
-                    if v["paused"] == true { ", its agent paused" } else { "" }
+                    if v.get("paused").and_then(Value::as_bool) == Some(true) {
+                        ", its agent paused"
+                    } else {
+                        ""
+                    }
                 );
             } else {
                 println!("released: it runs its next prompt");
