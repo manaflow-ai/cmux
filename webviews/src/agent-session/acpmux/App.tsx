@@ -493,14 +493,20 @@ import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "
 import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { type QuickActionMode } from "./header/quickActions";
 import {
+  useChangesPillOn,
   useChatDisplay,
   useChatMinimap,
   useChatPinnedPlan,
+  useEnvironmentCardOn,
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
   useUnreadBannerMode,
 } from "./chatDisplay";
+import { ChangesPill, EnvironmentCard } from "./session-info/EnvironmentCard";
+import { environmentCardFits, useCardBranch, usePaneWidth } from "./session-info/environmentCardModel";
+import { useChangeCounts } from "./session-info/changeCounts";
+import { usePullRequestAction } from "../../diff-viewer/PullRequestAction";
 import { usePresentation } from "./conversation/presentation";
 import { PresentationContext } from "./conversation/presentationContextModel";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
@@ -8939,6 +8945,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
   const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
+  // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
+  // look turns them on. The card takes the chat's top right only when the gutter beside the column
+  // holds it, and gives the place to Session Info and the computer use preview, which sit there too.
+  const environmentCardOn = useEnvironmentCardOn();
+  const changesPillOn = useChangesPillOn();
+  const chatLook = useChatDisplay();
+  const environmentCardRoom = environmentCardFits(usePaneWidth(), chatLook.width, chatLook.fullWidth);
+  const environmentCardShown =
+    environmentCardOn &&
+    environmentCardRoom &&
+    !quick &&
+    !inspectorOpen &&
+    !showNewTab &&
+    !sessionInfo.shown &&
+    !previewShown &&
+    Boolean(snapshot.sessionId);
+  const environmentKey = `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`;
+  const environmentChanges = useChangeCounts(
+    readChanges,
+    (environmentCardShown || changesPillOn) && Boolean(snapshot.sessionId) && chatCwd !== undefined,
+    environmentKey,
+  );
+  const environmentBranch = useCardBranch(localCwd ?? chatCwd, readFolderStatus, environmentCardShown, environmentKey);
+  // Create pull request: the host's git.pullRequest for a chat on this Mac (it pushes the branch and
+  // opens the pull request), as the changes view's Create PR runs it.
+  const environmentPullRequestSource = useMemo(
+    () =>
+      localCwd
+        ? {
+            diff: () => Promise.reject(new Error("unused")),
+            pullRequest: () => directClient.current?.gitPullRequest() ?? Promise.reject(new Error()),
+          }
+        : undefined,
+    // A new chat or folder is a new source, so a reply for the old one is dropped.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- directClient is a ref
+    [localCwd, snapshot.sessionId],
+  );
+  const environmentPullRequest = usePullRequestAction(environmentPullRequestSource);
+  // "1 file changed +2 -2" over the composer (pane/PaneComposer.tsx), off by default: a look turns it on.
+  const changesPillNode =
+    changesPillOn && !quick ? <ChangesPill changes={environmentChanges} onOpen={() => toggleChanges("open")} /> : null;
+  // The card at the chat's top right (pane/PaneBody.tsx), beside the computer use preview's place.
+  const environmentCardNode = environmentCardShown ? (
+    <EnvironmentCard
+      branch={environmentBranch}
+      changes={environmentChanges}
+      onOpenChanges={() => toggleChanges("open")}
+      onCommitOrPush={localCwd ? () => openChangesTab.current() : undefined}
+      pullRequest={environmentPullRequest}
+    />
+  ) : null;
   // The VS Code Minimap's room at the column's right (chatMinimap/paint.ts minimapReserve), on the same
   // terms as the preview's: Session Info's push pins the column itself. The transcript keeps it only in
   // a chat wide enough.
@@ -9728,6 +9785,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hatPillArm,
     statusCardOpen,
     setStatusCardOpen,
+    changesPillNode,
     openImage,
     cloudStarting,
     composerDrawn,
@@ -10348,6 +10406,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     reconnectPeer,
     previewShown,
     computerUsePreview,
+    environmentCardNode,
     viewedSandbox,
     pendingWake,
     sandboxWake,
