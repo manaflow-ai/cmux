@@ -48,13 +48,16 @@ extension SettingsController {
         _ = try? await migrateComputerUseDeniedApps() // a copy of the earlier default deny list drops the terminals and cmux
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).
         _ = try? await migrateClassicSettings()
-        // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-        _ = try? await importClassicShortcuts(marker: marker)
-        _ = try? await importClassicPreferences(marker: marker)
         // Last, so a value the steps above moved counts too.
         _ = try? await forgetStoredDefaults(marker: marker)
         _ = try? await restoreWronglyForgottenDefaults()
         _ = try? await dropStrayNulls(marker: marker)
+    }
+
+    /// Import values that Classic kept outside its config file, after the person accepts the import.
+    public func importClassicDefaults(marker: UserDefaults) async throws {
+        try await importClassicShortcuts(marker: marker)
+        try await importClassicPreferences(marker: marker)
     }
 
     /// The record `restoreWronglyForgottenDefaults` keeps beside the file; it also marks that it ran.
