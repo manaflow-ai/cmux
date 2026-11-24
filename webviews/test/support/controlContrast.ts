@@ -137,6 +137,9 @@ const sweepSchemes = (every: boolean): Scheme[] => {
 export const MINIMUM = { text: 4.5, large: 3, icon: 3, disabled: 2.5 } as const;
 
 type Stage = { entry: string; variant: string; source: string; height: number; scheme: Scheme };
+/** How long a stage may take to say it is ready: the golden screen opens every fold before it does
+ * (16 to 35 s a look on a busy 32-core VM, 2026-11-24), every other entry far less. */
+const readyMs = (stage: Stage): number => (stage.entry === LOOK_ENTRY ? 90_000 : 20_000);
 const stageName = (stage: Stage): string => `${stage.entry}/${stage.variant}@${stage.scheme.name}`;
 
 /** One failing reading. */
@@ -269,7 +272,9 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
         await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
+          timeout: readyMs(stage),
+        });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };
         await page.addStyleTag({
@@ -313,14 +318,14 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     // A stage that never settles holds its worker; past its deadline it is not read and its worker
     // goes on with a new page (as accent-glass-invariants does).
-    const stageDeadlineMs = 60_000;
+    const stageDeadlineMs = (stage: Stage) => 40_000 + readyMs(stage);
     const scanWithin = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<Scanned>((resolve) => {
         // fixed-wait: a deadline, not a wait; a stage that answers clears it and goes on at once.
         timer = setTimeout(
-          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs / 1000} s` }),
-          stageDeadlineMs,
+          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs(stage) / 1000} s` }),
+          stageDeadlineMs(stage),
         );
       });
       try {
