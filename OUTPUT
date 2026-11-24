@@ -1,15 +1,3 @@
-ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
-==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: emit-module command failed with exit code 1 (use -v to see invocation)
-/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
-    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: cancelled
-error: fatalError
-ci-step focus-audit-58539eb6edf8-v1 exited 1
+ci-step local-gcp-agent-lane-11.us-west1-c.c.manaflow-437420.internal-29925967-1-f14b367acadf: scripts/ci/cmux-next-ios-sim.sh test ui=InputLatencyUITests duress=off duress=heavy at 1266af6ec13838bf73edc639822ce1ef342cd37f: exit 1
+error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly, and no default is configured.
+ci-step local-gcp-agent-lane-11.us-west1-c.c.manaflow-437420.internal-29925967-1-f14b367acadf exited 1
