@@ -15,8 +15,8 @@ mod owner;
 mod session;
 
 pub use copy::{
-    Cwd, EventsAppend, EventsAppended, EventsPage, Manifest, OpenTool, OpenTurn, QueuedPrompt,
-    SeqRecord, SnapshotAnswer, SnapshotPost, SnapshotPosted,
+    Cwd, EventsAppend, EventsAppended, EventsPage, Manifest, NativeFile, OpenTool, OpenTurn,
+    QueuedPrompt, SeqRecord, SnapshotAnswer, SnapshotPost, SnapshotPosted,
 };
 pub use error::{ErrorBody, ErrorCode, ErrorEnvelope};
 pub use holder::{Holder, HolderParseError};

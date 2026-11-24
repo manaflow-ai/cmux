@@ -74,10 +74,27 @@ fn checkout(root: &Path) -> (PathBuf, PathBuf) {
     (origin, work)
 }
 
-/// A daemon's hub on the stand-in agent, its store in memory. `env` is the agent's own.
-fn hub(env: Value) -> Arc<Hub> {
+/// What the stand-in agent of both daemons is, besides the defaults.
+#[derive(Clone, Copy, Default)]
+pub struct Agent {
+    /// Its environment (`fake_agent.py`'s switches).
+    pub env: &'static [(&'static str, &'static str)],
+    /// The agent family its profile names, which says whose session store its chats keep.
+    pub family: Option<&'static str>,
+}
+
+/// A daemon's hub on the stand-in agent, its store in memory. `env` is the agent's own, on
+/// top of `agent`'s.
+fn hub(agent: Agent, mut env: Value) -> Arc<Hub> {
+    for (name, value) in agent.env {
+        env[*name] = json!(value);
+    }
+    let mut fake = json!({"argv": ["python3", FAKE], "env": env});
+    if let Some(family) = agent.family {
+        fake["family"] = json!(family);
+    }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
+        "harnesses": {"fake": fake},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
@@ -123,6 +140,8 @@ pub struct World {
     pub laptop_clock: Arc<ManualClock>,
     pub machine_clock: Arc<ManualClock>,
     pub machine: Daemon,
+    /// The stand-in agent both daemons run.
+    agent: Agent,
     pub dir: tempfile::TempDir,
     /// The bare remote.
     pub origin: PathBuf,
@@ -133,6 +152,11 @@ pub struct World {
 impl World {
     /// A store with the Auto machine set, and that machine's daemon running. No laptop yet.
     pub async fn new() -> World {
+        World::with_agent(Agent::default()).await
+    }
+
+    /// [`World::new`] with both daemons on the stand-in agent `agent`.
+    pub async fn with_agent(agent: Agent) -> World {
         let dir = tempfile::tempdir().unwrap();
         let (origin, work) = checkout(dir.path());
         let phone = FakeAutoCloud::new();
@@ -145,7 +169,7 @@ impl World {
         // chat's detached processes by the chat's id in their environment. On two real
         // machines neither sees the other's processes; here the machine's agents carry
         // another id, so the laptop's kill of its own tree does not reach them.
-        let machine_hub = hub(json!({"ACPMUX_SESSION_ID": "on-the-cloud-machine"}));
+        let machine_hub = hub(agent, json!({"ACPMUX_SESSION_ID": "on-the-cloud-machine"}));
         let root = dir.path().join("machine");
         let options =
             HolderOptions { clock: machine_clock.clone(), network: None, new_chats: None };
@@ -157,13 +181,13 @@ impl World {
 
         let laptop_net = phone.as_owner();
         let laptop_clock = ManualClock::new(T0);
-        World { phone, laptop_net, laptop_clock, machine_clock, machine, dir, origin, work }
+        World { phone, laptop_net, laptop_clock, machine_clock, machine, agent, dir, origin, work }
     }
 
     /// Starts the laptop's daemon: its holder loop as `device:<id>` over the owner's
     /// transport, with the real importer over the same transport.
     pub fn start_laptop(&self) -> Daemon {
-        let hub = hub(json!({}));
+        let hub = hub(self.agent, json!({}));
         let root = self.dir.path().join("laptop-chats");
         let cloud = Arc::new(self.laptop_net.clone());
         let importer: Arc<dyn SessionImporter> =

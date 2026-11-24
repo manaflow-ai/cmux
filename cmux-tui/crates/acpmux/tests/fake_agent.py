@@ -71,6 +71,13 @@ task_complete, written a moment after the turn answers. session/load finds a rol
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
+FAKE_CLAUDE_STORE=1: a session file where Claude Code keeps its own, with the
+prompts answered as without it: each session is
+~/.claude/projects/<cwd, every character but a letter or digit a dash>/<uuid>.jsonl,
+a first line, then one line per prompt. session/load of an id with no file in
+its cwd's project folder fails, as a resume of a conversation Claude does not
+have.
+
 FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
 (configOptions), not the forked session's, as Codex does.
 
@@ -264,6 +271,39 @@ def codex_load(sid):
                 rollouts[sid] = os.path.join(root, name)
                 return True
     return False
+
+
+CLAUDE_STORE = os.environ.get("FAKE_CLAUDE_STORE") == "1"
+# FAKE_CLAUDE_STORE: each session's project file.
+claude_files = {}
+
+
+def claude_file(cwd, sid):
+    project = "".join(c if c.isascii() and c.isalnum() else "-" for c in cwd)
+    return os.path.join(os.path.expanduser("~"), ".claude", "projects", project, sid + ".jsonl")
+
+
+def claude_write(sid, record):
+    with open(claude_files[sid], "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def claude_new(cwd):
+    import uuid
+    sid = str(uuid.uuid4())
+    claude_files[sid] = claude_file(cwd, sid)
+    os.makedirs(os.path.dirname(claude_files[sid]), exist_ok=True)
+    # Not Claude Code's own record types: nothing in acpmux reads this file as a transcript.
+    claude_write(sid, {"type": "fake-session", "sessionId": sid, "cwd": cwd})
+    return sid
+
+
+def claude_load(cwd, sid):
+    path = claude_file(cwd, sid)
+    if not os.path.isfile(path):
+        return False
+    claude_files[sid] = path
+    return True
 
 
 def prompt_text(params):
@@ -2355,6 +2395,8 @@ def main():
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             new_sid = codex_new() if CODEX_STORE else f"{SESSION_PREFIX}{sessions}"
+            if CLAUDE_STORE:
+                new_sid = claude_new(params.get("cwd") or os.getcwd())
             known.add(new_sid)
             result = {
                 "sessionId": new_sid,
@@ -2439,6 +2481,8 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "result": None})
             else:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "no rollout found for thread id " + params["sessionId"]}}})
+        elif m == "session/load" and CLAUDE_STORE and not claude_load(params.get("cwd") or os.getcwd(), params["sessionId"]):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "No conversation found with session ID: " + params["sessionId"]}}})
         elif m == "session/load":
             # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
             # another Codex holds the thread: "Internal error", the reason in data.details.
@@ -2577,6 +2621,8 @@ def main():
                 target = claude_prompt
             if CODEX_STORE:
                 target = codex_store_prompt
+            if CLAUDE_STORE and params.get("sessionId") in claude_files:
+                claude_write(params["sessionId"], {"type": "fake-prompt", "text": prompt_text(params)})
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does

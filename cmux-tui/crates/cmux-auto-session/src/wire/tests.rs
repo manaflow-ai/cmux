@@ -101,6 +101,26 @@ fn a_folder_manifest_carries_a_tar() {
     assert_eq!(manifest.cwd, Cwd::Folder { tar: vec!["a".into(), "b".into(), "c".into()] });
     assert_eq!(manifest.chunks().collect::<Vec<_>>(), ["a", "b", "c"]);
     assert_eq!(manifest.open_turn, None);
+    // A manifest from a build that carried no agent files reads, and writes back without them.
+    assert!(manifest.native.is_empty());
+}
+
+#[test]
+fn a_manifest_names_the_agents_own_session_files() {
+    let manifest: Manifest = round_trip(
+        r#"{ "v": 1, "at": 5, "lastSeq": 12, "harness": "claude", "harnessSessionId": "h",
+  "cwd": { "kind": "folder", "tar": ["a"] }, "queue": [], "draft": "",
+  "native": [
+    { "label": "claude-project", "path": "claude-project/.claude/projects/-w/h.jsonl",
+      "chunks": ["b", "c"] },
+    { "label": "codex-rollout", "path": "codex-rollout/.codex/sessions/r-h.jsonl", "chunks": [] }
+  ] }"#,
+    );
+    assert_eq!(manifest.native.len(), 2);
+    assert_eq!(manifest.native[0].label, "claude-project");
+    assert_eq!(manifest.native[1].chunks, Vec::<String>::new(), "an empty file");
+    // The folder's chunks, then the files'.
+    assert_eq!(manifest.chunks().collect::<Vec<_>>(), ["a", "b", "c"]);
 }
 
 #[test]

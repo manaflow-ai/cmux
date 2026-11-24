@@ -1,6 +1,6 @@
-//! One snapshot of a chat: what a new holder needs besides the events. The folder is read and
-//! cut into content-addressed chunks, and one manifest names them with the chat's queue, draft
-//! and open turn. The manifest goes first: the store answers which chunks it lacks, so a folder
+//! One snapshot of a chat: what a new holder needs besides the events. The folder and the
+//! agent's own session files ([`native`]) are read and cut into content-addressed chunks, and
+//! one manifest names them with the chat's queue, draft and open turn. The manifest goes first: the store answers which chunks it lacks, so a folder
 //! that did not change costs one request.
 
 use std::sync::Arc;
@@ -14,6 +14,7 @@ use cmux_auto_session::wire::{
 };
 
 use super::folder::{self, Folder, TooLarge};
+use super::native::{self, AgentFile};
 use crate::hub::{Hub, Session};
 
 /// A snapshot the store took.
@@ -138,7 +139,10 @@ pub(crate) async fn upload<C: AutoCloud>(
         Folder::Git(git) => Some(git.tree.clone()),
         Folder::Plain(_) => None,
     };
-    let Parts { pack, cwd } = parts(&folder)?;
+    // Read before the pack that names their bytes is made, so they outlive it.
+    let files = agent_files(hub, session).await?;
+    let Parts { mut pack, cwd } = parts(&folder)?;
+    let native = native::add(&mut pack, &files).map_err(|_| Failed::TooLarge)?;
     let chat = chat_state(hub, session, tool);
     let manifest = Manifest {
         v: MANIFEST_VERSION,
@@ -150,6 +154,7 @@ pub(crate) async fn upload<C: AutoCloud>(
         queue: chat.queue,
         draft: chat.draft,
         open_turn: chat.open_turn,
+        native,
     };
     let post = SnapshotPost { holder: fence.holder.clone(), epoch: fence.epoch, manifest };
     let snapshot = match cloud.post_snapshot(&session.id, &post).await {
@@ -161,6 +166,25 @@ pub(crate) async fn upload<C: AutoCloud>(
         Err(error) => return Err(error.into()),
     };
     Ok(Stored { snapshot, anchor })
+}
+
+/// The agent's own session files, read now ([`native`]). Files that cannot be read leave the
+/// snapshot without them, and the next holder's agent then starts from the chat's log, as it
+/// did before a snapshot carried them; only their size refuses the snapshot.
+async fn agent_files(hub: &Arc<Hub>, session: &Arc<Session>) -> Result<Vec<AgentFile>, Failed> {
+    let (hub, meta) = (Arc::clone(hub), session.meta());
+    let id = meta.id.clone();
+    let read = move || native::read(&hub, &meta, SNAPSHOT_MAX_BYTES);
+    let error = match tokio::task::spawn_blocking(read).await {
+        Ok(Ok(files)) => return Ok(files),
+        Ok(Err(error)) if error.downcast_ref::<TooLarge>().is_some() => {
+            return Err(Failed::TooLarge);
+        }
+        Ok(Err(error)) => format!("{error:#}"),
+        Err(error) => error.to_string(),
+    };
+    tracing::warn!(session = %id, "the agent's own session files are not in this snapshot: {error}");
+    Ok(Vec::new())
 }
 
 /// Stores the chunks the store said it lacks. A refusal that names none means it lacks them

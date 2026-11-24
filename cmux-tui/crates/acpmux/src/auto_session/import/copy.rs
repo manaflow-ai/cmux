@@ -1,5 +1,5 @@
 //! Reads a chat's Cloud copy whole: every event, the newest snapshot's manifest, and every
-//! chunk it names, each checked against its name. Nothing local changes here, so a copy with
+//! chunk it names (the folder's and the agent's own files'), each checked against its name. Nothing local changes here, so a copy with
 //! a chunk missing fails before a chat or a folder exists.
 
 use cmux_auto_session::AutoCloud;
@@ -8,6 +8,7 @@ use cmux_auto_session::wire::{Cwd, ErrorCode, Manifest, SeqRecord};
 
 use super::local_error;
 use crate::auto_session::ImportError;
+use crate::auto_session::export::native::AgentFile;
 
 /// A snapshot with its files read.
 pub(super) struct Snapshot {
@@ -18,6 +19,8 @@ pub(super) struct Snapshot {
     pub first: Vec<u8>,
     /// A git folder's patch of uncommitted work. Empty: none.
     pub patch: Vec<u8>,
+    /// The agent's own session files (the manifest's `native`), each read whole.
+    pub native: Vec<AgentFile>,
 }
 
 /// A chat's copy.
@@ -53,7 +56,13 @@ pub(super) async fn read<C: AutoCloud>(cloud: &C, id: &str) -> Result<CloudCopy,
             };
             let first = file(cloud, id, first).await?;
             let patch = file(cloud, id, patch).await?;
-            Some(Snapshot { number: answer.snapshot, manifest, first, patch })
+            let mut native = Vec::new();
+            for named in &manifest.native {
+                let bytes = file(cloud, id, &named.chunks).await?;
+                let (label, path) = (named.label.clone(), named.path.clone());
+                native.push(AgentFile { label, path, bytes });
+            }
+            Some(Snapshot { number: answer.snapshot, manifest, first, patch, native })
         }
     };
     Ok(CloudCopy { events, snapshot })

@@ -4,6 +4,8 @@
 //!   256 and 1 MiB; a gap answer says where to resume.
 //! - [`snapshot`]: the chat's folder as chunks ([`folder`]: `session_move_carry`'s git form, or
 //!   a tar), its queue, draft and open turn in one manifest, posted after its events.
+//! - [`native`]: the agent's own session files, in the same manifest, so the next holder's
+//!   agent resumes with its memory.
 //! - [`leftover`]: what the folder holds beyond the last snapshot the store acknowledged, once
 //!   another holder runs the chat.
 //! - [`apply`]: that patch going into the folder when the person says so, merged beside the
@@ -16,6 +18,7 @@ pub(crate) mod apply;
 pub(crate) mod events;
 pub(crate) mod folder;
 pub(crate) mod leftover;
+pub(crate) mod native;
 pub(crate) mod snapshot;
 
 use std::sync::Arc;

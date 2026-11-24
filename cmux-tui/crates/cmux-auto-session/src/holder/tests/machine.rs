@@ -22,7 +22,7 @@ fn held(effects: &[Effect]) -> Event {
 
 /// A machine that took the chat over at epoch 2, ran its turn, stored its last copy and told
 /// the store that nothing is left to run.
-fn serving(now: u64) -> Chat {
+pub(super) fn serving(now: u64) -> Chat {
     let chat = Chat::new(Side::Machine, now);
     let (chat, _) = step(chat, assigned(AssignmentKind::Takeover, 2), now);
     let (chat, effects) = step(chat, Event::ImportDone { epoch: 2, snapshot: 3 }, now);

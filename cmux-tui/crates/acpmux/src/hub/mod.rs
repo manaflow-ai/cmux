@@ -505,6 +505,7 @@ pub(crate) mod stop_if_idle;
 mod stop_settles_tests;
 mod transcript;
 mod transfer;
+mod transfer_agent_files;
 mod transfer_authority;
 mod transfer_guard;
 mod transfer_hub_precopy;

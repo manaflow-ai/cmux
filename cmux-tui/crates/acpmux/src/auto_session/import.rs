@@ -112,7 +112,7 @@ impl<C: AutoCloud + 'static> Importer<C> {
         place_snapshot(&dir, fresh, manifest, snapshot, &label).await?;
         let staged = tempfile::tempdir().map_err(|e| local_error(format!("a temp folder: {e}")));
         let made = match staged {
-            Ok(staged) => self.log_in(view, reason, copy, manifest, &dir, staged.path()).await,
+            Ok(staged) => self.log_in(view, reason, copy, snapshot, &dir, staged.path()).await,
             Err(error) => Err(error),
         };
         if made.is_err() && fresh {
@@ -122,19 +122,27 @@ impl<C: AutoCloud + 'static> Importer<C> {
         Ok(answered(view, copy.last_seq(), snapshot.number))
     }
 
-    /// The copy's events as a bundle in `staged`, imported by the hub.
+    /// The copy's events and the agent's own session files as a bundle in `staged`, imported
+    /// by the hub: the files are in the agent's store here before the agent first resumes.
     async fn log_in(
         &self,
         view: &SessionView,
         reason: ImportReason,
         copy: &copy::CloudCopy,
-        manifest: &Manifest,
+        snapshot: &copy::Snapshot,
         dir: &Path,
         staged: &Path,
     ) -> Result<(), ImportError> {
+        let manifest = &snapshot.manifest;
         let base = self.hub.auto_local(&view.id).map(|session| session.meta());
-        let meta = bundle::meta(view, manifest, dir, base).map_err(local_error)?;
-        bundle::write(staged, &view.id, &meta, &copy.events).map_err(local_error)?;
+        let family = {
+            let config = self.hub.config.read().await;
+            let profile = config.harnesses.get(&manifest.harness);
+            profile.map(|profile| crate::config::derive_family(&manifest.harness, profile))
+        };
+        let meta = bundle::meta(view, manifest, dir, base, family).map_err(local_error)?;
+        bundle::write(staged, &view.id, &meta, &copy.events, &snapshot.native)
+            .map_err(local_error)?;
         let open = manifest.open_turn.as_ref();
         let in_flight = open.and_then(|turn| {
             let tool = turn.tool.as_ref()?;

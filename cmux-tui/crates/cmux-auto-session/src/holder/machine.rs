@@ -10,13 +10,19 @@
 //! machine says "nothing left to run" only once the store has its last copy, and says "at
 //! work" before it acks a message, so the store never gives away a chat whose last word is
 //! only here.
+//!
+//! A move by hand is the machine's to give (`returning`, `give.rs`): it stops its turn, stores
+//! its last copy and asks the store to take the chat, and has lost the chat once the store did.
 
 use super::out::Out;
-use super::{Answer, CopyState, Effect, Event, ImportReason, State, Verdict};
+use super::{
+    Answer, CopyState, Effect, Event, GiveStep, ImportReason, MoveTo, State, Verdict, give,
+};
 use crate::wire::AssignmentKind;
 
 /// The chat is not this machine's any more.
 fn leave(out: &mut Out) {
+    out.chat.declined = false;
     out.chat.needs_run = false;
     out.chat.told_needs_run = false;
     out.chat.copy = CopyState::Stored;
@@ -48,6 +54,7 @@ fn lost(out: &mut Out) {
 fn take(out: &mut Out, kind: AssignmentKind, epoch: u64, now: u64) {
     let reason = ImportReason::from(kind);
     out.rest();
+    out.chat.declined = false;
     out.chat.needs_run = false;
     out.chat.told_needs_run = false;
     out.chat.copy = CopyState::Stored;
@@ -93,6 +100,10 @@ fn assigned_while_running(out: &mut Out, epoch: u64, kind: AssignmentKind, at: u
 fn served(out: &mut Out, answer: Answer, now: u64) {
     let epoch = answer.epoch;
     out.to(State::Serving { epoch });
+    // The person moved the chat: it is given, and whoever gets it takes the inbox.
+    if let Some(to) = give::wanted(out, answer.wish) {
+        return give::begin(out, epoch, to);
+    }
     if answer.inbox_pending {
         drain(out, epoch, now);
         return;
@@ -117,7 +128,11 @@ pub(super) fn away(out: &mut Out, event: Event, now: u64) {
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
         | Event::SnapshotFailed { .. }
-        | Event::Closed { .. } => {}
+        | Event::Closed { .. }
+        | Event::Wished { .. }
+        | Event::TurnStopped
+        | Event::Gave { .. }
+        | Event::GiveFailed { .. } => {}
     }
 }
 
@@ -173,7 +188,11 @@ pub(super) fn taking(
         | Event::Answered { .. }
         | Event::Unanswered { .. }
         | Event::SnapshotStored { .. }
-        | Event::SnapshotFailed { .. } => {}
+        | Event::SnapshotFailed { .. }
+        | Event::Wished { .. }
+        | Event::TurnStopped
+        | Event::Gave { .. }
+        | Event::GiveFailed { .. } => {}
     }
 }
 
@@ -214,6 +233,86 @@ pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
         }
         Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
         Event::Closed { .. } => gone(out),
-        Event::AutoOn | Event::AutoOff | Event::ImportDone { .. } | Event::ImportFailed { .. } => {}
+        Event::Wished { to } => {
+            out.chat.declined = false;
+            if let Some(to) = give::wanted(out, Some(to)) {
+                give::begin(out, epoch, to);
+            }
+        }
+        Event::AutoOn
+        | Event::AutoOff
+        | Event::ImportDone { .. }
+        | Event::ImportFailed { .. }
+        | Event::TurnStopped
+        | Event::Gave { .. }
+        | Event::GiveFailed { .. } => {}
+    }
+}
+
+/// This machine holds the chat and gives it to where the person moved it (`give.rs`). It is
+/// the holder until the store took the chat, so it renews. Once the store did, the new holder
+/// has everything this machine did: what ran here is killed and nothing is kept.
+pub(super) fn returning(
+    out: &mut Out,
+    epoch: u64,
+    step: GiveStep,
+    to: MoveTo,
+    event: Event,
+    now: u64,
+) {
+    match event {
+        // A newer assignment: the chat left and came back, so what is here is stale. One at
+        // this epoch waits in the store for whoever holds the chat next.
+        Event::Assigned { kind, epoch: at } => {
+            if at > epoch {
+                out.push(Effect::KillTree);
+                out.push(Effect::WriteLeftoverPatch);
+                take(out, kind, at, now);
+            }
+        }
+        Event::Tick => give::tick(out, epoch, step, to, now),
+        Event::Wake => out.renew(now),
+        Event::Changed { needs_run, .. } => out.chat.needs_run = needs_run,
+        Event::Answered { request, answer } => {
+            if out.answered(request).is_some() {
+                match answer.verdict {
+                    // Still the holder. With no wish left the person took the move back, or
+                    // it waited too long: the chat goes on here. A wish goes on as the store
+                    // tells it now: its epoch, and where the chat goes.
+                    Verdict::Holder => match answer.wish {
+                        Some(to) => out.to(State::Returning { epoch: answer.epoch, step, to }),
+                        None => {
+                            out.push(Effect::Stay);
+                            served(out, answer, now);
+                        }
+                    },
+                    Verdict::Lost | Verdict::Standby | Verdict::Closed => gone(out),
+                }
+            }
+        }
+        Event::Unanswered { request } => {
+            out.answered(request);
+        }
+        Event::TurnStopped => give::turn_stopped(out, epoch, step, to, now),
+        Event::SnapshotStored { copy, snapshot } => {
+            give::stored(out, epoch, step, to, copy, snapshot);
+        }
+        Event::SnapshotFailed { copy, too_large } => {
+            give::copy_failed(out, epoch, to, copy, too_large);
+        }
+        Event::Gave { .. } => match step {
+            GiveStep::Asking => {
+                out.push(Effect::KillTree);
+                leave(out);
+            }
+            GiveStep::Stopping | GiveStep::Copying => {}
+        },
+        Event::GiveFailed { why } => give::failed(out, epoch, step, to, why, now),
+        Event::Closed { .. } => gone(out),
+        Event::AutoOn
+        | Event::AutoOff
+        | Event::ImportDone { .. }
+        | Event::ImportFailed { .. }
+        | Event::Wished { .. } => {}
     }
 }

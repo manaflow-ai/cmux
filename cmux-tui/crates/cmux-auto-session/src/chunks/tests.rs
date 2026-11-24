@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::wire::Cwd;
+use crate::wire::{Cwd, NativeFile};
 
 const MIB: usize = 1 << 20;
 
@@ -27,6 +27,7 @@ fn manifest(cwd: Cwd) -> Manifest {
         queue: Vec::new(),
         draft: String::new(),
         open_turn: None,
+        native: Vec::new(),
     }
 }
 
@@ -165,6 +166,23 @@ fn a_manifest_is_checked_before_anything_is_fetched() {
     assert_eq!(validate(&bad), Err(ChunkError::BadName { name: "not-a-hash".into() }));
     assert!(matches!(Assembler::new(&["XYZ".to_owned()]), Err(ChunkError::BadName { .. })));
 
-    let newer = Manifest { v: MANIFEST_VERSION + 1, ..manifest(Cwd::Folder { tar: vec![a] }) };
+    let newer =
+        Manifest { v: MANIFEST_VERSION + 1, ..manifest(Cwd::Folder { tar: vec![a.clone()] }) };
     assert_eq!(validate(&newer), Err(ChunkError::Version { v: MANIFEST_VERSION + 1 }));
+
+    // The agent's own files are checked and asked for like the folder's parts.
+    let file = |chunks: Vec<String>| NativeFile {
+        label: "claude-project".into(),
+        path: "claude-project/.claude/projects/-w/h.jsonl".into(),
+        chunks,
+    };
+    let (d, e) = (name_of(b"d"), name_of(b"e"));
+    let carried = Manifest {
+        native: vec![file(vec![d.clone(), a.clone()]), file(vec![e.clone()])],
+        ..manifest(Cwd::Folder { tar: vec![a.clone()] })
+    };
+    assert_eq!(validate(&carried), Ok(()));
+    assert_eq!(missing(&carried, |name| name == d), [a, e]);
+    let bad = Manifest { native: vec![file(vec!["nope".into()])], ..carried };
+    assert_eq!(validate(&bad), Err(ChunkError::BadName { name: "nope".into() }));
 }

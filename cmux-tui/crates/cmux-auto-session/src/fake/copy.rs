@@ -29,10 +29,13 @@ fn json_len<T: serde::Serialize>(value: &T) -> usize {
 /// The chunks a manifest names, each once: every list in it whose items are all chunk names.
 /// The real store reads the lists by shape, so a list with anything else in it names nothing.
 fn named_chunks(manifest: &Manifest) -> Vec<&str> {
-    let lists: [&[String]; 2] = match &manifest.cwd {
+    let folder: [&[String]; 2] = match &manifest.cwd {
         Cwd::Git { bundle, patch, .. } => [bundle.as_slice(), patch.as_slice()],
         Cwd::Folder { tar } => [tar.as_slice(), &[]],
     };
+    // The agent's own session files are lists of chunk names too (`native[].chunks`).
+    let native = manifest.native.iter().map(|file| file.chunks.as_slice());
+    let lists = folder.into_iter().chain(native);
     let mut names: Vec<&str> = Vec::new();
     for list in lists {
         if !list.iter().all(|name| chunks::is_name(name)) {
