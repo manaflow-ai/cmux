@@ -29,6 +29,7 @@ RUNTIMES = {
 DEVICE_TYPES = {
     "devicetypes": [
         {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17", "name": "iPhone 17"},
+        {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-Air", "name": "iPhone Air"},
     ]
 }
 
@@ -77,7 +78,8 @@ class IsolatedSimRuntimeTests(unittest.TestCase):
         self.assertNotIn("iOS-27-1", log)
 
     def test_fails_naming_base_device_when_no_runtime_supports_it(self) -> None:
-        result, log = self.run_helper(base="iPhone 99")
+        # iPhone Air exists as a device type but no fake runtime lists it.
+        result, log = self.run_helper(base="iPhone Air")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CMUX_IOS_SIM_BASE_DEVICE", result.stderr)
         self.assertEqual(log, "")
