@@ -45,7 +45,9 @@ export function runnableCommand(language: string, text: string): string {
     const prompted = /^\s*>\s?(.*)$/.exec(line);
     const reading = open.scopes.length > 0 || open.heredocs.length > 0 || open.escaped || open.pipe || open.depth > 0;
     const continued = reading && (!!prompted || (open.escaped && open.scopes.length === 0));
-    const prompt = continued ? null : /^\s*[$%]\s+(.*)$/.exec(line);
+    // While the shell still reads (an open heredoc, quote, pipe or compound command), a `$ ` line
+    // with no `> ` is output too, never a new command: the shell would read it into the open one.
+    const prompt = reading ? null : /^\s*[$%]\s+(.*)$/.exec(line);
     if (!prompt && !continued) {
       open = CLOSED;
       continue;
