@@ -586,7 +586,7 @@ impl LocalStore {
                 // No copy yet: the segment is scanned whole, which makes one (on a system that
                 // names a birth time); the next keyed scan reads its heads from it.
                 let copy = self.read_kind_index(id, index, &stamp);
-                let Some(kind_index::Copied { lines, len: from, .. }) = copy else {
+                let Some((lines, from, _)) = copy else {
                     return self.keyed_whole(id, index, path, &scan, keep, visit);
                 };
                 let mut heads = SegmentHeads {

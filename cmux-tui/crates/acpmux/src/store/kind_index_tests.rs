@@ -381,86 +381,6 @@ fn a_scan_adds_to_a_copy_and_never_writes_its_lines_again() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Detector for a copy hashed whole on every read (cmux NEXT NIGHTLY f3b932edb979, 2026-11-23:
-/// `read_kind_index` → `fnv_on` led the busiest workers of a daemon at 112% of a core, on each
-/// prompt's resend). A read hashes only the lines added since the store last checked the same
-/// copy file; a copy changed in place with no new bytes, or replaced, is hashed whole again, and
-/// read past when it does not check.
-#[test]
-fn a_copy_read_again_hashes_only_the_lines_added_since() {
-    let root = root();
-    // One segment, so every scan reads the same copy.
-    let store = LocalStore::new(root.clone(), 1 << 30).unwrap();
-    let kinds = ["user_message"];
-    let mut log = Vec::new();
-    let mut seq = 0;
-    let mut grow = |log: &mut Vec<EventRecord>| {
-        // Past COPY_AFTER (1 MiB): 20 records of 64 KiB, half of them copied.
-        for _ in 0..20 {
-            seq += 1;
-            let kind = if seq % 2 == 0 { "user_message" } else { "tool_call_update" };
-            let msg = json!({"promptId": format!("p{seq}"), "text": "x".repeat(64 * 1024)});
-            let r = EventRecord {
-                seq,
-                at: seq,
-                dir: "mux".into(),
-                kind: kind.into(),
-                msg,
-                host_seq: None,
-            };
-            store.append("c", &r).unwrap();
-            log.push(r);
-        }
-        store.flush().unwrap();
-    };
-    let expect = |log: &[EventRecord]| -> Vec<EventRecord> {
-        log.iter().filter(|r| r.kind == "user_message").cloned().collect()
-    };
-    let hashed_by = |store: &LocalStore| {
-        kind_index::HASHED.with(|n| n.set(0));
-        let got = scanned(store, &kinds);
-        (got, kind_index::HASHED.with(std::cell::Cell::get))
-    };
-    let index = store.segments("c").unwrap().first().map_or(1, |s| s.0);
-    let copy = root.join("c").join(kind_index::DIR).join(format!("{index:06}.ndjson"));
-    grow(&mut log);
-    assert_eq!(scanned(&store, &kinds), expect(&log));
-    let Ok(meta) = std::fs::metadata(&copy) else {
-        return; // No birth time on this file system: no copies kept.
-    };
-    let lines = meta.len() - kind_index::HEADER_WIDTH as u64;
-    // The first read of the copy the scan wrote hashes it whole; read again, unchanged, none.
-    assert_eq!(hashed_by(&store), (expect(&log), lines));
-    assert_eq!(hashed_by(&store), (expect(&log), 0));
-    // Added to: the next read hashes the added lines only.
-    grow(&mut log);
-    assert_eq!(scanned(&store, &kinds), expect(&log));
-    let grown = std::fs::metadata(&copy).unwrap().len();
-    assert!(grown > meta.len(), "the copy was added to");
-    assert_eq!(hashed_by(&store), (expect(&log), grown - meta.len()));
-    assert_eq!(hashed_by(&store), (expect(&log), 0));
-    // A line damaged in place, the file's length kept: hashed whole, read past, made again.
-    let mut bytes = std::fs::read(&copy).unwrap();
-    let at = bytes[kind_index::HEADER_WIDTH..].iter().position(|b| *b == b'x').unwrap();
-    bytes[kind_index::HEADER_WIDTH + at] = b'y';
-    std::fs::write(&copy, &bytes).unwrap();
-    std::fs::File::options()
-        .write(true)
-        .open(&copy)
-        .unwrap()
-        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
-        .unwrap();
-    let (got, hashed) = hashed_by(&store);
-    assert_eq!(got, expect(&log), "the damaged line is not read");
-    assert!(hashed >= lines, "hashed whole: {hashed} of {lines}");
-    // The copy made again is another file: its first read hashes it whole, the next none.
-    let (got, hashed) = hashed_by(&store);
-    assert_eq!(got, expect(&log));
-    assert!(hashed >= lines, "a new copy hashed whole: {hashed} of {lines}");
-    assert_eq!(hashed_by(&store), (expect(&log), 0));
-    let _ = std::fs::remove_dir_all(&root);
-}
-
 /// An addition a crash cut before its header (lines past the ones the header covers) is read
 /// past; a torn header fails the seal and the copy is made again. Neither is ever read wrong.
 #[test]
@@ -1350,8 +1270,7 @@ fn a_chat_never_scanned_has_a_copy_of_every_filled_segment() {
         if stamp.id.2 == 0 {
             return; // No birth time on this file system: no copies kept.
         }
-        let kind_index::Copied { len, parsed, .. } =
-            store.read_kind_index("c", *index, &stamp).expect("a copy");
+        let (_, len, parsed) = store.read_kind_index("c", *index, &stamp).expect("a copy");
         assert_eq!(len, stamp.len, "segment {index}: the copy covers it whole");
         assert!(parsed, "segment {index}: the copy says every line read");
     }

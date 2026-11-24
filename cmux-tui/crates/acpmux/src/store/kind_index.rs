@@ -259,88 +259,6 @@ thread_local! {
     pub(super) static COPY_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// The most copies [`Checked`] remembers; past it, it forgets them all (each is then hashed
-/// whole once more).
-const CHECKED_MAX: usize = 1 << 16;
-
-/// What a copy file was when its lines last checked: its device, inode and birth, its length and
-/// modify time, and the length and FNV-1a hash of the lines its header covered.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Check {
-    file: (u64, u64, u64),
-    len: u64,
-    mtime: Option<std::time::SystemTime>,
-    lines_len: u64,
-    lines_hash: u64,
-}
-
-/// The copies a store's reads checked ([`LocalStore::read_kind_index`]), so a read hashes only
-/// the lines added since. Each read hashed every line of the copy to check it: a prompt's resend
-/// (`logged_inbox_answer`, `logged_prompt_records`) read every copy of a chat past the held heads
-/// again, and `fnv_on` led the busiest worker threads of Leo's NIGHTLY daemon at 112% of a core
-/// (f3b932edb979, 2026-11-23). A copy is only added to in place ([`LocalStore::append_kind_index`],
-/// which leaves the lines before untouched) or written whole under a new inode, so the lines a
-/// read checked stay as checked while the file is the same and no shorter: a later read hashes
-/// the lines past them only, carried on from their hash. A file that is another (inode, birth),
-/// shorter, or changed with no new bytes (modify time) is hashed whole, as is any copy whose
-/// carried hash does not match.
-#[derive(Default)]
-pub(super) struct Checked {
-    map: Mutex<HashMap<(String, u32), Check>>,
-}
-
-impl Checked {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, u32), Check>> {
-        self.map.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Whether `lines`, the lines a header of copy `index` of chat `id` covers, read from the copy
-    /// file `now` (no `lines_len` set yet), hash to `want`: the lines past those of the last check
-    /// of the same file only, else all of them.
-    fn lines_match(&self, id: &str, index: u32, mut now: Check, lines: &[u8], want: u64) -> bool {
-        let key = (id.to_owned(), index);
-        let prior = self.lock().get(&key).copied();
-        now.lines_len = lines.len() as u64;
-        now.lines_hash = want;
-        let carried = prior.filter(|c| {
-            c.file == now.file
-                && now.file.2 != 0
-                && c.lines_len <= now.lines_len
-                && (c.len < now.len || (c.len == now.len && c.mtime == now.mtime))
-        });
-        let matched = carried.is_some_and(|c| {
-            usize::try_from(c.lines_len)
-                .ok()
-                .and_then(|from| lines.get(from..))
-                .is_some_and(|added| fnv_on(c.lines_hash, added) == want)
-        }) || fnv_on(FNV_START, lines) == want;
-        let mut map = self.lock();
-        if matched {
-            if map.len() >= CHECKED_MAX && !map.contains_key(&key) {
-                map.clear();
-            }
-            map.insert(key, now);
-        } else {
-            map.remove(&key);
-        }
-        matched
-    }
-
-    /// Forgets chat `id`'s copies (its folder is gone).
-    pub(super) fn forget(&self, id: &str) {
-        self.lock().retain(|(chat, _), _| chat != id);
-    }
-}
-
-/// A copy as [`LocalStore::read_kind_index`] read it: its lines, the bytes of the segment they
-/// cover, whether every line of those bytes read, and the lines' hash.
-pub(super) struct Copied {
-    pub(super) lines: Vec<u8>,
-    pub(super) len: u64,
-    pub(super) parsed: bool,
-    pub(super) hash: u64,
-}
-
 /// One addition to a copy at a time in this process: two scans of a chat that added at once
 /// would each cut the other's lines (the seal would catch it, and the copy be made again).
 static APPENDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -562,11 +480,8 @@ impl LocalStore {
         path: &Path,
         file: &std::fs::File,
     ) -> Result<Option<(Vec<u8>, u64, bool)>> {
-        let read = |stamp: &Stamp| {
-            self.read_kind_index(id, index, stamp).map(|c| (c.lines, c.len, c.parsed))
-        };
         let stamp = Stamp::of(file)?;
-        let copy = read(&stamp);
+        let copy = self.read_kind_index(id, index, &stamp);
         let behind =
             copy.as_ref().map_or(stamp.len, |(_, from, _)| stamp.len.saturating_sub(*from));
         if stamp.id.2 == 0 || behind < COPY_AFTER {
@@ -577,7 +492,7 @@ impl LocalStore {
             tracing::debug!(session = %id, segment = index, "copying a segment for a read back failed: {e}");
             return Ok(copy);
         }
-        Ok(read(&Stamp::of(file)?).or(copy))
+        Ok(self.read_kind_index(id, index, &Stamp::of(file)?).or(copy))
     }
 
     pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
@@ -655,11 +570,13 @@ impl LocalStore {
             Some(local) if scan.copied => Some(Stamp::of(local)?),
             _ => None,
         };
-        let (mut copy, from, mut parsed, copy_hash) =
-            match stamp.as_ref().and_then(|s| self.read_kind_index(id, index, s)) {
-                Some(c) if c.parsed || !scan.strict => (Some(c.lines), c.len, c.parsed, c.hash),
-                _ => (None, 0, true, 0),
-            };
+        let (mut copy, from, mut parsed) = match stamp
+            .as_ref()
+            .and_then(|s| self.read_kind_index(id, index, s))
+        {
+            Some((lines, from, parsed)) if parsed || !scan.strict => (Some(lines), from, parsed),
+            _ => (None, 0, true),
+        };
         for line in copy.iter().flat_map(|lines| lines.split(|b| *b == b'\n')) {
             if !scan.line(path, line, visit)? {
                 return Ok(false);
@@ -720,7 +637,7 @@ impl LocalStore {
             let len = from.saturating_add(covered);
             let added = had_copy
                 && self
-                    .append_kind_index(id, index, &stamp, len, parsed, lines, (copied, copy_hash))
+                    .append_kind_index(id, index, &stamp, len, parsed, lines, copied)
                     .unwrap_or_else(|e| {
                         tracing::debug!(session = %id, segment = index, "adding to the log's kind index failed: {e}");
                         false
@@ -735,36 +652,27 @@ impl LocalStore {
     /// The copied lines of segment `index`, the bytes of it they cover, and whether every line of
     /// those bytes read, when the copy is of the file `segment` (the open segment's stamp) and
     /// [`INDEXED_KINDS`], no longer than it, and whole. A system that names no birth time keeps no
-    /// copy: an inode a later file reuses would pass for the same. Of a copy read before, only the
-    /// lines added since are hashed ([`Checked`]).
-    pub(super) fn read_kind_index(&self, id: &str, index: u32, segment: &Stamp) -> Option<Copied> {
+    /// copy: an inode a later file reuses would pass for the same.
+    pub(super) fn read_kind_index(
+        &self,
+        id: &str,
+        index: u32,
+        segment: &Stamp,
+    ) -> Option<(Vec<u8>, u64, bool)> {
         let mut bytes = Vec::new();
-        let mut file = crate::config::private_state_file(&self.kind_index_path(id, index)).ok()?;
-        // The copy file as it was before its bytes were read: an addition meanwhile only grows it.
-        let meta = file.metadata().ok()?;
-        let now = Check {
-            file: file_id(&file, &meta),
-            len: meta.len(),
-            mtime: meta.modified().ok(),
-            lines_len: 0,
-            lines_hash: 0,
-        };
-        file.read_to_end(&mut bytes).ok()?;
+        let copy = self.kind_index_path(id, index);
+        crate::config::private_state_file(&copy).ok()?.read_to_end(&mut bytes).ok()?;
         #[cfg(test)]
         COPY_BYTES.with(|n| n.set(n.get() + bytes.len() as u64));
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
-        let file = (header.dev, header.ino, header.born_ns);
-        let same = header.schema == SCHEMA
-            && header.kinds == kinds()
-            && segment.id.2 != 0
-            && file == segment.id
-            && segment.len >= header.len;
+        let id = segment.id;
         let mut lines = bytes.split_off(end.saturating_add(1));
         // Bytes past the lines the header covers are an addition a crash cut before its header.
         lines.truncate(usize::try_from(header.lines_len).ok()?);
-        let whole = same
-            && lines.len() as u64 == header.lines_len
+        let file = (header.dev, header.ino, header.born_ns);
+        let whole = lines.len() as u64 == header.lines_len
+            && fnv_on(FNV_START, &lines) == header.lines_hash
             && seal(
                 file,
                 header.len,
@@ -773,14 +681,9 @@ impl LocalStore {
                 header.lines_len,
                 header.lines_hash,
             ) == header.seal
-            && lines.last().is_none_or(|b| *b == b'\n')
-            && self.kind_index_checks.lines_match(id, index, now, &lines, header.lines_hash);
-        whole.then_some(Copied {
-            lines,
-            len: header.len,
-            parsed: header.parsed,
-            hash: header.lines_hash,
-        })
+            && lines.last().is_none_or(|b| *b == b'\n');
+        let same = header.schema == SCHEMA && header.kinds == kinds() && id.2 != 0 && file == id;
+        (same && whole && segment.len >= header.len).then_some((lines, header.len, header.parsed))
     }
 
     /// Saves `lines`, the indexed lines of the first `len` bytes of segment `index`, read from a
@@ -821,11 +724,9 @@ impl LocalStore {
     }
 
     /// Adds `lines[copied..]`, the lines read past the copy of segment `index` that `lines[..copied]`
-    /// is (`copy`: `copied` and those lines' hash, as the scan read the copy), to that copy, which
-    /// now covers the segment's first `len` bytes: the new lines at the end of the copy's lines,
-    /// then its header again in place ([module docs](self)). False (nothing written) when the copy
-    /// on disk is not the one the scan read, so the caller writes it whole. The copy's lines are
-    /// not hashed again: the scan's read checked them against the hash this compares.
+    /// is, to that copy, which now covers the segment's first `len` bytes: the new lines at the end
+    /// of the copy's lines, then its header again in place ([module docs](self)). False (nothing
+    /// written) when the copy on disk is not the one the scan read, so the caller writes it whole.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn append_kind_index(
         &self,
@@ -835,9 +736,8 @@ impl LocalStore {
         len: u64,
         parsed: bool,
         lines: &[u8],
-        copy: (usize, u64),
+        copied: usize,
     ) -> Result<bool> {
-        let (copied, copied_hash) = copy;
         use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
         if segment.id.2 == 0 {
             return Ok(true);
@@ -859,7 +759,7 @@ impl LocalStore {
         if old.schema != SCHEMA
             || (old.dev, old.ino, old.born_ns) != segment.id
             || old.lines_len != old_lines.len() as u64
-            || old.lines_hash != copied_hash
+            || old.lines_hash != fnv_on(FNV_START, old_lines)
         {
             return Ok(false);
         }
