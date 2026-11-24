@@ -138,9 +138,10 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
   try {
     await step("join", async (c) => {
       const deadline = d.now() + 60_000
-      for (;;) {
+      // Every fifth read asks the hub again (the Machines section reads its joined list on a trigger, not a timer).
+      for (let i = 0; ; i++) {
         c()
-        const m = await d.exec(cmux(o.aSocket, "app", "machines", "--json", "--no-refresh"), 15_000)
+        const m = await d.exec(cmux(o.aSocket, "app", "machines", "--json", ...(i % 5 ? ["--no-refresh"] : [])), 15_000)
         if (m.code === 0 && machineUp(m.stdout, o.bName)) return { status: "pass", detail: `${o.bName} connected on A` }
         if (d.now() > deadline) return { status: "fail", detail: `${o.bName} not connected on A in 60 s: ${classify(m).text}` }
         await d.sleep(1_000)

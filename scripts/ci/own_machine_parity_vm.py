@@ -43,7 +43,7 @@ def acpmux_evidence(app, tag, out, label):
                 files += [os.path.join(root, n) for n in names]
             parts.append("files: " + ", ".join(os.path.relpath(f, d) for f in files[:200]))
             env = dict(os.environ, ACPMUX_HOME=d)
-            for argv in (["host", "join", "--status", "--json"], ["machine", "list", "--json"]):
+            for argv in (["host", "join", "--status", "--json"], ["machine", "ls", "--json"]):
                 try:
                     p = subprocess.run([acpmux, *argv], env=env, capture_output=True, text=True, timeout=30)
                     parts.append(f"$ acpmux {' '.join(argv)} -> {p.returncode}\n{p.stdout[-4000:]}{p.stderr[-2000:]}")
