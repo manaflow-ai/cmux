@@ -136,7 +136,10 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             hub.attach_count(s, 1, true);
         }
         Some(opts) if opts.remote => {
-            conn.stream_cursors.start(&s.id, s.meta().last_seq);
+            // A chat that came back from the peer it moved to goes on from the last record of
+            // it sent (`follow.rs`), not from the log's end.
+            let at = conn.follows.to_local(&s.id).unwrap_or_else(|| s.meta().last_seq);
+            conn.stream_cursors.start(&s.id, at);
             opts.remote = false;
             hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices
@@ -154,6 +157,7 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
     conn.chunk_deltas.forget(&s.id);
     conn.stream_cursors.forget(&s.id);
+    conn.follows.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
         conn.interest.detach(&s.id);
         conn.unbind_mailbox_receipt(&s.id);

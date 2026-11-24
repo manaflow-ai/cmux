@@ -206,7 +206,9 @@ extension LiveCoordinator {
         do {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             ConnectTimeline.shared.mark("daemon_channel_open")
-            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName)))
+            let firstWindow = ListFirstWindow.honors(macID, defaults: .standard)
+            return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName,
+                                                                                         firstWindow: firstWindow)))
         } catch {
             return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
         }
@@ -286,6 +288,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
+        let tabs = self.tabs
+        Task { await tabs.read(on: link, macID: macID) }
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
@@ -492,11 +497,6 @@ extension LiveCoordinator {
         let onWaiting: @MainActor @Sendable () -> Void = { [weak self, weak session] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, let session, session.currentLink === link else { return }
-            // A code for this Mac came in after this link's challenge: a new link presents it.
-            if pairing.invites.pending(mac: macID) != nil {
-                self.redial(session)
-                return
-            }
             self.setPairing(keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name), for: session)
         }
         let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
@@ -507,8 +507,6 @@ extension LiveCoordinator {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
                 session.pairingRetries = 0
-                // Allowed already: a code for this Mac has nothing left to approve.
-                pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
                     try keys.approvalSigner()
                 }
@@ -714,6 +712,33 @@ extension LiveCoordinator {
     public func touch(_ macID: String) {
         lastShown[macID] = instants.now()
         applyLinks()
+    }
+
+    /// A call (a Chief call, voice mode) runs on `macID`'s link, or none (nil):
+    /// that link never parks while the call runs, and a parked one resumes
+    /// now (PROTOCOL.md "Parked link"). Its replies, read aloud, would
+    /// otherwise wait on the Mac until the phone comes back to the screen.
+    public func setCallMac(_ macID: String?) {
+        guard macID != callMacID else { return }
+        callMacID = macID
+        holdCallLink()
+    }
+
+    /// Moves the call's hold onto its Mac's current link.
+    func holdCallLink() {
+        let link = callMacID.flatMap { sessions[$0]?.link }
+        guard callHold?.link != link.map(ObjectIdentifier.init) else { return }
+        callHold?.hold.release()
+        callHold = link.map { (ObjectIdentifier($0), $0.holdAwake()) }
+    }
+
+    /// Runs `body` with `macID`'s link held out of the park: a notification
+    /// action in the background (Deny, a reply) resumes a parked link for its
+    /// request, and the link parks again when it is done.
+    func withLinkAwake<T>(_ macID: String, _ body: () async throws -> T) async rethrows -> T {
+        let hold = sessions[macID]?.link.holdAwake()
+        defer { hold?.release() }
+        return try await body()
     }
 
     /// A surface of the Mac opened on screen (a terminal or browser tab): its link
@@ -1073,6 +1098,7 @@ extension LiveCoordinator {
             session.linkDownSince = now
         }
         let down = session.linkDownSince.map { now - $0 } ?? .zero
+        updateMacStalled(session, down: down)
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
         // nothing has dialed yet, so nothing has failed.
@@ -1089,6 +1115,36 @@ extension LiveCoordinator {
             guard let clock = self?.clock else { return }
             do { try await clock.sleep(for: wait) } catch { return }
             guard let self, let session else { return }
+            self.updateTerminalsOffline(session)
+        }
+    }
+
+    /// How long a redial may run before the Mac's view says it isn't responding: the shared quiet
+    /// bound, twice that for a first dial (a slow connect is not a dead Mac).
+    static let macStallAfter: Duration = QuietStatusGate.threshold
+
+    /// A Mac whose link stays down while the phone keeps redialing it (frozen, overloaded, or a
+    /// socket the service still holds open, so it lists the Mac online): past ``macStallAfter`` its
+    /// view says "<Mac> isn't responding" with Retry, instead of the service's "Online" for as long
+    /// as the redials last (cmux#52200 walk: a frozen Mac read "Online" for 5 minutes). Not while a
+    /// Retry runs: that has its own steps and deadline. A connected link clears it (`updateMacState`).
+    private func updateMacStalled(_ session: MacSession, down: Duration) {
+        session.stallTask?.cancel()
+        session.stallTask = nil
+        let macID = session.macID
+        guard case .connecting(_, let attempt) = session.link.phase, session.linkDownSince != nil,
+              store.macRecovery[macID]?.isRunning != true else { return }
+        let bound = attempt <= 1 ? Self.macStallAfter * 2 : Self.macStallAfter
+        guard down < bound else {
+            if store.macConnection[macID] == .connecting { store.macConnection[macID] = .failed("Not responding") }
+            if store.macFailure[macID] == nil { store.macFailure[macID] = .hostUnreachable }
+            return
+        }
+        let wait = bound - down
+        session.stallTask = Task { [weak self, weak session] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self, let session, self.sessions[session.macID] === session else { return }
             self.updateTerminalsOffline(session)
         }
     }
@@ -1143,16 +1199,9 @@ extension LiveCoordinator {
         case .signedOut:
             bannerHold.show(.signedOut)
         case .connected:
-            // "Connected" only answers a banner that was on screen; a held one never showed.
-            if everConnected, let shown = banner, shown != .connected {
-                bannerHold.show(.connected)
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.bannerHold.show(nil)
-                }
-            } else {
-                bannerHold.show(nil)
-            }
+            // Back: the banner just goes. No "Connected" flash after a reconnect (audit 20,
+            // ceremony): the live rows say it, and a flapping link flashed it every time.
+            bannerHold.show(nil)
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):

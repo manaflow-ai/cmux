@@ -58,7 +58,7 @@ public enum ConversationMarkdownTables {
         guard text.contains("|"), text.contains("-") else { return unchanged }
         let source = text as NSString
         let lines = Self.lines(source)
-        let output = NSMutableString()
+        let output = NSMutableString(string: "")
         var segments: [Segment] = []
         var tables: [ConversationTextTable] = []
         var headerRuns: [ConversationTextRun] = []

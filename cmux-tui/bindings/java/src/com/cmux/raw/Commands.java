@@ -160,7 +160,7 @@ public final class Commands {
     public static final CommandMetadata LIST_TERMINAL_COMMANDS = new CommandMetadata("list-terminal-commands", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACE_GROUPS = new CommandMetadata("list-workspace-groups", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1")));
+    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("after", 12L), Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("after", "list-workspaces-page-v1"), Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1")));
     public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -291,6 +291,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_CLIPBOARD_SUBSCRIBE = new CommandMetadata("terminal-clipboard-subscribe", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_COMMAND_CONTEXT = new CommandMetadata("terminal-command-context", Authority.CONTROL, 12, "terminal-command-context-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_FIND = new CommandMetadata("terminal-find", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_LAST_COMMAND = new CommandMetadata("terminal-last-command", Authority.CONTROL, 12, "terminal-last-command-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_PORTS = new CommandMetadata("terminal-ports", Authority.CONTROL, 12, "terminal-ports-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -606,6 +607,7 @@ public final class Commands {
         values.put("terminal-clipboard-subscribe", TERMINAL_CLIPBOARD_SUBSCRIBE);
         values.put("terminal-command-context", TERMINAL_COMMAND_CONTEXT);
         values.put("terminal-events", TERMINAL_EVENTS);
+        values.put("terminal-find", TERMINAL_FIND);
         values.put("terminal-history", TERMINAL_HISTORY);
         values.put("terminal-last-command", TERMINAL_LAST_COMMAND);
         values.put("terminal-ports", TERMINAL_PORTS);

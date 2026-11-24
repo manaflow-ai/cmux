@@ -86,6 +86,18 @@ impl Mounted {
         }
     }
 
+    /// Tells the kernel to drop what it cached of each folder or file in `inos` (numbers the
+    /// overlay gave): its attributes, its pages, and a folder's listing, so the next `stat`,
+    /// read and `ls` ask the overlay again: after [`Overlay::extend`].
+    pub fn forget_inodes(&self, inos: &[u64]) {
+        if let Some(notifier) = &self.notifier {
+            for ino in inos {
+                // ENOENT: the kernel holds nothing of it, which is fine.
+                let _ = notifier.inval_inode(*ino, 0, 0);
+            }
+        }
+    }
+
     /// Unmounts and waits for the session to end.
     pub fn unmount(mut self) {
         if let Some(session) = self.session.take() {
