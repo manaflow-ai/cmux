@@ -104,6 +104,17 @@ const TURN_RETRIES: [Duration; 5] = [
     Duration::from_secs(30),
 ];
 
+/// How long a dialing tunnel waits for its peer's first authenticated
+/// datagram (WireGuard's handshake) before it takes TURN over TLS: the
+/// handshake repeats at 0.25, 0.75 and 1.75 s, so a path that works answers
+/// well within it. A network whose firewall drops WireGuard (PROTOCOL.md
+/// "Corporate networks") answers STUN and grants TURN over UDP, and nothing
+/// on either carries the tunnel.
+pub(super) const SILENT_TUNNEL_DIALER: Duration = Duration::from_secs(3);
+/// The same for the answering Mac, longer: the phone's own TURN over TLS
+/// usually fixes it first, and then the Mac needs none.
+pub(super) const SILENT_TUNNEL_ANSWER: Duration = Duration::from_secs(6);
+
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
@@ -179,6 +190,9 @@ pub(super) struct Session {
     /// Takes a new TURN allocation after a roam or a dead stream (the phone;
     /// a Mac once its network blocked UDP).
     keeps_turn: AtomicBool,
+    /// This network carries no WireGuard over UDP ([`Session::escalate_when_silent`]):
+    /// a new allocation takes TCP or TLS, never UDP, until the next roam.
+    stream_only: AtomicBool,
     turn_monitor: Mutex<Option<JoinHandle<()>>>,
     /// Announcements the peer sent through signaling, for the control task.
     inject: mpsc::UnboundedSender<RoamMessage>,
@@ -241,6 +255,7 @@ impl Session {
             endpoints: Mutex::new(parts.endpoints),
             relayed: Mutex::new(parts.relayed),
             keeps_turn: AtomicBool::new(parts.keeps_turn),
+            stream_only: AtomicBool::new(false),
             turn_monitor: Mutex::new(None),
             inject,
             injected: Mutex::new(Some(injected)),
@@ -307,13 +322,95 @@ impl Session {
         stop_monitor(lock(&self.turn_monitor).replace(task));
     }
 
+    /// The options a new allocation is made with: over TCP or TLS only once
+    /// this network showed it carries no WireGuard over UDP.
+    fn allocation_options(&self) -> std::borrow::Cow<'_, DialOptions> {
+        if self.stream_only.load(Ordering::Relaxed) {
+            // `block_udp` here only skips TURN over UDP: these options reach
+            // the allocation, not the tunnel's own sends.
+            std::borrow::Cow::Owned(DialOptions { block_udp: true, ..self.options.clone() })
+        } else {
+            std::borrow::Cow::Borrowed(&self.options)
+        }
+    }
+
+    /// Watch `path` for a tunnel that hears nothing from its peer for `after`
+    /// while it has no route (from its start, or after a roam): UDP answers
+    /// (STUN, TURN's own requests) yet nothing carries WireGuard over it, as
+    /// behind a firewall that drops WireGuard. Take TURN over TLS then and
+    /// tell the peer (through signaling too, which still works), and keep to
+    /// TCP or TLS on this network. A side already on TURN over TLS, or with
+    /// no TCP or TLS server to ask, does nothing.
+    pub(super) fn escalate_when_silent(
+        self: &Arc<Self>,
+        mut path: watch::Receiver<LinkPath>,
+        after: Duration,
+    ) {
+        if super::super::turn::turn_servers(&self.options.ice_servers).1.is_none() {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                if path.wait_for(|path| *path == LinkPath::NoPath).await.is_err() {
+                    return;
+                }
+                let route = tokio::time::timeout(after, path.wait_for(|path| *path != LinkPath::NoPath))
+                    .await
+                    .map(|changed| changed.is_ok());
+                match route {
+                    Ok(true) => continue,
+                    Ok(false) => return,
+                    Err(_) => {}
+                }
+                let Some(session) = weak.upgrade() else { return };
+                if session.closed.load(Ordering::Relaxed) {
+                    return;
+                }
+                if !session.escalate(after).await {
+                    // A roam is under way: its own route gets the next look.
+                    continue;
+                }
+                drop(session);
+                // Armed again once a route came and went.
+                if path.wait_for(|path| *path != LinkPath::NoPath).await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    /// [`Self::escalate_when_silent`]'s step: `false` when a roam holds the
+    /// session (it takes its own allocation on the new network).
+    async fn escalate(self: &Arc<Self>, after: Duration) -> bool {
+        if !lock(&self.relayed).1.is_empty() {
+            // Already on TURN over TCP or TLS.
+            return true;
+        }
+        if self.roaming.try_lock().is_err() {
+            return false;
+        }
+        tracing::info!(
+            session = self.session_id,
+            silent = ?after,
+            "nothing from the peer over UDP although UDP answers (WireGuard dropped?): taking TURN over TLS"
+        );
+        self.options.timeline.mark("wg_silent_turn_tls");
+        self.stream_only.store(true, Ordering::Relaxed);
+        self.keeps_turn.store(true, Ordering::Relaxed);
+        if !self.replace_turn().await {
+            self.retry_turn("no TURN over TLS for a silent tunnel; taking one", async { true });
+        }
+        true
+    }
+
     /// Take a new TURN allocation on the current network and tell the peer
     /// its address; `false` when none could be had.
     async fn replace_turn(self: &Arc<Self>) -> bool {
         // Allocate before taking the roam lock: a roam meanwhile must not wait
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
-        let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
+        let Some(turn) = TurnCarrier::allocate(&self.allocation_options()).await else { return false };
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
             // A roam took its own allocation on the new network, or started
@@ -364,7 +461,11 @@ impl Session {
             }
             found
         };
-        let (reflexive, turn) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        let (reflexive, allocated) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        if let Some(refusal) = &allocated.refusal {
+            tracing::warn!(%refusal, "this Mac's proxy refused TURN over TLS; a phone may not reach it");
+        }
+        let turn = allocated.carrier;
         let blocked = asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
@@ -559,6 +660,8 @@ impl Session {
     async fn roam(self: &Arc<Self>) -> Timeline {
         let _one_at_a_time = self.roaming.lock().await;
         self.roams.fetch_add(1, Ordering::Relaxed);
+        // A new network: it may carry WireGuard over UDP again.
+        self.stream_only.store(false, Ordering::Relaxed);
         let timeline = Timeline::new();
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
