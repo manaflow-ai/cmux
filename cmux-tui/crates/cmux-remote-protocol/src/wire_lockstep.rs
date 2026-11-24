@@ -109,7 +109,7 @@ fn generated_manifest() -> Manifest {
         }
     }
     for (name, flag) in FrameFlags::NAMED {
-        head.legacy.insert(format!("frame:{name}={}", flag.bits()));
+        head.legacy.insert(format!("frame:flag/{name}={}", flag.bits()));
     }
 
     let header = |bytes: [u8; 4]| format!("header:{}", std::str::from_utf8(&bytes).unwrap());
@@ -152,7 +152,7 @@ fn generated_manifest() -> Manifest {
         bytes[5] = byte;
         if let Ok(frame) = WireFrame::decode(&bytes) {
             let name = serde_json::to_value(frame.lane).unwrap();
-            head.legacy.insert(format!("frame:lane-{}={byte}", name.as_str().unwrap()));
+            head.legacy.insert(format!("frame:lane/{}={byte}", name.as_str().unwrap()));
         }
     }
     bytes[5] = Lane::Control as u8;

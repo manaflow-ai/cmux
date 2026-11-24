@@ -120,3 +120,54 @@ fn the_tap_finds_one_sided_messages() {
     assert!(problems.iter().any(|p| p.contains("method:undeclared") && p.contains("not in")));
     assert!(problems.iter().any(|p| p.contains("refused")));
 }
+
+#[test]
+fn two_kinds_sharing_a_number_are_malformed() {
+    let mut head = base();
+    head.legacy.insert("frame:open=0".into());
+    head.capabilities.insert("relay-v1".into(), ["frame:link-relay=4".to_owned()].into());
+    head.capabilities.insert("sequenced-v1".into(), ["frame:sequenced=4".to_owned()].into());
+    // Another space may reuse a number: lanes count apart from frame types.
+    head.legacy.insert("frame:lane/bulk=4".into());
+    let found = check(None, &head);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert_eq!(found[0].rule, Rule::Malformed);
+    assert!(
+        found[0].detail.contains("frame 4") && found[0].detail.contains("link-relay and sequenced")
+    );
+}
+
+#[test]
+fn a_number_keeps_its_meaning() {
+    let mut old = base();
+    old.legacy.insert("frame:ping=3".into());
+    let mut head = old.clone();
+    head.legacy.remove("frame:ping=3");
+    head.legacy.insert("frame:ping=6".into());
+    head.retired.insert("frame:ping=3".into(), "moved".into());
+    let found = rules(&check(Some(&old), &head));
+    assert!(found.contains(&(Rule::CodeChanged, "frame ping".into())), "{found:?}");
+
+    let mut head = old.clone();
+    head.legacy.remove("frame:ping=3");
+    head.retired.insert("frame:ping=3".into(), "gone".into());
+    head.capabilities.insert("relay-v1".into(), ["frame:relay=3".to_owned()].into());
+    let found = rules(&check(Some(&old), &head));
+    assert!(found.contains(&(Rule::CodeChanged, "frame 3".into())), "{found:?}");
+}
+
+#[test]
+fn two_open_changes_claiming_one_number_collide() {
+    let mut old = base();
+    old.legacy.insert("frame:open=0".into());
+    let mut a = old.clone();
+    a.capabilities.insert("link-relay-v1".into(), ["frame:link-relay=4".to_owned()].into());
+    let mut b = old.clone();
+    b.capabilities.insert("link-relay-v1".into(), ["frame:relay-data=4".to_owned()].into());
+    assert!(check(Some(&old), &a).is_empty() && check(Some(&old), &b).is_empty());
+    let found = collisions(Some(&old), &a, &b, "origin/lane/b");
+    assert_eq!(rules(&found), vec![(Rule::CodeCollision, "frame 4".into())]);
+    assert!(found[0].detail.contains("link-relay") && found[0].detail.contains("relay-data"));
+    // The same claim in both (one rebased on the other's numbering) is no collision.
+    assert!(collisions(Some(&old), &a, &a.clone(), "x").is_empty());
+}

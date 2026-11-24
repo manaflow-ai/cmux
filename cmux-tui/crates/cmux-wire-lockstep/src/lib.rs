@@ -95,6 +95,19 @@ impl Manifest {
             .collect()
     }
 
+    /// Every wire number this revision assigns, by numbering space: a name `kind:label=N` puts N
+    /// in space `kind`, and `kind:space/label=N` in `kind:space` (cmux-remote's flag bits and its
+    /// lanes are both frames but count separately). Each number maps to every label that claims it.
+    pub fn codes(&self) -> BTreeMap<String, BTreeMap<u64, BTreeSet<String>>> {
+        let mut codes: BTreeMap<String, BTreeMap<u64, BTreeSet<String>>> = BTreeMap::new();
+        for name in self.names() {
+            if let Some((space, label, number)) = split_code(name) {
+                codes.entry(space).or_default().entry(number).or_default().insert(label);
+            }
+        }
+        codes
+    }
+
     /// Parses a committed manifest.
     pub fn from_json(text: &str) -> Result<Self, String> {
         let manifest: Self = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -127,6 +140,16 @@ impl Manifest {
                 errors.push(format!("capability {id} gates no wire name"));
             }
         }
+        for (space, numbers) in self.codes() {
+            for (number, labels) in numbers {
+                if labels.len() > 1 {
+                    errors.push(format!(
+                        "{space} {number} is claimed by {}: two kinds or tags share a number, so a peer decodes one as the other",
+                        labels.into_iter().collect::<Vec<_>>().join(" and ")
+                    ));
+                }
+            }
+        }
         for (key, version) in &self.versions {
             if let Some(accepts) = self.accepts.get(key)
                 && !accepts.contains(version)
@@ -136,6 +159,18 @@ impl Manifest {
         }
         errors
     }
+}
+
+/// `kind:space/label=N` as (`kind:space`, `label`, N); `kind:label=N` as (`kind`, `label`, N).
+/// None for a name with no number.
+fn split_code(name: &str) -> Option<(String, String, u64)> {
+    let (kind, rest) = name.split_once(':')?;
+    let (label, number) = rest.rsplit_once('=')?;
+    let number = number.parse().ok()?;
+    Some(match label.split_once('/') {
+        Some((space, label)) => (format!("{kind}:{space}"), label.to_owned(), number),
+        None => (kind.to_owned(), label.to_owned(), number),
+    })
 }
 
 /// One way a head revision would break an old peer, or an old peer would break it.
@@ -161,7 +196,11 @@ pub enum Rule {
     LegacyDropped,
     /// A hard version moved and the head no longer decodes the base's value.
     VersionBroken,
-    /// The manifest itself is malformed.
+    /// A wire number the base gave one kind or tag now names another, or a kind's number moved.
+    CodeChanged,
+    /// Two revisions (the head and another open change) each claim the same new wire number.
+    CodeCollision,
+    /// The manifest itself is malformed (two names sharing a wire number among them).
     Malformed,
 }
 
@@ -174,6 +213,8 @@ impl Rule {
             Self::CapabilityDropped => "capability-dropped",
             Self::LegacyDropped => "legacy-dropped",
             Self::VersionBroken => "version-broken",
+            Self::CodeChanged => "code-changed",
+            Self::CodeCollision => "code-collision",
             Self::Malformed => "malformed",
         }
     }
@@ -193,6 +234,12 @@ impl Rule {
             }
             Self::VersionBroken => {
                 "keep decoding the old version (list it in `accepts`) and pick the version per peer in the handshake"
+            }
+            Self::CodeChanged => {
+                "a number on the wire keeps its meaning forever: give the new kind or tag an unused number and keep the old one's"
+            }
+            Self::CodeCollision => {
+                "agree the numbering with the other change: one of them takes the next unused number before either lands"
             }
             Self::Malformed => "fix the manifest's shape (see the detail)",
         }
@@ -303,6 +350,84 @@ pub fn check(base: Option<&Manifest>, head: &Manifest) -> Vec<Finding> {
                 key,
                 format!("{base_version} -> {head_version}: an old peer's frames no longer decode"),
             ));
+        }
+    }
+    let head_codes = head.codes();
+    for (space, numbers) in base.codes() {
+        let head_numbers = head_codes.get(&space);
+        for (number, labels) in &numbers {
+            let now = head_numbers.and_then(|n| n.get(number));
+            for label in labels {
+                if let Some(now) = now
+                    && !now.contains(label)
+                {
+                    findings.push(finding(
+                        Rule::CodeChanged,
+                        &format!("{space} {number}"),
+                        format!(
+                            "was {label}, now {}",
+                            now.iter().cloned().collect::<Vec<_>>().join(", ")
+                        ),
+                    ));
+                }
+                let moved = head_numbers
+                    .into_iter()
+                    .flatten()
+                    .find(|(n, l)| *n != number && l.contains(label));
+                if let Some((to, _)) = moved {
+                    findings.push(finding(
+                        Rule::CodeChanged,
+                        &format!("{space} {label}"),
+                        format!("{number} -> {to}: an old peer reads it as whatever {number} means to it"),
+                    ));
+                }
+            }
+        }
+    }
+    findings
+}
+
+/// Two revisions built on the same base (`head` and `other`, another open change) against each
+/// other: every wire number both newly claim for different kinds or tags, which each passes alone
+/// and the second to land breaks (two drafts both defining frame kind 4). `base` None: every number
+/// is new.
+pub fn collisions(
+    base: Option<&Manifest>,
+    head: &Manifest,
+    other: &Manifest,
+    other_name: &str,
+) -> Vec<Finding> {
+    let base_codes = base.map(Manifest::codes).unwrap_or_default();
+    let fresh = |m: &Manifest| -> BTreeMap<(String, u64), BTreeSet<String>> {
+        let mut out = BTreeMap::new();
+        for (space, numbers) in m.codes() {
+            for (number, labels) in numbers {
+                let old = base_codes.get(&space).and_then(|n| n.get(&number));
+                let new: BTreeSet<String> =
+                    labels.into_iter().filter(|l| !old.is_some_and(|o| o.contains(l))).collect();
+                if !new.is_empty() {
+                    out.insert((space.clone(), number), new);
+                }
+            }
+        }
+        out
+    };
+    let theirs = fresh(other);
+    let mut findings = Vec::new();
+    for ((space, number), ours) in fresh(head) {
+        if let Some(them) = theirs.get(&(space.clone(), number))
+            && ours != *them
+        {
+            findings.push(Finding {
+                protocol: head.protocol.clone(),
+                rule: Rule::CodeCollision,
+                subject: format!("{space} {number}"),
+                detail: format!(
+                    "this change claims it for {}, {other_name} for {}",
+                    ours.iter().cloned().collect::<Vec<_>>().join(", "),
+                    them.iter().cloned().collect::<Vec<_>>().join(", ")
+                ),
+            });
         }
     }
     findings
