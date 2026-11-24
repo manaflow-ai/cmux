@@ -55,7 +55,8 @@ fn seeded_secrets_ride_only_in_authorization_and_bodies() {
     let credential = capture::leaks("SEEDmachineioCredential-5e2c");
     assert!(!credential.is_empty());
     assert!(credential.iter().all(|p| p.ends_with(": header authorization")), "{credential:?}");
-    for secret in [data, "SEEDcommand-4d07"] {
+    // A file's bytes travel base64-encoded (`dataBase64`); the command as text.
+    for secret in [BASE64.encode(data).as_str(), "SEEDcommand-4d07"] {
         let places = capture::leaks(secret);
         assert!(!places.is_empty(), "{secret} was never sent");
         assert!(places.iter().all(|p| p.ends_with(": body")), "{secret}: {places:?}");
