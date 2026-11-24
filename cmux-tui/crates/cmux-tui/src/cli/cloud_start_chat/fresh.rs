@@ -107,8 +107,8 @@ impl Released {
     fn json(&self, name: &str, why: &Value) -> Value {
         let mut row = json!({"machine_name": name, "machine_id": self.machine_id, "why": why,
                              "deleted": self.gone, "error": self.error});
-        if let Some(guest) = &self.guest {
-            row["guest"] = guest.clone();
+        if let (Some(guest), Some(fields)) = (&self.guest, row.as_object_mut()) {
+            fields.insert("guest".to_owned(), guest.clone());
         }
         row
     }
@@ -143,8 +143,9 @@ sudo -n journalctl -u cmux-host -u cmux-server -n 15 --no-pager -o short-iso 2>&
 /// The machine `id` asked [`LOOK`] within [`LOOK_BOUND`] (and the run's deadline): its exit code and output, or
 /// the route's error. Never fails the run: what it finds is evidence only.
 fn look(runner: &mut dyn Runner, id: &str, deadline: Deadline) -> Value {
-    let until = runner.now() + deadline.bound(runner, LOOK_BOUND);
-    let left = until.saturating_duration_since(runner.now());
+    let left = deadline.bound(runner, LOOK_BOUND);
+    let now = runner.now();
+    let until = now.checked_add(left).unwrap_or(now);
     let Some(script) = super::internal::bounded::remote_script(LOOK, left) else {
         return json!({"error": "no time left to look"});
     };
@@ -153,8 +154,8 @@ fn look(runner: &mut dyn Runner, id: &str, deadline: Deadline) -> Value {
     match step_result(&runner.cmux_by(&args, until)) {
         Ok(result) => {
             let stdout = at(&result, "stdout").as_str().unwrap_or_default();
-            let cut = stdout.char_indices().nth(LOOK_KEEP).map_or(stdout.len(), |(at, _)| at);
-            json!({"exit_code": at(&result, "exit_code"), "stdout": &stdout[..cut]})
+            let kept: String = stdout.chars().take(LOOK_KEEP).collect();
+            json!({"exit_code": at(&result, "exit_code"), "stdout": kept})
         }
         Err(error) => json!({"error": error}),
     }

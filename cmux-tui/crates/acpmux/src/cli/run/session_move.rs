@@ -626,7 +626,11 @@ async fn move_steps(
     // turn along between its tool calls (`transfer.rs` `begin_move_live`), with --after-turn
     // transfer_begin waits for the turn under its lock.
     let running_ok = args.interrupt || !args.dry_run;
-    if let Some(why) = plan::refusal(&info, running_ok) {
+    // A real move of a moving chat goes on to transfer_begin, which arbitrates it: it can safely
+    // reclaim a dead driver's incomplete bundle, where refusing here strands the mark until the
+    // background lease watcher. A dry run still names the move in progress.
+    let arbitrated = !args.dry_run && info.get("moving").and_then(Value::as_bool) == Some(true);
+    if !arbitrated && let Some(why) = plan::refusal(&info, running_ok) {
         o.error_code = preflight::session_refusal_code(&info, running_ok);
         bail!("{why}");
     }
