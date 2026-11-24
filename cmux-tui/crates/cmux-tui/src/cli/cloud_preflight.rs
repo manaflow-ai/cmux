@@ -229,7 +229,9 @@ async fn preflight(options: &Options) -> Value {
             }
             Err(e) => {
                 let mut answer = verdict(&options.agent, &[]);
-                answer["reason"] = json!({"code": "no_token", "message": e});
+                if let Some(object) = answer.as_object_mut() {
+                    object.insert("reason".into(), json!({"code": "no_token", "message": e}));
+                }
                 return answer;
             }
         }
