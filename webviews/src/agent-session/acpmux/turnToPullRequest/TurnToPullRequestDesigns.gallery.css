@@ -45,3 +45,4 @@
 .ttp-menu-row{display:flex;align-items:center;gap:var(--ds-space-2);min-height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-md);color:var(--agent-text)}
 .ttp-menu-row[data-hot]{background:var(--acpmux-menu-hover)}
 .ttp-menu-end{margin-inline-start:auto}
+.ttp-popup .ttp-foot-end{padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-1)}
