@@ -6,9 +6,12 @@ public nonisolated struct AgentRemoteStartCoordinator: Sendable {
     private let approvals: AgentPaneRemoteApprovals?
     private let servesKeyedReason: Bool
     private let updateMachine: (@Sendable () async -> Bool)?
+    /// False (a Cloud machine): a refused keyed start goes unkeyed at once, with no 15 s keyed restart in the start step.
+    private let restartsInStart: Bool
 
     public init(approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
-                updateMachine: (@Sendable () async -> Bool)? = nil) {
+                updateMachine: (@Sendable () async -> Bool)? = nil, restartsInStart: Bool = true) {
+        self.restartsInStart = restartsInStart
         self.approvals = approvals
         self.servesKeyedReason = servesKeyedReason
         self.updateMachine = updateMachine
@@ -37,7 +40,7 @@ public nonisolated struct AgentRemoteStartCoordinator: Sendable {
         do { return try await start(cwd, harness, model, key) }
         catch let refusal as AgentRemoteStartRefusal where refusal.code == AgentSessionAttachError.needsKeyedStart {
             let current = AcpmuxRemotePersonKeys.shared.instance(machine: approvals.machineID)
-            if refusal.keyedRestartSafe == true, current == nil || current == key.instance {
+            if restartsInStart, refusal.keyedRestartSafe == true, current == nil || current == key.instance {
                 try await proceed(); _ = await prepare(.daemonSaidSafe)
             }
             return try await start(cwd, harness, model, nil)
