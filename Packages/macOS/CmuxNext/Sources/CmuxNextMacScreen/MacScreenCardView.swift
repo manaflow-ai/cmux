@@ -199,6 +199,14 @@ final class MacScreenCardView: MacScreenThemedView {
         line.addArrangedSubview(info)
     }
 
+    /// A cause a side named (the host's reason, the hub's): the one thing past the status line the card still prints,
+    /// because the person acts on it (hq#13721 item 2: a failed tab says the real reason). A guess stays on the circle.
+    private func reason(_ named: String?, else guess: String) {
+        guard let named, !named.isEmpty, !quiet else { return detail(guess) }
+        stack.addArrangedSubview(MacScreenText(named, font: MacScreenType.body, ink: \.secondary, wraps: true, alignment: .center,
+                                               width: Self.textWidth))
+    }
+
     private func spinner() {
         let spinner = StatusIndicatorView.spinner()
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -260,7 +268,7 @@ final class MacScreenCardView: MacScreenThemedView {
             // The session's free-form message can quote the signaling URL (with the room id): never
             // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-            detail(shown?.failedDetail ?? model.failedDetail)
+            reason(shown?.failedDetail ?? model.failedDetail, else: "")
             buttons([closeTab(), primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.retry") { $0.connect() }])
         case .ended:
             title(L.t("macScreen.card.endedTitle", "Disconnected"))
@@ -297,7 +305,7 @@ final class MacScreenCardView: MacScreenThemedView {
             // Ends from either side come as revocations too: only a lost permission or device reads as removed access.
             let removed = reason.removesAccess
             title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(hostReason ?? reason.text(host: name))
+            self.reason(hostReason, else: reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
@@ -309,7 +317,7 @@ final class MacScreenCardView: MacScreenThemedView {
             buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
         case let .hubEnded(reason):
             title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(hostReason ?? reason.text(host: name))
+            self.reason(hostReason, else: reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })
@@ -332,7 +340,9 @@ final class MacScreenCardView: MacScreenThemedView {
             buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
         case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
             title(Self.refusedTitle(refusal, host: name))
-            detail(Self.refusedBody(refusal, host: name, platform: model.platform))
+            // The hub's own words for a refusal stay on the card; the stock explanations go on the circle.
+            let body = Self.refusedBody(refusal, host: name, platform: model.platform)
+            if case .other(_?) = refusal { reason(body, else: body) } else { detail(body) }
             // Offline: Start cmux on NAME, the card's default button, on its own line (the card is too
             // narrow for three buttons), then the run's steps. Try Again steps down to a plain button.
             let setup = shown?.setup ?? .none
