@@ -115,8 +115,8 @@ final class WorkspacePaneShapeView: NSView {
     private func drawCaption(_ caption: Caption, kind: SidebarWorkspaceKind?, in frame: CGRect, tint: CGColor) -> Bool {
         let inset: CGFloat = 6
         guard frame.width >= 40, frame.height >= 30 else { return false }
-        let titleFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-        let stateFont = NSFont.systemFont(ofSize: 10, weight: .regular)
+        let titleFont = Typography.bodyEmphasized
+        let stateFont = Typography.caption
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         let area = frame.insetBy(dx: inset, dy: inset)
