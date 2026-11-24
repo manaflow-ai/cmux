@@ -240,6 +240,9 @@
   --glass-hue-ds-success: var(--ds-color-success);
   --glass-hue-merged: var(--agent-status-merged);
   --glass-hue-agent-warning: var(--agent-warning);
+  --glass-hue-link: var(--agent-link);
+  --glass-hue-add: var(--acpmux-add);
+  --glass-hue-del: var(--acpmux-del);
 }
 /* THE SECONDARY INK ON GLASS (design/glass-system.md, rule 5): a hint, a detail line or a
    placeholder on glass keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper.
@@ -295,6 +298,11 @@
     --agent-status-merged: color-mix(in srgb, var(--glass-hue-merged) var(--ds-glass-ink-status), var(--glass-ink-text));
     --agent-warning: color-mix(in srgb, var(--glass-hue-agent-warning) var(--ds-glass-ink-status), var(--glass-ink-text));
     --acpmux-needs-you-mark: var(--agent-warning, var(--agent-accent, var(--agent-text)));
+    /* A link and a diff count are status inks too: a PR card's or the minimap card's blue link fell
+       to 1.5-2.9:1 and a tooltip's +/- counts to 1.5-1.8:1 under dark glass on a white page. */
+    --agent-link: color-mix(in srgb, var(--glass-hue-link) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-add: color-mix(in srgb, var(--glass-hue-add) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-del: color-mix(in srgb, var(--glass-hue-del) var(--ds-glass-ink-status), var(--glass-ink-text));
     /* For a status ink a rule mixes on the spot (the unread blue, startedSessions.css): the share on
        glass, none off it. */
     --glass-ink-status-share: var(--ds-glass-ink-status);
@@ -304,11 +312,31 @@
   :where(:root:not([data-reduce-transparency], [data-glass-levels="previous"]) .ui-glass) ::placeholder {
     color: var(--glass-ink-secondary);
   }
+  /* A tooltip's tint is fitted so its text sits at 4.5:1 over pure black and pure white
+     (TooltipSurface.swift), which leaves an ink dimmer than the text little room: a status word
+     there keeps less hue (glassInk.chipStatus, 35%: the changes tooltip's +/- counts reach 3:1), and
+     the shortcut's keycap hint takes the text at glassInk.keycap (84%) on its plate, not the
+     secondary ink (2.6:1 under a dark tooltip on a white page). */
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"])
+    :is(.ui-tooltip.ui-glass:not(.ui-card), .ui-hint.ui-card.ui-glass, .ui-title-tooltip.ui-glass, .cu-tooltip.ui-glass) {
+    --ds-glass-ink-status: var(--ds-glass-ink-chip-status);
+  }
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"]) .ui-glass .ui-tooltip-hint {
+    color: color-mix(in srgb, var(--cmux-tooltip-ink, var(--glass-ink-text)) var(--ds-glass-ink-keycap), transparent);
+  }
 }
 /* A popup's own sheet often paints the solid popup surface on its class (`background:
    var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
 .ui-popup.ui-glass {
   background: var(--glass-tint);
+}
+/* A hover card the same way: desktop.css's bare .ui-card is the solid popup surface with no blur, one
+   class, so whichever sheet loads last won a .ui-card.ui-glass that is not also a tooltip (the chat
+   header's tool preview drew solid where desktop.css came after this sheet). */
+.ui-card.ui-glass {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
 }
 
 /* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
