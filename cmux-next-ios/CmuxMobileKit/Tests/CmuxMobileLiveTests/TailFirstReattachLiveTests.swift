@@ -72,7 +72,7 @@ import Testing
             let before = (params["beforeSeq"] as? NSNumber)?.intValue
             let toEnd = before.map { $0 > end } ?? (after == nil || !more)
             if toEnd && !(forwardOnly && more) { return end }
-            let seqs = records.split(separator: "\"seq\":").dropFirst().compactMap { Int($0.prefix { $0.isNumber }) }
+            let seqs = records.components(separatedBy: "\"seq\":").dropFirst().compactMap { Int($0.prefix { $0.isNumber }) }
             return seqs.max() ?? (after ?? 0)
         }
 
