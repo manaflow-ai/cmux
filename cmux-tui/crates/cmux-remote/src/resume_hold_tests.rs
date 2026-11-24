@@ -173,7 +173,9 @@ async fn only_the_peer_that_opened_a_pipe_resumes_it() {
     let (token, _) = read_handshake(&mut near).await.unwrap();
     assert_ne!(token, NONE);
     drop(near);
-    assert!(matches!(serving.await.unwrap(), Ran::Broken(_)));
+    // The broken run waits out its grace for a resume; the pipe stays parked meanwhile.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!serving.is_finished());
     assert_eq!(parking.len(), 1);
     // "b" naming a's token is told there is no such pipe.
     let (mut near, far) = tokio::io::duplex(1024);

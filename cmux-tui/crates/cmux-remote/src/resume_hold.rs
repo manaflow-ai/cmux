@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::Notify;
 
 use crate::resume_pipe::{Ran, ResumablePipe};
 
@@ -157,12 +158,14 @@ struct Parked<L> {
 /// break.
 pub struct Parking<L> {
     pipes: Mutex<HashMap<Token, Parked<L>>>,
+    /// Told whenever a transport takes a pipe, so a broken run's wait ends early.
+    taken: Notify,
     grace: Duration,
 }
 
 impl<L: AsyncRead + AsyncWrite + Send + 'static> Parking<L> {
     pub fn new(grace: Duration) -> Arc<Self> {
-        Arc::new(Self { pipes: Mutex::new(HashMap::new()), grace })
+        Arc::new(Self { pipes: Mutex::new(HashMap::new()), taken: Notify::new(), grace })
     }
 
     fn pipes(&self) -> std::sync::MutexGuard<'_, HashMap<Token, Parked<L>>> {
@@ -180,7 +183,8 @@ impl<L: AsyncRead + AsyncWrite + Send + 'static> Parking<L> {
 
     /// Serve one transport from `owner` (the peer's proven name or key). Read its handshake.
     /// A new pipe reaches the local side through `connect`; a known one resumes. Carry the pipe
-    /// until this transport's run ends.
+    /// until this transport's run ends. A run that broke returns once the pipe is taken by a
+    /// newer transport or dropped, the grace past with none.
     pub async fn serve<T, C, Fut, E>(
         self: &Arc<Self>,
         mut transport: T,
@@ -238,9 +242,10 @@ impl<L: AsyncRead + AsyncWrite + Send + 'static> Parking<L> {
             parked.runs += 1;
             parked.runs
         };
+        self.taken.notify_waiters();
         if let Err(e) = write_handshake(&mut transport, token, claim.received()).await {
             drop(claim);
-            self.expire_later(token, run);
+            self.expire_unless_taken(token, run).await;
             return Ran::Broken(e);
         }
         let ran = claim.run(transport, peer_received).await;
@@ -251,24 +256,28 @@ impl<L: AsyncRead + AsyncWrite + Send + 'static> Parking<L> {
                     pipes.remove(&token);
                 }
             }
-            Ran::Broken(_) => self.expire_later(token, run),
+            Ran::Broken(_) => self.expire_unless_taken(token, run).await,
         }
         ran
     }
 
-    /// Drop the pipe after the grace, unless a newer transport took it.
-    fn expire_later(self: &Arc<Self>, token: Token, run: u64) {
-        let parking = Arc::downgrade(self);
-        let grace = self.grace;
-        tokio::spawn(async move {
-            tokio::time::sleep(grace).await;
-            if let Some(parking) = parking.upgrade() {
-                let mut pipes = parking.pipes();
+    /// Wait for a newer transport to take the pipe; drop it when none did within the grace.
+    async fn expire_unless_taken(&self, token: Token, run: u64) {
+        let deadline = tokio::time::Instant::now() + self.grace;
+        loop {
+            // Made before the check, so a take between the two still wakes it.
+            let taken = self.taken.notified();
+            if !self.pipes().get(&token).is_some_and(|p| p.runs == run) {
+                return;
+            }
+            if tokio::time::timeout_at(deadline, taken).await.is_err() {
+                let mut pipes = self.pipes();
                 if pipes.get(&token).is_some_and(|p| p.runs == run) {
                     pipes.remove(&token);
                 }
+                return;
             }
-        });
+        }
     }
 }
 
