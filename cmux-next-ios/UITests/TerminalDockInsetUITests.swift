@@ -12,8 +12,8 @@ import XCTest
 ///   at the window's bottom edge, so the key row and composer rest on the
 ///   toolbar line;
 /// - a reattach adds no row: the key row to composer distance is the same
-///   while the link is down as while it is up (the state is in the title
-///   pill's subtitle; Reconnect is in the page menu).
+///   while the link is down as while it is up (the state is a floating
+///   ConnectionChip past the quiet bound; Reconnect is in the page menu).
 ///
 /// Each step attaches a screenshot (load, keyboard up and down, return from
 /// the background, rotation, reattach) for the pull request.
@@ -110,8 +110,9 @@ final class TerminalDockInsetUITests: XCTestCase {
         }
     }
 
-    /// A reattach past the quiet bound: the title pill says so and the dock
-    /// keeps its rows; Reconnect in the page menu ends it.
+    /// A reattach past the quiet bound: the ConnectionChip shows (no
+    /// "Reattaching…" anywhere) and the dock keeps its rows; Reconnect in the
+    /// page menu ends it.
     @MainActor
     func testReattachTakesNoRow() throws {
         XCUIDevice.shared.orientation = .portrait
@@ -124,8 +125,10 @@ final class TerminalDockInsetUITests: XCTestCase {
         let attachedBottom = field.frame.maxY
         attach(app, "1-attached")
 
-        let pill = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reattaching")).firstMatch
-        XCTAssertTrue(pill.waitForExistence(timeout: 25), "the title pill says Reattaching… past the quiet bound\n\(app.debugDescription)")
+        let chip = app.descendants(matching: .any)["connection.chip"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 25), "the connection chip shows past the quiet bound\n\(app.debugDescription)")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reattaching")).firstMatch.exists,
+                       "no \"Reattaching…\" text (Leo, 2026-11-24)")
         Thread.sleep(forTimeInterval: 0.5)
         attach(app, "2-reattaching")
         let gap = field.frame.minY - control.frame.maxY
@@ -135,13 +138,15 @@ final class TerminalDockInsetUITests: XCTestCase {
         _ = assertNoInset(probe, "reattaching")
 
         // Reconnect, from the page menu (no layout space while the link is down).
-        // A terminal's title pill opens its page menu (its leading glyph is hidden).
+        // A terminal's title pill (its title, zsh) opens its page menu (its leading glyph is hidden).
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "zsh")).firstMatch
+        XCTAssertTrue(pill.exists, "the terminal's title pill\n\(app.debugDescription)")
         pill.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let reconnect = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reconnect")).firstMatch
         XCTAssertTrue(reconnect.waitForExistence(timeout: 5), "Reconnect in the page menu\n\(app.debugDescription)")
         attach(app, "3-page-menu-reconnect")
         reconnect.tap()
-        XCTAssertTrue(pill.waitForNonExistence(timeout: 5), "attached again: the pill shows the directory")
+        XCTAssertTrue(chip.waitForNonExistence(timeout: 5), "attached again: the chip goes")
         attach(app, "4-reconnected")
     }
 
