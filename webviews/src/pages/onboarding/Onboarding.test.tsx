@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LASTING_MS, setLastingGrace } from "../../ui/lasting";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentsState, computerUseState, importState } from "./fixtures";
+import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -10,9 +11,9 @@ import { OnboardingStore } from "./store";
 
 const strings = createStrings(table, ["en"]);
 
-function render(state: OnboardingState, look?: AgentsLook): string {
+function render(state: OnboardingState, look?: AgentsLook, online?: boolean): string {
   const store = new OnboardingStore(null, state);
-  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} />);
+  return renderToStaticMarkup(<OnboardingPage store={store} strings={strings} agentsLook={look} online={online} />);
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
@@ -42,7 +43,9 @@ describe("agents", () => {
   });
   test("the status line for each state", () => {
     expect(text(render(agentsState("checking")))).toContain("Checking…");
-    expect(text(render(agentsState("none")))).toContain("No agent CLIs found on this Mac.");
+    expect(text(render(agentsState("none")))).toContain(
+      "No agent CLIs found on this Mac. Install Claude Code or Codex, then sign in from Settings.",
+    );
     expect(text(render(agentsState("signingIn")))).toContain(
       "Finish signing in in the terminal tab, then come back here.",
     );
@@ -64,6 +67,31 @@ describe("agents", () => {
       expect(html).toContain(`data-look="${look}"`);
       expect(html.match(/class="onb-agent"/g)?.length).toBe(4);
     }
+  });
+});
+
+describe("offline", () => {
+  const line = "This Mac is offline. Sign-ins and installs work once it’s back.";
+  test("one line under the title on every scaffold step once offline has lasted", () => {
+    // A static render has no time to pass: a zero grace stands for an outage past the quiet bound
+    // (offline.test.tsx checks the bound itself).
+    setLastingGrace(0);
+    try {
+      for (const state of [agentsState("mixed"), importState("ready"), makeItYoursState("fresh")]) {
+        const html = render(state, undefined, false);
+        expect(html.split('class="onb-offline"').length - 1).toBe(1);
+        expect(text(html)).toContain(line);
+      }
+    } finally {
+      setLastingGrace(LASTING_MS);
+    }
+  });
+  test("a blip (offline under the quiet bound) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, false)).not.toContain("onb-offline");
+  });
+  test("online (and server markup with no window) draws no offline line", () => {
+    expect(render(agentsState("mixed"), undefined, true)).not.toContain("onb-offline");
+    expect(render(agentsState("mixed"))).not.toContain("onb-offline");
   });
 });
 
@@ -105,7 +133,7 @@ describe("import", () => {
     const html = render(importState("finished"));
     expect(html).toContain('title="The profile’s history database is locked by the browser."');
     expect(text(html)).toContain(
-      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine Passwords skipped: 9 Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
+      "Imported: Bookmarks 204 · History 8,311 · Passwords 41 · Search Engine. Passwords skipped: 9. Already saved with a different password: 2. cmux kept the saved password. Some profiles couldn’t be read; hover one for why.",
     );
   });
   test("the folder explainer replaces the list", () => {
