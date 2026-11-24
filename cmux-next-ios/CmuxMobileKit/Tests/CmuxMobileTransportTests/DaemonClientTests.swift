@@ -172,15 +172,17 @@ import Testing
     }
 
     /// Leo, 2026-11-24: "a 10s timeout that kills messages while they're making progress is a
-    /// shame. make it progress-based, not a wall clock". A write the link keeps taking runs 4x
-    /// its deadline and is answered; the fixed cut would have dropped it, and the count says so.
+    /// shame. make it progress-based, not a wall clock". A write the link keeps taking runs
+    /// past twice its deadline and is answered; the fixed cut would have dropped it, and the count
+    /// says so. Its 50 ms steps sit far inside the 400 ms stall window, so a loaded runner still
+    /// sees movement in every window.
     @Test(.timeLimit(.minutes(1))) func aSlowSendThatKeepsMovingOutlivesItsDeadline() async throws {
-        let channel = SlowWriteChannel(steps: 8, pause: .milliseconds(50), moves: true)
+        let channel = SlowWriteChannel(steps: 20, pause: .milliseconds(50), moves: true)
         let client = DaemonClient(channel: channel)
         let started = ContinuousClock.now
-        let id = try await client.submit("send", deadline: .milliseconds(100))
+        let id = try await client.submit("send", deadline: .milliseconds(400))
         let reply = try await client.reply(to: id)
-        #expect(ContinuousClock.now - started >= .milliseconds(400))
+        #expect(ContinuousClock.now - started >= .milliseconds(1000))
         #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
         #expect(await client.outlivedFixedDeadline == 1)
         await client.close()
@@ -188,13 +190,13 @@ import Testing
 
     /// A write the link stopped taking is still cut once it made no progress for its deadline.
     @Test(.timeLimit(.minutes(1))) func aStalledSendIsCutAtItsDeadline() async throws {
-        let channel = SlowWriteChannel(steps: 40, pause: .milliseconds(50), moves: false)
+        let channel = SlowWriteChannel(steps: 80, pause: .milliseconds(50), moves: false)
         let client = DaemonClient(channel: channel)
         let started = ContinuousClock.now
         await #expect(throws: LinkError(code: "write_timeout", message: "write timed out")) {
-            _ = try await client.submit("send", deadline: .milliseconds(100))
+            _ = try await client.submit("send", deadline: .milliseconds(400))
         }
-        #expect(ContinuousClock.now - started < .milliseconds(1500))
+        #expect(ContinuousClock.now - started < .milliseconds(3000))
         #expect(await client.outlivedFixedDeadline == 0)
         await client.close()
     }
