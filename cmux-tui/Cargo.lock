@@ -2880,6 +2880,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
+ "cmux-migrate",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",

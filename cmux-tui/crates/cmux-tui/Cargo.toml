@@ -96,6 +96,7 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
+cmux-migrate.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
