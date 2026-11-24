@@ -25,7 +25,7 @@ import { revokeAccessRows, type chatAccessGrants } from "../header/grantsMenu";
 import { headerState, type HeaderState } from "../header/headerState";
 import { instructionsRow, projectFilesRow } from "../header/instructionsRow";
 import { chatMini, miniRow, showInMini } from "../header/miniRow";
-import { presentationRow } from "../header/presentationRow";
+import { chatDetailRow } from "../header/chatDetailRow";
 import type { QuickActionMode } from "../header/quickActions";
 import { opensBesideRows, type sideChatRow } from "../header/sideChatRow";
 import { TERMINAL_SWITCH_ACTION, moveToTerminal, terminalMoveRow, terminalSwitchRow } from "../header/terminalMoveRow";
@@ -260,10 +260,10 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
       ),
   };
-  // Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output) and
-  // Text & Width… under them in one submenu (header/transcriptViewRow.ts): the menu is full
+  // Messages, Normal, Thinking or Verbose for this chat, then Wrap lines (every command's output)
+  // and Text & Width… under them in one submenu (header/chatDetailRow.ts): the menu is full
   // height, and a row more pushes Archive off it.
-  const transcriptView = presentationRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
+  const transcriptView = chatDetailRow(snapshot.sessionId, t, [wrapOutputRow(t), display]);
   const tools: ChatMenuItem[] = [
     transcriptView ?? { ...display, icon: "site.permission.localfonts" },
     ...replay,

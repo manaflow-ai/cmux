@@ -10,6 +10,7 @@ agentPane.dictationSource
 agentPane.display.code.family
 agentPane.display.code.scale
 agentPane.display.commandLabels
+agentPane.display.detail
 agentPane.display.environment.placement
 agentPane.display.finishSound
 agentPane.display.font.faces

@@ -857,6 +857,7 @@
         "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement",
         "agentPane.display.minimap",
+        "agentPane.display.detail",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
         "agentPane.display.transcriptLook",
