@@ -88,11 +88,55 @@ impl LinkProfile {
     }
 }
 
+/// The phone's cellular radio (LTE RRC, Huang et al., MobiSys 2012): after
+/// `tail` with nothing sent or received it is idle, and the next datagram
+/// waits for it to reconnect: `promote` for one the phone sends, a draw in
+/// `0..paging` (the DRX paging cycle: the network waits for the phone's
+/// next paging slot) plus `promote` for one it receives. Datagrams in the
+/// meantime wait for the same moment. Off unless [`set_radio_model`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadioModel {
+    pub tail: Duration,
+    pub promote: Duration,
+    pub paging: Duration,
+}
+
+impl RadioModel {
+    /// The paper's measured LTE values: an 11.576 s tail, 260 ms promotion,
+    /// a 1.28 s paging cycle.
+    pub fn lte() -> Self {
+        Self {
+            tail: Duration::from_millis(11_576),
+            promote: Duration::from_millis(260),
+            paging: Duration::from_millis(1280),
+        }
+    }
+}
+
+/// Which way a datagram crosses the phone's radio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// Phone to Mac: the Mac's tunnel receives it.
+    Up,
+    /// Mac to phone: the phone's tunnel receives it.
+    Down,
+}
+
+struct Radio {
+    model: RadioModel,
+    /// The last moment a datagram crossed the radio.
+    last_active: Option<Instant>,
+    /// When the radio is connected again after its last wake.
+    awake_at: Instant,
+    wakes: u64,
+}
+
 struct Air {
     profile: LinkProfile,
     /// When each sender's bearer is free again.
     free_at: HashMap<SocketAddr, Instant>,
     rng: u64,
+    radio: Option<Radio>,
 }
 
 static AIR: Mutex<Option<Air>> = Mutex::new(None);
@@ -104,9 +148,39 @@ static DROPPED: AtomicU64 = AtomicU64::new(0);
 /// measurement.
 pub fn set_link_profile(profile: Option<LinkProfile>, seed: u64) {
     *AIR.lock().unwrap_or_else(PoisonError::into_inner) =
-        profile.map(|profile| Air { profile, free_at: HashMap::new(), rng: seed });
+        profile.map(|profile| Air { profile, free_at: HashMap::new(), rng: seed, radio: None });
     DELIVERED.store(0, Ordering::Relaxed);
     DROPPED.store(0, Ordering::Relaxed);
+}
+
+/// Play the phone's radio ([`RadioModel`]) on the profile set by
+/// [`set_link_profile`] (call after it). Only datagrams shaped by
+/// [`shape_uplink`] and [`shape_downlink`] cross it.
+pub fn set_radio_model(model: Option<RadioModel>) {
+    if let Some(air) = AIR.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+        air.radio = model.map(|model| Radio { model, last_active: None, awake_at: Instant::now(), wakes: 0 });
+    }
+}
+
+/// Times the radio woke from idle since [`set_radio_model`].
+pub fn radio_wakes() -> u64 {
+    AIR.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(|air| air.radio.as_ref())
+        .map_or(0, |radio| radio.wakes)
+}
+
+/// [`shape_by_profile`] for the Mac's tunnel: what it receives the phone
+/// sent, across the phone's radio.
+pub fn shape_uplink(via_turn: bool, from: &SocketAddr, len: usize) -> Option<Duration> {
+    shape(via_turn, from, len, Some(Direction::Up))
+}
+
+/// [`shape_by_profile`] for the phone's tunnel: what it receives comes
+/// down to the phone's radio.
+pub fn shape_downlink(via_turn: bool, from: &SocketAddr, len: usize) -> Option<Duration> {
+    shape(via_turn, from, len, Some(Direction::Down))
 }
 
 /// Datagrams shaped since [`set_link_profile`]: (delivered, dropped).
@@ -126,6 +200,10 @@ fn next(state: &mut u64) -> u64 {
 /// A `DialOptions::impair_inbound` hook: the datagram's fate on the
 /// profile set by [`set_link_profile`] (`None`: lost or tail-dropped).
 pub fn shape_by_profile(via_turn: bool, from: &SocketAddr, len: usize) -> Option<Duration> {
+    shape(via_turn, from, len, None)
+}
+
+fn shape(via_turn: bool, from: &SocketAddr, len: usize, direction: Option<Direction>) -> Option<Duration> {
     let mut air = AIR.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(air) = air.as_mut() else { return Some(Duration::ZERO) };
     let now = Instant::now();
@@ -136,8 +214,37 @@ pub fn shape_by_profile(via_turn: bool, from: &SocketAddr, len: usize) -> Option
     };
     let draw = (next(&mut air.rng) >> 11) as f64 / (1_u64 << 53) as f64;
     let lost = draw * 100.0 < air.profile.loss_percent;
+    // The radio, when it is idle, wakes for this datagram, which waits.
+    // The wake's draw comes from its own stream so the profile's draws
+    // stay the same with the radio on or off.
+    let awake = match (air.radio.as_mut(), direction) {
+        (Some(radio), Some(direction)) => {
+            let idle = radio.last_active.is_none_or(|last| now.duration_since(last) > radio.model.tail);
+            if idle && now >= radio.awake_at {
+                let paging = match direction {
+                    Direction::Up => Duration::ZERO,
+                    Direction::Down => {
+                        let mut state = air.rng ^ 0x5ad1_0000 ^ radio.wakes;
+                        let most = radio.model.paging.as_micros() as u64;
+                        Duration::from_micros(if most == 0 { 0 } else { next(&mut state) % most })
+                    }
+                };
+                radio.awake_at = now + paging + radio.model.promote;
+                radio.wakes += 1;
+                tracing::debug!(
+                    ?direction,
+                    wait_ms = (paging + radio.model.promote).as_millis() as u64,
+                    "radio wakes from idle"
+                );
+            }
+            let awake = radio.awake_at.max(now);
+            radio.last_active = Some(awake);
+            awake
+        }
+        _ => now,
+    };
     let free = air.free_at.entry(*from).or_insert(now);
-    let start = (*free).max(now);
+    let start = (*free).max(awake);
     if start - now > air.profile.serialize(QUEUE_SEGMENTS * SEGMENT) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(%from, len, via_turn, "shaper drops a datagram: queue full");
@@ -151,6 +258,7 @@ pub fn shape_by_profile(via_turn: bool, from: &SocketAddr, len: usize) -> Option
         return None;
     }
     DELIVERED.fetch_add(1, Ordering::Relaxed);
+    tracing::trace!(%from, len, via_turn, ?direction, "shaper delivers a datagram");
     let arrive = left + Duration::from_micros(air.profile.rtt_ms * 500) + Duration::from_millis(jitter);
     // Never zero: zero means "deliver now, unordered" to the hook's caller.
     Some((arrive - now).max(Duration::from_micros(1)))
