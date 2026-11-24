@@ -749,7 +749,14 @@ pub(super) fn attach_surface(
                             let _ = viewer.take(frame, now, &mut hybrid_out);
                         }
                         (None, Some(coalescer)) => coalescer.push(frame, now, &mut ready),
-                        (None, None) => ready.push(frame),
+                        (None, None) => {
+                            // The writer is free now: the reads that queued while it was
+                            // busy go out as one event, at once (no timer).
+                            attach_output_coalesce::push_merged(frame, &mut ready);
+                            while let Ok(next) = attach.stream.try_recv() {
+                                attach_output_coalesce::push_merged(next, &mut ready);
+                            }
+                        }
                     }
                     false
                 }

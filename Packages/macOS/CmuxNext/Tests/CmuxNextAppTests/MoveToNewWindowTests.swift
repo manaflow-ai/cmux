@@ -165,6 +165,26 @@ struct MoveToNewWindowTests {
         }
     }
 
+    /// notify-banner-click-all-paths: a banner for a chat whose workspace shows in a window behind the one in front
+    /// selected its tab there but left the other window in front with the keys, so the click showed the wrong chat.
+    /// Opening the banner brings the window showing the chat forward, as Global Search's jump does.
+    @Test func openingABannerForAChatInABackWindowBringsThatWindowForward() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let moved = try await Self.newWorkspace(services)
+            let tab = try #require(moved.screens.first?.panes.first?.tabs.first)
+            let source = try Self.window(ofTab: tab.id, services)
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, moved.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
+            let owner = try Self.window(ofTab: tab.id, services)
+            #expect(owner != source)
+            // The other window in front, as when the person works there and the chat finishes behind it.
+            services.windows.bringToFront(try #require(services.windows.controller(for: source)))
+            try await PinnedPageTests.until({ services.windows.active?.state.id == source })
+            services.notifications.open(surface: tab.surface)
+            try await PinnedPageTests.until({ services.windows.active?.state.id == owner })
+        }
+    }
+
     /// The placement rule: beside the source on its right when the screen
     /// has room, else on its left, else cascaded; always on the screen.
     @Test func theNewWindowOpensBesideTheOldOne() {
