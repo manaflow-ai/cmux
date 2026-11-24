@@ -173,7 +173,18 @@ export function SlashMenu({
             )}
             {match.command.icon && (
               <span className="acpmux-mention-icon" aria-hidden="true">
-                <Icon name={match.command.icon} size={14} />
+                {match.command.image ? (
+                  <img
+                    className="acpmux-tool-image"
+                    src={match.command.image}
+                    width={14}
+                    height={14}
+                    alt=""
+                    draggable={false}
+                  />
+                ) : (
+                  <Icon name={match.command.icon} size={14} />
+                )}
               </span>
             )}
             <span className="acpmux-slash-name">
