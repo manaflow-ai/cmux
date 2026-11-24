@@ -149,7 +149,11 @@ mod comment_threads_journey {
                 "keep": true,
             });
             let sent = client.ok("diff.comments.send", send.clone(), &key);
-            assert_eq!(sent["value"], json!({"sent": 1, "threaded": [id]}), "{surface}: {sent}");
+            assert_eq!(
+                sent["value"],
+                json!({"sent": 1, "cleared": [], "threaded": [id]}),
+                "{surface}: {sent}"
+            );
 
             // The comment stays, its thread naming the prompt it went out as.
             let listed = client.list();
