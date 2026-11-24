@@ -34,6 +34,9 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         list.foldsWork = false
         // Opens on the end of a running subagent (following it), on the top of a finished one.
         follow = SubagentFollow(follows: running())
+        // The open shows the rows where it opens; the rest come a chunk a frame (`fill`).
+        source.window?.atEnd = running()
+        source.window?.enabled = true
         super.init(nibName: nil, bundle: nil)
         list.scrollDelegate = self
         // A finished transcript opens at its top: its newest rows are not primed on the main thread.
@@ -90,6 +93,7 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         if !positioned {
             positioned = true
             scrollView.contentOffset.y = follow.follows ? bottomOffset : topOffset
+            fill()
             return
         }
         guard !scrollView.isDecelerating else { return }
@@ -103,6 +107,31 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
             probe.sample(gap: max(0, scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
                                       - (scrollView.contentOffset.y + scrollView.bounds.height)), grew: grew)
         }
+    }
+
+    /// Chunks of the transcript's rows a frame each until every row is shown: below a finished
+    /// one's top, above a running one's end (the list keeps the reader's rows where they are).
+    private var filling: Task<Void, Never>?
+    /// Chunks put in (tests).
+    private(set) var chunks = 0
+    /// Every row of the transcript is shown (the open's window has grown to all of it).
+    var filled: Bool { list.source.window?.complete ?? true }
+
+    private func fill() {
+        guard filling == nil, let window = list.source.window, !window.complete else { return }
+        filling = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                await Self.nextFrame()
+                guard let self, let window = self.list.source.window, window.grow() else { break }
+                self.chunks += 1
+                self.list.sourceRowsChanged()
+            }
+            self?.filling = nil
+        }
+    }
+
+    private static func nextFrame() async {
+        try? await Task.sleep(for: .milliseconds(16))
     }
 
     // MARK: The reader's scroll decides whether the end is followed.

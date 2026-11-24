@@ -164,6 +164,11 @@ final class ChatTranscriptBuilder {
     /// Lines the last parse of `messageID` read (tests: a token re-parses the tail only).
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
+    /// The turn is built again on the next build (its source's rows changed without the turn).
+    func forget(_ turnID: String) {
+        memos[turnID] = nil
+    }
+
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
                earlierHistory: Bool = false, foldsWork: Bool = true) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []

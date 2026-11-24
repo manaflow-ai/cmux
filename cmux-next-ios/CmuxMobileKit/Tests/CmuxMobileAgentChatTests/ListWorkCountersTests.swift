@@ -155,6 +155,8 @@ import UIKit
         for _ in 0..<6 { await frame(window) }
         let deadline = Date().addingTimeInterval(20)
         while host.list.layoutsMadeOffMain == 0, Date() < deadline { await frame(window) }
+        // Every chunk of the transcript in (the open shows where it opens, then a chunk a frame).
+        while !host.filled, Date() < deadline { await frame(window) }
         var made = -1
         var still = 0
         while still < 10, Date() < deadline {

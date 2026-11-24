@@ -871,6 +871,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The turn running at the last reload.
     private var runningShown: String?
 
+    /// The source shows more of its rows than before (a subagent transcript's window grew): its
+    /// turns are built again, and only the rows that came are weighed.
+    func sourceRowsChanged() {
+        for turn in source.turns() { builder.forget(turn.id) }
+        reload()
+    }
+
     func reload() {
         if waitsForWidth, lookup.layouts.environment == nil { return }
         let reloadStart = ContinuousClock.now
@@ -965,8 +972,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var heldMissing: [String] = []
         if !primed, lookup.layouts.environment != nil {
             primed = true
-            for turn in built.reversed() where prime.count < 24 && opensOnNewest() {
-                for row in turn.rows.reversed() where prime.count < 24 && lookup.eligible(row) { prime.insert(row.id) }
+            // The rows one screen holds at the end (estimated): the rest lay out as their cells come,
+            // or off the main thread. 24 rows was more than a screen (#47189 r3, subagent-stream).
+            var budget = collectionView.bounds.height > 0 ? collectionView.bounds.height : 900
+            let primeWidth = max(layout.columnWidth - 40, 100)
+            for turn in built.reversed() where budget > 0 && opensOnNewest() {
+                for row in turn.rows.reversed() where budget > 0 {
+                    budget -= row.estimatedHeight(width: primeWidth) + CGFloat(row.gap)
+                    if lookup.eligible(row) { prime.insert(row.id) }
+                }
             }
         }
         for turn in built {
@@ -986,6 +1000,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             // The turn as last shown: a row at the same place with the same content keeps its
             // layout item (a streamed token changes the answer's last block, not the ones above it).
             let previous = shownTurns[turn.turnID]
+            // Rows that came before the ones last shown (an older chunk of a subagent's transcript)
+            // move the rest down: they keep their items at their shifted place.
+            let shift = previous.map { turn.rows.count - $0.rows.count } ?? 0
             for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
@@ -995,10 +1012,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     row.id = "\(row.id)~\(n)"
                     seen.insert(row.id)
                 }
-                if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
+                let at: Int? = previous.flatMap { previous in
+                    if position < previous.rows.count, previous.ids[position] == row.id { return position }
+                    let moved = position - shift
+                    return shift > 0 && moved >= 0 && moved < previous.rows.count && previous.ids[moved] == row.id ? moved : nil
+                }
+                if let previous, let at, previous.rows[at] == row,
                    rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id), !reweigh.contains(row.id) {
                     turnIDs.append(row.id)
-                    turnItems.append(previous.items[position])
+                    turnItems.append(previous.items[at])
                     turnRows.append(row)
                     continue
                 }
