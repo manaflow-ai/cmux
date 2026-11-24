@@ -509,6 +509,21 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    /// The Feed's working-now strip counts a working agent's time from the Mac's report.
+    @Test func aWorkingTabCarriesTheMacsReportTimeAndOthersNone() throws {
+        let started = Date(timeIntervalSince1970: 2000)
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude", updatedAt: started)
+        agents.bySurface[7] = AgentState(state: "blocked", agent: "claude", updatedAt: started)
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(tree.workspaces[0].tabs.map(\.workingSince) == [started, nil, nil, nil])
+        // An older Mac's report has no time: working, with no start time.
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        let older = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(older.workspaces[0].tabs[0].agentStatus == .working)
+        #expect(older.workspaces[0].tabs[0].workingSince == nil)
+    }
+
     @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
         var agents = AgentStates()
         agents.bySurface[1] = AgentState(state: "working", agent: "claude")
@@ -710,7 +725,7 @@ private struct LinkOf: MacLinkDialer {
         let link = setupDaemon(log)
         let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
         _ = await prepared.replies.value
-        #expect(log.count == 5)
+        #expect(log.count == 7, "six setup requests and the sidebar layout (#51114)")
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         var trees: [DaemonTree] = []
         sync.onTree = { trees.append($0) }
@@ -718,7 +733,7 @@ private struct LinkOf: MacLinkDialer {
         #expect(trees.count == 1)
         #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
         #expect(sync.daemon != nil)
-        #expect(log.count == 5)
+        #expect(log.count == 7, "binding sent another request")
     }
 
     /// `prepare` runs once per dial, before the link is handed over, and its

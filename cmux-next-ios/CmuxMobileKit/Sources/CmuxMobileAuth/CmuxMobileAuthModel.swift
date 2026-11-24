@@ -37,6 +37,17 @@ public final class CmuxMobileAuthModel {
         public let id: String
         public let name: String
         public let email: String?
+        /// The App Review demo account (Stack's read-only `cmuxReviewDemoContent`
+        /// metadata, which only the server writes): the app shows a demo Mac and
+        /// never dials a real one.
+        public let reviewDemo: Bool
+
+        public init(id: String, name: String, email: String?, reviewDemo: Bool = false) {
+            self.id = id
+            self.name = name
+            self.email = email
+            self.reviewDemo = reviewDemo
+        }
 
         public var initials: String {
             let parts = name.split(separator: " ").prefix(2)
@@ -73,6 +84,11 @@ public final class CmuxMobileAuthModel {
     /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
     public let stackProjectID: String?
     private var mockSignedIn: Bool
+    /// DEBUG `CMUX_MOBILE_REVIEW_DEMO=1`: the signed-in account (a development or the
+    /// mock one) acts as the App Review demo account, for fleet simulator and UI test
+    /// proof of the demo, which the server flag gates in shipping builds. Always false
+    /// outside DEBUG.
+    @ObservationIgnored var forcesReviewDemo = false
 
     /// The provider whose flow is in flight (its button shows a spinner).
     public private(set) var busyProvider: Provider?
@@ -113,6 +129,7 @@ public final class CmuxMobileAuthModel {
         if environment["CMUX_MOBILE_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
             let model = CmuxMobileAuthModel(coordinator: nil, isMock: true)
             model.mockSignedIn = environment["CMUX_MOBILE_CLEAR_AUTH"] != "1"
+            model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
             return model
         }
         #else
@@ -126,7 +143,16 @@ public final class CmuxMobileAuthModel {
         // A non-DEBUG staging build (project.yml TestFlightStaging) signs in to
         // the development Stack project: Info.plist CmuxMobileStackEnvironment.
         let stagingStack = Bundle.main.object(forInfoDictionaryKey: "CmuxMobileStackEnvironment") as? String == "development"
-        let config = AuthConfig(environment: isDebug || stagingStack ? .development : .production)
+        #if DEBUG && targetEnvironment(simulator)
+        let simulator = true
+        #else
+        let simulator = false
+        #endif
+        let developmentStack = Self.usesDevelopmentStack(
+            environment: environment, isDebug: isDebug, isSimulator: simulator, stagingStack: stagingStack,
+            defaults: .standard
+        )
+        let config = AuthConfig(environment: developmentStack ? .development : .production)
         let tokenStore = KeychainStackTokenStore(
             service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
             legacyProjectID: config.stack.projectId
@@ -199,9 +225,9 @@ public final class CmuxMobileAuthModel {
         }
         let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
-        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(developmentStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
         let teamCreationRoute = TeamCreationRoute(
-            productionAccount: !(isDebug || stagingStack),
+            productionAccount: !developmentStack,
             teamAPIBase: URL(string: config.apiBaseURL),
             mobileServiceBase: apiBase
         )
@@ -212,6 +238,9 @@ public final class CmuxMobileAuthModel {
                                         buildSpace: buildSpace)
         // The welcome screen says why this build's cloud never answers.
         model.errorMessage = buildSpace.refusal?.localizedDescription
+        #if DEBUG
+        model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
+        #endif
         return model
     }
 
@@ -231,6 +260,28 @@ public final class CmuxMobileAuthModel {
         }
         #endif
         return primary
+    }
+
+    /// The UserDefaults key that keeps a simulator's `CMUX_MOBILE_STACK_ENVIRONMENT` across launches
+    /// the system makes (a notification action wakes the app with no launch variables).
+    nonisolated static let stackEnvironmentOverrideKey = "cmuxMobile.dev.stackEnvironment"
+
+    /// Whether this launch signs in to the development Stack project. DEBUG and staging builds do,
+    /// except a DEBUG simulator build launched with `CMUX_MOBILE_STACK_ENVIRONMENT=production`
+    /// (kept for later launches; `development` or an empty value clears it): the always-on
+    /// simulator (scripts/ios-live) mirrors a person's own Macs, which sign in to production, and
+    /// pairing admits only the Mac's own account. A device build, or any non-DEBUG build, never
+    /// reads the variable.
+    nonisolated static func usesDevelopmentStack(
+        environment: [String: String], isDebug: Bool, isSimulator: Bool, stagingStack: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard isDebug else { return stagingStack }
+        guard isSimulator else { return true }
+        if let value = environment["CMUX_MOBILE_STACK_ENVIRONMENT"] {
+            defaults.set(value == "production" ? "production" : nil, forKey: stackEnvironmentOverrideKey)
+        }
+        return defaults.string(forKey: stackEnvironmentOverrideKey) != "production"
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -263,7 +314,29 @@ public final class CmuxMobileAuthModel {
         }
         guard let user = coordinator?.currentUser else { return nil }
         let name = user.displayName?.isEmpty == false ? user.displayName! : (user.primaryEmail ?? "cmux user")
-        return User(id: user.id, name: name, email: user.primaryEmail)
+        return User(id: user.id, name: name, email: user.primaryEmail,
+                    reviewDemo: Self.isReviewDemoAccount(email: user.primaryEmail, serverFlag: user.demonstrationContentEnabled))
+    }
+
+    /// The App Review demo account (App Store Connect's demo account field). Its inbox is a public
+    /// Mailinator one, so anyone can already sign in to it; matching its address gives it the demo
+    /// with no server step. Stack's read-only `cmuxReviewDemoContent` metadata turns it on for
+    /// another account the same way.
+    nonisolated static let reviewDemoAccountEmail = "cmux-rev-0e6ba145@mailinator.com"
+
+    /// Whether an account gets the App Review demo: the review account's exact address, or the
+    /// server-written flag. Case and surrounding spaces in the address do not matter.
+    nonisolated static func isReviewDemoAccount(email: String?, serverFlag: Bool) -> Bool {
+        if serverFlag { return true }
+        guard let email else { return false }
+        return email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == reviewDemoAccountEmail
+    }
+
+    /// Signed in to the App Review demo account (``User/reviewDemo``): its teams, Mac
+    /// and workspaces are the demo's (`AppStore.loadReviewDemo`), with no live data.
+    public var isReviewDemo: Bool {
+        guard isSignedIn, let user else { return false }
+        return forcesReviewDemo || (!isMock && user.reviewDemo)
     }
 
     /// Stack teams for the signed-in account (empty in mock mode, whose
@@ -465,15 +538,25 @@ public final class CmuxMobileAuthModel {
     }
 
     /// Joins a team from a Stack invitation link (`...?code=...`) and refreshes
-    /// the team list.
-    public func joinTeam(inviteLink: String) async throws {
+    /// the team list. Returns the team the refreshed list gained (nil in mock
+    /// mode, or when the list did not change, as when the refresh failed).
+    /// Stack's refusal reads through ``TeamInviteFailure``.
+    @discardableResult
+    public func joinTeam(inviteLink: String) async throws -> AppStore.AccountTeam? {
         let trimmed = inviteLink.trimmingCharacters(in: .whitespacesAndNewlines)
         let code = URLComponents(string: trimmed)?.queryItems?.first { $0.name == "code" }?.value ?? trimmed
         guard !code.isEmpty else { throw AuthError.invalidCode }
-        if isMock { return }
+        if isMock { return nil }
         guard let stack, let coordinator else { throw AuthError.unauthorized }
+        let before = Set(teams.map(\.id))
         try await stack.acceptTeamInvitation(code: code)
         await coordinator.refreshTeams()
+        return Self.joinedTeam(before: before, after: teams)
+    }
+
+    /// The team in `after` whose id `before` lacks: the one an accepted invite added.
+    static func joinedTeam(before: Set<String>, after: [AppStore.AccountTeam]) -> AppStore.AccountTeam? {
+        after.first { !before.contains($0.id) }
     }
 
     /// Errors from invite-link creation.

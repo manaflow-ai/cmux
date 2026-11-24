@@ -137,7 +137,7 @@ bench() {
     echo "NETCOND-SKIP $label $surface: no bench file at this ref"; return 0; }
   log="$work/$label-$surface.log"
   local locked=(--locked)
-  [[ "$tree" != "$root" && -n "${overlaid[$label]:-}" ]] && locked=()
+  [[ "$tree" != "$root" && "$overlaid" == *" $label "* ]] && locked=()
   local filter=()
   [[ "$mode" == duress && "$surface" == terminal ]] && filter=(--exact open_path_under_duress)
   [[ "$mode" == links && "$surface" == terminal ]] && filter=(--exact terminal_attach_under_link_profiles)
@@ -161,7 +161,9 @@ bench() {
 : >"$work/lines.txt"
 status=0
 IFS=, read -r -a surface_list <<<"$surfaces"
-declare -A overlaid=()
+# Labels whose tree got this checkout's harness files, space-separated: a plain string, since macOS
+# runs /bin/bash 3.2, which has no associative arrays (declare -A).
+overlaid=" "
 cleanup=()
 trap 'for tree in ${cleanup[@]+"${cleanup[@]}"}; do git -C "$root" worktree remove --force "$tree" 2>/dev/null || true; done' EXIT
 # checkout LABEL SHA: the ref's tree at $work/LABEL-src, with this checkout's harness files laid over
@@ -175,9 +177,9 @@ checkout() {
   git -C "$tree" submodule update --init --depth 1 ghostty-next >/dev/null
   for file in "${harness_files[@]}"; do
     [[ -f "$root/$file" ]] || continue
-    cmp -s "$root/$file" "$tree/$file" || overlaid[$label]=1
+    cmp -s "$root/$file" "$tree/$file" || { [[ "$overlaid" == *" $label "* ]] || overlaid+="$label "; }
   done
-  if [[ -n "${overlaid[$label]:-}" ]]; then
+  if [[ "$overlaid" == *" $label "* ]]; then
     overlay "$tree"
     echo "NETCOND-OVERLAY $label=$sha: the harness files of $(git rev-parse HEAD) laid over it"
   fi

@@ -26,6 +26,15 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.fork` is cmux-platform's `POST /v1/machines/{id}/fork`: a running copy of a Cloud
+//! machine, memory and disk, that a new session or sub-agent is placed on ([`machine_fork`]).
+//!
+//! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
+//! `cloud.machine.resize` ([`chief_resize`]).
+//!
+//! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
+//! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -35,9 +44,8 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's (only [`classic_runs`]' drain of a Run made before the
-//! daemon ran Runs sends it): the Stack access token as the
-//! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
+//! Auth: `stack` is classic cmux.com's, which no call sends to any more (a call under it is
+//! refused before any request): the Stack access token as the bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
 //! `worker` is the platform's machine routes through the generated client, `previews.*` and the
@@ -50,9 +58,12 @@
 pub mod background;
 mod chat;
 pub mod chief_machine;
-pub mod classic_runs;
+pub mod chief_resize;
+mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
+pub mod machine_fork;
 pub mod machine_io;
 mod network;
 mod owner;
@@ -100,15 +111,14 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
     let mut head: Map<String, Value> = serde_json::from_slice(head)
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
-    // The app's classic Cloud session, when it has one (`classic`), or the word that it could not
-    // read it (`classic_unread`): [`classic_runs::attach`] decides which call takes it.
-    let classic = head.remove("classic");
-    let unread = head.remove("classic_unread").as_ref().and_then(Value::as_bool).unwrap_or(false);
+    // An app built before classic Cloud's Runs were deleted still sends its classic session
+    // (`classic`, `classic_unread`) beside a Runs call; no call reads it, so it is dropped here.
+    head.remove("classic");
+    head.remove("classic_unread");
     let mut request: Request = serde_json::from_value(Value::Object(head))
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
     request.api = request.api.trim().to_owned();
-    classic_runs::attach(&mut request, classic.as_ref(), unread);
     Ok((request, Zeroizing::new(tail.to_vec())))
 }
 
@@ -131,6 +141,9 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
         "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_resize" => chief_resize::perform(request, &http).await,
+        "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
+        "machine.fork" => machine_fork::fork_machine(request, args).await,
         call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
             Err(not_on_this_cloud(call))
         }
@@ -187,7 +200,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 42] = [
+pub const CALLS: [&str; 44] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -230,6 +243,8 @@ pub const CALLS: [&str; 42] = [
     "machine.chat_access",
     "machine.share_chat",
     "machine.chief_start",
+    "machine.chief_resize",
+    "machine.fork",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

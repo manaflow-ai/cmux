@@ -580,6 +580,16 @@ unsafe fn init(
     l.iMaxSpatialBitrate = bitrate;
     l.uiProfileIdc = PRO_BASELINE;
     l.uiLevelIdc = LEVEL_UNKNOWN;
+    // The VUI says what the pictures are (crate::color::SCREEN), so a viewer converts them
+    // back with the same matrix and range instead of guessing.
+    let color = crate::color::SCREEN;
+    l.bVideoSignalTypePresent = true;
+    l.uiVideoFormat = 5; // unspecified
+    l.bFullRange = color.full_range;
+    l.bColorDescriptionPresent = true;
+    l.uiColorPrimaries = color.primaries;
+    l.uiTransferCharacteristics = color.transfer;
+    l.uiColorMatrix = color.matrix;
     let slices = opts.slices.unwrap_or(threads).max(1);
     if slices > 1 {
         l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
@@ -890,6 +900,8 @@ mod bitrate_tests {
 pub struct OpenH264Decoder {
     api: OpenH264Api,
     dec: *mut ISVCDecoder,
+    /// The conversion the last SPS's VUI asks for (untagged until the first SPS).
+    color: crate::color::Yuv,
     /// Refuses a High-profile stream, which OpenH264 decodes to wrong pictures with no error
     /// (cmux#50591).
     gate: crate::h264_profile::ProfileGate,
@@ -906,7 +918,7 @@ impl OpenH264Decoder {
         if dec.is_null() {
             return Err("openh264 WelsCreateDecoder returned no decoder".into());
         }
-        let this = Self { api, dec, gate: Default::default() };
+        let this = Self { api, dec, color: crate::color::UNTAGGED.yuv(), gate: Default::default() };
         // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
         let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
         param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
@@ -952,6 +964,9 @@ impl Drop for OpenH264Decoder {
 
 impl crate::VideoDecoder for OpenH264Decoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        if let Some(vui) = crate::color::sps_vui(au) {
+            self.color = vui.yuv();
+        }
         self.gate.check(au)?;
         let decode =
             self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
@@ -999,6 +1014,10 @@ impl crate::VideoDecoder for OpenH264Decoder {
 
     fn name(&self) -> String {
         "openh264 decoder".into()
+    }
+
+    fn color(&self) -> crate::color::Yuv {
+        self.color
     }
 }
 

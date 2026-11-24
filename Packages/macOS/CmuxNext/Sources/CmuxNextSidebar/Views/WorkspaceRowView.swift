@@ -24,6 +24,40 @@ final class WorkspaceRowView: SidebarRowView {
     private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
+    /// What the row's accessibility label says, as of the last configure; the words are built when asked.
+    struct SpokenLabelInputs {
+        var ws: SidebarWorkspace
+        var shown: WorkspaceRowContent
+        var title: String
+        /// The agent pill's title, spoken after the row's words (`SidebarAgentPill`).
+        var pill: String?
+    }
+    /// Setting new inputs (each configure) drops the built label; the next read builds it once.
+    private(set) var spokenLabelInputs: SpokenLabelInputs? { didSet { spokenLabel = nil } }
+    /// What the words read besides the inputs: the tab count and presence the row shows, and the chip's text now
+    /// (a relative time). A read with the same key reuses the built label.
+    private struct SpokenLabelKey: Equatable {
+        var count: Int?
+        var presence: [SidebarPresence]
+        var chip: String?
+    }
+    /// The label built for the current inputs and key: an assistive app that reads the rows over and over (it may
+    /// read more often than a progress tick configures) builds it once per change, never once per read.
+    private var spokenLabel: (key: SpokenLabelKey, text: String)?
+    /// How many times the label was built since launch (each a number formatter and a joined line); tests count them.
+    private(set) var spokenLabelBuilds = 0
+
+    override func accessibilityLabel() -> String? {
+        // Before the first configure the row says nothing (it never had a label of its own before one either).
+        guard let inputs = spokenLabelInputs else { return nil }
+        let key = SpokenLabelKey(count: count, presence: driveIndicator.drivers + (presenceDots.isHidden ? [] : presenceDots.presence),
+                                 chip: inputs.shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) })
+        if let spokenLabel, spokenLabel.key == key { return spokenLabel.text }
+        spokenLabelBuilds &+= 1
+        let built = accessibilityText(inputs.ws, content: inputs.shown, title: inputs.title) + (inputs.pill.map { ", " + $0 } ?? "")
+        spokenLabel = (key, built)
+        return built
+    }
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -98,6 +132,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// Classic's status block under the name (`WorkspaceRowContent.status`).
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
+    /// Its chats' subagents under the name and status block (`WorkspaceRowContent.subagents`), and their height.
+    let subagentsView = SidebarSubagentsView()
+    internal(set) var subagentsHeight: CGFloat = 0
+    /// The selection and hover fill while subagent lines hang under the row: the name's part only, so the lines
+    /// below take no fill (the Code tab's children under a selected chat).
+    let headFill = CALayer()
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
@@ -186,7 +226,9 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
         [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
+         treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
+        headFill.isHidden = true
+        layer?.insertSublayer(headFill, at: 0)
         setUpSessionTree()
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -203,7 +245,9 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
+        // The subagent lines take their own presses (`SidebarSubagentsView`); the rest of the row selects it.
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator,
+          subagentsView.pressable.isEmpty ? nil : subagentsView] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -243,6 +287,7 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTree = nil
+        subagentsView.onOpen = nil
         onToggleAudio = nil
         title.stopMarquee()
         title.cancelRoll()
@@ -328,10 +373,11 @@ final class WorkspaceRowView: SidebarRowView {
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
         // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
-        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let nativeTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        let shownTitle = shown.displayedTitle(nativeTitle)
         title.stringValue = shownTitle
         lastTitle = shownTitle
-        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
+        hiddenWorkspaceName = ws.namesWorkspace(nativeTitle) ? nil : ws.title
         isArchived = ws.isArchived
         icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
@@ -387,6 +433,9 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
+        // Keyed by subagent id: a line keeps its view as others start and finish, so none jumps.
+        subagentsView.configure(isShowingPlaceholder ? nil : shown.subagents)
+        subagentsHeight = subagentsView.isHidden ? 0 : SidebarLayoutMetrics.standard.subagentsHeight(shown)
         rowBadgeStyle = content.rowBadge
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
         if pill != nil {
@@ -400,10 +449,14 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
         applyControlIdentifiers()
-        setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: shown.subagentOf.map(Strings.subagentOf)
-                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat))
-                                + (pill.map { ", " + $0.title } ?? ""))
+        // The label is read when accessibility asks (`accessibilityLabel()`), not built here: a progress or status
+        // tick configures the row 4 times a second, and the label's words (a localized number per part, the
+        // joined line) were a share of every tick on the main thread while no assistive app listened
+        // (sidebar.400.ticking.main_ms_per_s, CFNumberFormatterCreate under row configure).
+        spokenLabelInputs = SpokenLabelInputs(ws: ws, shown: shown,
+                                              title: shown.subagentOf.map(Strings.subagentOf)
+                                                  ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat),
+                                              pill: pill?.title)
         needsLayout = true
         needsDisplay = true
     }

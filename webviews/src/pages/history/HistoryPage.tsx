@@ -125,6 +125,13 @@ export function HistoryPage({
       run: () => store.setGrouping(grouping),
     }));
 
+  const rangeItems = (): PageMenuItem[] =>
+    HISTORY_RANGES.map((range) => ({
+      id: range,
+      label: t(RangeLabel[range]),
+      run: () => store.setRange(range),
+    }));
+
   const clearItems = (): PageMenuItem[] =>
     HISTORY_RANGES.map((range) => ({
       id: range,
@@ -139,6 +146,15 @@ export function HistoryPage({
         <div className="history-title-row">
           <h1 className="history-title">{t("page.title")}</h1>
           <div className="history-title-actions">
+            {/* How far back the list reaches; the search's `since:` and `before:` narrow it further. */}
+            <button
+              type="button"
+              className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
+              // A range or a search typed while the link is down is kept; the reconnect's read uses it.
+              onClick={(event) => headerMenu(event, rangeItems())}
+            >
+              {t(RangeLabel[snap.range])}
+            </button>
             <button
               type="button"
               className="history-menu-button"
@@ -165,7 +181,7 @@ export function HistoryPage({
           placeholder={t("page.search")}
           aria-label={t("page.search")}
           value={snap.text}
-          disabled={snap.connection === "disconnected"}
+          // Stays live while the link comes back (Leo, 2026-11-24 11:57Z): the reconnect reads what was typed.
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}

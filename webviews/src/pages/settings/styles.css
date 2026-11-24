@@ -1193,6 +1193,13 @@ mark {
   padding: var(--ds-space-1) 0 0;
 }
 
+/* New Command's form is a fieldset (one named group), without the fieldset's own frame. */
+.agent-command-form {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+}
+
 .accounts-row {
   --accounts-mark-width: var(--page-size-20);
 }
@@ -1299,6 +1306,35 @@ mark {
 
 .accounts-team-role {
   margin-left: auto;
+}
+
+/* Settings > Integrations (IntegrationsHubCard): one card of sections. A row with no control on its
+   right (an approval, Link Stripe) lets its text run the card's width; its buttons sit one step under
+   the text, not on it. Notes and the pause card keep a step from the Refresh line above them. */
+.hub-actions {
+  padding-top: var(--ds-space-2);
+}
+
+.hub-note {
+  margin-top: var(--ds-space-2);
+}
+
+.hub-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.hub-below {
+  margin-top: var(--ds-space-2);
+  margin-bottom: 0;
+}
+
+.hub-form {
+  gap: var(--ds-space-2);
+  align-items: flex-start;
+}
+
+.accounts-buttons > .hub-field {
+  width: var(--page-size-160);
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -2934,6 +2970,87 @@ button.menu-disclosure {
   text-decoration: underline;
 }
 
+/* Personalization > Customization Problems and its one-line notice (CustomizeDoctorCard.tsx;
+   design/customize-doctor.md). Quiet: a small dot (the Accounts status dot's border shape) in the
+   attention color for a finding that changes what the person sees now, muted for the rest, never a
+   red slab; no transition or animation of its own (the banner is ui/Notice's, through the motion
+   gate). The chip's button is ui/Button, whose hover and press change only its fill. */
+.doctor-dot {
+  flex: none;
+  align-self: flex-start;
+  width: 0;
+  height: 0;
+  /* Centers the 6px dot on the first line of body text. */
+  --doctor-dot-offset: calc((var(--text-body--line-height) - 6px) / 2);
+  margin-top: var(--doctor-dot-offset);
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+.doctor-dot[data-level="warning"] {
+  border-color: var(--warning);
+  opacity: 1;
+}
+
+.doctor-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.doctor-head .group-title {
+  flex: none;
+}
+
+.doctor-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.doctor-finding[data-dismissed] :is(.doctor-dot, .row-title, .doctor-detail, .doctor-place) {
+  opacity: 0.55;
+}
+
+.doctor-finding > .accounts-form,
+[data-doctor-help] > .accounts-form {
+  padding-inline-start: calc(6px + var(--ds-space-3));
+}
+
+/* inline: the count and the line in the card's header. */
+.doctor-inline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  margin: 0 0 var(--ds-space-2);
+}
+
+.doctor-count {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+.doctor-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* banner: ui/Notice's warning across the top of the column. */
+.doctor-banner {
+  margin: 0 0 var(--ds-space-4);
+}
+
 /* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
    surface's size and line height, under the row; the density tiles' look. */
 .font-tiles {
@@ -3032,4 +3149,463 @@ button.menu-disclosure {
 .text-size-card__detail {
   margin: 0;
   color: var(--muted-text);
+}
+/* A json row (Row Layout, a JSON value): its editor is a body under the title, as wide as the row,
+   not a control beside it. Its right edge is the card's control edge. */
+.row[data-kind="json"] > .row-main {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ds-space-2);
+}
+
+/* In the column the title keeps its own height: as a flex: 1 item it took the space the editor's
+   wrap left over when the column measured it, a blank band between the title and the editor. */
+.row[data-kind="json"] > .row-main > .row-label {
+  flex: none;
+}
+
+/* Under its title, from the card's leading edge: the refined look's end-aligned control
+   (refined.css, margin-left: auto) would push the whole editor to the right half of the card. */
+:root .settings .row[data-kind="json"] > .row-main .row-control {
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
+.row[data-kind="json"] .row-control {
+  justify-content: flex-start;
+  max-width: 100%;
+}
+
+.json-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: 100%;
+}
+
+.json-field {
+  width: 100%;
+  min-height: calc(var(--ds-control-row) * 2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  font: var(--text-detail) / 1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical;
+}
+
+/* Settings > Sidebar > Workspace Rows > Row Layout (RowLayoutEditor.tsx): tabs for the three layout
+   keys, each a stack of token lines. A line is a number column, its chips, and its own + menu. */
+.row-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  width: 100%;
+  min-width: 0;
+}
+
+.row-layout .ui-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+/* A tab whose key holds an override carries the page's edited dot (Settings > Menus' marker). */
+.row-layout-tabs .ui-tabs-trigger[data-customized]::after {
+  content: "";
+  width: var(--page-size-5);
+  height: var(--page-size-5);
+  margin-inline-start: var(--ds-space-1);
+  border-radius: 50%;
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.row-layout-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+
+/* The row as the layout draws it (RowPreview): a sidebar row on the surface, sample values in its
+   lines, the name in body text and the items muted, joined by a dot. */
+.row-layout-preview-row,
+.row-layout-marks,
+.row-layout-line {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) var(--ds-control-compact);
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--grid-half-step) var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+}
+
+.row-layout-marks {
+  margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row {
+  align-items: start;
+  margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row > .row-layout-line-label {
+  padding-top: var(--ds-space-2);
+}
+
+.row-layout-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface);
+}
+
+.row-layout-preview-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-caption);
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.row-layout-preview-line[data-preview-line="0"] {
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.row-layout-preview-name {
+  overflow: hidden;
+  font-weight: var(--font-weight-emphasis);
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.row-layout-preview-line > * + .row-layout-preview-item::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-1);
+}
+
+.row-layout-preview-icon {
+  flex: none;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-working {
+  flex: none;
+  width: var(--page-size-6);
+  height: var(--page-size-6);
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-progress {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 60%;
+  height: var(--page-size-2);
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-line {
+  background: var(--input-bg);
+}
+
+.row-layout-line[data-drop] {
+  box-shadow: inset 0 0 0 1px var(--ds-color-focus);
+}
+
+.row-layout-line[data-problem] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.row-layout-new-line {
+  background: transparent;
+}
+
+.row-layout-line-label {
+  overflow: hidden;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-emphasis);
+  color: var(--muted-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-layout-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row-layout-add-item {
+  display: inline-flex;
+}
+
+/* A chip: the host list's token, on the control surface so it reads on the line's fill. */
+.row-layout-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-half-step);
+  height: var(--ds-control-compact);
+  padding: 0 var(--grid-half-step) 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+
+/* The chip's text is its grab handle and keyboard stop; the ring draws on the whole chip. */
+.row-layout-chip-grab {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.row-layout-chip-grab:focus-visible {
+  outline: none;
+}
+
+.row-layout-chip:has(.row-layout-chip-grab:focus-visible) {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+
+/* The name: pinned to the head of line one, no grab, no x. */
+.row-layout-chip[data-pinned] {
+  padding-right: var(--ds-space-2);
+  background: transparent;
+  font-weight: 600;
+  cursor: default;
+}
+
+.row-layout-pin {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+  margin-right: var(--grid-half-step);
+  color: var(--soft-text);
+}
+
+.row-layout-chip[data-problem] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.row-layout-chip:has(.row-layout-chip-grab:disabled) {
+  opacity: 0.6;
+}
+
+.row-layout-chip-grab:disabled {
+  cursor: default;
+}
+
+/* While a chip is dragged it follows the pointer over the rest (a transform, no layout). */
+.row-layout-chip[data-dragging] {
+  position: relative;
+  z-index: var(--layer-raised);
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
+}
+
+.row-layout-chip[data-dragging] .row-layout-chip-grab {
+  cursor: grabbing;
+}
+
+.row-layout-editor[data-reordering] .row-layout-chip-remove {
+  visibility: hidden;
+}
+
+/* Where the dragged chip lands. */
+.row-layout-caret {
+  position: absolute;
+  width: var(--page-size-2);
+  border-radius: var(--page-size-1);
+  background: var(--ds-color-focus);
+  pointer-events: none;
+}
+
+.row-layout-chip-remove {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
+
+.row-layout-chip-remove .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+/* The + beside a line's chips: a square the chips' height, its glyph centered. */
+.row-layout-add.button:not(.ui-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  min-height: 0;
+  padding: 0;
+  border-color: var(--border);
+}
+
+.row-layout-add .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+.row-layout-add-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  justify-self: start;
+  height: var(--ds-control-compact);
+}
+
+.row-layout-remove-line {
+  justify-self: end;
+}
+
+/* A slot toggle: a chip with a check box, so it reads as on or off, not as an item on a line. */
+.ui-button.row-layout-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.ui-button.row-layout-slot[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--border);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.row-layout-slot-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--ds-radius-sm);
+}
+
+.row-layout-slot[aria-pressed="true"] .row-layout-slot-check {
+  border-color: transparent;
+  background: var(--cmux-accent, var(--ds-color-accent));
+  color: var(--ds-color-on-accent);
+}
+
+.row-layout-slot-check .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+.row-layout-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+
+.row-layout-entry + .row-layout-entry {
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--border);
+}
+
+.row-layout-entry-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+}
+
+.row-layout-entry-title {
+  margin: 0 auto 0 0;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-emphasis);
+}
+
+.row-layout-entry-head:has(.row-layout-entry-note) .row-layout-entry-title {
+  margin-right: 0;
+}
+
+.row-layout-entry-note {
+  margin-right: auto;
+  font-size: var(--text-detail);
+  color: var(--muted-text);
+}
+
+.row-layout-agent {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
+}
+
+.row-layout-empty {
+  margin: 0;
+  font-size: var(--text-detail);
+  color: var(--muted-text);
+}
+
+.row-layout-footer,
+.row-layout-add-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.row-layout-add-agent {
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--border);
+}
+
+.row-layout-agent-field {
+  width: 200px;
+}
+
+.row-layout-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

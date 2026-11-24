@@ -63,6 +63,28 @@ fn a_current_parent_flag_is_the_callers_too() {
     assert_eq!(created["pane"], OWN_PANE);
 }
 
+/// An agent sets its own tab's icon with `cmux tab current update --icon`: from its terminal and
+/// from its chat, `current` is the caller's tab, not the one the person looks at.
+#[test]
+fn tab_current_update_icon_sets_the_callers_own_tab_icon() {
+    let run =
+        Run::new().terminal().cli(&["--json", "tab", "current", "update", "--icon", "star.fill"]);
+    let updated = run.mutation("tab.update");
+    assert_eq!(updated["tab"], OWN_TAB, "{}", run.stderr());
+    assert_eq!(updated["icon"], "star.fill");
+    let run = Run::new()
+        .app(App::Placed)
+        .agent()
+        .cli(&["--json", "tab", "current", "update", "--icon", "🥭"]);
+    let updated = run.mutation("tab.update");
+    assert_eq!(updated["tab"], OWN_TAB, "{}", run.stderr());
+    assert_eq!(updated["icon"], "🥭");
+    let run = Run::new().terminal().cli(&["--json", "tab", "current", "update", "--clear-icon"]);
+    let cleared = run.mutation("tab.update");
+    assert_eq!(cleared["tab"], OWN_TAB, "{}", run.stderr());
+    assert_eq!(cleared["icon"], Value::Null);
+}
+
 #[test]
 fn workspace_current_is_the_callers_workspace() {
     let run =
@@ -456,6 +478,7 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
             "workspace_id": OWN_WS, "pane_id": OWN_PANE,
             "tab_id": "tab_99999999999999999999999999999999"}))),
         "workspace.rename" => Ok(mutation(json!({"id": OWN_WS, "name": "dev"}))),
+        "tab.update" => Ok(mutation(json!({"id": params["tab"], "icon": params["icon"]}))),
         other => Err(format!("unexpected {other} {params}")),
     }
 }
