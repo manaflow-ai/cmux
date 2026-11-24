@@ -194,4 +194,16 @@ install p7; rm -rf "$TMP/p7/Applications/cmux NEXT.app"
 env CMUX_PKG_CONSOLE_USER=leo bash "$TMP/p7/scripts/postinstall" x "$TMP/p7/Applications" / >"$TMP/p7.log" 2>&1 \
   && grep -q "no app at" "$TMP/p7.log" || fail "no app: exit 0 and says so"
 pass "no console user, another volume, no app: exit 0, nothing runs"
+
+# --- scripts/ci/nightly-steps/next-pkg-artifact.sh (nightly-next-one, CMUX_NEXT_PKG_ARTIFACT) ---
+STUB_LOG="$TMP/n1"; mkdir -p "$STUB_LOG" "$TMP/n1/work"
+napp=$(make_app "$TMP/n1")
+( cd "$TMP/n1/work" && env PATH="$stubs:$PATH" PKGBUILD="$stubs/pkgbuild" PRODUCTBUILD="$stubs/productbuild" \
+  PLUTIL="$stubs/plutil" STUB_LOG="$STUB_LOG" PUBLISH_TOOLING="$ROOT/scripts" CHANNEL_APP_PATH="$napp" \
+  CHANNEL_DMG_PREFIX=cmux-nightly-next NIGHTLY_BUILD=4514220751701 APPLE_INSTALLER_CERTIFICATE_BASE64= \
+  bash "$ROOT/scripts/ci/nightly-steps/next-pkg-artifact.sh" ) >"$TMP/n1.log" 2>&1 || { cat "$TMP/n1.log"; fail "the nightly step builds a package"; }
+[ -s "$TMP/n1/work/next-pkg/cmux-nightly-next-4514220751701-arm64.pkg" ] || fail "the nightly step writes next-pkg/PREFIX-BUILD-arm64.pkg"
+grep -q "unsigned (measurement only)" "$TMP/n1.log" && ! grep -qx -- --sign "$STUB_LOG/productbuild.args" \
+  || fail "no installer certificate: unsigned"
+pass "the nightly step: an unsigned package without an installer certificate"
 echo "next-pkg: all passed"

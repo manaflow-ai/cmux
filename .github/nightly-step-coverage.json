@@ -505,6 +505,8 @@
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
+        "Build the installer package (CMUX_NEXT_PKG_ARTIFACT)": {"pr": "cmux-next-guards.yml:tooling-tests:cmux NEXT installer package and its pre-warm postinstall", "note": "off unless vars.CMUX_NEXT_PKG_ARTIFACT is 1; scripts/cmux-next/tests/next-pkg.test.sh builds and installs the package with stubbed tools"},
+        "Keep the installer package as a run artifact": {"plumbing": true},
         "Wait for the build commit's tree-commit marker": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Select the build to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},

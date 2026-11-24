@@ -7050,6 +7050,32 @@ jobs:
         env:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
+      # RFD 0134 Table 4 row 1: the installer package with the pre-warm postinstall, off unless
+      # vars.CMUX_NEXT_PKG_ARTIFACT is '1'. A run artifact only: never published, never in a feed or a release;
+      # customers download the DMG as before. Shipping a pkg is Leo's call (tbd-leo).
+      - name: Build the installer package (CMUX_NEXT_PKG_ARTIFACT)
+        if: ${{ !env.LEFT_SLOT && vars.CMUX_NEXT_PKG_ARTIFACT == '1' }}
+        id: next-pkg
+        continue-on-error: true
+        timeout-minutes: 50
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          APPLE_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_BASE64 }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/next-pkg-artifact.sh"
+      - name: Keep the installer package as a run artifact
+        if: ${{ !env.LEFT_SLOT && vars.CMUX_NEXT_PKG_ARTIFACT == '1' && steps.next-pkg.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-pkg-${{ github.run_id }}
+          path: next-pkg/*.pkg
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
       - name: Wait for the nearest deltas and the notes fetch
         if: ${{ !env.LEFT_SLOT }}
         env:
