@@ -98,6 +98,13 @@ impl Hub {
         self.note_harness_sandbox(session, update);
         self.note_claim_run(session, update);
         self.note_prefetch_read(session, update);
+        // RFD 0144's command placer, in shadow behind `cloud.autoCloud`: records only.
+        crate::placement::command_sampler::note_update(
+            &session.id,
+            || session.read_meta(|m| m.cwd.to_string_lossy().into_owned()),
+            || session.child.try_lock().ok().and_then(|c| c.as_ref().and_then(|c| c.pid)),
+            update,
+        );
         // Release the detector before appending: summary readers hold meta before the
         // detector, while append takes meta to publish the record.
         let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
@@ -342,7 +349,7 @@ impl Hub {
                 .map(str::to_owned),
         };
         let Some(owner) = owner.filter(|o| *o != m.id) else { return false };
-        let owner = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&owner).cloned();
+        let owner = self.session_get(&owner);
         owner.is_some_and(|o| matches!(o.status(), SessionStatus::Running | SessionStatus::Waiting))
     }
 
