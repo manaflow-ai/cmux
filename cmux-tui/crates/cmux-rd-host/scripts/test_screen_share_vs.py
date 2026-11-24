@@ -498,6 +498,11 @@ class BudgetInputTests(unittest.TestCase):
     def test_budget_input_defaults_to_key(self):
         self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
 
+    def test_budget_names_the_encode_profile(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, encode_profile="ultra")
+        self.assertEqual(b["encode_profile"], "ultra")
+        self.assertIsNone(vs.build_budget({"rows": [breakdown_row()]}, None)["encode_profile"])
+
 
 class FakeRelay(vs.SpoolRemote):
     """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
