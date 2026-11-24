@@ -86,7 +86,7 @@ mod tests {
             &[Phase::Asked { bound }, Phase::Answered, Phase::GaveUp],
             Duration::from_secs(91),
         );
-        assert_eq!(walks.len(), 3);
+        assert_eq!(walks.len(), 1, "Asked is the one waiting state");
     }
 
     fn hub_on(env: &[&str], start_timeout_ms: u64) -> Arc<Hub> {
