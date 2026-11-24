@@ -175,10 +175,10 @@ Callers: **owner** (a signed-in session or a person's install: the laptop's daem
 
 | Route | Caller | Body | Answer |
 |---|---|---|---|
-| `GET /v1/auto-sessions/machine` | owner | | `{team, machine}` or 404 `auto.no_machine` |
-| `PUT /v1/auto-sessions/machine` | owner | `{team, machine}` | `{team, machine}` |
+| `GET /v1/auto-sessions/machine` | owner | | `{team, machine}`: the machine the owner named, else one of their own Cloud machines that the store picks and keeps; 404 `auto.no_machine` when they have none |
+| `PUT /v1/auto-sessions/machine` | owner | `{team, machine}` | `{team, machine}`; optional: it replaces the store's pick, and no pick replaces it |
 | `PUT /v1/auto-sessions/:id` | owner | `{auto, title, harness, device, keepInCloud?, repo?: {remote, branch}}` | `{session}`; first call makes it with holder `device:<device>`, epoch 1. `auto: false` closes it: 409 `auto.held_in_cloud` while a machine holds it |
-| `POST /v1/auto-sessions` | owner | `{title?, harness, repo: {remote, branch}, firstMessage: {id, text}}` | 201 `{session}`: holder the Auto machine, assignment `create`, machine started; 409 `auto.no_machine` |
+| `POST /v1/auto-sessions` | owner | `{title?, harness, repo: {remote, branch}, firstMessage: {id, text}}` | 201 `{session}`: holder the Auto machine, assignment `create`, machine started; 409 `auto.no_machine` only when the owner named no machine and has none of their own |
 | `GET /v1/auto-sessions?limit=&cursor=` | owner | | `{sessions, nextCursor}` |
 | `GET /v1/auto-sessions/:id` | owner, machine | | `{session}` |
 | `GET /v1/auto-sessions/:id/wait?after=<version>&timeoutMs=` | owner | | `{session}` once its version passes `after`, or at the deadline (at most 25 s) |
@@ -306,6 +306,20 @@ Rules added after the correctness review (2026-11-23):
 - A `PUT` with Auto on from the laptop that holds the chat is also a renewal: the lease runs from it. The laptop
   reads a registration's answer as a lease's, so a registration answered late no longer leaves it running past
   a lease the store already ended.
+- The store finds the Auto machine itself; no client has to name one (`machine-pick.ts`, and `autoMachine` in
+  `index-do.ts`, the one lookup every reader calls: the lease alarm, `POST /v1/auto-sessions`, the inbox post,
+  `release`, `GET machine`). With none named, the owner's index reads the team's machines as the owner
+  (`cloud.machine.list` on the platform's CloudDO) and picks one the owner made that is not being deleted, failed
+  or still on Cloud classic: a running one first, then the most recently used or made. The team is the chat's
+  (`team` on its record, set from the caller's at the first `PUT`); with no chat yet, the caller's; the owner's
+  personal team when neither is known. A team the owner may not use is never read. The pick is kept as the
+  Auto machine, so later chats go to the same one; it is read again at most once a minute and replaced when it
+  is gone, which a named machine never is. With no machine the chat is `blocked: "no_machine"` as before, and
+  gets its machine with no further step once the owner has one: at the owner's next `GET` or `wait` of that
+  chat, at their list, at the next lease end, message or `POST`, and from the index's alarm (15 s later, then
+  twice as long each time up to 10 minutes, for 6 hours). A renewal never looks, and two looks in one team that
+  find nothing are at least 10 s apart. `lease.ts` is unchanged: this is where `machine` comes from, not what
+  the rules do with it.
 
 Known limits of the store's rules:
 
