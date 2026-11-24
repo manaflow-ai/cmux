@@ -70,7 +70,7 @@ import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
 import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel";
-import { type NewTabScreenActions } from "./newtab/NewTabScreen";
+import type { NewTabScreenActions } from "./newtab/NewTabScreen";
 import type { NewTabStartFailure } from "./newtab/StartFailure";
 import { startFailureCause, startFailureCode } from "./startFailure";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
@@ -688,6 +688,7 @@ export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
 import { drawPaneBody } from "./pane/PaneBody";
+import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -6524,6 +6525,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
+        // New Tab's screens are their own chunk (newtab/lazyNewTab.tsx): ready before the next Cmd-T.
+        preloadNewTabWhenIdle();
       }, 0),
     );
   }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, newTab]);
