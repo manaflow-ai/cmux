@@ -440,6 +440,10 @@ pub mod method {
     /// Each caller's requests and bytes over a recent window (`caller_stats.rs`):
     /// `{sinceSecs?, top?}`; local app and unix socket only.
     pub const MUX_CALLERS: &str = "_acpmux/callers";
+    /// The felt-latency histograms (`cmux-felt`, the net graph): p50/p90/p99, count and max of what
+    /// a person feels, over the last minute and since start. No params; numbers and names only;
+    /// local app and unix socket only.
+    pub const MUX_FELT_SNAPSHOT: &str = "_acpmux/felt_snapshot";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
@@ -513,6 +517,10 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every running subagent of a session and its latest ended ones, from the hub's subagent
+    /// tree, whatever a client's page of the chat holds: `{sessionId, ended?}` →
+    /// `{running, ended, endedOmitted, seen}` (`hub/subagent_list.rs`).
+    pub const MUX_SUBAGENT_LIST: &str = "_acpmux/subagents";
     /// A chat's older turns, read from its Claude Code transcript a page at a time:
     /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
     /// cursor (`hub/native_history.rs`).

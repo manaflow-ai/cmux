@@ -494,6 +494,45 @@ requestAnimationFrame(() => {
     await context.close();
   });
 
+  test("rows placed past a million pixels down a long chat draw where the page drew them", async () => {
+    // Leo, 2026-11-24, on a revive: "tons of layout shifts". The style attribute writes a length with six
+    // significant digits, so a 6000-turn chat's rows (`top: 1026212.5px`) read `top: 1.02621e+06px`, and the
+    // copy drew each up to 5 px off the live page it gave way to.
+    const context = await newContext(800, 600);
+    const writer = await context.newPage();
+    await writer.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await writer.goto("http://chat.test/a.html");
+    await writer.addScriptTag({ content: capture });
+    // Each row in view and its drawn top, to 1/64 px (layout's unit), in the page or the copy's root.
+    const READ_ROWS = `window.readRows = (scope) => Array.from(scope.querySelectorAll(".acpmux-row"))
+      .map((row) => [row.dataset.rowId, Math.round(row.getBoundingClientRect().top * 64) / 64])
+      .filter(([, top]) => top > -40 && top < 600);`;
+    await writer.addScriptTag({ content: READ_ROWS });
+    const { snapshot, drawn } = await writer.evaluate(() => {
+      const base = 1_026_212.5;
+      document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height = `${base + 100 * 41.75 + 3.25}px`;
+      document.querySelectorAll<HTMLElement>(".acpmux-row").forEach((row, at) => {
+        row.style.top = `${base + at * 41.75}px`;
+      });
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      scroller.scrollTop = scroller.scrollHeight;
+      const w = window as any;
+      return { snapshot: w.captureSnapshot(document, "theme-1"), drawn: w.readRows(document) };
+    });
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(snapshot.html).not.toMatch(/\de\+0\d/);
+    const page = await context.newPage();
+    await relaunched(page, snapshot, "theme-1", { holdDraw: true });
+    await page.addScriptTag({ content: READ_ROWS });
+    const copied = await page.evaluate(() =>
+      (window as any).readRows(document.querySelector("cmux-chat-snapshot")!.shadowRoot!),
+    );
+    expect(copied).toEqual(drawn);
+    await context.close();
+  });
+
   test("a box's checked state is written as it shows, both ways", async () => {
     const context = await newContext(800, 600);
     const page = await context.newPage();
