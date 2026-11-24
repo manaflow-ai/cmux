@@ -117,7 +117,7 @@ fn every_other_secret_is_a_named_finding_and_no_value_is_kept() {
 fn the_gateway_token_is_machine_identity_only_when_opted_in() {
     let b = scratch();
     put(&b.roots.at(GATEWAY_TOKEN), VALUE.as_bytes());
-    put(&cmux_host::cloud::gateway_token::marker(&b.roots.home), b"");
+    put(&cmux_host::cloud::gateway_token_path::marker(&b.roots.home), b"");
     put(&b.roots.acpmux_home.join("machine-credential.json"), VALUE.as_bytes());
     let report = audit(&b.roots, none).unwrap();
     assert!(report.green(), "{:?}", report.items);
