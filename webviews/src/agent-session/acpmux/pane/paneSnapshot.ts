@@ -33,6 +33,8 @@ import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
 import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
+import { setSavedPromptsTransport } from "../savedPrompts";
+import { setStashTab, setStashTransport } from "../composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -142,7 +144,6 @@ import {
   troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
-import type { Subagent } from "../subagents/subagentFold";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -162,12 +163,12 @@ import { setSuggestedTasks } from "../offer/offersShown";
 import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
-import type { StartedSession } from "../started/startedSessions";
 import { setExperimentSwitches } from "../../../experiments/switches";
 import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
+import { pullRequestUrl, reviewPrompt } from "../prReview";
 import { nativeUnsentPrompts } from "../unsentPrompts";
 import { flushHeldModePick } from "../heldModePick";
 import type { NativeRegistry, OpenDiff } from "../rows/rowProps";
@@ -309,9 +310,6 @@ export type PaneSnapshotArgs = {
   paletteCommands: React.RefObject<{ sessionId: string; commands: Record<string, () => void> }>;
   counted: React.RefObject<{
     summary: AcpmuxSnapshot["summary"];
-    runningAgents: readonly Subagent[];
-    runningCommands: readonly BackgroundCommand[];
-    runningSessions: readonly StartedSession[];
     sourceRows: AcpmuxRow[];
     childRows: AcpmuxRow[] | undefined;
     transcriptRows: AcpmuxRow[];
@@ -969,7 +967,10 @@ export function paneSnapshotEffect({
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
-      if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
+      if (typeof host.tab === "string" && host.tab) {
+        setSessionInfoTab(host.tab);
+        setStashTab(host.tab);
+      }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       setCloudTeamMachine(host.cloudTeamMachine === true);
@@ -1292,6 +1293,20 @@ export function paneSnapshotEffect({
       setBookmarkTransport({
         get: (id) => client.readBookmarks(id),
         set: (id, seq, on) => client.setBookmark(id, seq, on),
+      });
+      // Saved prompts live in acpmux, one list for every chat on the machine (savedPrompts.ts).
+      setSavedPromptsTransport({
+        list: () => client.listPrompts(),
+        save: (name, text) => client.savePrompt(name, text),
+        remove: (name) => client.deletePrompt(name),
+      });
+      // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
+      setStashTransport({
+        list: (chat) => client.listStash(chat),
+        push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
+        get: (chat, id) => client.getStash(chat, id),
+        drop: (chat, id) => client.dropStash(chat, id),
+        move: (chat, to) => client.moveStash(chat, to),
       });
       // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
       // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
@@ -2311,6 +2326,30 @@ export function paneSnapshotEffect({
           if (!text && !files.length) return;
           void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
         },
+        // Review from link: a pull request link's Review (LinkHoverCard; the composer's URL chip
+        // calls this same action, so its params stay `{url}`). A side chat right of this one gets
+        // the review prompt (prReview.ts), as `/side <prompt>` would; a chat with nothing to fork
+        // yet takes the prompt itself, as the person's own.
+        "pr.review": async ({ url }) => {
+          const pullRequest = pullRequestUrl(String(url ?? ""));
+          // l10n-allow: a caller's bug; both entries offer Review on a pull request only.
+          if (!pullRequest) throw new Error("pr.review takes a GitHub pull request URL");
+          const prompt = reviewPrompt(pullRequest);
+          const shown = snapshotRef.current;
+          const target = shown ? forkToTarget(shown) : undefined;
+          if (!target) {
+            void send(prompt).catch(() => undefined);
+            return;
+          }
+          try {
+            await callNative("chat.side", { ...target, splitRight: true, prompt });
+          } catch (error) {
+            const reason = errorMessage(error);
+            notices.transient(
+              reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+            );
+          }
+        },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
         // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
         // `effort` and `mode`: its Options' picks (offer/offerChoice.ts), else the new chat's
@@ -2811,6 +2850,8 @@ export function paneSnapshotEffect({
     directClient.current?.close();
     directClient.current = undefined;
     setBookmarkTransport(undefined);
+    setSavedPromptsTransport(undefined);
+    setStashTransport(undefined);
     delete window.cmuxAcpmuxActions;
     notifyDraftActionsChanged();
   };

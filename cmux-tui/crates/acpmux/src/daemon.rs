@@ -264,6 +264,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
     // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
     let _ = cmux_usage_patterns::install("acpmux");
+    // Opt-in install-count sharing (`install_share.rs`): sends nothing until the person turns on
+    // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
+    crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
     // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
@@ -1065,6 +1068,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
+                        // A chat's sealed segments go cold as they seal (`cold_segments.rs`).
+                        let _cold_segments = hub.cold_segments_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
                     });
