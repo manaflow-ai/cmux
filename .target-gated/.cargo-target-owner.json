@@ -1,7 +1,7 @@
 {
  "owners": [
   {
-   "at": "2026-11-24T15:26:52Z",
+   "at": "2026-11-24T16:07:42Z",
    "harness": "claude",
    "host": "gcp-agent-lane-9",
    "name": "transport-lockstep",
@@ -9,7 +9,7 @@
    "pr": null,
    "proc_start": "27829917",
    "session_id": "01a20d8d-e986-70b7-b5d3-173dab52e55c",
-   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--acpmux-gated-pushes/cmux-tui/crates/acpmux/src/../../.."
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--acpmux-gated-pushes/cmux-tui"
   }
  ],
  "schema": "cargo-target-owner/v1"
