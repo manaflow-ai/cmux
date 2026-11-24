@@ -28,6 +28,7 @@ impl VirtualDevice {
 
     /// Queue a decrypted packet for smoltcp to receive on the next poll.
     pub(crate) fn push_rx(&mut self, packet: Vec<u8>) {
+        syntrace("rx", &packet);
         self.rx.push_back(packet);
     }
 
@@ -93,7 +94,47 @@ impl phy::TxToken for TxToken<'_> {
     {
         let mut packet = vec![0u8; len];
         let result = f(&mut packet);
+        syntrace("tx", &packet);
         self.queue.push_back(packet);
         result
     }
+}
+
+// MEASUREMENT ONLY (mfr spurious-SYN count): not for commit.
+fn syntrace(dir: &str, p: &[u8]) {
+    use std::sync::OnceLock;
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    let start = *START.get_or_init(std::time::Instant::now);
+    let (src, dst, tcp) = match p.first().map(|b| b >> 4) {
+        Some(4) if p.len() >= 20 && p[9] == 6 => {
+            let ihl = usize::from(p[0] & 0x0f) * 4;
+            let a = std::net::Ipv4Addr::new(p[12], p[13], p[14], p[15]).to_string();
+            let b = std::net::Ipv4Addr::new(p[16], p[17], p[18], p[19]).to_string();
+            (a, b, ihl)
+        }
+        Some(6) if p.len() >= 40 && p[6] == 6 => {
+            let mut a = [0u8; 16];
+            a.copy_from_slice(&p[8..24]);
+            let mut b = [0u8; 16];
+            b.copy_from_slice(&p[24..40]);
+            (std::net::Ipv6Addr::from(a).to_string(), std::net::Ipv6Addr::from(b).to_string(), 40)
+        }
+        _ => return,
+    };
+    if p.len() < tcp + 14 {
+        return;
+    }
+    let flags = p[tcp + 13];
+    if flags & 0x02 == 0 {
+        return;
+    }
+    let kind = if flags & 0x10 != 0 { "synack" } else { "syn" };
+    let sport = u16::from_be_bytes([p[tcp], p[tcp + 1]]);
+    let dport = u16::from_be_bytes([p[tcp + 2], p[tcp + 3]]);
+    let seq = u32::from_be_bytes([p[tcp + 4], p[tcp + 5], p[tcp + 6], p[tcp + 7]]);
+    eprintln!(
+        "SYNTRACE {dir} {kind} {src}:{sport}>{dst}:{dport} seq={seq} len={} t_us={}",
+        p.len(),
+        start.elapsed().as_micros()
+    );
 }
