@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::frame;
 use crate::infer::Inferred;
-use crate::io::{Clock, Fs, Git, Listeners, Probe, Procs, Start};
+use crate::io::{Capture, Clock, Fs, Git, Listeners, Probe, Procs, Start};
 use crate::platform::{PlatformApi, Promote};
 use crate::slug::slugify;
 use crate::state::{self, AppState, Version, VersionState};
@@ -31,6 +32,8 @@ pub struct Host<'a> {
     pub platform: &'a dyn PlatformApi,
     /// Who listens on a port (this machine's agent answers, for the caller's own processes).
     pub listeners: &'a dyn Listeners,
+    /// Renders a version's loopback target to a PNG (its first frame).
+    pub capture: &'a dyn Capture,
     /// The apps store: `apps` under cmux's state root.
     pub apps_root: PathBuf,
     /// The caller's environment, read only for [`PASSED_THROUGH`].
@@ -359,6 +362,10 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
     let version = app.version(n).cloned().unwrap_or(version);
 
     let mut warnings = vec![];
+    // 7. First frame: best-effort, after the promote, never blocking it.
+    if let Err(e) = first_frame(host, &slug, version.platform_n, port) {
+        warnings.push(format!("published, but v{n} has no first frame: {e}"));
+    }
     if req.share_team {
         let team = moved.app.get("team").and_then(Value::as_str).unwrap_or_default();
         if let Err(e) = host.platform.share_team(&slug, team) {
@@ -366,6 +373,21 @@ pub fn publish(host: &Host<'_>, req: &PublishRequest) -> Result<Published, Failu
         }
     }
     Ok(Published { app, version, url: moved.url, inferred, warnings })
+}
+
+/// Renders the version's loopback target and uploads it as its first frame (RFD 0003, publish
+/// step 7). Any failure leaves the version without one: the waking page then shows the previous
+/// version's frame or plain text, never a made-up frame.
+fn first_frame(
+    host: &Host<'_>,
+    slug: &str,
+    platform_n: Option<u32>,
+    port: u16,
+) -> Result<(), String> {
+    let n = platform_n.ok_or("the promote's answer named no version number")?;
+    let png = host.capture.png(port).map_err(|e| format!("capture: {e}"))?;
+    let png = frame::fit(&png, frame::FRAME_BUDGET)?;
+    host.platform.put_frame(slug, n, &png).map_err(|e| format!("upload: {e}"))
 }
 
 /// `GET /` on the version's port until it answers 2xx or 3xx, the process exits, or `timeout`.
