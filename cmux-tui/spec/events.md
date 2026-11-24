@@ -1591,7 +1591,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:

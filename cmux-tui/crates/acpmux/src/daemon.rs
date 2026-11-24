@@ -305,7 +305,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
     // None: another daemon answers for this home and its ready line went out; nothing to do.
     let lock_wait = async {
-        match acquire_daemon_lock(&lock, opts.take_over).await {
+        match acquire_daemon_lock(&lock, opts.take_over, opts.ready_fd.is_none()).await {
             Ok(lock) => Ok(Some(lock)),
             Err(e) => {
                 // The command that started this daemon waits for the holder (`connect`).
@@ -1668,6 +1668,17 @@ fn managed_by_acpmux_unit() -> bool {
     false
 }
 
+/// Whether launchd runs this daemon as this user's `com.acpmux.daemon` LaunchAgent: launchd
+/// names a job's label in `XPC_SERVICE_NAME`. Such a daemon waits for the home's lock instead of
+/// exiting: under `KeepAlive` an exit is a start again every 10 s for as long as another daemon
+/// (one the cmux app started) holds the home, and the wait takes the home the moment that one
+/// exits (the app quit and its daemon went idle), so launchd keeps it served with no app
+/// (cmuxterm-hq docs/design/remote-screen-share-zero-touch.md Z1). It never asks the holder to
+/// hand over: the app's own daemon keeps serving while the app runs.
+fn launchd_job(xpc_service_name: Option<&str>) -> bool {
+    cfg!(target_os = "macos") && xpc_service_name == Some(crate::cli::daemon_service::LAUNCHD_LABEL)
+}
+
 /// Take this home's lock. The unit's daemon (`--take-over`, or a daemon in the
 /// `acpmux.service` cgroup) first asks a holder that serves this same socket to hand over
 /// ([`take_over_holder`]), then waits for the lock: a client can start a detached daemon in the
@@ -1680,14 +1691,24 @@ fn managed_by_acpmux_unit() -> bool {
 /// starts at once are the usual case of an update: the replaced daemon's own swap starts one
 /// (`exe_swap.rs`) and the installer starts another. Asking only the first holder left the
 /// later start waiting forever on the one that won (`take_over_under_load`, 2026-11-20).
-async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<DaemonLock> {
+///
+/// launchd's own start of the LaunchAgent (`unready`: no `--ready-fd`, so not a child that
+/// inherited the job's environment and reports to its starter) waits too, without asking
+/// ([`launchd_job`]).
+async fn acquire_daemon_lock(
+    path: &std::path::Path,
+    take_over: bool,
+    unready: bool,
+) -> Result<DaemonLock> {
     let supervised = take_over || managed_by_acpmux_unit();
+    let waits =
+        supervised || (unready && launchd_job(std::env::var("XPC_SERVICE_NAME").ok().as_deref()));
     // The holder this start has asked, by its pid (`None`: a pid the lock file did not name).
     let mut asked: Option<Option<u32>> = None;
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
-            Err(error) if supervised && error.downcast_ref::<LockHeld>().is_some() => {
+            Err(error) if waits && error.downcast_ref::<LockHeld>().is_some() => {
                 #[cfg(unix)]
                 let ours =
                     lock::holder_socket(path).is_some_and(|held| same_path(&held, &socket_path()));
@@ -1696,10 +1717,11 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
                 if take_over && !ours {
                     return Err(error);
                 }
-                if !ours {
+                if !ours || !supervised {
                     // The kernel lock is the liveness signal: a live holder keeps it and a
                     // dead holder releases it. Do not turn a busy but healthy daemon into a
-                    // startup failure with an arbitrary wall-clock cutoff.
+                    // startup failure with an arbitrary wall-clock cutoff. launchd's start
+                    // never asks the holder (the app's daemon keeps serving): it waits.
                     wait_for_lock_release(path.to_owned()).await;
                     continue;
                 }
@@ -2036,6 +2058,18 @@ fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
 
 #[cfg(test)]
 mod keeps_chats_tests;
+
+#[cfg(test)]
+mod launchd_job_tests {
+    /// Only this user's `com.acpmux.daemon` job waits for the lock, and only on macOS.
+    #[test]
+    fn only_the_acpmux_launch_agent_waits_for_the_home() {
+        assert_eq!(super::launchd_job(Some("com.acpmux.daemon")), cfg!(target_os = "macos"));
+        assert!(!super::launchd_job(Some("com.cmuxterm.app.nightly.keepalive")));
+        assert!(!super::launchd_job(Some("application.com.cmuxterm.app.nightly.1.2")));
+        assert!(!super::launchd_job(None));
+    }
+}
 
 #[cfg(all(test, target_os = "linux"))]
 mod scope_tests {

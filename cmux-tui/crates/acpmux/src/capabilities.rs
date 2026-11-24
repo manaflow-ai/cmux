@@ -39,6 +39,8 @@ pub const CONNECTIONS_EVENTS: &str = "connections-events-v1";
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
+/// `daemon service install` from an app's bundle runs the LaunchAgent from that bundle.
+pub const DAEMON_SERVICE_APP: &str = "daemon-service-app-v1";
 
 /// The hub carrier can list and probe machine routes.
 pub const MACHINE_ROUTES: &str = "machine-routes-v1";
@@ -260,6 +262,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability { id: REMOTE_PIPE, wire: &[method::MUX_REMOTE_PIPE] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux daemon service install` run from a cmux app's bundle points the LaunchAgent at that
+    // bundle's acpmux (`cli/daemon_service.rs` `launchd_program`), which `cmux device setup`
+    // checks before it relies on it. CLI-only: no daemon wire method.
+    Capability { id: DAEMON_SERVICE_APP, wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
@@ -717,7 +723,7 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == DAEMON_SERVICE_APP {
                 assert!(capability.wire.is_empty());
                 continue;
             }
