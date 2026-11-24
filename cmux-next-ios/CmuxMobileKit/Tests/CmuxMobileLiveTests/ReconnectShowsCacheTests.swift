@@ -31,6 +31,9 @@ import UIKit
     final class Recording: TerminalSession {
         let inner: DaemonTerminalSession
         private(set) var events: [TerminalSessionEvent] = []
+        /// MEASUREMENT: when the screen started the session, and each state it said.
+        var startedAt: CFTimeInterval?
+        private(set) var states: [(CFTimeInterval, TerminalConnectionState)] = []
         init(_ inner: DaemonTerminalSession) { self.inner = inner }
         var programName: String { inner.programName }
         var isAlternateScreen: Bool { inner.isAlternateScreen }
@@ -39,8 +42,10 @@ import UIKit
         var connectionState: TerminalConnectionState { inner.connectionState }
         var hostGridOwnerName: String? { inner.hostGridOwnerName }
         func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
+            startedAt = CACurrentMediaTime()
             inner.start { [weak self] event in
                 self?.events.append(event)
+                if case .connection(let state) = event { self?.states.append((CACurrentMediaTime(), state)) }
                 handler(event)
             }
         }
@@ -76,6 +81,41 @@ import UIKit
         }
     }
 
+    /// MEASUREMENT: what reached the fake Mac, with times.
+    final class Probe: @unchecked Sendable {
+        private let lock = NSLock()
+        var zero: CFTimeInterval = CACurrentMediaTime()
+        private var log: [String] = []
+        private var attaches = 0
+        var lines: [String] { lock.withLock { log } }
+        var attachCount: Int { lock.withLock { attaches } }
+        func note(_ text: String) {
+            let ms = Int((CACurrentMediaTime() - zero) * 1000)
+            lock.withLock { log.append("\(ms)ms \(text)") }
+        }
+        func saw(_ line: Data, _ replies: [Data]) {
+            for part in line.split(separator: 0x0A) {
+                guard let object = try? JSONSerialization.jsonObject(with: Data(part)) as? [String: Any],
+                      let cmd = object["cmd"] as? String else { continue }
+                let id = object["id"] as? String ?? "?"
+                let reply = replies.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                    .first { $0["id"] as? String == id }
+                let answer = reply.map { ($0["ok"] as? Bool ?? false) ? "ok" : "refused: \($0["error"] ?? "")" } ?? "no reply"
+                if cmd == "attach-surface" { lock.withLock { attaches += 1 } }
+                note("\(cmd) \(id) surface=\(object["surface"] ?? "-") -> \(answer)")
+            }
+        }
+    }
+
+    nonisolated(unsafe) static var label = "original"
+
+    /// MEASUREMENT (do not merge): the same test, 20 times.
+    @Test(arguments: 1...20) func repeated(run: Int) async throws {
+        Self.label = "run\(run)"
+        defer { Self.label = "original" }
+        try await aForcedDisconnectKeepsTheCachedFrameAndWritesNoTransportText()
+    }
+
     static func frame() -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 390, height: 300)).image { context in
             UIColor.darkGray.setFill()
@@ -90,9 +130,15 @@ import UIKit
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
         daemon.failNextAttaches = 1
-        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let probe = Probe()
+        let link = MockMacLink { service, line in
+            let replies = daemon.respond(service, line)
+            probe.saw(line, replies)
+            return replies
+        }
         let inner = DaemonTerminalSession(surface: 7) {
-            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+            probe.note("open")
+            return DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         inner.macName = "Mac Studio"
         // The link is gone: no retry lands before it is back.
@@ -113,6 +159,7 @@ import UIKit
         var hadFrame = model.coldFrame != nil
         var blankSince: CFTimeInterval?
         let started = CACurrentMediaTime()
+        probe.zero = started
         // Samples the page each 5 ms: cleared frames and blank time.
         func sample() {
             let now = CACurrentMediaTime()
@@ -134,12 +181,17 @@ import UIKit
 
         // The first attach fails (the dropped link) and gives up.
         try await waitUntil { if case .failed = inner.connectionState { true } else { false } }
+        let firstFailed: Bool = if case .failed = inner.connectionState { true } else { false }
+        let atFirstWait = "first_wait_ms=\(Int((CACurrentMediaTime() - started) * 1000)) first_failed=\(firstFailed) state=\(inner.connectionState) "
+            + "started_ms=\(session.startedAt.map { String(Int(($0 - started) * 1000)) } ?? "never") "
+            + "attaches_seen=\(probe.attachCount) armed_left=\(daemon.failNextAttaches) last_error=\(inner.lastError ?? "none")"
         #expect(!inner.isAttached)
         // The outage.
         let outageEnd = CACurrentMediaTime() + 0.4
         try await waitUntil(10) { CACurrentMediaTime() >= outageEnd }
         // The link is back (`finishServing` reconnects every open terminal).
         let back = CACurrentMediaTime()
+        let atReconnect = "reconnect_ms=\(Int((back - started) * 1000)) started=\(session.startedAt != nil) state=\(inner.connectionState) attaches_seen=\(probe.attachCount)"
         inner.reconnect()
         try await waitUntil { inner.isAttached && model.coldFrame == nil }
         #expect(inner.isAttached, "the link's return reattached: last error \(inner.lastError ?? "none")")
@@ -148,6 +200,13 @@ import UIKit
         numbers.transportBytes = session.bytesBeforeAttach
         Attachment.record("reconnect-harness: \(numbers) total_ms=\(Int((CACurrentMediaTime() - started) * 1000))",
                           named: "reconnect-harness.txt")
+        let states = session.states.map { "\(Int(($0.0 - started) * 1000))ms:\($0.1)" }.joined(separator: " | ")
+        let outcome = "outcome attached=\(inner.isAttached) state=\(inner.connectionState) last_error=\(inner.lastError ?? "none") attaches_seen=\(probe.attachCount)"
+        let report = "RECONNECT-PROBE \(Self.label)\n  at_first_wait: \(atFirstWait)\n  at_reconnect: \(atReconnect)\n  \(outcome)\n  states: \(states)\n  link:\n    "
+            + probe.lines.joined(separator: "\n    ")
+        Attachment.record(report, named: "reconnect-probe-\(Self.label).txt")
+        // MEASUREMENT: the report reaches the CI log when the run fails.
+        #expect(inner.isAttached, "\(report)")
         return (numbers, session, model)
     }
 
