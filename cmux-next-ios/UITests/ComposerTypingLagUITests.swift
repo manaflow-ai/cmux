@@ -89,7 +89,16 @@ final class ComposerTypingLagUITests: XCTestCase {
         let ids = surface == "chat" ? ["chat.composer.field", "chat.composer.card"] : [Self.field]
         let field = app.textViews.matching(NSPredicate(format: "identifier IN %@", ids)).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "\(surface) composer \(chars)\n\(app.debugDescription)")
-        if !app.keyboards.firstMatch.exists { field.tap() }
+        // The demo fills the draft, then focuses the field with the caret at its end. The field
+        // exists before that (empty): a tap then put the caret mid-draft and the keys landed
+        // inside it. Wait for the seed and the demo's own focus; tap only if it never came, at
+        // the field's bottom-right corner (the end of the draft it shows).
+        let seeded = NSPredicate { object, _ in ((object as? XCUIElement)?.value as? String)?.count == chars }
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: seeded, evaluatedWith: field)], timeout: 20), .completed,
+                       "\(surface) draft seed length")
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.95)).tap()
+        }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard for \(surface) \(chars)")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         let initial = field.value as? String ?? ""
