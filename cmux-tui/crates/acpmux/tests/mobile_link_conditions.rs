@@ -268,18 +268,21 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        Self::open_with(addr, token, deadline, false).await
+        Self::open_with(addr, token, deadline, App::Ios, false).await
     }
 
-    /// [`Self::open`]; `delta` asks for row changes as `_acpmux/session_patch`
-    /// (`session-changed-delta-v1`).
+    /// The phone's initialize can request compact text chunks and row changes independently.
     async fn open_with(
         addr: std::net::SocketAddr,
         token: &str,
         deadline: Instant,
+        app: App,
         delta: bool,
     ) -> Result<Self, String> {
         let mut meta = json!({"localAppToken": token});
+        if app == App::IosCompact {
+            meta["chunkDeltas"] = json!(true);
+        }
         if delta {
             meta["sessionChangedDelta"] = json!(true);
         }
@@ -765,6 +768,9 @@ struct TapInner {
     up: std::collections::BTreeMap<String, (u64, u64)>,
     link_down: u64,
     link_up: u64,
+    /// When the first text chunk came (`agent_message_chunk` as `_acpmux/event`, or
+    /// `_acpmux/chunk`), since the last `take`.
+    first_chunk: Option<Instant>,
 }
 
 /// cmux-mobile-link `frame.rs`: `u32 length | u32 channel | u8 type`, payloads split at 256 KiB.
@@ -854,6 +860,11 @@ impl Tap {
             Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
             _ => return,
         };
+        if t.first_chunk.is_none()
+            && (key.ends_with("/agent_message_chunk") || key == method::MUX_CHUNK)
+        {
+            t.first_chunk = Some(Instant::now());
+        }
         Self::add(&mut t.down, key, len);
         t.link_down += link;
     }
@@ -866,6 +877,7 @@ impl Tap {
         t.up.clear();
         t.link_down = 0;
         t.link_up = 0;
+        t.first_chunk = None;
         out
     }
 }
@@ -875,6 +887,9 @@ impl Tap {
 enum App {
     /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
     Ios,
+    /// [`App::Ios`] that asks for compact text chunks (`initialize` `_meta.acpmux.chunkDeltas`,
+    /// `server/chunk_deltas.rs`).
+    IosCompact,
     /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
     /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
     Macos,
@@ -884,6 +899,7 @@ impl App {
     fn name(self) -> &'static str {
         match self {
             App::Ios => "ios",
+            App::IosCompact => "ios-compact",
             App::Macos => "macos",
         }
     }
@@ -897,8 +913,8 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        if app == App::Ios {
-            return Self::open_with(addr, token, deadline, delta).await;
+        if app != App::Macos {
+            return Self::open_with(addr, token, deadline, app, delta).await;
         }
         let mut meta = json!({"peerRowBatches": true, "localAppToken": token});
         if delta {
@@ -933,7 +949,7 @@ impl Link {
         session: &str,
         deadline: Instant,
     ) -> Result<(Instant, Value), String> {
-        if app == App::Ios {
+        if app != App::Macos {
             return self.attach(session, None, deadline).await;
         }
         let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
@@ -966,7 +982,7 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
     let rate = |b: u64| Some((b as f64 * scale).round());
     emit(k, &format!("bytes{unit}_down"), rate(wire.1));
     emit(k, &format!("bytes{unit}_up"), rate(wire.0));
-    if app == App::Ios {
+    if app != App::Macos {
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
@@ -992,8 +1008,8 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
 /// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
-/// `NETCOND_BW_APPS` (ios,macos; `ios+delta` and `macos+delta` ask for row changes as
-/// `_acpmux/session_patch`, `session-changed-delta-v1`).
+/// `NETCOND_BW_APPS` (ios, ios-compact, macos). The compact phone asks for text chunks.
+/// Append `+delta` to any app to request row changes as `_acpmux/session_patch`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
 async fn chat_bytes_per_minute() {
@@ -1032,7 +1048,11 @@ async fn chat_bytes_per_minute() {
             Some(base) => (base, true),
             None => (app_name.as_str(), false),
         };
-        let app = if base == "macos" { App::Macos } else { App::Ios };
+        let app = match base {
+            "macos" => App::Macos,
+            "ios-compact" => App::IosCompact,
+            _ => App::Ios,
+        };
         let scale = if delta { app_name.as_str() } else { app.name() };
         let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
         let (shaper, _hop) =
@@ -1060,11 +1080,15 @@ async fn chat_bytes_per_minute() {
 
         // A streaming answer: a chunk every 50 ms (about a model's token rate), for the window.
         let chunks = secs * 20 + 20;
+        let asked = Instant::now();
         let turn = control.prompt(&session, &format!("ticking:{chunks}:50")).await;
         let t0 = Instant::now();
         link.drain(t0 + window_len).await;
         let (t, wire) = window(&shaper, &link);
-        emit_rates(&key("bw_stream"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
+        let k = key("bw_stream");
+        // The prompt to its first chunk on the phone's side of the link.
+        emit(&k, "first_chunk_ms", t.first_chunk.map(|at| ms(at - asked)));
+        emit_rates(&k, &t, wire, t0.elapsed().as_secs_f64(), app, true);
         let _ = control.answer(turn, BOUND).await;
         link.drain(Instant::now() + Duration::from_secs(1)).await;
         let _ = window(&shaper, &link);
@@ -1150,8 +1174,8 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
     eprintln!("netcond-delta: {turns} turns seeded in {:?}", seeded.elapsed());
 
     let deadline = Instant::now() + BOUND;
-    let mut old = Link::open_with(addr, &listener.token, deadline, false).await.unwrap();
-    let mut new = Link::open_with(addr, &listener.token, deadline, true).await.unwrap();
+    let mut old = Link::open(addr, &listener.token, deadline).await.unwrap();
+    let mut new = Link::open_with(addr, &listener.token, deadline, App::Ios, true).await.unwrap();
     assert!(
         new.capabilities.iter().any(|c| c == "session-changed-delta-v1"),
         "{:?}",

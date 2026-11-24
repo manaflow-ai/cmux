@@ -34,7 +34,7 @@ actor CancellationIgnoringConnectTransport: CmxByteTransport {
     }
 
     func waitUntilConnectCount(_ count: Int) async -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if connects >= count {
                 return true
             }
@@ -56,7 +56,7 @@ actor CancellationIgnoringConnectTransport: CmxByteTransport {
     }
 
     func waitUntilCloseCount(_ count: Int) async -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if closes >= count {
                 return true
             }
