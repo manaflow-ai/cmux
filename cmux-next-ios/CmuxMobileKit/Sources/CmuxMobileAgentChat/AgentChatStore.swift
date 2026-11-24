@@ -1900,6 +1900,12 @@ extension AgentChatStore {
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }
 
+    /// The loading state's words show. A start says so at once (the person just asked for
+    /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
+    /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
+    /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
+    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
         summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
