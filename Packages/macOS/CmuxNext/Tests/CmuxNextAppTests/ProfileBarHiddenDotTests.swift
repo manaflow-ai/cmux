@@ -48,10 +48,12 @@ import Testing
     /// The visible sliver of a dot cut by the + or by the leading edge is not pressable: a click there switches
     /// to no space and a hover lights none.
     @Test func theSliverOfAHiddenDotIsNotPressable() throws {
+        let (view, window) = makeBar(count: 40, active: 0)
+        defer { window.close() }
         var slivers: [(active: Int, index: Int, point: NSPoint)] = []
-        for active in 0..<40 {
-            let (view, window) = makeBar(count: 40, active: active)
-            defer { window.close() }
+        for active in view.model.profiles.indices {
+            view.model.activeProfileID = view.model.profiles[active].id
+            view.refresh()
             let rects = view.slotRects(), plus = rects[40], drawn = Set(view.drawnDotIndices)
             for index in 0..<40 where !drawn.contains(index) {
                 // The part of the slot that lies on the bar and off the +.
@@ -61,11 +63,12 @@ import Testing
             }
         }
         try #require(!slivers.isEmpty, "no scroll position leaves a cut dot: the fixture does not reach the bug")
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
         for sliver in slivers {
-            let (view, window) = makeBar(count: 40, active: sliver.active)
-            defer { window.close() }
-            var intents: [SidebarIntent] = []
-            view.model.onIntent = { intents.append($0) }
+            view.model.activeProfileID = view.model.profiles[sliver.active].id
+            view.refresh()
+            intents.removeAll()
             let hit = view.interactionIndex(at: sliver.point)
             #expect(hit != sliver.index, "active \(sliver.active): the sliver of hidden dot \(sliver.index) at \(sliver.point) is pressable")
             view.mouseMoved(with: event(.mouseMoved, sliver.point, in: view))
