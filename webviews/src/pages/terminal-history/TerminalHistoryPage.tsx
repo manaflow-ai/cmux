@@ -1,11 +1,16 @@
 import { lazy, memo, Suspense, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isPromptMarkdown } from "../../agent-session/acpmux/conversation/promptMarkdown";
+import { afterPaint } from "../../protocol/intents/schedule";
 import type { Strings } from "../shared/i18n";
 import { RawRecord } from "./RawRecord";
 import type { TerminalHistoryStore } from "./store";
 import { hitTurn, type TranscriptHit, type TranscriptTurn } from "./types";
 
-const FormattedMessage = lazy(() => import("./FormattedMessage"));
+// Show the transcript text before loading the chat's Markdown and code-rendering dependencies.
+const FormattedMessage = lazy(async () => {
+  await new Promise<void>((resolve) => afterPaint(resolve));
+  return import("./FormattedMessage");
+});
 
 export type TerminalHistoryPageProps = {
   store: TerminalHistoryStore;
