@@ -54,7 +54,7 @@ pub(crate) fn enabled_in(
         }
     }
     doc.and_then(|d| crate::user_settings::value(d, &setting_key(feature)))
-        .and_then(Value::as_bool)
+        .and_then(|v| v.as_bool())
         .unwrap_or(true)
 }
 
