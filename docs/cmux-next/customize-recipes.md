@@ -518,6 +518,20 @@ cmux customize use ~/.local/state/cmux/customize/recipes/violet-app.json
 
 Or ask: "make cmux look like a violet desktop coding app"
 
+### A light web coding app
+
+Workspaces as one-line tabs, a quiet sidebar, a white page on a light-gray frame, a centered
+760-point chat column, your prompts in light-gray bubbles and a hairline rounded composer.
+Command-N starts a chat and Shift-Command-[ and ] walk the tabs. It ships its theme file
+(`themes/web-coding-app.json`) and chat stylesheet (`agent-pane/theme.css`); the colors are
+matched by eye, not measured.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/web-coding-app.json
+```
+
+Or ask: "make cmux look like a light web coding agent, with workspaces as tabs"
+
 ## For agents and scripts
 
 - `cmux customize recipes --json` lists every recipe: its name, title, group, wish, what it
