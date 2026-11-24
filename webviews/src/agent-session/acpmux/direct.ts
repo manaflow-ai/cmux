@@ -335,6 +335,7 @@ import {
   promptImages,
 } from "./direct/queue";
 import { OrderedRows } from "./direct/orderedRows";
+import { type SubagentListing, subagentListing } from "./backgroundTasks/listedSubagents";
 import { isTrustRefusal, type TrustRefusal, type TrustRoute, trustRefusal } from "./direct/refusals";
 import { normalizeFolderProfiles } from "./direct/catalog";
 import {
@@ -847,6 +848,8 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux that lists a chat's subagents from its tree names (`_acpmux/subagents`).
+const SUBAGENT_LIST_CAPABILITY = "subagent-list-v1";
 /// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
 const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 /// The feature a new chat's wire names when its machine signs its agent in before the chat has a
@@ -5252,6 +5255,18 @@ export class AcpmuxDirectClient {
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
     return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
+  }
+
+  /// Every running subagent of the selected chat and its latest ended ones, from acpmux's subagent
+  /// tree (`_acpmux/subagents`, hub/subagent_list.rs), whatever the page holds: the Background tasks
+  /// panel's list. Undefined from an acpmux that does not serve it.
+  async listSubagents(): Promise<SubagentListing | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.capabilities?.has(SUBAGENT_LIST_CAPABILITY) !== true) return undefined;
+    const result = await this.request("_acpmux/subagents", { sessionId }, 10_000);
+    // l10n-allow: internal selection race; the panel keeps its last list.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return subagentListing(result);
   }
 
   /// Reads only this pane's selected chat; the native relay enforces the same scope.

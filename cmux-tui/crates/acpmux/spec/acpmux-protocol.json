@@ -559,6 +559,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/native_history",
       "params": {
         "$ref": "#/types/NativeHistoryParams"
@@ -8644,6 +8652,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,

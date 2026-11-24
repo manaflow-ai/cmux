@@ -96,3 +96,35 @@ fn a_rebuilt_tree_adopts_the_logs_list() {
     assert!(ended.contains(&("old", "done")));
     assert!(ended.contains(&("both", "failed")));
 }
+
+/// What one `_acpmux/subagents` answer costs at the size of the coordinator chat Leo opened
+/// (e13016be, 2026-11-24: 3,805 subagents seen, 8 running): the list and its JSON, timed. Run with
+/// `cargo test -p acpmux --release --lib listing_cost_at_a_coordinators_size -- --ignored --nocapture`
+/// (scripts/cmux-next/background-tasks-list-bench.py times the live call).
+#[test]
+#[ignore]
+fn listing_cost_at_a_coordinators_size() {
+    let mut tree = SubagentTree::default();
+    for n in 0..3805 {
+        spawn(&mut tree, &format!("toolu_{n:05}"), &format!("Helper {n} with a long enough name"));
+    }
+    for n in 0..3797 {
+        state(&mut tree, &format!("toolu_{n:05}"), "completed");
+    }
+    let rounds = 200;
+    let started = std::time::Instant::now();
+    let mut bytes = 0;
+    for _ in 0..rounds {
+        let list = tree.listing(false, super::LISTED_ENDED_DEFAULT);
+        bytes = serde_json::to_vec(&list).map(|v| v.len()).unwrap_or(0);
+    }
+    let each = started.elapsed() / rounds;
+    let list = tree.listing(false, super::LISTED_ENDED_DEFAULT);
+    println!(
+        "listing: {} running, {} ended listed, {} omitted, {bytes} bytes, {each:?} per call",
+        list.running.len(),
+        list.ended.len(),
+        list.ended_omitted
+    );
+    assert_eq!(list.running.len(), 8);
+}

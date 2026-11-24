@@ -421,6 +421,8 @@ export type PaneBodyDeps = NewTabShown &
     saveDocumentNatively: SaveDocument;
     backgroundPanel: { sessionId?: string | undefined; expanded: boolean; dismissed: ReadonlySet<string> } | undefined;
     backgroundList: BackgroundGroup[];
+    /// acpmux's list of the chat's subagents has not answered yet (backgroundTasks/useListedSubagents.ts).
+    backgroundListing: boolean;
     clientEpoch: number;
     backgroundFocus: BackgroundFocus | undefined;
     stopSubagent: ((id: string) => Promise<unknown>) | undefined;
@@ -691,6 +693,7 @@ export function drawPaneBody({
   saveDocumentNatively,
   backgroundPanel,
   backgroundList,
+  backgroundListing,
   clientEpoch,
   backgroundFocus,
   stopSubagent,
@@ -1675,6 +1678,7 @@ export function drawPaneBody({
             <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
               <BackgroundTasksPanel
                 groups={backgroundList}
+                loading={backgroundListing}
                 readsOutput={
                   chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&
