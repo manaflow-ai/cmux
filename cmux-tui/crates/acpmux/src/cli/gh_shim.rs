@@ -150,6 +150,8 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        // The shim asks for no token permissions; only a lane's own mint sets them.
+        permissions: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
     })
