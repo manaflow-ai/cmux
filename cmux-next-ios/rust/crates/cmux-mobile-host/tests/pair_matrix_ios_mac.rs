@@ -889,7 +889,7 @@ async fn run_cell(cell: &Cell<'_>) {
     let change_end = match cell.condition {
         "handoff" => {
             let session_id = phone.connected.session_id.clone();
-            let hit = wireguard::simulate_network_loss(Some(&session_id), true);
+            let hit = wireguard::simulate_network_loss(Some(session_id.as_str()), true);
             let stall = handoff_stall(cell.seed);
             tokio::time::sleep(stall).await;
             let end = Instant::now();
