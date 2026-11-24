@@ -109,8 +109,6 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'probe'}),
     'nightly.yml': ('NEXT nightly: never moved mid-train here; its runner change is its own PR',
      {'promote-nightly-next', 'await-release-surface-ack', 'promote-nightly-next-acked', 'refresh-compilation-cache', 'build-nightly-ghostty-cli-helper', 'pick-nightly-app-runner', 'pick-classic-prepare-runner', 'publish-nightly'}),
-    'pr-media-privacy.yml': ('scan reads PR_MEDIA_PRIVATE_TERMS: an ephemeral label the secret-runner rule (test_ci_fork_runner_routing) checks literally',
-     {'scan'}),
     'rcodesign-parity-proof.yml': ('signing parity proof: an ephemeral label the signing rule checks literally',
      {'prep', 'sign-codesign', 'sign-rcodesign', 'notarize-app', 'dmg', 'notarize-dmg', 'gatekeeper', 'gatekeeper-reference', 'sparkle'}),
     'relay-publish-npm.yml': ('GitHub OIDC provenance: moves to fromJSON(vars.RUNNER_POOLS).provenance',

@@ -82,9 +82,9 @@ jobs:
     name: Scan new pr-media files for private names
     needs: check
     if: ${{ needs.check.outputs.changed == 'true' }}
-    # Reads PR_MEDIA_PRIVATE_TERMS, so it runs on an ephemeral GitHub-hosted Linux VM, never the persistent pool
-    # (tests/test_ci_fork_runner_routing.py secret-runner rule).
-    runs-on: ubuntu-24.04
+    # Reads PR_MEDIA_PRIVATE_TERMS, so it runs on a one-job ephemeral Linux VM (the trusted selector), never the
+    # persistent pool (tests/test_ci_fork_runner_routing.py secret-runner rule).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: write
@@ -103,8 +103,8 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v tesseract >/dev/null || ! command -v ffmpeg >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng ffmpeg >/dev/null
+            sudo apt-get -o DPkg::Lock::Timeout=120 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng ffmpeg >/dev/null
           fi
 
       - name: Fetch the tip and the scanned marker
