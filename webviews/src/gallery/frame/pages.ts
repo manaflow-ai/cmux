@@ -7,6 +7,7 @@ import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { NewTabOps } from "../../pages/apps/UseAsNewTab";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -304,7 +305,8 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };
         if (params.method === "viewerPrefs.get") return { preferences: prefs };
-        if (params.method === "comments.list") return { comments };
+        if (params.method === "comments.list")
+          return state.commentsReview ? { comments, review: state.commentsReview } : { comments };
         if (params.method === "comments.save") {
           const input = params.params.comment as DiffCommentRecord;
           const now = new Date(0).toISOString();
@@ -316,6 +318,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (params.method === "comments.send") {
           const ids = new Set(params.params.ids as string[]);
           comments = comments.filter((entry) => !ids.has(entry.id));
+        }
+        // Post to GitHub, answered as the host passes the daemon's answer on (`in_body`).
+        if (params.method === "comments.post") {
+          const ids = params.params.ids as string[];
+          comments = comments.filter((entry) => !ids.includes(entry.id));
+          const url = `${state.commentsReview?.url ?? "https://github.com/acme/net/pull/1"}#pullrequestreview-1`;
+          return { url, posted: ids.length, in_body: 0, cleared: ids };
         }
         return {};
       },
@@ -367,11 +376,22 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
     provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
   }
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+    pageOps(
+      provider,
+      [
+        ...Object.values(AppsOps),
+        OPEN_ACTION.op,
+        NewTabOps.get,
+        NewTabOps.set,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
+      {
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;
@@ -396,6 +416,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
+  if (state.planId) provider.account.plan.plan_id = state.planId;
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
