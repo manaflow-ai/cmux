@@ -18,7 +18,7 @@ use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::bundle_link;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
-use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkHandle, Transport, connect_inner};
+use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkHandle, Transport, WarmPool};
 use sha2::{Digest, Sha256};
 
 struct Rig {
@@ -71,29 +71,27 @@ async fn rig_with(old_host: bool) -> Rig {
             },
         ));
     }
-    // One dial at a time: six WireGuard handshakes at once in a debug build on a loaded machine
-    // overran the dial's deadline (`connect: Timeout`, 2 of 20 runs before this lock).
-    static DIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _dialing = DIAL.lock().await;
-    let handle = connect_inner(
-        ConnectRequest {
-            base_url: server.base_url.clone(),
-            token: "user:alice".into(),
-            team_id: "team".into(),
-            device_id: uuid::Uuid::new_v4().to_string(),
-            mac_device_id: mac_id,
-            transport: Transport::WireGuard,
-            include_loopback: true,
-            relay_only: false,
-            block_udp: false,
-            video_lane: false,
-            webrtc_media: false,
-            ultra: cmux_mobile_link::UltraSetting::Off,
-        },
-        None,
-    )
-    .await
-    .expect("connect");
+    // A pool of its own (as tests/ffi.rs), so no test dials on another test's warm socket.
+    let handle = WarmPool::new()
+        .connect(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                token: "user:alice".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: mac_id,
+                transport: Transport::WireGuard,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                video_lane: false,
+                webrtc_media: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
+            },
+            None,
+        )
+        .await
+        .expect("connect");
     Rig { _server: server, _dirs: dirs, root, handle }
 }
 
