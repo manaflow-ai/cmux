@@ -235,9 +235,11 @@ impl Upload {
             }
             st.progress.clone()
         };
-        let _ = self
-            .result
-            .send(Some(outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message })));
+        // send_replace, not send: `send` drops the value when no waiter is subscribed yet (the
+        // channel keeps no receiver), and a `wait` that came after would then hang forever.
+        self.result.send_replace(Some(
+            outcome.map_err(|(code, message)| CmuxMobileError::Refused { code, message }),
+        ));
         self.observer.on_progress(snapshot);
         true
     }

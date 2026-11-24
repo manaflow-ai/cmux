@@ -17,8 +17,8 @@ use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link_ffi::{
-    AttachmentUploads, ConnectRequest, LinkHandle, Timings, Transport, UploadObserver, UploadProgress,
-    UploadSpec, UploadStage, VideoPlan, connect_inner, video_plan,
+    AttachmentUploads, CmuxMobileError, ConnectRequest, LinkHandle, Timings, Transport, UploadObserver,
+    UploadProgress, UploadSpec, UploadStage, VideoPlan, connect_inner, video_plan,
 };
 use sha2::{Digest, Sha256};
 
@@ -313,6 +313,30 @@ async fn a_missing_file_fails_unreadable_and_a_given_id_is_kept() {
     assert!(uploads.wait(id.clone()).await.is_err());
     let progress = uploads.progress(id).unwrap();
     assert_eq!((progress.stage, progress.error_code.as_deref()), (UploadStage::Failed, Some("unreadable")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wait_that_starts_after_the_upload_ended_still_gets_its_result() {
+    // The result used to be stored with watch `send`, which keeps nothing when no waiter is
+    // subscribed yet: a `wait` after a cancel (or a fast failure) then hung forever.
+    let rig = upload_rig(Transport::WireGuard).await;
+    let (uploads, _recorder) = engine(Timings::default());
+    let failed = uploads.start(spec(&rig, "nope.bin"), "/definitely/not/here".into());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !uploads.progress(failed.clone()).unwrap().stage.eq(&UploadStage::Failed) {
+        assert!(Instant::now() < deadline, "the missing file never failed");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let late = tokio::time::timeout(Duration::from_secs(1), uploads.wait(failed)).await;
+    assert!(matches!(late, Ok(Err(_))), "{late:?}");
+
+    let cancelled = uploads.start(spec(&rig, "nope.bin"), "/definitely/not/here/either".into());
+    uploads.cancel(cancelled.clone());
+    let late = tokio::time::timeout(Duration::from_secs(1), uploads.wait(cancelled)).await;
+    assert!(
+        matches!(&late, Ok(Err(CmuxMobileError::Refused { code, .. })) if code == "cancelled" || code == "unreadable"),
+        "{late:?}"
+    );
 }
 
 fn plan(width: u32, height: u32, seconds: u64, bytes: u64) -> VideoPlan {
