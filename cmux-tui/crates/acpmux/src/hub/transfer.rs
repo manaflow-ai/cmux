@@ -349,7 +349,11 @@ impl Hub {
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let control = guarded.map(|g| g.guard.control);
-        let last = match self.copy_bundle_events(bundle, &meta.id, control, staged) {
+        // A whole bundle's records are the chat's whole history: copied off the runtime's
+        // workers, so the daemon's other chats answer meanwhile (`qos::off_worker`, cmux#54461).
+        let copied =
+            crate::qos::off_worker(|| self.copy_bundle_events(bundle, &meta.id, control, staged));
+        let last = match copied {
             Ok(last) => last,
             Err(e) => {
                 self.drop_failed_import(&meta);
@@ -364,10 +368,16 @@ impl Hub {
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.
-            None if staged.is_some_and(|s| s.history_later) => {
-                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+            // A move's receive bundle (`live`) is read by nothing after its finish either, which
+            // removes it: its transcripts are linked too, not copied under the freeze (a Claude
+            // chat's is 1.6 GB of a 7 GB chat; cmux#54461).
+            None if live || staged.is_some_and(|s| s.history_later) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
             }
-            None => crate::native::restore(bundle, &meta).unwrap_or_default(),
+            None => {
+                crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
+            }
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
             Some(g) => {
