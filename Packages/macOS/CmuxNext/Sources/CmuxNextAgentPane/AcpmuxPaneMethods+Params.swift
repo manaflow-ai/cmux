@@ -161,7 +161,7 @@ nonisolated extension AcpmuxPaneMethods {
         // `_meta`: only the gesture ticket of the person's Build pick, as an answer's. No
         // `harnesses`: the pane builds with the chat's own harness, or it and the other of Claude
         // and Codex for a compare.
-        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "_meta"], []),
+        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "plan", "_meta"], []),
         "_acpmux/plan/compare": (["sessionId", "buildId"], []),
         "_acpmux/plan/keep": (["sessionId", "buildId", "keep"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),

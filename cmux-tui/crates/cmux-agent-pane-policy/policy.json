@@ -221,7 +221,7 @@
     "_acpmux/harness_enable": {"params": ["folder", "id"], "acpmux": []},
     "session/set_mode": {"params": ["sessionId", "modeId", "_meta"], "acpmux": []},
     "session/set_config_option": {"params": ["sessionId", "configId", "value", "_meta"], "acpmux": []},
-    "_acpmux/plan/build": {"params": ["sessionId", "permissionId", "target", "_meta"], "acpmux": []},
+    "_acpmux/plan/build": {"params": ["sessionId", "permissionId", "target", "plan", "_meta"], "acpmux": []},
     "_acpmux/plan/compare": {"params": ["sessionId", "buildId"], "acpmux": []},
     "_acpmux/plan/keep": {"params": ["sessionId", "buildId", "keep"], "acpmux": []}
   },
