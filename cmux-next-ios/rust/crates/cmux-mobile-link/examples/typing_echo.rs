@@ -206,7 +206,6 @@ async fn main() {
             drop(connected);
         });
     }
-    let mut options = options;
     options.impair_inbound = Some(shape_downlink);
     let phone_config = LinkConfig { foreground_probe: args.foreground_probe, ..LinkConfig::default() };
     let phone_id = uuid::Uuid::new_v4().to_string();

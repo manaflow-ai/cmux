@@ -245,7 +245,8 @@ fn shape(via_turn: bool, from: &SocketAddr, len: usize, direction: Option<Direct
     };
     let free = air.free_at.entry(*from).or_insert(now);
     let start = (*free).max(awake);
-    if start - now > air.profile.serialize(QUEUE_SEGMENTS * SEGMENT) {
+    // The bearer's buffer holds what waits for the radio too.
+    if start - awake > air.profile.serialize(QUEUE_SEGMENTS * SEGMENT) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(%from, len, via_turn, "shaper drops a datagram: queue full");
         return None;
@@ -274,5 +275,37 @@ mod tests {
         assert_eq!((lte.rtt_ms, lte.loss_percent, lte.rate_kbit()), (70, 0.5, 12_000));
         let lossy = LinkProfile::named("lossy-3");
         assert_eq!((lossy.rtt_ms, lossy.jitter_ms, lossy.loss_percent), (70, 300, 3.0));
+    }
+
+    /// An idle radio holds the next datagram for its wake (promotion up,
+    /// paging plus promotion down); traffic inside the tail does not wake it.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_radio_holds_the_next_datagram_for_its_wake() {
+        let profile = LinkProfile {
+            name: "flat".into(),
+            up_kbit: 0,
+            down_kbit: 0,
+            rtt_ms: 70,
+            jitter_ms: 0,
+            loss_percent: 0.0,
+        };
+        let model = RadioModel::lte();
+        set_link_profile(Some(profile), 7);
+        set_radio_model(Some(model));
+        let from: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let one_way = Duration::from_millis(35);
+        // Never used: the first datagram wakes it.
+        assert_eq!(shape_uplink(false, &from, 64), Some(model.promote + one_way));
+        tokio::time::advance(model.promote + Duration::from_secs(5)).await;
+        assert_eq!(shape_downlink(false, &from, 64), Some(one_way));
+        assert_eq!(radio_wakes(), 1);
+        tokio::time::advance(model.tail + Duration::from_millis(1)).await;
+        let down = shape_downlink(false, &from, 64).unwrap();
+        assert!(down >= model.promote + one_way && down < model.paging + model.promote + one_way, "{down:?}");
+        // A datagram during the wake waits for the same moment.
+        let up = shape_uplink(false, &from, 64).unwrap();
+        assert_eq!(up, down);
+        assert_eq!(radio_wakes(), 2);
+        set_link_profile(None, 0);
     }
 }
