@@ -16,8 +16,9 @@
 //! ([`crate::class_queue`]) in front of the allocation, so on a backed-up
 //! stream control and input still go first and stale video is dropped.
 
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -342,6 +343,7 @@ pub struct TurnCarrier {
     /// The socket or stream to the server.
     conn: Arc<dyn Conn + Send + Sync>,
     dead: watch::Receiver<bool>,
+    duplicates: Arc<Duplicates>,
 }
 
 impl TurnCarrier {
@@ -509,6 +511,7 @@ impl TurnCarrier {
         let queue = Arc::new(ClassQueue::default());
         let (inbound_tx, inbound) = mpsc::channel(INBOUND_QUEUE);
         let (permits, permit_requests) = mpsc::unbounded_channel();
+        let duplicates = Arc::new(Duplicates::default());
         let sender = {
             let (relay, queue) = (Arc::clone(&relay), Arc::clone(&queue));
             let early = EarlyPermits {
@@ -518,7 +521,7 @@ impl TurnCarrier {
                 username: server.username.clone(),
                 password: server.credential.clone(),
             };
-            tokio::spawn(sender_loop(relay, queue, early, permit_requests))
+            tokio::spawn(sender_loop(relay, queue, early, permit_requests, Arc::clone(&duplicates)))
         };
         let receiver = {
             let relay = Arc::clone(&relay);
@@ -560,7 +563,14 @@ impl TurnCarrier {
             client,
             conn,
             dead,
+            duplicates,
         })
+    }
+
+    /// Datagrams this carrier sent twice, and their bytes to the server
+    /// (see [`sender_loop`]).
+    pub fn duplicates(&self) -> (u64, u64) {
+        (self.duplicates.datagrams.load(Ordering::Relaxed), self.duplicates.bytes.load(Ordering::Relaxed))
     }
 
     /// Queue one datagram to `to` through the TURN server, in `class`
@@ -728,9 +738,10 @@ impl EarlyPermits {
     }
 
     /// A Send indication to `to`: the server relays it once it has a
-    /// permission for `to`, and drops it before.
-    async fn indicate(&self, datagram: &[u8], to: SocketAddr) -> bool {
-        let Some(server) = self.server else { return false };
+    /// permission for `to`, and drops it before. Its bytes on the wire, or
+    /// `None` when it was not sent.
+    async fn indicate(&self, datagram: &[u8], to: SocketAddr) -> Option<usize> {
+        let server = self.server?;
         let mut message = stun_message::Message::new();
         let built = message.build(&[
             Box::new(TransactionId::new()),
@@ -742,7 +753,8 @@ impl EarlyPermits {
             Box::new(peer_address(&to)),
             Box::new(FINGERPRINT),
         ]);
-        built.is_ok() && self.conn.send_to(&message.raw, server).await.is_ok()
+        built.ok()?;
+        self.conn.send_to(&message.raw, server).await.ok()
     }
 }
 
@@ -750,37 +762,47 @@ impl EarlyPermits {
 ///
 /// The `turn` crate's `send_to` holds its client for a whole server round
 /// trip at a time: the CreatePermission of a peer address's first datagram,
-/// and the ChannelBind its next datagram starts (the bind keeps the client
+/// and the ChannelBind that datagram starts (the bind keeps the client
 /// locked until the server answers, retransmitting on loss). Every send
 /// waits behind that. So an address named to [`TurnCarrier::permit`] gets
 /// its permission request written at once, with the others in the same
-/// request, and while the crate is busy with a datagram its datagrams go as
-/// Send indications instead of queueing behind it. The crate still sends
-/// one datagram at a time, in order, and so makes and refreshes its own
-/// permission and channel. A datagram the crate does not send within
-/// [`CRATE_SEND_GRACE`] (the first to an address) goes as an indication
-/// too: the peer gets it twice, and drops the second WireGuard copy as a
-/// replay.
+/// request, and until the crate has its channel to the address, its
+/// datagrams go as Send indications while the crate is busy instead of
+/// queueing behind it. The crate still sends one datagram at a time, in
+/// order, and so makes and refreshes its own permission and channel.
+///
+/// A WireGuard datagram the crate does not send within [`CRATE_SEND_GRACE`]
+/// in that window also goes as an indication: the peer may get it twice.
+/// WireGuard drops the second copy on its own (a data counter or handshake
+/// timestamp already seen; a response for a handshake already done), so
+/// nothing here relies on more than WireGuard guarantees. Any other
+/// datagram is never sent twice. Once a crate send to the address comes
+/// back within the grace after one that did not, or after two others (its
+/// round trips are done, its channel is bound), that address gets no more duplicates or
+/// indications: everything goes through the crate.
 async fn sender_loop(
     relay: Arc<dyn Conn + Send + Sync>,
     queue: Arc<ClassQueue>,
     early: EarlyPermits,
     mut permit_requests: mpsc::UnboundedReceiver<Vec<SocketAddr>>,
+    duplicates: Arc<Duplicates>,
 ) {
-    let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
-        std::collections::HashMap::new();
-    // Addresses with a permission request of ours on the wire.
-    let mut permitted: std::collections::HashSet<SocketAddr> = std::collections::HashSet::new();
+    let mut sent = CrateSends::default();
+    // Addresses with a permission request of ours on the wire, until the
+    // crate is past its round trips to them.
+    let mut early_window: HashSet<SocketAddr> = HashSet::new();
     // The datagram the crate is sending, if it has not returned yet.
-    let mut busy: Option<tokio::task::JoinHandle<(SocketAddr, bool)>> = None;
+    let mut busy: Option<JoinHandle<CrateSend>> = None;
     loop {
         let queued = tokio::select! {
             biased;
             Some(targets) = permit_requests.recv() => {
-                let fresh: Vec<SocketAddr> =
-                    targets.into_iter().filter(|addr| !permitted.contains(addr)).collect();
+                let fresh: Vec<SocketAddr> = targets
+                    .into_iter()
+                    .filter(|addr| !early_window.contains(addr) && !sent.ready.contains(addr))
+                    .collect();
                 if !fresh.is_empty() && early.request(&fresh).await {
-                    permitted.extend(fresh);
+                    early_window.extend(fresh);
                 }
                 continue;
             }
@@ -788,73 +810,123 @@ async fn sender_loop(
         };
         let Some(Queued { datagram, to }) = queued else { break };
         if busy.as_ref().is_some_and(|task| task.is_finished()) {
-            settle(busy.take(), &mut failed).await;
+            sent.settle(busy.take()).await;
         }
-        if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
+        early_window.retain(|addr| !sent.ready.contains(addr));
+        if sent.failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
             continue;
         }
-        let ours = permitted.contains(&to);
-        if busy.is_some() && ours && early.indicate(&datagram, to).await {
+        let early_to = early_window.contains(&to);
+        if busy.is_some() && early_to && early.indicate(&datagram, to).await.is_some() {
             continue;
         }
         // The crate goes on with the next datagram once it is done with the last.
-        settle(busy.take(), &mut failed).await;
+        sent.settle(busy.take()).await;
         let task = {
             let (relay, datagram) = (Arc::clone(&relay), datagram.clone());
             tokio::spawn(async move {
-                match relay.send_to(&datagram, to).await {
-                    Ok(_) => (to, true),
+                let started = tokio::time::Instant::now();
+                let ok = match relay.send_to(&datagram, to).await {
+                    Ok(_) => true,
                     Err(error) => {
                         tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
-                        (to, false)
+                        false
                     }
-                }
+                };
+                CrateSend { to, ok, took: started.elapsed() }
             })
         };
         busy = Some(task);
-        if !ours {
-            // Nothing else can carry it: wait for the crate, as before.
-            settle(busy.take(), &mut failed).await;
+        if !early_to {
+            // Nothing else may carry it: wait for the crate, as before.
+            sent.settle(busy.take()).await;
             continue;
         }
         let task = busy.as_mut().expect("just set");
         if let Ok(done) = tokio::time::timeout(CRATE_SEND_GRACE, task).await {
             busy = None;
-            note_send(done, &mut failed);
-        } else {
-            early.indicate(&datagram, to).await;
+            sent.note(done);
+        } else if is_wireguard(&datagram)
+            && let Some(wire) = early.indicate(&datagram, to).await
+        {
+            duplicates.datagrams.fetch_add(1, Ordering::Relaxed);
+            duplicates.bytes.fetch_add(wire as u64, Ordering::Relaxed);
         }
     }
-    settle(busy.take(), &mut failed).await;
+    sent.settle(busy.take()).await;
 }
 
-/// How long a datagram to an address of ours waits for the crate before it
-/// also goes as a Send indication. The crate's own send is microseconds
-/// unless it is in a server round trip.
+/// How long a WireGuard datagram to an address in its early window waits
+/// for the crate before it also goes as a Send indication. The crate's own
+/// send is a few microseconds of work, a channel data message on the
+/// socket; only a server round trip (permission or channel bind, 1 RTT or
+/// more) takes it past this. A slow link alone does not: the crate's send
+/// returns once the datagram is on the local socket, not when it arrives.
 const CRATE_SEND_GRACE: Duration = Duration::from_millis(5);
 
-/// Wait for the crate's send in flight, if any, and note how it went.
-async fn settle(
-    busy: Option<tokio::task::JoinHandle<(SocketAddr, bool)>>,
-    failed: &mut std::collections::HashMap<SocketAddr, tokio::time::Instant>,
-) {
-    if let Some(task) = busy {
-        note_send(task.await, failed);
-    }
+/// Datagrams sent twice (a Send indication beside the crate's own send)
+/// and their bytes on the wire to the server.
+#[derive(Debug, Default)]
+pub struct Duplicates {
+    pub datagrams: AtomicU64,
+    pub bytes: AtomicU64,
 }
 
-fn note_send(
-    done: Result<(SocketAddr, bool), tokio::task::JoinError>,
-    failed: &mut std::collections::HashMap<SocketAddr, tokio::time::Instant>,
-) {
-    match done {
-        Ok((to, true)) => {
-            failed.remove(&to);
+fn is_wireguard(datagram: &[u8]) -> bool {
+    use cmux_transport::{DatagramClass, classify};
+    matches!(
+        classify(datagram),
+        DatagramClass::WireGuardInitiation
+            | DatagramClass::WireGuardResponse
+            | DatagramClass::WireGuardCookieReply
+            | DatagramClass::WireGuardData
+    )
+}
+
+/// One send the crate finished.
+struct CrateSend {
+    to: SocketAddr,
+    ok: bool,
+    took: Duration,
+}
+
+/// What the crate's sends showed about each peer address.
+#[derive(Default)]
+struct CrateSends {
+    /// Addresses whose last send failed, and when.
+    failed: HashMap<SocketAddr, tokio::time::Instant>,
+    /// Addresses where a send took the grace or longer (a server round trip).
+    slow: HashSet<SocketAddr>,
+    /// Sends the crate finished to each address.
+    finished: HashMap<SocketAddr, u32>,
+    /// Addresses where a send came back within the grace after a slow one,
+    /// or after two others (a round trip shorter than the grace): the
+    /// crate's permission and channel are in place.
+    ready: HashSet<SocketAddr>,
+}
+
+impl CrateSends {
+    /// Wait for the crate's send in flight, if any, and note how it went.
+    async fn settle(&mut self, busy: Option<JoinHandle<CrateSend>>) {
+        if let Some(task) = busy {
+            self.note(task.await);
         }
-        Ok((to, false)) => {
-            failed.insert(to, tokio::time::Instant::now());
+    }
+
+    fn note(&mut self, done: Result<CrateSend, tokio::task::JoinError>) {
+        let Ok(CrateSend { to, ok, took }) = done else { return };
+        if !ok {
+            self.failed.insert(to, tokio::time::Instant::now());
+            return;
         }
-        Err(_) => {}
+        self.failed.remove(&to);
+        let finished = self.finished.entry(to).or_default();
+        *finished += 1;
+        if took >= CRATE_SEND_GRACE {
+            self.slow.insert(to);
+        } else if self.slow.contains(&to) || *finished > 2 {
+            self.ready.insert(to);
+        }
     }
 }
 
@@ -893,6 +965,8 @@ impl Drop for TurnCarrier {
         // closed: aborting it in the middle of a write would leave half a
         // message on a stream.
         self.queue.close();
+        let (datagrams, bytes) = self.duplicates();
+        tracing::info!(datagrams, bytes, "TURN carrier closed; datagrams sent twice in the early window");
         for task in self.tasks.iter().skip(1) {
             task.abort();
         }
@@ -1116,33 +1190,31 @@ mod tests {
         let (first_addr, second_addr) = (first.local_addr().unwrap(), second.local_addr().unwrap());
         carrier.permit(&[first_addr, second_addr]);
         let started = tokio::time::Instant::now();
-        carrier.send(b"first", first_addr, SendClass::Control);
-        carrier.send(b"second", second_addr, SendClass::Control);
+        // WireGuard datagrams: only those go as indications beside the crate.
+        carrier.send(&wg_data(1), first_addr, SendClass::Control);
+        carrier.send(&wg_data(2), second_addr, SendClass::Control);
         let mut buffer = [0u8; 64];
         let (len, _) = tokio::time::timeout(Duration::from_secs(3), first.recv_from(&mut buffer))
             .await
             .expect("first datagram")
             .unwrap();
-        assert_eq!(&buffer[..len], b"first");
+        assert_eq!(&buffer[..len], &wg_data(1)[..]);
         let first_at = started.elapsed();
         let (len, _) = tokio::time::timeout(Duration::from_secs(3), second.recv_from(&mut buffer))
             .await
             .expect("second datagram")
             .unwrap();
-        assert_eq!(&buffer[..len], b"second");
+        assert_eq!(&buffer[..len], &wg_data(2)[..]);
         let second_at = started.elapsed();
         let round_trip = delay * 2;
         assert!(first_at < round_trip, "the first datagram waited for its permission: {first_at:?}");
         assert!(second_at < round_trip, "the second datagram waited for its permission: {second_at:?}");
     }
 
-    /// The crate's second datagram to an address starts a ChannelBind and
-    /// holds its client until the server answers: without the indications
-    /// beside it, every datagram behind waited that round trip (on lte, the
-    /// dial's first TCP segment, 72 ms of the 219 between the Mac's answer
-    /// and the link).
-    #[tokio::test]
-    async fn datagrams_after_the_permission_do_not_wait_for_the_channel_bind() {
+    /// A carrier through a TURN server one way `delay` away, and a peer.
+    async fn delayed_carrier(
+        delay: Duration,
+    ) -> (TurnCarrier, tokio::net::UdpSocket, crate::testing::TestTurn) {
         let turn = crate::testing::TestTurn::start().await;
         let udp_port: u16 = turn.udp_only().urls[0]
             .split(':')
@@ -1150,7 +1222,6 @@ mod tests {
             .and_then(|rest| rest.split('?').next())
             .and_then(|port| port.parse().ok())
             .expect("the TURN UDP port");
-        let delay = Duration::from_millis(100);
         let proxy = delaying_proxy(SocketAddr::from(([127, 0, 0, 1], udp_port)), delay).await;
         let server = TurnServer {
             address: proxy.to_string(),
@@ -1161,45 +1232,72 @@ mod tests {
         };
         let carrier = TurnCarrier::allocate_inner(server, &DialOptions::default()).await.expect("allocation");
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let peer_addr = peer.local_addr().unwrap();
-        carrier.permit(&[peer_addr]);
-        let mut buffer = [0u8; 64];
-        carrier.send(b"first", peer_addr, SendClass::Control);
-        let (len, _) = tokio::time::timeout(Duration::from_secs(3), peer.recv_from(&mut buffer))
-            .await
-            .expect("first")
-            .unwrap();
-        assert_eq!(&buffer[..len], b"first");
-        // The crate's own permission (one more round trip) is made by now.
-        tokio::time::sleep(delay * 3).await;
-        while let Ok(Ok(_)) =
-            tokio::time::timeout(Duration::from_millis(20), peer.recv_from(&mut buffer)).await
-        {}
-        // Back to back, as a dial's first segments go: none may wait for
-        // the bind the first of them starts (one way is `delay`).
-        let payloads = [&b"second"[..], b"third", b"fourth"];
-        let started = tokio::time::Instant::now();
-        for payload in payloads {
-            carrier.send(payload, peer_addr, SendClass::Control);
+        (carrier, peer, turn)
+    }
+
+    /// A WireGuard transport data datagram with `counter`.
+    fn wg_data(counter: u64) -> Vec<u8> {
+        let mut datagram = vec![0u8; 64];
+        datagram[0] = 4;
+        datagram[8..16].copy_from_slice(&counter.to_le_bytes());
+        datagram
+    }
+
+    /// Sends `count` datagrams from `make`, one every 2 ms, and returns how
+    /// many times each arrived at `peer` (by its bytes) within `settle`.
+    async fn send_and_count(
+        carrier: &TurnCarrier,
+        peer: &tokio::net::UdpSocket,
+        make: impl Fn(u64) -> Vec<u8>,
+        range: std::ops::Range<u64>,
+        settle: Duration,
+    ) -> HashMap<Vec<u8>, u32> {
+        let to = peer.local_addr().unwrap();
+        for n in range {
+            carrier.send(&make(n), to, SendClass::Control);
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        let mut arrived = Vec::new();
-        while arrived.len() < payloads.len() {
-            let (len, _) = tokio::time::timeout(Duration::from_secs(3), peer.recv_from(&mut buffer))
-                .await
-                .expect("datagram")
-                .unwrap();
-            if payloads.contains(&&buffer[..len])
-                && !arrived.iter().any(|(p, _): &(Vec<u8>, _)| p[..] == buffer[..len])
-            {
-                arrived.push((buffer[..len].to_vec(), started.elapsed()));
-            }
+        let mut arrived: HashMap<Vec<u8>, u32> = HashMap::new();
+        let mut buffer = [0u8; 256];
+        while let Ok(Ok((len, _))) = tokio::time::timeout(settle, peer.recv_from(&mut buffer)).await {
+            *arrived.entry(buffer[..len].to_vec()).or_default() += 1;
         }
-        for (payload, took) in arrived {
-            assert!(
-                took < delay * 3 / 2,
-                "{} waited behind the crate's channel bind: {took:?}",
-                String::from_utf8_lossy(&payload)
-            );
+        arrived
+    }
+
+    // Several threads, as the app runs.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn datagrams_go_twice_only_until_the_crate_has_its_channel() {
+        let delay = Duration::from_millis(50);
+        let (carrier, peer, _turn) = delayed_carrier(delay).await;
+        carrier.permit(&[peer.local_addr().unwrap()]);
+        // The dial's first datagrams, while the crate makes its permission
+        // and channel: every one arrives, and few go twice.
+        let early = send_and_count(&carrier, &peer, wg_data, 0..60, delay * 6).await;
+        for n in 0..60 {
+            assert!(early.contains_key(&wg_data(n)), "datagram {n} never arrived");
+        }
+        let (twice, bytes) = carrier.duplicates();
+        assert!((1..=3).contains(&twice), "{twice} datagrams went twice in the early window");
+        assert!(bytes > 0);
+        // After it: not one more duplicate, and each datagram arrives once.
+        let later = send_and_count(&carrier, &peer, wg_data, 60..160, delay * 6).await;
+        assert_eq!(carrier.duplicates().0, twice, "a datagram went twice after the channel was bound");
+        for n in 60..160 {
+            assert_eq!(later.get(&wg_data(n)), Some(&1), "datagram {n}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn datagrams_that_are_not_wireguard_never_go_twice() {
+        let delay = Duration::from_millis(50);
+        let (carrier, peer, _turn) = delayed_carrier(delay).await;
+        carrier.permit(&[peer.local_addr().unwrap()]);
+        let plain = |n: u64| format!("plain datagram {n}").into_bytes();
+        let arrived = send_and_count(&carrier, &peer, plain, 0..60, delay * 6).await;
+        assert_eq!(carrier.duplicates(), (0, 0));
+        for n in 0..60 {
+            assert_eq!(arrived.get(&plain(n)), Some(&1), "datagram {n}");
         }
     }
 }
