@@ -28,25 +28,14 @@ struct TerminalComposer: View {
     private let voice = AgentVoiceLauncher.shared
 
     var body: some View {
+        // The notice and the attachment error float over the terminal just above the row and take no height: a
+        // card that grew for them moved `bottomStack`, and with it the terminal's bottom inset, the prompt and the
+        // grid (Leo 2026-11-24: "this thing's shifting affects the composer at the bottom ... we need to have more
+        // things decoupled from possible shifts"; same rule as the connection chip, #49316).
+        // No connection line here: a reattach takes no row (Leo, 2026-11-17: "The reconnect takes an extra line").
+        // The state is the title pill's subtitle and Reconnect is in the page menu, both only past the quiet bound
+        // (`TerminalModel.connectionLine`).
         VStack(alignment: .leading, spacing: 6) {
-            if let notice = model.composerNotice {
-                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
-                    .accessibilityIdentifier("terminal.composer.notSent")
-            }
-            // No connection line here: a reattach takes no row (Leo,
-            // 2026-11-17: "The reconnect takes an extra line"). The state is
-            // the title pill's subtitle and Reconnect is in the page menu,
-            // both only past the quiet bound (`TerminalModel.connectionLine`).
-            if let error = model.attachmentError {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
-                    .accessibilityIdentifier("terminal.composer.attachmentError")
-            }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
@@ -55,6 +44,7 @@ struct TerminalComposer: View {
                 }
             }
         }
+        .overlay(alignment: .topLeading) { floatingNotes }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -99,6 +89,30 @@ struct TerminalComposer: View {
             guard case .success(let urls) = result else { return }
             Task { await loadFiles(urls) }
         }
+    }
+
+    /// The not-sent notice and the attachment error, drawn over the terminal above the card (its top edge is their
+    /// bottom edge), never in the card's stack: they take no height and move nothing.
+    @ViewBuilder private var floatingNotes: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let notice = model.composerNotice {
+                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("terminal.composer.notSent")
+            }
+            if let error = model.attachmentError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("terminal.composer.attachmentError")
+            }
+        }
+        .padding(.leading, TerminalDockMetrics.control + 8)
+        .padding(.bottom, 4)
+        .fixedSize(horizontal: false, vertical: true)
+        .alignmentGuide(.top) { $0[.bottom] }
+        .allowsHitTesting(false)
     }
 
     /// The terminal's agent, when voice mode can run on it.
