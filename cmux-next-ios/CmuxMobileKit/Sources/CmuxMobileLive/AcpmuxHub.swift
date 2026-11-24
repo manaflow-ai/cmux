@@ -174,6 +174,8 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
+        // A redial brought a channel: progress, so prompts held for it wait another window.
+        for source in liveSources { source.noteProgress() }
         let connection = AcpmuxConnection(channel: channel, held: gate != nil)
         self.connection = connection
         await connection.start()
@@ -942,6 +944,26 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     var heldPromptWindow: Duration = .seconds(10)
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// The last sign the way to the Mac is moving (``noteProgress()``): a held prompt ages from
+    /// it when it is newer than the hold (Leo, 2026-11-24: "10s timeout for messages being
+    /// sendsble is a shame. if it's making good progress, it shiukd be allowed to keep going?").
+    private var lastProgress: ContinuousClock.Instant?
+    /// When an attachment upload's acked bytes last advanced (tests inject one).
+    var uploadAdvancedAt: () -> ContinuousClock.Instant? = { AttachmentUploadClient.lastAdvance }
+    /// The timer that hands held prompts back once ``heldPromptWindow`` passes with no progress.
+    private var expiryTask: Task<Void, Never>?
+
+    /// The link's redial made progress (a new channel came): held prompts wait another window.
+    func noteProgress() {
+        lastProgress = now()
+    }
+
+    /// How long a held prompt has waited with nothing moving: since its hold, the link's last
+    /// progress or an upload's last acked byte, whichever is newest.
+    private func stalled(_ prompt: HeldPrompt, at instant: ContinuousClock.Instant) -> Duration {
+        let since = [prompt.waitStart, lastProgress, uploadAdvancedAt()].compactMap { $0 }.max() ?? prompt.waitStart
+        return instant - since
+    }
 
     /// The last message's send, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
@@ -1005,16 +1027,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// Keeps a prompt for the next link, in the order it was sent; it comes back to the
-    /// composer if the link is not back within ``heldPromptWindow`` of its send.
+    /// composer once ``heldPromptWindow`` passes with no progress (``stalled(_:at:)``).
     private func hold(_ prompt: HeldPrompt) {
         let index = heldPrompts.firstIndex { $0.at > prompt.at } ?? heldPrompts.endIndex
         heldPrompts.insert(prompt, at: index)
         guard !expireHeldPrompts() else { return }
-        let wait = max(.zero, prompt.waitStart + heldPromptWindow - now())
-        Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            self?.expireHeldPrompts()
-        }
+        scheduleExpiry()
         // The next link's `linkUp` writes them; a link that is up now gets them after a short
         // pause (not at once: one that just failed would be written to again in a loop).
         Task { [weak self] in
@@ -1023,14 +1041,35 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
-    /// Held prompts older than ``heldPromptWindow``: all of them come back to the composer
-    /// (none goes after an earlier one that did not), each with what happened. True when
-    /// they did.
+    /// Checks the held prompts when the oldest would pass the window, and again from there
+    /// while progress keeps moving that point; ends once they are sent or handed back.
+    private func scheduleExpiry() {
+        expiryTask?.cancel()
+        expiryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let wait = self?.untilExpiry() else { return }
+                try? await Task.sleep(for: wait)
+                guard !Task.isCancelled, let self, !self.heldPrompts.isEmpty else { return }
+                if self.expireHeldPrompts() { return }
+            }
+        }
+    }
+
+    /// Time left before the most stalled held prompt passes the window; nil with none held.
+    private func untilExpiry() -> Duration? {
+        let instant = now()
+        guard let stalledMost = heldPrompts.map({ stalled($0, at: instant) }).max() else { return nil }
+        return max(.milliseconds(10), heldPromptWindow - stalledMost)
+    }
+
+    /// Held prompts that waited ``heldPromptWindow`` with no progress (``stalled(_:at:)``):
+    /// all of them come back to the composer (none goes after an earlier one that did not),
+    /// each with what happened. True when they did.
     @discardableResult
-    private func expireHeldPrompts() -> Bool {
+    func expireHeldPrompts() -> Bool {
         let window = heldPromptWindow
         let instant = self.now()
-        guard heldPrompts.contains(where: { instant - $0.waitStart >= window }) else { return false }
+        guard heldPrompts.contains(where: { stalled($0, at: instant) >= window }) else { return false }
         let dropped = heldPrompts
         heldPrompts = []
         let seconds = max(1, Int(window.components.seconds))

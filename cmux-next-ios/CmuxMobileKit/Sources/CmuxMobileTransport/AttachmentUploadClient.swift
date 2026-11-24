@@ -149,7 +149,12 @@ public final class AttachmentUploadClient {
         }
     }
 
+    /// When any upload's acked bytes last advanced: a chat prompt held for the link waits
+    /// while this keeps moving (`AcpmuxSessionSource.expireHeldPrompts`).
+    public private(set) static var lastAdvance: ContinuousClock.Instant?
+
     fileprivate func apply(_ update: UploadProgress) {
+        if update.ackedBytes > (progress[update.uploadId]?.ackedBytes ?? 0) { Self.lastAdvance = .now }
         progress[update.uploadId] = update
         switch update.stage {
         case .done, .failed, .cancelled: release(update.uploadId)
