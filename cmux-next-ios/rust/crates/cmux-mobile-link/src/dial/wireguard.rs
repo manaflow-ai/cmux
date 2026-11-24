@@ -281,6 +281,58 @@ async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Opti
     turn
 }
 
+/// A dial's TURN allocation, started before the dial: a redial
+/// ([`super::connect_after`]) starts it as the signaling reconnect starts,
+/// so the allocation's round trips overlap the reconnect's instead of
+/// following them. Nothing is held before the redial starts. It is the
+/// dial's own allocation ([`turn_beside`], the same path and 437 handling),
+/// and the dial takes it with the STUN wait's half of the link. Dropped
+/// unused (the reconnect failed, the dial was abandoned or dropped), it
+/// aborts the allocation: one under way releases what it opens
+/// (`TurnCarrier::allocate_on`), and one done is dropped, which deallocates
+/// (Refresh with LIFETIME 0).
+pub(crate) struct EarlyTurn {
+    task: Option<tokio::task::JoinHandle<Option<TurnCarrier>>>,
+    stun: Option<StunSide>,
+}
+
+impl EarlyTurn {
+    /// Start the allocation `options` ask for (`turn_early_allocated` once
+    /// it is in hand).
+    pub(crate) fn start(options: &DialOptions) -> Self {
+        let (stun, turn_side) = stun_turn_link();
+        // Debug "relay via cmux only" takes no TURN allocation, early or not.
+        let options = effective_options(options).into_owned();
+        let task = tokio::spawn(async move {
+            let turn = turn_beside(&options, true, turn_side).await;
+            if turn.is_some() {
+                options.timeline.mark("turn_early_allocated");
+            }
+            turn
+        });
+        Self { task: Some(task), stun: Some(stun) }
+    }
+
+    /// The allocation, once done. Dropped while it waits, `self` still
+    /// aborts it.
+    async fn carrier(&mut self) -> Option<TurnCarrier> {
+        let turn = match self.task.as_mut() {
+            Some(task) => task.await.ok().flatten(),
+            None => None,
+        };
+        self.task = None;
+        turn
+    }
+}
+
+impl Drop for EarlyTurn {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
 pub struct WireGuardDialer;
 
 fn transport_error(error: impl std::fmt::Display) -> DialError {
@@ -2384,6 +2436,219 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
         .ok_or_else(|| DialError::Bye("tunnel closed".into()))
 }
 
+/// The phone's WireGuard dial: its TURN allocation is `early` (a redial's,
+/// started beside the signaling reconnect) or one it starts now, beside
+/// the STUN gather.
+pub(super) fn dial_wireguard<'a>(
+    signaling: &'a SignalingClient,
+    mac: &'a str,
+    session_id: &'a str,
+    mut events: SessionEvents,
+    options: &'a DialOptions,
+    early: Option<EarlyTurn>,
+) -> DialFuture<'a> {
+    Box::pin(async move {
+        // Debug "relay via cmux only": no TURN server, no plain UDP.
+        let effective = effective_options(options);
+        let options: &DialOptions = &effective;
+        let socket = bind_udp().map_err(transport_error)?;
+        let (gathered, turn) = match early {
+            Some(mut early) => {
+                let stun_side = early.stun.take();
+                tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
+            }
+            None => {
+                let (stun_side, turn_side) = stun_turn_link();
+                tokio::join!(
+                    gather_endpoints(&socket, options, Some(stun_side)),
+                    turn_beside(options, true, turn_side)
+                )
+            }
+        };
+        if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
+            return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
+        }
+        let udp_blocked = gathered.udp_looks_blocked();
+        diagnose_gather(options, udp_blocked, turn.as_ref(), true);
+        let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+        let relay_offer =
+            options.relay.as_ref().map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
+        let turn_missed = missed_turn(true, turn.as_ref(), options);
+        let Gathered { mut endpoints, stun, .. } = gathered;
+        let (relayed, relayed_tls) = relayed_of(turn.as_ref());
+        endpoints.extend(relayed.iter().cloned());
+        if let Some(turn) = &turn {
+            options.timeline.mark(if turn.transport.is_stream() {
+                "turn_tls_allocated"
+            } else {
+                "turn_allocated"
+            });
+        }
+        options.timeline.mark("endpoints_gathered");
+        let (private_key, public_key) = keypair();
+        let own_endpoints = endpoints.clone();
+        signaling
+            .send_signal(
+                mac,
+                session_id,
+                SignalPayload::WgInit {
+                    public_key: b64(&public_key),
+                    endpoints,
+                    overlay_ip: DIALER_OVERLAY.to_string(),
+                    lanes: {
+                        let mut lanes =
+                            super::offered_lanes(options, options.video_lane, options.webrtc_media);
+                        lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                        lanes
+                    },
+                    relayed,
+                    relayed_tls,
+                    version: WG_VERSION,
+                    relay: relay_offer,
+                },
+            )
+            .map_err(|e| DialError::Signaling(e.to_string()))?;
+        options.timeline.mark("wg_init_sent");
+        let agreed;
+        let video_agreed;
+        let webrtc_media_agreed;
+        let liveness_agreed;
+        // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
+        let relay_ticket;
+        let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
+            match events.next().await? {
+                SessionEvent::Signal(envelope) => match envelope.payload {
+                    SignalPayload::WgResp {
+                        public_key,
+                        endpoints,
+                        overlay_ip,
+                        lanes,
+                        relayed,
+                        relayed_tls,
+                        version,
+                        relay,
+                    } => {
+                        options.timeline.mark("wg_resp_received");
+                        let ip: Ipv4Addr = overlay_ip
+                            .parse()
+                            .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
+                        agreed = super::input_lane_agreed(options, &lanes);
+                        liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        video_agreed = options.video_lane && super::video_lane_listed(&lanes);
+                        webrtc_media_agreed =
+                            video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
+                        relay_ticket = envelope.relay_ticket;
+                        break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version, relay);
+                    }
+                    SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                    // A Mac that roamed before this side saw its answer:
+                    // the tunnel learns its endpoints from inside.
+                    SignalPayload::WgEndpoints { .. } => {}
+                    // The Mac already joined the relay; so will this side.
+                    SignalPayload::WgRelay {} => {}
+                    other => return Err(DialError::Unexpected(format!("{other:?}"))),
+                },
+                SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
+            }
+        };
+        if peer_ip == DIALER_OVERLAY {
+            return Err(DialError::Unexpected("peer overlay address collides".into()));
+        }
+        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        if relay.is_none() && no_plain_udp(options) && turn.is_none() {
+            // The relay was this side's only way, and the Mac has none.
+            return Err(options.diagnosis.blocked());
+        }
+        let spec = TunnelSpec {
+            session_id,
+            peer_device: mac,
+            socket,
+            private_key,
+            peer_key,
+            own_ip: DIALER_OVERLAY,
+            peer_ip,
+            peer_endpoints: &peer_endpoints,
+            peer_relayed: &peer_relayed,
+            peer_relayed_tls: &peer_relayed_tls,
+            peer_version,
+            own_endpoints,
+            turn,
+            keeps_turn: true,
+            dialer: true,
+            stun,
+            relay,
+        };
+        let tunnel = start_tunnel(signaling, spec, options)?;
+        tunnel.session.follow(events.session);
+        let guard = Guard { session: Arc::clone(&tunnel.session) };
+        let net = tunnel.session.net()?;
+        tunnel.session.start_control(&net).await;
+        if turn_missed {
+            tunnel.session.retry_missing_turn();
+        }
+        // The media lane's port is bound before the link stream opens, so
+        // the Mac's first frames (sent once a browser tab claims the lane)
+        // find it.
+        let media = if video_agreed {
+            match crate::media::wireguard::WgCarrier::open(
+                &net,
+                IpAddr::V4(peer_ip),
+                crate::media::wireguard::Direction::Receive,
+                crate::media::wireguard::StreamSpec::h264_video(),
+                tunnel.session.path_changes(),
+                crate::media::wireguard::Impairment::default(),
+            )
+            .await
+            {
+                Ok(carrier) => {
+                    options.timeline.mark("video_lane");
+                    Some(super::PendingMedia::Receive(carrier))
+                }
+                Err(error) => {
+                    tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        // The Mac listed the lane once its port was bound: it listens.
+        let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
+        let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
+        let stream = net.connect(link_addr).await.map_err(transport_error)?;
+        // The input lane: a second TCP stream to the same port, opened
+        // after the main one so the Mac tells them apart by order. Its
+        // own socket buffers keep keystrokes out of the main stream's
+        // 256 KiB send buffer.
+        let lane = agreed.then(|| {
+            let (tx, rx) = oneshot::channel();
+            tokio::spawn(async move {
+                match tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
+                    Ok(Ok(stream)) => {
+                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
+                    }
+                    Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
+                    Err(_) => tracing::info!("input lane did not connect in time"),
+                }
+            });
+            rx
+        });
+        // A media session needs the tunnel's lane as its floor.
+        let webrtc_media = webrtc_media_agreed && media.is_some();
+        Ok(Dialed {
+            stream: Box::new(stream),
+            hold: Some(hold_hook(&tunnel.session)),
+            path: tunnel.path,
+            peer: tunnel.peer,
+            guard: Box::new(guard),
+            lane,
+            media,
+            webrtc_media,
+            liveness,
+        })
+    })
+}
+
 impl Dialer for WireGuardDialer {
     fn kind(&self) -> TransportKind {
         TransportKind::WireGuard
@@ -2394,210 +2659,10 @@ impl Dialer for WireGuardDialer {
         signaling: &'a SignalingClient,
         mac: &'a str,
         session_id: &'a str,
-        mut events: SessionEvents,
+        events: SessionEvents,
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
-        Box::pin(async move {
-            let effective = effective_options(options);
-            let options: &DialOptions = &effective;
-            let socket = bind_udp().map_err(transport_error)?;
-            let (stun_side, turn_side) = stun_turn_link();
-            let (gathered, turn) = tokio::join!(
-                gather_endpoints(&socket, options, Some(stun_side)),
-                turn_beside(options, true, turn_side)
-            );
-            if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
-                return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
-            }
-            let udp_blocked = gathered.udp_looks_blocked();
-            diagnose_gather(options, udp_blocked, turn.as_ref(), true);
-            let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-            let relay_offer = options
-                .relay
-                .as_ref()
-                .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
-            let turn_missed = missed_turn(true, turn.as_ref(), options);
-            let Gathered { mut endpoints, stun, .. } = gathered;
-            let (relayed, relayed_tls) = relayed_of(turn.as_ref());
-            endpoints.extend(relayed.iter().cloned());
-            if let Some(turn) = &turn {
-                options.timeline.mark(if turn.transport.is_stream() {
-                    "turn_tls_allocated"
-                } else {
-                    "turn_allocated"
-                });
-            }
-            options.timeline.mark("endpoints_gathered");
-            let (private_key, public_key) = keypair();
-            let own_endpoints = endpoints.clone();
-            signaling
-                .send_signal(
-                    mac,
-                    session_id,
-                    SignalPayload::WgInit {
-                        public_key: b64(&public_key),
-                        endpoints,
-                        overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: {
-                            let mut lanes =
-                                super::offered_lanes(options, options.video_lane, options.webrtc_media);
-                            lanes.push(crate::link::LIVENESS_LANE.to_owned());
-                            lanes
-                        },
-                        relayed,
-                        relayed_tls,
-                        version: WG_VERSION,
-                        relay: relay_offer,
-                    },
-                )
-                .map_err(|e| DialError::Signaling(e.to_string()))?;
-            options.timeline.mark("wg_init_sent");
-            let agreed;
-            let video_agreed;
-            let webrtc_media_agreed;
-            let liveness_agreed;
-            // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
-            let relay_ticket;
-            let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
-                match events.next().await? {
-                    SessionEvent::Signal(envelope) => match envelope.payload {
-                        SignalPayload::WgResp {
-                            public_key,
-                            endpoints,
-                            overlay_ip,
-                            lanes,
-                            relayed,
-                            relayed_tls,
-                            version,
-                            relay,
-                        } => {
-                            options.timeline.mark("wg_resp_received");
-                            let ip: Ipv4Addr = overlay_ip
-                                .parse()
-                                .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
-                            agreed = super::input_lane_agreed(options, &lanes);
-                            liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
-                            video_agreed = options.video_lane && super::video_lane_listed(&lanes);
-                            webrtc_media_agreed =
-                                video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
-                            relay_ticket = envelope.relay_ticket;
-                            break (
-                                parse_key(&public_key)?,
-                                endpoints,
-                                ip,
-                                relayed,
-                                relayed_tls,
-                                version,
-                                relay,
-                            );
-                        }
-                        SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
-                        // A Mac that roamed before this side saw its answer:
-                        // the tunnel learns its endpoints from inside.
-                        SignalPayload::WgEndpoints { .. } => {}
-                        // The Mac already joined the relay; so will this side.
-                        SignalPayload::WgRelay {} => {}
-                        other => return Err(DialError::Unexpected(format!("{other:?}"))),
-                    },
-                    SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
-                }
-            };
-            if peer_ip == DIALER_OVERLAY {
-                return Err(DialError::Unexpected("peer overlay address collides".into()));
-            }
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
-            if relay.is_none() && no_plain_udp(options) && turn.is_none() {
-                // The relay was this side's only way, and the Mac has none.
-                return Err(options.diagnosis.blocked());
-            }
-            let spec = TunnelSpec {
-                session_id,
-                peer_device: mac,
-                socket,
-                private_key,
-                peer_key,
-                own_ip: DIALER_OVERLAY,
-                peer_ip,
-                peer_endpoints: &peer_endpoints,
-                peer_relayed: &peer_relayed,
-                peer_relayed_tls: &peer_relayed_tls,
-                peer_version,
-                own_endpoints,
-                turn,
-                keeps_turn: true,
-                dialer: true,
-                stun,
-                relay,
-            };
-            let tunnel = start_tunnel(signaling, spec, options)?;
-            tunnel.session.follow(events.session);
-            let guard = Guard { session: Arc::clone(&tunnel.session) };
-            let net = tunnel.session.net()?;
-            tunnel.session.start_control(&net).await;
-            if turn_missed {
-                tunnel.session.retry_missing_turn();
-            }
-            // The media lane's port is bound before the link stream opens, so
-            // the Mac's first frames (sent once a browser tab claims the lane)
-            // find it.
-            let media = if video_agreed {
-                match crate::media::wireguard::WgCarrier::open(
-                    &net,
-                    IpAddr::V4(peer_ip),
-                    crate::media::wireguard::Direction::Receive,
-                    crate::media::wireguard::StreamSpec::h264_video(),
-                    tunnel.session.path_changes(),
-                    crate::media::wireguard::Impairment::default(),
-                )
-                .await
-                {
-                    Ok(carrier) => {
-                        options.timeline.mark("video_lane");
-                        Some(super::PendingMedia::Receive(carrier))
-                    }
-                    Err(error) => {
-                        tracing::info!(%error, "no media lane on this tunnel; video stays on the channel");
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            // The Mac listed the lane once its port was bound: it listens.
-            let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
-            let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
-            let stream = net.connect(link_addr).await.map_err(transport_error)?;
-            // The input lane: a second TCP stream to the same port, opened
-            // after the main one so the Mac tells them apart by order. Its
-            // own socket buffers keep keystrokes out of the main stream's
-            // 256 KiB send buffer.
-            let lane = agreed.then(|| {
-                let (tx, rx) = oneshot::channel();
-                tokio::spawn(async move {
-                    match tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
-                        Ok(Ok(stream)) => {
-                            let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
-                        }
-                        Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
-                        Err(_) => tracing::info!("input lane did not connect in time"),
-                    }
-                });
-                rx
-            });
-            // A media session needs the tunnel's lane as its floor.
-            let webrtc_media = webrtc_media_agreed && media.is_some();
-            Ok(Dialed {
-                stream: Box::new(stream),
-                hold: Some(hold_hook(&tunnel.session)),
-                path: tunnel.path,
-                peer: tunnel.peer,
-                guard: Box::new(guard),
-                lane,
-                media,
-                webrtc_media,
-                liveness,
-            })
-        })
+        dial_wireguard(signaling, mac, session_id, events, options, None)
     }
 
     fn answer<'a>(
