@@ -99,8 +99,8 @@ final class SidebarBridge {
             guard let self, let window = self.state?.id else { return }
             self.services.cache.hibernation?.noteWorkspaceHover(id?.rawValue, window: window)
         }
-        container.sidebarView.resourceSource = services.resources
-        container.sidebarView.hoverCards = services.hoverCards
+        // The split miniature pictures each pane's front tab, as the tab's own hover card does.
+        (container.sidebarView.resourceSource, container.sidebarView.hoverCards, container.sidebarView.paneImageSource) = (services.resources, services.hoverCards, SidebarMapping.paneImages(from: services.previews))
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
         // mirror when a card opens.

@@ -55,6 +55,9 @@ final class TabHoverCardView: NSView {
     /// size, so the card never changes height when a picture lands or when the next tab has none.
     private let placeholderIcon = NSImageView()
     private static var placeholderIconSize: CGFloat { 24 }
+    /// What the frame says while it has no picture: the tab's status line (or its place), under the glyph, so the
+    /// frame is never a blank tile with one icon (Leo 2026-11-24, "this idk").
+    private let placeholderCaption = ChromeLabel(wrappingLabelWithString: "")
     /// The tab's status in the shared indicator, trailing the title's first line.
     /// Follows its panel's occlusion: the panel orders front after the card moves into it.
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
@@ -100,6 +103,12 @@ final class TabHoverCardView: NSView {
         placeholderIcon.imageScaling = .scaleProportionallyUpOrDown
         placeholderIcon.translatesAutoresizingMaskIntoConstraints = false
         thumbnail.addSubview(placeholderIcon)
+        placeholderCaption.translatesAutoresizingMaskIntoConstraints = false
+        placeholderCaption.alignment = .center
+        placeholderCaption.maximumNumberOfLines = 2
+        placeholderCaption.lineBreakMode = .byTruncatingTail
+        placeholderCaption.font = HoverCardStyle.shared.secondaryFont
+        thumbnail.addSubview(placeholderCaption)
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = HoverCardStyle.shared.rowGap
@@ -129,7 +138,10 @@ final class TabHoverCardView: NSView {
             thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             placeholderIcon.centerXAnchor.constraint(equalTo: thumbnail.centerXAnchor),
-            placeholderIcon.centerYAnchor.constraint(equalTo: thumbnail.centerYAnchor),
+            placeholderIcon.centerYAnchor.constraint(equalTo: thumbnail.centerYAnchor, constant: -10),
+            placeholderCaption.topAnchor.constraint(equalTo: placeholderIcon.bottomAnchor, constant: 6),
+            placeholderCaption.leadingAnchor.constraint(equalTo: thumbnail.leadingAnchor, constant: 10),
+            placeholderCaption.trailingAnchor.constraint(equalTo: thumbnail.trailingAnchor, constant: -10),
             placeholderIcon.widthAnchor.constraint(equalToConstant: Self.placeholderIconSize),
             placeholderIcon.heightAnchor.constraint(equalToConstant: Self.placeholderIconSize),
         ])
@@ -161,6 +173,7 @@ final class TabHoverCardView: NSView {
             thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
             setKindIcon(tint: Palette.textSecondary)
             placeholderIcon.image = iconImage(tint: Palette.textTertiary, size: Self.placeholderIconSize)
+            placeholderCaption.textColor = Palette.textTertiary
         }
         updatePlaceholder()
         for row in [placeRow, statusRow, detailRow, memoryRow] { row.applyColors() }
@@ -220,6 +233,7 @@ final class TabHoverCardView: NSView {
         guard let item else { return }
         let lines = TabHoverCardLines.make(item, report: report, now: Date())
         titleLabel.stringValue = lines.title
+        placeholderCaption.stringValue = lines.status ?? lines.place ?? ""
         setCardWidth(Self.width(forPlace: lines.place, textLeading: textLeading))
         // Plain text under the title: the title's glyph is the card's one icon.
         set(placeRow, lines.place.map { HoverCardRowContent(text: $0) }, truncation: .byTruncatingMiddle)
@@ -358,6 +372,7 @@ final class TabHoverCardView: NSView {
     /// The glyph shows only while the frame has no picture.
     private func updatePlaceholder() {
         placeholderIcon.isHidden = thumbnailImage != nil || placeholderIcon.image == nil
+        placeholderCaption.isHidden = placeholderIcon.isHidden
     }
 
     /// Whether the frame shows the placeholder now (tests).

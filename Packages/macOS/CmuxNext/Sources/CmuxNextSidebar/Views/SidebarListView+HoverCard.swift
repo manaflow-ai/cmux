@@ -129,6 +129,12 @@ extension SidebarViewComponents {
         set { list.hoverCard.timelineSource = newValue }
     }
 
+    /// A tab's picture for the workspace card's split miniature; nil leaves each tile its title and state.
+    public var paneImageSource: SidebarPaneImageSource? {
+        get { list.hoverCard.paneImageSource }
+        set { list.hoverCard.paneImageSource = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

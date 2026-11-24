@@ -1,3 +1,4 @@
+public import CoreGraphics
 public import Foundation
 
 /// One line of a workspace hover card's timeline (u3320, Lawrence 2026-10-19: "I want to see the
@@ -39,3 +40,7 @@ public nonisolated struct SidebarTimelineEntry: Hashable, Sendable {
 
 /// The workspace timeline a card shows, newest first, at most `limit` entries; the App injects one.
 public typealias SidebarTimelineSource = @MainActor (_ workspace: WorkspaceID, _ limit: Int) -> [SidebarTimelineEntry]
+
+/// A tab's picture for the workspace hover card's split miniature: the tab's id and the largest size wanted, in
+/// pixels. Nil when the tab has none (a blank page, a prompt only), so its tile keeps its title and state.
+public typealias SidebarPaneImageSource = @MainActor (_ tab: String, _ maxPixelSize: CGSize) async -> CGImage?

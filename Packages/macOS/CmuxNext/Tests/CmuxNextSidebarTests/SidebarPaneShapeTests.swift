@@ -46,3 +46,29 @@ import Testing
         #expect(card.paneShape.isHidden)
     }
 }
+
+/// Leo 2026-11-24, "this idk", on tiles that were a bare glyph in a box and a "Projects" header over a "Projects" row.
+@MainActor
+@Suite struct SidebarPaneShapeInformationTests {
+    @Test func theMiniatureListsEachPanesTabForItsPicture() {
+        let shape = SidebarPaneShape.split(axis: .horizontal, ratio: 0.5,
+                                           .pane(.init(kind: .browser, focused: true, tab: "a")), .pane(.init(kind: .terminal, tab: "b")))
+        let view = WorkspacePaneShapeView()
+        view.shape = shape
+        #expect(view.tabIDs == ["a", "b"])
+    }
+
+    @Test func aPicturedTileKeepsItsPictureAndATitledOneItsCaption() {
+        let view = WorkspacePaneShapeView()
+        view.captions = ["a": .init(title: "PR 36460", state: "Working")]
+        #expect(view.captions["a"]?.state == "Working")
+        view.setImage(nil, for: "a")
+        #expect(view.images["a"] == nil)
+    }
+
+    @Test(arguments: [("Projects", ["PR 36460", "New Tab", "Projects"], false), ("Projects", ["PR 36460"], true),
+                      (" projects ", ["Projects"], false)])
+    func theNameIsLeftOutWhenAnyRowReadsIt(_ name: String, _ tabs: [String], _ shown: Bool) {
+        #expect(WorkspaceHoverCardTitle.unlessRepeated.showsTitle(name, tabTitles: tabs, expanded: false) == shown)
+    }
+}

@@ -27,10 +27,14 @@ public nonisolated indirect enum SidebarPaneShape: Hashable, Sendable {
         public var kind: SidebarWorkspaceKind?
         /// The pane the workspace's focus is in.
         public var focused: Bool
+        /// The front tab's id, which the card joins to the workspace's tab list for the tile's title and state and
+        /// to the preview source for its picture; nil for a pane with no tab.
+        public var tab: String?
 
-        public init(kind: SidebarWorkspaceKind?, focused: Bool = false) {
+        public init(kind: SidebarWorkspaceKind?, focused: Bool = false, tab: String? = nil) {
             self.kind = kind
             self.focused = focused
+            self.tab = tab
         }
     }
 
