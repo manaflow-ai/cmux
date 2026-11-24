@@ -50,6 +50,12 @@ CHECKS = {
         "check": "React Doctor (changed React projects)",
         "command": "python3 scripts/ci/react_doctor_gate.py",
     },
+    # Its rows are traced, not written: scripts/ci/traced_inputs.py export (cmuxterm-hq RFD 0148 row 9). It has no
+    # units (`*` rows only), so `--units all` keys the whole check.
+    "static-checks": {
+        "check": "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)",
+        "command": ".github/workflows/cmux-next-guards.yml jobs.static-checks",
+    },
 }
 GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 # blob, tree: the path's git object id (a tree covers everything under it). names: a directory the check lists but
@@ -231,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         if units == ["all"]:
             units = sorted({unit for unit, _, _ in load_inputs(args.check) if unit != "*"})
         key = ""
-        if units:
+        if units or args.units == "all":  # `all` of a check with no units: its `*` rows alone
             key, material = input_key(args.check, units)
             print(json.dumps(material, sort_keys=True), file=sys.stderr)
         touched = pinned_touched(args.check, args.base) if key and args.base else []
