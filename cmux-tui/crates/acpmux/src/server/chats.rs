@@ -39,6 +39,15 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_transcript_page {key, cwd?, before?, metadataOnly?}` reads up to 32 terminal
+//!   agent turns ending at a byte offset (the newest page by default). The response carries
+//!   `pageEnd`, an older `before` cursor or null, and folded tool titles. A metadata-only read
+//!   returns the key and dates without paging. Shortened rows supply UTF-8 offsets in `promptMore`
+//!   or `answerMore`. Pass their `pageEnd` as `before` with `turn`, `role` (user or assistant), and
+//!   `offset` for a bounded continuation `{text, nextOffset}` (null at the end of the message).
+//! - `_acpmux/chat_transcript_find {key, cwd?, query, before?}` searches one bounded slice;
+//!   `hits` supplies a page offset and turn index for each matching row, and `before` continues
+//!   the search through older pages, including after an empty slice.
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
@@ -69,6 +78,9 @@ mod offers;
 mod search;
 mod stats;
 mod team_audit;
+mod transcript;
+mod transcript_index;
+mod transcript_preview;
 pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
@@ -381,6 +393,9 @@ pub(super) async fn route(
                 })
             })
             .await
+        }
+        transcript::PAGE | transcript::FIND => {
+            heap(|| transcript::handle(hub, service, m, &params)).await
         }
         // A chat's past turns from its harness's store, read now and never kept: for a chat with
         // no ACP resume (cx-5esm), and a Claude Code or Codex chat shown before it is adopted.

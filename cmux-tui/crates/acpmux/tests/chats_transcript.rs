@@ -480,3 +480,235 @@ async fn a_current_codex_chat_gives_its_prompts_and_final_answers() {
         "{answer}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_agent_history_reads_and_finds_pre_resume_turns_without_adopting() {
+    let h = home();
+    let project = h.0.join("work/api");
+    std::fs::create_dir_all(&project).expect("project");
+    claude(&h.0, &project);
+    codex(&h.0, &project);
+    let file = h.0.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl"));
+    let mut more = String::new();
+    for n in 0..80 {
+        more.push_str(&format!("{}\n", json!({"type":"user","sessionId":CLAUDE_ID,"cwd":project,"message":{"role":"user","content":format!("turn {n}")}})));
+        more.push_str(&format!("{}\n", json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":format!("answer {n}")}]}})));
+    }
+    use std::io::Write as _;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(file)
+        .expect("transcript")
+        .write_all(more.as_bytes())
+        .expect("append");
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let page = "_acpmux/chat_transcript_page";
+    let find = "_acpmux/chat_transcript_find";
+    let meta = call(&tx, &mut rx, 2, page, json!({"key":key,"metadataOnly":true})).await;
+    assert!(meta["result"]["createdMs"].is_number(), "{meta}");
+    assert!(meta["result"].get("turns").is_none());
+    let latest = call(&tx, &mut rx, 3, page, json!({"key":key})).await;
+    let page_turns = turns(&latest);
+    assert_eq!(page_turns.last(), Some(&pair("turn 79", "answer 79")));
+    assert!(latest["result"]["before"].is_u64());
+    let mut cursor = Value::Null;
+    let mut hits = Vec::new();
+    for n in 0..4 {
+        let found =
+            call(&tx, &mut rx, 4 + n, find, json!({"key":key,"query":"parser","before":cursor}))
+                .await;
+        hits.extend(found["result"]["hits"].as_array().expect("hits").iter().cloned());
+        cursor = found["result"]["before"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    let hit = &hits[0];
+    let first = call(&tx, &mut rx, 8, page, json!({"key":key,"before":hit["pageEnd"]})).await;
+    assert_eq!(
+        first["result"]["turns"][hit["turn"].as_u64().unwrap() as usize]["prompt"],
+        "Explain the parser"
+    );
+    let codex =
+        call(&tx, &mut rx, 9, find, json!({"key":format!("codex:{CODEX_ID}"),"query":"1.2."}))
+            .await;
+    assert_eq!(codex["result"]["hits"][0]["role"], "assistant", "{codex}");
+    let wrong =
+        call(&tx, &mut rx, 10, page, json!({"key":format!("claude-code:{CODEX_ID}")})).await;
+    assert!(wrong.get("error").is_some(), "{wrong}");
+    let path = call(&tx, &mut rx, 11, page, json!({"key":"claude-code:../../elsewhere"})).await;
+    assert!(path.get("error").is_some(), "{path}");
+    assert!(hub.sessions().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_agent_history_finds_text_after_a_shortened_wire_preview() {
+    let h = home();
+    let cwd = Path::new("/work/api");
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let prompt = format!("{} final-character-needle", "\u{001f}🐈".repeat(240_000));
+    assert!(prompt.len() > 1024 * 1024);
+    let records = [
+        json!({"type":"user","sessionId":CLAUDE_ID,"cwd":cwd,"timestamp":"2026-11-12T07:00:00Z",
+            "message":{"role":"user","content":prompt}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"First answer."}]}}),
+        json!({"type":"user","message":{"role":"user","content":"Next turn"}}),
+        json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Next answer."}]}}),
+    ];
+    let transcript: String = records.iter().map(|record| format!("{record}\n")).collect();
+    write(&h.0.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl")), &transcript);
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+    let page =
+        call(&tx, &mut rx, 7, "_acpmux/chat_transcript_page", json!({"key": key, "cwd": cwd}))
+            .await;
+    let rows = page["result"]["turns"].as_array().expect("paged turns");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["truncated"], true);
+    assert!(!rows[0]["prompt"].as_str().unwrap().contains("final-character-needle"));
+    assert_eq!(rows[1]["prompt"], "Next turn");
+    assert!(serde_json::to_vec(&page).unwrap().len() < 1024 * 1024);
+    let mut joined = rows[0]["prompt"].as_str().unwrap().to_owned();
+    let mut offset = rows[0]["promptMore"].as_u64().unwrap();
+    let page_end = &page["result"]["pageEnd"];
+    let mut chunks = 0;
+    loop {
+        let chunk = call(
+            &tx,
+            &mut rx,
+            12,
+            "_acpmux/chat_transcript_page",
+            json!({"key":key,"cwd":cwd,"before":page_end,"turn":0,"role":"user","offset":offset}),
+        )
+        .await;
+        let text = chunk["result"]["text"].as_str().expect("continuation");
+        assert!(!text.is_empty());
+        assert!(serde_json::to_vec(&chunk).unwrap().len() < 1024 * 1024);
+        joined.push_str(text);
+        chunks += 1;
+        let Some(next) = chunk["result"]["nextOffset"].as_u64() else { break };
+        assert_eq!(next, offset + text.len() as u64);
+        offset = next;
+    }
+    assert!(chunks > 1);
+    assert_eq!(joined, prompt);
+    // The first cat starts after the ASCII control byte; offset 2 is inside its code point.
+    let invalid = call(
+        &tx,
+        &mut rx,
+        13,
+        "_acpmux/chat_transcript_page",
+        json!({"key":key,"cwd":cwd,"before":page_end,"turn":0,"role":"user","offset":2}),
+    )
+    .await;
+    assert!(invalid.get("error").is_some(), "{invalid}");
+    let search = call(
+        &tx,
+        &mut rx,
+        8,
+        "_acpmux/chat_transcript_find",
+        json!({"key":key,"cwd":cwd,"query":"final-character-needle"}),
+    )
+    .await;
+    let hit = &search["result"]["hits"][0];
+    assert_eq!(hit["pageEnd"], page["result"]["pageEnd"]);
+    assert_eq!(hit["turn"], 0);
+    assert!(hit["snippet"].as_str().unwrap().contains("final-character-needle"));
+}
+
+#[cfg(unix)]
+#[path = "support/terminal_history_fixture.rs"]
+mod terminal_history_fixture;
+
+#[cfg(unix)]
+#[ignore = "600 MiB physical fixture and socket performance measurement; run on the fleet"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_agent_history_600mib_socket_benchmark() {
+    use std::time::Instant;
+    let h = home();
+    let cwd = Path::new("/work/api");
+    let directory = h.0.join(".claude/projects/-work-api");
+    std::fs::create_dir_all(&directory).unwrap();
+    let hub = hub_on(&h.0).await;
+    let socket = h.0.join("history.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(acpmux::server::serve_unix(hub, listener));
+    let client = acpmux::client::Client::connect_without_caller(&socket).await.unwrap();
+    let file = directory.join(format!("{CLAUDE_ID}.jsonl"));
+    // Publish the finished fixture in one rename. Opening the chat can race its first metadata
+    // scan, just as a freshly resumed terminal races the index after app restart.
+    let staging = h.0.join("new-transcript.jsonl");
+    terminal_history_fixture::write_600mib(&staging, CLAUDE_ID, cwd);
+    std::fs::rename(&staging, &file).unwrap();
+    assert_eq!(file.metadata().unwrap().len(), terminal_history_fixture::BYTES);
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let started = Instant::now();
+    let latest =
+        client.request("_acpmux/chat_transcript_page", json!({"key":key,"cwd":cwd})).await.unwrap();
+    let elapsed = started.elapsed();
+    let turns = latest["turns"].as_array().expect("latest turns");
+    assert_eq!(turns.len(), 32);
+    assert!(turns.last().unwrap()["tools"].as_array().is_some_and(|tools| !tools.is_empty()));
+    let baseline_start = Instant::now();
+    let baseline = acpmux::adopt_replay::read("claude", &file);
+    let baseline_elapsed = baseline_start.elapsed();
+    assert!(baseline.iter().all(|turn| turn.prompt != "day one needle"));
+    println!(
+        "terminal_agent_history_600mib bytes={} latest_rpc_ms={:.3} baseline_reader_ms={:.3}",
+        terminal_history_fixture::BYTES,
+        elapsed.as_secs_f64() * 1000.,
+        baseline_elapsed.as_secs_f64() * 1000.
+    );
+    assert!(elapsed < Duration::from_millis(200), "latest socket page took {elapsed:?}");
+
+    // Read every older page through the same socket. Each preceding record is exactly one
+    // cursor step away, including the session's first day.
+    let scroll_start = Instant::now();
+    let mut before = latest["before"].as_u64().expect("older pages");
+    let mut page_times = Vec::new();
+    let mut expected = turns.last().unwrap()["prompt"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("review turn ")
+        .unwrap()
+        .parse::<usize>()
+        .unwrap()
+        - turns.len();
+    loop {
+        let started = Instant::now();
+        let page = client
+            .request("_acpmux/chat_transcript_page", json!({"key":key,"cwd":cwd,"before":before}))
+            .await
+            .unwrap();
+        page_times.push(started.elapsed());
+        for turn in page["turns"].as_array().unwrap().iter().rev() {
+            if expected == 0 {
+                assert_eq!(turn["prompt"], "day one needle");
+            } else {
+                assert_eq!(turn["prompt"], format!("review turn {expected}"));
+                expected -= 1;
+            }
+        }
+        if let Some(next) = page["before"].as_u64() {
+            assert!(next < before, "every page advances");
+            before = next;
+        } else {
+            assert_eq!(page["turns"][0]["prompt"], "day one needle");
+            assert_eq!(expected, 0);
+            break;
+        }
+    }
+    let total_scroll = scroll_start.elapsed();
+    page_times.sort_unstable();
+    let p95 = page_times[page_times.len() * 95 / 100];
+    println!(
+        "terminal_agent_history_600mib day_one_pages={} scroll_rpc_ms={:.1} page_p95_ms={:.3}",
+        page_times.len() + 1,
+        total_scroll.as_secs_f64() * 1000.,
+        p95.as_secs_f64() * 1000.
+    );
+    server.abort();
+}

@@ -60,7 +60,17 @@ private final class TerminalHistoryBridge: PageProvider {
         let method: AcpmuxHarnessMethod
         var request: [String: any Sendable] = [:]
         switch op {
-        case Self.namespace + "page": method = .terminalTranscriptPage
+        case Self.namespace + "page":
+            method = .terminalTranscriptPage
+            if let row = params["turn"] {
+                guard let turn = row.intValue, turn >= 0,
+                      let role = params["role"]?.stringValue, ["user", "assistant"].contains(role),
+                      let offset = params["offset"]?.intValue, offset >= 0,
+                      params["before"]?.intValue != nil else { throw PageError.invalidParams("turn") }
+                request["turn"] = turn
+                request["role"] = role
+                request["offset"] = offset
+            }
         case Self.namespace + "find":
             guard let query = params["query"]?.stringValue else { throw PageError.invalidParams("query") }
             method = .terminalTranscriptFind
