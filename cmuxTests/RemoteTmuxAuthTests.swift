@@ -86,6 +86,19 @@ import Testing
             stderr: Self.refusedByBusyMaster, preControlOutput: "") != .authRequired)
     }
 
+    /// A refused attempt can also leave a prompt ahead of control mode, from a transport that
+    /// signs in by itself when ssh falls back to a fresh connection. A login fails there for the
+    /// same reason it fails on the stderr route, so the refusal decides the attempt either way.
+    @Test func aSessionRefusedByABusyMasterRetriesEvenWithAPromptBeforeControlMode() {
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: Self.refusedByBusyMaster, preControlOutput: "Password: ") == .transient)
+        #expect(RemoteTmuxReconnectDisposition.classify(
+            stderr: "mux_client_request_session: session request failed: Session open refused by peer\n",
+            preControlOutput: "Enter a passcode:\n") == .transient)
+        // Without the refusal the same prompt is still a login.
+        #expect(RemoteTmuxReconnectDisposition.classify(stderr: "", preControlOutput: "Password: ") == .authRequired)
+    }
+
     @Test func aPlainPermissionDeniedStillOffersALogin() {
         let stderr = "u@host: Permission denied (publickey,keyboard-interactive)."
         #expect(RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
@@ -94,13 +107,15 @@ import Testing
 
     /// The release app, a nightly and a tagged build can mirror one host at the same time. On a
     /// host that allows one session per connection, a master they shared would serve only the
-    /// first app's stream and refuse the others. The test host is a development build, so its
-    /// socket must not be the one the release app uses for the same host.
-    @Test func aDevelopmentBuildDoesNotShareTheReleaseAppsMaster() throws {
-        let bundleIdentifier = try #require(Bundle.main.bundleIdentifier)
-        try #require(bundleIdentifier != "com.cmuxterm.app")
+    /// first app's stream and refuse the others. The test host's socket follows the host's own
+    /// build: under the Debug configuration the host is a development build and gets a socket of
+    /// its own, and under Release the host is the release app and keeps the name it always had.
+    @Test func theTestHostsSocketFollowsItsOwnBuild() {
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
+        let isReleaseApp = bundleIdentifier.isEmpty || bundleIdentifier == "com.cmuxterm.app"
         let host = RemoteTmuxHost(destination: "user@host")
-        #expect(!host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock"))
+        #expect(host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock") == isReleaseApp,
+                "host \(bundleIdentifier) got \(host.controlSocketPath)")
         #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
     }
 

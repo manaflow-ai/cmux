@@ -8,6 +8,10 @@ extension RemoteTmuxControlConnection {
         handle(message)
     }
 
+    func appendStderrForTesting(_ text: String) {
+        appendStderr(text)
+    }
+
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
         pendingCommands
     }

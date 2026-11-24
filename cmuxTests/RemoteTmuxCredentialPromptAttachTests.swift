@@ -75,6 +75,22 @@ struct RemoteTmuxCredentialPromptAttachTests {
         #expect(connection.isAwaitingCredentials)
     }
 
+    /// A prompt from an attempt the master already refused is not a login either. The sign-in would
+    /// be refused by the same busy master, sign in on a connection of its own and exit, and the
+    /// next attempt would prompt again.
+    @Test func aPromptAfterTheMasterRefusedTheSessionDoesNotParkForASignIn() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        defer { connection.stop() }
+        connection.appendStderrForTesting(
+            "mux_client_request_session: session request failed: Session open refused by peer\n")
+        connection.ingest(Data("Password: ".utf8))
+        #expect(!connection.isAwaitingCredentials)
+        #expect(connection.initialTopologyState == .pending, "the attempt retries, so the attach keeps waiting")
+    }
+
     /// Ordinary remote noise must not be read as a login. A host that prints a banner and then works
     /// has to attach, and a false positive here would tell the user to log in when nothing asked.
     @Test func ordinaryPreControlNoiseIsNotAPrompt() {

@@ -859,7 +859,7 @@ final class RemoteTmuxControlConnection {
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
     /// can't grow it without limit. Keeps the tail (the most recent, where the
     /// failure reason is).
-    private func appendStderr(_ text: String) {
+    func appendStderr(_ text: String) {
         lastTransportOutputAt = .now
         stderrBuffer += text
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
