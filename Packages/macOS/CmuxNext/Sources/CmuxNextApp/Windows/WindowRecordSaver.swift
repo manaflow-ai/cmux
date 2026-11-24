@@ -53,13 +53,8 @@ final class WindowRecordSaver {
         snapshot: { [weak self] images, socketPath in
             self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
         })
-    /// Each window's last frame for the next launch's stage 0 (`WindowLaunchImages`).
-    private(set) lazy var launchImages = WindowLaunchImages(
-        windows: { [weak self] in // open, not incognito
-            guard let owner = self?.owner else { return [] }
-            return owner.controllers.compactMap { c in c.window.flatMap { owner.isIncognito(window: c.state.id) ? nil : (c.state.id, $0) } }
-        }, isTerminating: { [weak self] in self?.owner?.isTerminating ?? true },
-        work: work, record: launchRecord, bundleID: host?.environment.launch.bundleID)
+    private(set) lazy var launchImages = WindowLaunchImages(windows: { [weak self] in self?.owner?.launchImageWindows ?? [] }, // stage 0's frames
+        isTerminating: { [weak self] in self?.owner?.isTerminating ?? true }, work: work, record: launchRecord, bundleID: host?.environment.launch.bundleID)
     /// Every window's layout, for the next launch to draw already placed.
     private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
         restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })
@@ -129,8 +124,7 @@ final class WindowRecordSaver {
     }
 
     private func requestSave() {
-        launchRecord.schedule()
-        launchImages.windowsChanged()
+        launchRecord.schedule(); launchImages.windowsChanged()
         saves.requested = true
         if let ticket = services?.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
@@ -294,18 +288,10 @@ extension AppServices {
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
-            var snapshot = LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
+            return WindowLaunchImages.stamped(LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
                 backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
                 imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
-                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
-            // What stage 0 checks before it draws the image (cmux-launch-shell `plan`): the display's
-            // frame and scale, the system's appearance (the record's is compared with the launch's), full screen.
-            snapshot.backingScale = Double(window.screen?.backingScaleFactor ?? 0)
-            snapshot.screenFrame = window.screen?.frame ?? .zero
-            snapshot.appearance = WindowLaunchImages.systemIsDark ? 1 : 0
-            snapshot.appearanceFollowsSystem = true
-            snapshot.fullscreen = window.styleMask.contains(.fullScreen)
-            return snapshot
+                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs), for: window)
         }
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }

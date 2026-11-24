@@ -26,7 +26,8 @@ public final class WindowLaunchImages {
     private let build: String
     private var schedules: [String: OpaquePointer] = [:]
     private let timer = DemandTimer(owner: "WindowLaunchImages")
-    private var observers: [NSObjectProtocol] = []
+    /// Windows in a live resize or full screen transition when last seen: captured once it ends.
+    private var resizing: Set<String> = []
 
     /// The system's appearance, as stage 0 reads it before the app sets its own (`LaunchShell.prepare`).
     public static var systemIsDark: Bool {
@@ -42,23 +43,6 @@ public final class WindowLaunchImages {
         self.record = record
         build = LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:])
         directory = bundleID.map { LaunchShellPaths.images(in: LaunchTimesFile.supportDirectory(bundleID: $0)) }
-        guard directory != nil else { return }
-        let center = NotificationCenter.default
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didChangeBackingPropertiesNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowsChanged() } // main-proof: observer on queue: .main
-            })
-        }
-        for (name, event) in [(NSWindow.willStartLiveResizeNotification, UInt32(4)), (NSWindow.didEndLiveResizeNotification, 5),
-                              (NSWindow.willEnterFullScreenNotification, 4), (NSWindow.didEnterFullScreenNotification, 5),
-                              (NSWindow.willExitFullScreenNotification, 4), (NSWindow.didExitFullScreenNotification, 5)] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { self?.resizePhase(window, event: event) } // main-proof: observer on queue: .main
-            })
-        }
     }
 
     private static var nowMs: UInt64 { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
@@ -76,25 +60,24 @@ public final class WindowLaunchImages {
         window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
-    /// A frame, theme, workspace, tab or visibility change (each record save, the launch settle):
-    /// every window notes it, and the timer waits for the first one due.
+    /// A frame, theme, workspace, tab or visibility change (each record save, an occlusion change, the launch
+    /// settle): every window notes it, and the timer waits for the first one due. A live resize or full screen
+    /// transition (`Motion.isLiveResizing`, the app's one tracker) holds the window's capture until it ends; the
+    /// record save at its end lands here. A window gone while the app runs was closed: its images go with it
+    /// (stub-decision.md 8).
     public func windowsChanged() {
         guard directory != nil, !isTerminating() else { return }
         let now = Self.nowMs
         let live = windows
         for (id, window) in live {
             guard let schedule = schedule(id) else { continue }
+            let inResize = Motion.isLiveResizing(window)
+            if inResize, resizing.insert(id).inserted { _ = cmux_launch_image_schedule_note(schedule, 4, now) }
+            if !inResize, resizing.remove(id) != nil { _ = cmux_launch_image_schedule_note(schedule, 5, now) }
             _ = cmux_launch_image_schedule_note(schedule, Self.shown(window) ? 3 : 2, now)
             _ = cmux_launch_image_schedule_note(schedule, 1, now)
         }
-        for id in Set(schedules.keys).subtracting(live.map(\.id)) { forget(id) }
-        arm()
-    }
-
-    private func resizePhase(_ window: NSWindow?, event: UInt32) {
-        guard let window, let id = windows.first(where: { $0.window === window })?.id, let schedule = schedules[id] else { return }
-        _ = cmux_launch_image_schedule_note(schedule, event, Self.nowMs)
-        if event == 5 { _ = cmux_launch_image_schedule_note(schedule, 1, Self.nowMs) }
+        for id in Set(schedules.keys).subtracting(live.map(\.id)) { windowClosed(id) }
         arm()
     }
 
@@ -131,9 +114,10 @@ public final class WindowLaunchImages {
         for capture in captures { await capture.value }
     }
 
-    /// A window the person closed: its images go with it (stub-decision.md 8).
-    public func windowClosed(_ id: String) {
+    /// A window closed: its schedule, record key and images go with it (stub-decision.md 8).
+    private func windowClosed(_ id: String) {
         forget(id)
+        resizing.remove(id)
         guard let directory else { return }
         record.setImage(nil, forWindow: id)
         work.post(.bestEffort, mayBlock: .files) { _ = cmux_launch_image_remove_window(directory.path, id) }
@@ -183,4 +167,15 @@ public final class WindowLaunchImages {
         }
     }
 
+    /// `snapshot` with what stage 0 checks before it draws the image (cmux-launch-shell `plan`): the display's
+    /// frame and scale, the system's appearance (the record's is compared with the launch's), full screen.
+    public static func stamped(_ snapshot: LaunchRecordWindowSnapshot, for window: NSWindow) -> LaunchRecordWindowSnapshot {
+        var snapshot = snapshot
+        snapshot.backingScale = Double(window.screen?.backingScaleFactor ?? 0)
+        snapshot.screenFrame = window.screen?.frame ?? .zero
+        snapshot.appearance = systemIsDark ? 1 : 0
+        snapshot.appearanceFollowsSystem = true
+        snapshot.fullscreen = window.styleMask.contains(.fullScreen)
+        return snapshot
+    }
 }
