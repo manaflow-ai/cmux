@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
@@ -16,6 +17,7 @@ import CmuxMobileOnboarding
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileWorkspaces
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
@@ -71,7 +73,10 @@ public struct RootView: View {
     @State private var sidebar = SidebarModel()
     /// The app's keyboard notifications, for every keyboard-pinned composer.
     @State private var keyboard = MobileKeyboardFrameTracker()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var launchFinished = false
+    /// The startup spring: the shell's arrival from the launch mark.
+    private static let startupSpring = Animation.spring(response: 0.55, dampingFraction: 0.86)
     @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -162,7 +167,17 @@ public struct RootView: View {
                 // after sign-in included.
                 .transition(welcomeCut && destination == .welcome
                     ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
-                    : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                    : destination == .shell
+                        // Startup (Leo, 2026-11-22: "claude code has such a nice animation on
+                        // startup"): as the launch chevron shrinks away, the shell settles in from
+                        // just past full size on a soft spring, so the app arrives rather than
+                        // swaps. Render only: the shell is laid out and takes touches from its
+                        // first frame. A new chat it opens on then plays its own entrance. The
+                        // same arrival follows sign-in and setup.
+                        ? .asymmetric(insertion: .opacity.combined(with: .scale(scale: 1.04))
+                                        .animation(Self.startupSpring.unlessReduceMotion),
+                                      removal: .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
+                        : .opacity.animation(theme.motion.gentle.animation.unlessReduceMotion))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -178,6 +193,15 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Back in the app: a keyboard the tracker holds as up while nothing
+        // takes keys went away unannounced; every composer docked to it rests
+        // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                keyboard.dropKeyboardWithoutOwner()
+                HomeNewMessage.appActiveChanged()
+            }
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -399,6 +423,9 @@ public struct RootView: View {
             setupComplete = false
         } else {
             AccountSignOut().signedOut(userID: accountUserID, session: ending)
+            // Its tab cards' pictures show its chats and pages: they leave the disk too.
+            if let accountUserID { TabCardSnapshots.shared.signedOut(accountID: accountUserID) }
+            MacTabCards.shared.signedOut()
             accountUserID = nil
         }
         store.resetForSignOut()
@@ -553,7 +580,6 @@ struct ShellView: View {
     /// App Store plans from the root (nil hides Settings → Plan).
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
-    @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
@@ -619,6 +645,26 @@ struct ShellView: View {
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
+        // A Mac screen link: Screen Sharing, that Mac's share asked for (View Only unless the link asks for control).
+        .sheet(item: $shell.macScreenLink) { item in
+            if let service = shell.screenSharing {
+                NavigationStack {
+                    ScreenSharingPage(service: service)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { shell.macScreenLink = nil }
+                                    .accessibilityIdentifier("screenSharing.done")
+                            }
+                        }
+                        .onAppear {
+                            guard shell.macScreenLinkOpened != item.id else { return }
+                            shell.macScreenLinkOpened = item.id
+                            service.open(deviceID: item.link.device, name: item.link.name,
+                                         scope: item.link.control ? .full : .view, display: item.link.display)
+                        }
+                }
+            }
+        }
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
                 .presentationDetents([.medium, .large])
@@ -627,14 +673,16 @@ struct ShellView: View {
             get: { shell.invitingTeam != nil },
             set: { if !$0 { shell.invitingTeam = nil } }
         )) {
-            TextField("Email", text: $inviteEmail)
+            // The address stays until it is sent (ShellModel.inviteEmailDraft); Send waits for one.
+            TextField("Email", text: $shell.inviteEmailDraft)
                 .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .keyboardType(.emailAddress)
-            Button("Cancel", role: .cancel) { inviteEmail = "" }
+            Button("Cancel", role: .cancel) { shell.inviteEmailDraft = "" }
             Button("Send") {
-                if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
-                inviteEmail = ""
+                if let team = shell.invitingTeam { shell.sendInvite(email: shell.inviteEmailDraft, to: team) }
             }
+                .disabled(!InviteEmail.isPlausible(shell.inviteEmailDraft))
                 .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
@@ -683,6 +731,10 @@ struct ShellView: View {
         }
         .onAppear {
             LaunchMarks.shared.markNextFrame("shell_frame")
+            #if DEBUG
+            // For the capture suites (the board is on only for UI tests): the first state, once still.
+            if LaunchMarksBoard.shared != nil { LaunchMarks.shared.markWhenStill("shell_still") }
+            #endif
             // The terminal engine starts when the main thread first idles, not in the first terminal tap.
             TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
@@ -701,7 +753,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The demo's last step is on screen and still: capture suites wait on this, not a fixed pause.
+                LaunchMarks.shared.markWhenStill("demo_done")
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
@@ -858,6 +914,18 @@ private struct LiveCallHost: ViewModifier {
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
                 ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
+            .task(id: shell.live.map(ObjectIdentifier.init)) {
+                // The call's Mac link never parks, in front or not: the Chief
+                // call runs on the focused Mac's link, voice mode on its chat's.
+                guard let live = shell.live else { return }
+                for await mac in Observations({ [call, voice] in
+                    if let session = call.session, !session.hasEnded { return live.focusedMacID }
+                    return voice.macID
+                }) {
+                    live.setCallMac(mac)
+                }
+                live.setCallMac(nil)
+            }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
                 voice.install(accountID: nil)
@@ -878,20 +946,31 @@ struct ShellTabs: View {
 
     var body: some View {
         @Bindable var shell = shell
-        TabView(selection: $shell.tab) {
+        // SwiftUI writes the selection on every tap of a tab, the selected one too: a write of the
+        // value it already has is that re-tap (pop to the root, then scroll to the top).
+        let selection = Binding<RootTab>(get: { shell.tab }, set: { tab in
+            if tab == shell.tab { shell.retapped(tab) } else { shell.tab = tab }
+        })
+        TabView(selection: selection) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
                     .modifier(TabBarVisibility(shell: shell, tab: .home))
+                    .modifier(TabRetapScroll(shell: shell, tab: .home))
                     .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
+                    .modifier(TabRetapScroll(shell: shell, tab: .workspaces))
                     .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.feedPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .feed))
                     .modifier(TabBarProbeHost())
             }
@@ -918,12 +997,16 @@ struct ShellTabs: View {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
                 .modifier(TabBarVisibility(shell: shell, tab: .settings))
+                .modifier(TabRetapScroll(shell: shell, tab: .settings))
                 .modifier(TabBarProbeHost())
             }
         }
         .tabBarMinimizeBehavior(.never)
+        // One pane on a phone, a list beside its detail unfolded (Rust's `window_layout`).
+        .modifier(ShellWindowLayoutReader())
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        .cmuxMobileSensoryFeedback(.selection, trigger: shell.tabRetaps)
         // A closed ask's notification leaves Notification Center; only when an ask opens or
         // closes, or the Feed finishes reading its Macs.
         .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
@@ -950,7 +1033,7 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, scrollToTop: shell.topRequests[.feed, default: 0], reconnect: {
             await shell.live?.reconnectFeeds()
         }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }

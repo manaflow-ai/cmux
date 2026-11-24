@@ -102,15 +102,18 @@ impl Hub {
     fn failed_over_from(&self, id: &str, current: &str) -> Option<String> {
         let mut from = None;
         let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"failover";
-        let _ = self.store.scan_back(id, 0, u64::MAX, &skip, &mut |rec| {
-            if rec.kind != "failover" {
-                return true;
-            }
-            let back = rec.msg.get("back").and_then(Value::as_bool).unwrap_or(false);
-            if !back && rec.msg.get("to").and_then(Value::as_str) == Some(current) {
-                from = rec.msg.get("from").and_then(Value::as_str).map(str::to_owned);
-            }
-            false
+        // The whole log with no failover: off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan_back(id, 0, u64::MAX, &skip, &mut |rec| {
+                if rec.kind != "failover" {
+                    return true;
+                }
+                let back = rec.msg.get("back").and_then(Value::as_bool).unwrap_or(false);
+                if !back && rec.msg.get("to").and_then(Value::as_str) == Some(current) {
+                    from = rec.msg.get("from").and_then(Value::as_str).map(str::to_owned);
+                }
+                false
+            })
         });
         from
     }
@@ -126,6 +129,7 @@ pub(super) struct ConversationMark {
     previous_agent_session_ids: Vec<String>,
     retired_agent_session_ids: Vec<String>,
     claude_unstored: bool,
+    claude_unstored_work: bool,
     claude_profile: Option<String>,
     rehydrate: bool,
 }
@@ -139,6 +143,7 @@ impl ConversationMark {
             previous_agent_session_ids: m.previous_agent_session_ids.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             claude_unstored: m.claude_unstored,
+            claude_unstored_work: m.claude_unstored_work,
             claude_profile: m.claude_profile.clone(),
             rehydrate: session.rehydrate.load(std::sync::atomic::Ordering::SeqCst),
         }
@@ -153,6 +158,7 @@ impl ConversationMark {
             m.previous_agent_session_ids = self.previous_agent_session_ids;
             m.retired_agent_session_ids = self.retired_agent_session_ids;
             m.claude_unstored = self.claude_unstored;
+            m.claude_unstored_work = self.claude_unstored_work;
             m.claude_profile = self.claude_profile;
         }
         session.rehydrate.store(self.rehydrate, std::sync::atomic::Ordering::SeqCst);

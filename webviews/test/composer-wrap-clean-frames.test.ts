@@ -14,7 +14,8 @@
 //
 // Every painted frame from the key until the field rests is read, in Chromium and WebKit, in the
 // New Tab field and the chat composer, for a soft wrap, Shift-Return and the Backspace that takes the
-// line back: no frame fades the text, the text's top stays on the field's top, and on New Tab the
+// line back: no frame fades the text, the text keeps its place (on the field's top, or on its bottom
+// while the chat composer grows upward with the caret's line held there), and on New Tab the
 // suggestions popover keeps its gap under the box in every frame.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -31,6 +32,8 @@ type Read = {
   scrollTop: number;
   /** The first line's top less the field's top (its padding when the text rests at the top). */
   textTop: number;
+  /** The first line's top less the field's bottom: where it is while a growth holds the bottom. */
+  textFromBottom: number;
   /** New Tab: the suggestions popover's top less the composer anchor's bottom, else NaN. */
   rowsGap: number;
 };
@@ -127,6 +130,7 @@ await requireBrowserLane("composer-wrap-clean-frames.test.ts", async () => {
             fade: `${field.hasAttribute("data-fade-top") ? "top " : ""}${field.hasAttribute("data-fade-bottom") ? "bottom" : ""}`,
             scrollTop: field.scrollTop,
             textTop: first ? Math.round((first.getBoundingClientRect().top - box.top) * 10) / 10 : Number.NaN,
+            textFromBottom: first ? Math.round((first.getBoundingClientRect().top - box.bottom) * 10) / 10 : Number.NaN,
             rowsGap:
               anchor && rows
                 ? Math.round((rows.getBoundingClientRect().top - anchor.getBoundingClientRect().bottom) * 10) / 10
@@ -167,13 +171,23 @@ await requireBrowserLane("composer-wrap-clean-frames.test.ts", async () => {
   const check = (label: string, reads: Read[], rested: Read) => {
     console.log(`WRAP_FRAMES ${label} ${JSON.stringify(reads)}`);
     expect(reads.length).toBeGreaterThan(0);
+    // At rest the text fits, so nothing is scrolled.
+    expect(rested.scrollTop, `${label} at rest`).toBe(0);
     for (const [index, read] of reads.entries()) {
       const where = `${label} frame ${index}: ${JSON.stringify(read)}`;
       // The text fits the height it lands on: nothing is past either edge, so nothing fades.
       expect(read.fade, where).toBe("");
-      // The text's top rides the field's top: no caret reveal scrolls it up mid-motion.
-      expect(read.scrollTop, where).toBe(0);
-      expect(Math.abs(read.textTop - rested.textTop), where).toBeLessThanOrEqual(0.5);
+      // The text keeps the place it lands in, in every frame: no caret reveal scrolls it up and back.
+      // It rides the field's top, or, while the chat composer grows upward with its bottom held
+      // (composer/fieldGrowth.ts: the caret's line never drops under the box, Leo 2026-11-22: "the
+      // caret gets shot down past the composer as it goes"), the field's bottom, where the rising
+      // top edge uncovers the first line as an instant growth would have drawn it. On the bottom,
+      // within a pixel: the hold is a scroll, and at 1x a scroll offset is whole pixels while the
+      // moving height is not.
+      expect(
+        Math.abs(read.textTop - rested.textTop) <= 0.5 || Math.abs(read.textFromBottom - rested.textFromBottom) <= 1,
+        where,
+      ).toBe(true);
       // The suggestions hang at the same gap under the box in every frame (none lags a frame).
       if (!Number.isNaN(rested.rowsGap) && !Number.isNaN(read.rowsGap))
         // Within a pixel: the popover's place is rounded to the device pixel, the box's bottom is not.

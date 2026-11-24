@@ -5,12 +5,16 @@ import Testing
 
 /// `sidebar.groupBarShape` (ask-8e5e0aeec3, Leo 2026-10-23: "keep the left thing but I LIKE THE CUT ... JUST MAKE THE
 /// CUT THE TAPER ON THE BAR"): Tapered draws the group rail's top as a tip, square on the left and curving out to the
-/// right edge, with only the bottom rounded. Rounded, Lawrence's even capsule (2026-11-17), stays the default, unchanged.
+/// right edge, with only the bottom rounded, and is the default again. Rounded, Lawrence's even capsule (2026-11-17), stays
+/// an option and draws unchanged.
 @MainActor @Suite struct SidebarGroupBarShapeTests {
     static let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
 
-    @Test func roundedIsTheDefaultAndUnchanged() {
-        #expect(SidebarSectionsPreferences().groupBarShape == .rounded)
+    @Test func taperedIsTheDefault() {
+        #expect(SidebarSectionsPreferences().groupBarShape == .tapered)
+    }
+
+    @Test func roundedDrawsTheEvenCapsuleUnchanged() {
         #expect(SidebarGroupLineShape.capCorners(flipped: true, shape: .rounded) == Self.all)
         #expect(SidebarGroupLineShape.body(width: 2, height: 20, shape: .rounded) == SidebarGroupLineShape.body(width: 2, height: 20))
         #expect(SidebarGroupLineShape.body(width: 2, height: 20).contains(CGPoint(x: 1.9, y: 0.1)), "the capsule's body is a full bar")
