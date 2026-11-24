@@ -5658,6 +5658,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
