@@ -45,7 +45,7 @@ use bytes::Bytes;
 use cmux_mobile_link::link::ChannelSender;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::{Duration, Instant, timeout_at};
 use tokio_tungstenite::tungstenite::Message;
@@ -80,6 +80,12 @@ const PAGE_RECORDS: u64 = 400;
 const TOOL_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
 /// Chat list rows when the request names no `limit` (the app's first page).
 const LIST_ROWS: u64 = 50;
+/// The most chat-list rows one catch-up asks for.
+const LIST_ROWS_MAX: u64 = 200;
+/// The keys a request's `workspaces` cursor may carry (besides `capabilities`).
+const WORKSPACE_KEYS: [&str; 4] = ["known", "since", "limit", "after"];
+/// The longest daemon reply line read; a longer one is a failure, not an unbounded read.
+const DAEMON_LINE_MAX: u64 = 2 * 1024 * 1024;
 /// How long the daemon and acpmux each have to answer.
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 
@@ -147,14 +153,20 @@ impl Request {
             }
             Some(_) => return Err(bad("workspaces.capabilities is a list of names")),
         };
-        // The line's own keys are hostd's.
-        workspaces.remove("cmd");
-        workspaces.remove("id");
+        // Only the read's own cursor and paging keys: the line is always a `list-workspaces`
+        // read, never a write (a `protocol` key would make the daemon policy judge it as a
+        // resource request instead).
+        if let Some(key) = workspaces.keys().find(|key| !WORKSPACE_KEYS.contains(&key.as_str())) {
+            return Err(bad(format!("workspaces.{key} is not understood")));
+        }
         let mut chat_list = Map::new();
         for (key, value) in object("chatList")? {
             match key.as_str() {
                 "listEpoch" if value.is_string() => drop(chat_list.insert(key, value)),
-                "afterSeq" | "limit" if value.is_u64() => drop(chat_list.insert(key, value)),
+                "afterSeq" if value.is_u64() => drop(chat_list.insert(key, value)),
+                "limit" if value.is_u64() => {
+                    drop(chat_list.insert(key, json!(value.as_u64().unwrap_or(0).min(LIST_ROWS_MAX))))
+                }
                 _ => return Err(bad(format!("chatList.{key} is not understood"))),
             }
         }
@@ -365,8 +377,16 @@ async fn workspaces(config: &ServiceConfig, peer: &Peer, request: &Request) -> R
         let mut reader = BufReader::with_capacity(64 * 1024, read);
         loop {
             let mut line = Vec::new();
-            if reader.read_until(b'\n', &mut line).await.map_err(|e| format!("daemon: {e}"))? == 0 {
+            let read = (&mut reader)
+                .take(DAEMON_LINE_MAX + 1)
+                .read_until(b'\n', &mut line)
+                .await
+                .map_err(|e| format!("daemon: {e}"))?;
+            if read == 0 {
                 return Err("daemon closed".to_owned());
+            }
+            if line.len() as u64 > DAEMON_LINE_MAX {
+                return Err("daemon reply too large".to_owned());
             }
             let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
             if value.get("id").and_then(Value::as_str) != Some(WORKSPACES_ID) {
@@ -477,19 +497,22 @@ async fn acpmux(config: &ServiceConfig, peer: &Peer, request: &Request) -> Acpmu
     for ((id, chat, _), verdict) in messages.into_iter().zip(checked) {
         match verdict {
             Upstream::Send(text) => {
-                if sink.send(Message::Text(text.into())).await.is_err() {
+                // Under the deadline: an acpmux that stops reading never holds the channel.
+                if !matches!(timeout_at(deadline, sink.send(Message::Text(text.into()))).await, Ok(Ok(()))) {
                     fail(&mut out, "acpmux closed");
                     return out;
                 }
                 pending.insert(id, chat);
             }
+            // Not sent (its session id did not resolve now, or the relay answered it itself):
+            // cut, so its cursor stays and the next catch-up asks again.
             Upstream::Answer(_) => match chat {
-                Some(chat) => drop(out.chats.insert(chat, ChatAnswer::Refused)),
+                Some(chat) => drop(out.chats.insert(chat, ChatAnswer::Failed("not answered".into()))),
                 None => out.list = Some(Err("refused".into())),
             },
             Upstream::Close => {
                 out.closed = true;
-                let _ = sink.close().await;
+                let _ = timeout_at(deadline, sink.close()).await;
                 return out;
             }
         }
@@ -553,7 +576,7 @@ async fn acpmux(config: &ServiceConfig, peer: &Peer, request: &Request) -> Acpmu
     if relay.closed(&state) {
         out.closed = true;
     }
-    let _ = sink.close().await;
+    let _ = tokio::time::timeout(Duration::from_secs(1), sink.close()).await;
     out
 }
 
@@ -585,5 +608,12 @@ mod tests {
         assert_eq!(request.chats.len(), 1, "a chat named twice is read once");
         assert!(Request::parse(&json!({"v": 2})).is_err());
         assert!(Request::parse(&json!({"v": 1, "chatList": {"cursor": "x"}})).is_err());
+        // The workspaces read stays a read: no `protocol`, `cmd` or other key reaches the line.
+        for key in ["protocol", "cmd", "id", "workspace"] {
+            let args = json!({"v": 1, "workspaces": {"known": "r9", key: "x"}});
+            assert!(Request::parse(&args).is_err(), "{key}");
+        }
+        let request = Request::parse(&json!({"v": 1, "chatList": {"limit": 1u64 << 40}})).unwrap();
+        assert_eq!(request.chat_list.get("limit"), Some(&json!(LIST_ROWS_MAX)));
     }
 }
