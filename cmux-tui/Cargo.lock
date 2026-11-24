@@ -82,7 +82,6 @@ dependencies = [
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
- "crossterm",
  "dhat",
  "diffy",
  "dirs",
@@ -103,8 +102,6 @@ dependencies = [
  "png",
  "proc-macro2",
  "proptest",
- "pulldown-cmark",
- "ratatui",
  "rcgen",
  "regex",
  "reqwest",
@@ -117,7 +114,6 @@ dependencies = [
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
- "syntect",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
@@ -132,7 +128,6 @@ dependencies = [
  "tracing-subscriber",
  "turmoil",
  "unicode-normalization",
- "unicode-width",
  "url",
  "uuid",
  "wait-timeout",
@@ -214,6 +209,28 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "mimalloc",
+]
+
+[[package]]
+name = "acpmux-tui"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "anyhow",
+ "base64",
+ "cmux-json",
+ "cmux-scope",
+ "crossterm",
+ "dirs",
+ "futures-util",
+ "libc",
+ "pulldown-cmark",
+ "ratatui",
+ "serde_json",
+ "syntect",
+ "tokio",
+ "unicode-width",
+ "uuid",
 ]
 
 [[package]]
@@ -1390,6 +1407,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -1895,9 +1931,17 @@ dependencies = [
 name = "cmux-egress"
 version = "1.0.0"
 dependencies = [
+ "bytes",
+ "cmux-egress",
+ "cmux-scope",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 
@@ -2354,6 +2398,7 @@ name = "cmux-projection"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
  "cmux-egress",
  "cmux-file-lock",
@@ -2362,6 +2407,7 @@ dependencies = [
  "fuser",
  "ignore",
  "libc",
+ "nfsserve",
  "reqwest",
  "rustls",
  "serde",
@@ -2370,6 +2416,7 @@ dependencies = [
  "sha1collisiondetection",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
  "zstd",
 ]
 
@@ -2894,6 +2941,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux",
  "acpmux-build-id",
+ "acpmux-tui",
  "anyhow",
  "async-trait",
  "axum",
@@ -4115,19 +4163,6 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-xid",
-]
-
-[[package]]
-name = "desktop-lease"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "cmux-process",
- "cmux-scope",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
@@ -6466,6 +6501,22 @@ dependencies = [
  "windows",
  "windows-result",
  "wmi",
+]
+
+[[package]]
+name = "nfsserve"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1424b6d88c60a091931392970999ea3ceab132d968e6a5545c770fad5b97d7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "byteorder",
+ "filetime",
+ "num-derive",
+ "num-traits",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
