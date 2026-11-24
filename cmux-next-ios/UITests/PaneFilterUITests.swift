@@ -37,6 +37,11 @@ final class PaneFilterUITests: XCTestCase {
         expectCards(cards, 2, "default: agent and terminal")
         let value = (filter.value as? String) ?? ""
         XCTAssertTrue(value.contains("1 browser hidden"), "hidden count: \(value)")
+        // The header's tab count is never drawn under the filter: centered over the grid it ran
+        // under the control and read "2 of 3 t".
+        let count = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '2 of 3 tabs'")).firstMatch
+        XCTAssertTrue(count.waitForExistence(timeout: 5), "tab count\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(count.frame.maxX, filter.frame.minX, "tab count \(count.frame) clear of the filter \(filter.frame)")
         attach(app, "1-default")
 
         filter.tap()
@@ -47,6 +52,9 @@ final class PaneFilterUITests: XCTestCase {
         browsers.tap()
         dismissMenu(app)
         expectCards(cards, 3, "browsers shown: every tab")
+        let all = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH '3 tabs' AND NOT label CONTAINS ' of '")).firstMatch
+        XCTAssertTrue(all.waitForExistence(timeout: 5), "tab count\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(all.frame.maxX, filter.frame.minX, "tab count \(all.frame) clear of the filter \(filter.frame)")
         attach(app, "3-every-tab")
 
         filter.tap()
