@@ -51,7 +51,8 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
-import { SendSlotGlyph } from "./composer/SendSlotGlyph";
+import { SendSlot, SendSlotGlyph, StopPulse } from "./composer/SendSlotGlyph";
+import { useStopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
@@ -960,6 +961,8 @@ function ComposerFrame({
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
+  // When the person last sent here: a turn that starts just after shows Stop at once (turnPresence.ts).
+  const lastSent = useCallback(() => sentAt.current, []);
   /// What + wrote over the draft, so Escape can put the draft back.
   /// `shown`: the frame has rendered the write. A blur in the same event as the write (the + menu
   /// closing as its row writes "/") reads the text before it, as the render-time text did.
@@ -2369,9 +2372,15 @@ function ComposerFrame({
     turnQueue ?? snapshot.queue,
     snapshot.summary?.queuePaused === true,
   );
-  const stop = !shell && (snapshot.isWorking || holding || handingOver) && facts.empty;
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && (snapshot.isWorking || holding || handingOver);
+  // Whether the slot draws Stop: `running` with hysteresis (composer/turnPresence.ts, the Rust
+  // model's copy). A turn shorter than the dwell draws no Stop, a turn's end keeps it a moment, a
+  // turn that starts again then pulses it, and no frame shows or hides it for less than the hold.
+  // Only the drawing reads it; Esc, resume and the labels read `running`.
+  const stopPresence = useStopPresence(running, sessionId, lastSent);
+  const stopShown = !shell && stopPresence.shown;
+  const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
@@ -2739,7 +2748,7 @@ function ComposerFrame({
   // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
   // once, so its glyphs draw at once.
   const morphMemory = onOpenInWindow ? undefined : slotMemory;
-  const stopButton = running ? (
+  const stopButton = stopShown ? (
     <button
       key="stop"
       ref={sendButton}
@@ -2747,13 +2756,17 @@ function ComposerFrame({
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
       data-stopping={stopping ? "" : undefined}
+      // A turn's end keeps Stop a moment (turnPresence.ts): it dims, and pulses if a turn starts again.
+      data-stop-lingering={stopPresence.lingering ? "" : undefined}
       aria-label={stopLabel}
       // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
       title={stopLabel}
-      onClick={stopTurn}
+      // Lingering, nothing runs to stop; a turn that starts then makes it live again.
+      onClick={running ? stopTurn : undefined}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
       <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
+      <StopPulse pulses={stopPresence.pulses} />
     </button>
   ) : null;
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
@@ -3172,7 +3185,7 @@ function ComposerFrame({
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
   // keeps Stop beside its one Send (one stop and one send, never two sends).
   const sendControl =
-    onOpenInWindow && running && hasDraft && sendOrStop ? (
+    onOpenInWindow && stopShown && hasDraft && sendOrStop ? (
       <>
         {stopButton}
         {sendOrStop}
@@ -3180,6 +3193,13 @@ function ComposerFrame({
     ) : (
       sendOrStop
     );
+  // The slot's one reserved cell: Stop comes and goes in it without moving the row, and fades out
+  // when it leaves with nothing in its place (composer/SendSlotGlyph.tsx SendSlot).
+  const slot = (
+    <SendSlot memory={morphMemory} scope={sessionId}>
+      {sendControl}
+    </SendSlot>
+  );
   // The + menu's rows, the same array until what they list changes. ComposerFrame is left
   // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.
   const plusCanCapture = Boolean(capture && allowImages);
@@ -3618,11 +3638,11 @@ function ComposerFrame({
         actionsLead={
           <>
             {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}
-            {quietActions && sendControl}
+            {quietActions && slot}
           </>
         }
         accessory={accessory}
-        trailing={quietActions ? undefined : sendControl}
+        trailing={quietActions ? undefined : slot}
         chromeItems={chrome.all}
       />
     </form>

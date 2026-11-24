@@ -513,10 +513,17 @@ final class CloudService {
                 return
             }
             guard planGeneration == generation, listAccount == account, auth.isSignedIn else { return }
-            let limits = CloudMachineLimits(nextPlan: answer)
-            machines.cloudLimits = limits
-            logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
+            planRead(answer)
         }
+    }
+
+    /// Lands one `cloud.plan.get` answer: the limits the gates read, then ``planObserved``, so a plan
+    /// that turned paid after an upgrade shows its welcome card. An answer without a plan reports none.
+    func planRead(_ answer: JSONValue) {
+        let limits = CloudMachineLimits(nextPlan: answer)
+        machines.cloudLimits = limits
+        logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
+        if let limits { planObserved(limits.planId) }
     }
 
     /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
