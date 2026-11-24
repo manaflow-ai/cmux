@@ -71,7 +71,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     public init(queue: DispatchQueue? = nil, window: TimeInterval = CoalescingFileWriter.defaultWindow,
                 maximumQueuedBytes: Int = CoalescingFileWriter.defaultMaximumQueuedBytes,
                 onError: @escaping @Sendable (URL, any Error) -> Void = { _, _ in }) {
-      
+
         self.queue = queue ?? DispatchQueue(label: "com.cmuxterm.app.next.coalescing-file-writer", qos: .utility)
         self.window = window
         self.maximumQueuedBytes = maximumQueuedBytes
