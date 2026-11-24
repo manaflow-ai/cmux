@@ -137,8 +137,7 @@ async fn round_trip(net: &WgNet, to: IpAddr) {
 
 /// Both sides initiate at once and both have a connection waiting: the session
 /// comes up within a few round trips, not never.
-#[tokio::test]
-async fn crossing_initiations_with_queued_data_still_make_a_session() {
+async fn crossing() {
     let pair = config_pair("192.0.2.2:51820".parse().unwrap());
     let (a, b, gate) = ends();
     // Each side initiates as soon as it starts; the wire holds both.
@@ -165,4 +164,14 @@ async fn crossing_initiations_with_queued_data_still_make_a_session() {
         "no session after crossing initiations ({initiations} initiations sent)"
     );
     assert!(initiations < 20, "{initiations} initiations for one session");
+}
+
+#[tokio::test]
+async fn crossing_initiations_with_queued_data_still_make_a_session() {
+    crossing().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn crossing_initiations_on_two_threads_still_make_a_session() {
+    crossing().await;
 }
