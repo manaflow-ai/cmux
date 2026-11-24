@@ -579,6 +579,10 @@ impl Hub {
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        // The owner's login for the chat's agent (`agent_credentials.rs`), which a new Cloud
+        // machine has none of: held on the chat before its queue runs, so the turn the move
+        // continues starts signed in. Never recorded; a bad one fails the finish before anything.
+        let credential = crate::agent_credentials::requested(Some(params))?;
         let _receives = RECEIVES.lock().await;
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
@@ -613,6 +617,9 @@ impl Hub {
                 "schema",
                 "bundle identity does not match transfer manifest",
             ));
+        }
+        if let Some(credential) = &credential {
+            self.credential_serves(&bundle_meta.harness, credential).await?;
         }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
@@ -724,7 +731,15 @@ impl Hub {
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
         let session = match self
-            .import_into(&bundle, name, true, guarded, replacing_durable, true, staged.as_ref())
+            .import_into(
+                &bundle,
+                name,
+                super::transfer::Live::Moved(credential),
+                guarded,
+                replacing_durable,
+                true,
+                staged.as_ref(),
+            )
             .await
         {
             Ok(session) => {
