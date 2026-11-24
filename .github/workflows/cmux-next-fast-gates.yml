@@ -397,6 +397,7 @@ jobs:
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         shell: bash
         continue-on-error: true
+        timeout-minutes: 2
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -459,6 +460,7 @@ jobs:
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         shell: bash
         continue-on-error: true
+        timeout-minutes: 2
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
