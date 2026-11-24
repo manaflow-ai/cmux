@@ -303,12 +303,11 @@ class WiringTest(unittest.TestCase):
         on = callee.get(True) or callee.get("on")
         self.assertNotIn("push", on)
         self.assertIn("pull_request", on)
-        # Every React project and the gate's own files reach the suite.
-        for path in ("webviews/src/a.tsx", "web/app/page.tsx", "agent-chat/src/x.ts", "backend/apps/api/x.ts",
-                     "cmux-tui/frontends/web/src/x.tsx", "scripts/ci/react_doctor_gate.py",
-                     "scripts/ci/react-doctor-baseline.json", ".github/workflows/cmux-next-react-doctor.yml"):
+        # Its pull_request trigger starts on every path, so the suite must too (affected_jobs.py check_pr_skip):
+        # every batch run scans the base, about 12 a day.
+        self.assertEqual(suite.paths, [])
+        for path in ("webviews/src/a.tsx", "web/app/page.tsx", "cmux-tui/crates/acpmux/src/lib.rs"):
             self.assertTrue(suite.reached([path]), path)
-        self.assertFalse(suite.reached(["cmux-tui/crates/acpmux/src/lib.rs", "Packages/macOS/x.swift"]))
         # A batch run keys its concurrency on the commit it tests, and records the signed receipt a push did.
         self.assertIn("inputs.sha", str(callee["concurrency"]["group"]))
         steps = {s.get("name"): s for s in callee["jobs"]["react-doctor"]["steps"]}
