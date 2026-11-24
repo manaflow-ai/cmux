@@ -41,10 +41,11 @@ const unreachable = (what: string) => no(503, "integration.unavailable", `${what
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
 
 /**
- * Where the machine-only seam (POST /machine-token) answers: development and staging, where Cloud
- * environment builds mint through it. Production stays closed until the hosted connector rollout.
+ * Where the machine-only seam (POST /machine-token) answers: every deployed environment, so Cloud
+ * environment builds and machines mint scoped installation tokens in production too (on by default).
+ * The caller must still be a live `vm` install of its own machine under the SSO gate and team policy.
  */
-export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging"])
+export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging", "production"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string; edgeOnly?: true } | Fail> => {
@@ -93,7 +94,7 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
-  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not production). Repository
+  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not the test runner's own `test`). Repository
   // enumeration answers in every environment: a signed-in person (a session or their own install), and a
   // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
   // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
