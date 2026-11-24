@@ -63,6 +63,7 @@ pub(crate) mod clock_text;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
+pub mod customize_run;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
 #[cfg(feature = "hub-carrier")]
