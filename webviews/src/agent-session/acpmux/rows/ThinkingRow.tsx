@@ -12,9 +12,13 @@ export const ThinkingRow = memo(
     // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
     const pulse = useContext(LiveLinePulseContext);
     // Each status stays at least a dwell, so a burst of calls rolls the line a few whole times, never
-    // thirty cut-off times (liveDwell.ts).
+    // thirty cut-off times (liveDwell.ts). The reply's first words never wait: the line turns to
+    // Writing in the frame they come, so no Thinking stands under a streaming answer.
     const dwell = useContext(LiveDwellContext);
-    const row = withLiveStatus(latest, useKeyedDwell(liveStatusKey(latest), latest, dwell));
+    const row = withLiveStatus(
+      latest,
+      useKeyedDwell(liveStatusKey(latest), latest, latest.liveState === "writing" ? 0 : dwell),
+    );
     return (
       <Thinking
         starting={row.queued !== undefined}
