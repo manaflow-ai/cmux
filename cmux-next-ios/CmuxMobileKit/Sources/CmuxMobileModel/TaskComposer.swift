@@ -378,8 +378,8 @@ extension WorkspaceCreator {
     /// first message. Clears the draft (the Cloud machine stays chosen). False when it can't start.
     @discardableResult
     public func startCloudTask(_ draft: TaskDraft) -> Bool {
-        guard taskBlocker(draft) == nil, let target = taskCloud(for: draft), let startCloudTask else { return false }
-        startCloudTask(target, draft.trimmedPrompt)
+        guard taskBlocker(draft) == nil, let target = taskCloud(for: draft), let openCloudTask else { return false }
+        openCloudTask(target, draft.trimmedPrompt)
         taskDrafts.delete([draft.id])
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, cloudID: target.id, directory: draft.directory,
                               launch: draft.launch)

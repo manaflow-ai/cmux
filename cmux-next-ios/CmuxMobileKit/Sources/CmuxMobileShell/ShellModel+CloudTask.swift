@@ -14,13 +14,13 @@ extension ShellModel {
     /// machine's new Claude chat (Cloud chats) with the task as its first message.
     func wireCloudTasks() {
         creator.loadCloudTaskTargets = { [weak self] in
-            guard let self, let live = self.live, let macID = live.focusedMacID, live.canLink(macID: macID) else { return [] }
+            guard let self, let live = self.live, let macID = live.focusedMacID, live.canLink(macID: macID) else { return nil }
             guard let machines = try? await live.cloudMachines(on: macID) else { return nil }
             return CloudChatDirectory.scopedMachines(machines, attention: nil).map {
                 CloudTaskTarget(teamID: $0.teamID, machineID: $0.machineID, name: $0.name, macID: macID)
             }
         }
-        creator.startCloudTask = { [weak self] target, prompt in
+        creator.openCloudTask = { [weak self] target, prompt in
             guard let self else { return }
             let machine = CloudChatMachine(machineID: target.machineID, teamID: target.teamID, name: target.name)
             cloudChats = CloudChatsPresentation(attention: nil, task: CloudChatTask(

@@ -611,7 +611,7 @@ public final class WorkspaceCreator {
     /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
     @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
     /// Opens a started Cloud task: its machine and the first message.
-    @ObservationIgnored public var startCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
+    @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
     /// The saved New Task drafts (the drafts list).

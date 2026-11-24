@@ -260,6 +260,8 @@ private struct CloudMachineChatsScreen: View {
     var firstPrompt: String? = nil
     /// The first message's chat was started (a reconnect never starts a second).
     @State private var startedFirst = false
+    /// The started chat the first message waits on: the machine lists a new chat after it answers.
+    @State private var unsentFirst: String?
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
     @State private var error: String?
@@ -377,6 +379,9 @@ private struct CloudMachineChatsScreen: View {
         .onChange(of: relay?.hub.isReady == true, initial: true) { _, ready in
             if ready { startFirst() }
         }
+        .onChange(of: unsentFirst.flatMap { relay?.hub.sessions[$0] } != nil) { _, listed in
+            if listed { sendFirst() }
+        }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
             guard ready, !openedPreferred, let preferredSession,
@@ -405,13 +410,21 @@ private struct CloudMachineChatsScreen: View {
             do {
                 let session = try await relay.startChat()
                 startedFirst = true
-                relay.store(sessionID: session)?.send(prompt: firstPrompt)
+                unsentFirst = session
+                sendFirst()
                 selectedSession = session
             } catch {
                 startError = ((error as? CloudChatStartError)?.message ?? "Try again.")
                 startFailed = true
             }
         }
+    }
+
+    /// Sends the first message once the started chat is listed.
+    private func sendFirst() {
+        guard let session = unsentFirst, let firstPrompt, let store = relay?.store(sessionID: session) else { return }
+        unsentFirst = nil
+        store.send(prompt: firstPrompt)
     }
 
     private func newChatTapped() {

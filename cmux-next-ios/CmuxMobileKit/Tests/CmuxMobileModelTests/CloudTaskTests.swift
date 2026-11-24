@@ -57,7 +57,7 @@ import Testing
         let creator = make()
         await creator.refreshCloudTaskTargets()
         var opened: [(CloudTaskTarget, String)] = []
-        creator.startCloudTask = { opened.append(($0, $1)) }
+        creator.openCloudTask = { opened.append(($0, $1)) }
         creator.taskDraft.prompt = "  Fix the flaky upload test \n"
         creator.taskDraft.chooseCloud(Self.box.id)
         creator.saveTaskDraft()
