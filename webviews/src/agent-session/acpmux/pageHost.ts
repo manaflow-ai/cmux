@@ -52,6 +52,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
       return;
+    case "projectPalette":
+      window.dispatchEvent(new CustomEvent("cmux-project-palette", { detail: event.value }));
+      return;
     case "github.changed":
       window.dispatchEvent(new Event("cmux-github-changed"));
       return;

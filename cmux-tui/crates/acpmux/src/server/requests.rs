@@ -1368,10 +1368,11 @@ async fn dispatch_request_with_identity(
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PLACE_CHAT,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
             ];
@@ -1492,7 +1493,7 @@ async fn dispatch_request_with_identity(
             }
             hub.github_app.set(&params)
         }
-        method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
+        method::MUX_GITHUB_ACTION => super::github_lane::handle(hub, conn, params).await,
         // Decided in order in `Conn::bind_person`; this only reports it.
         method::MUX_PERSON_PROVE => {
             if conn.is_person() {
@@ -1870,6 +1871,16 @@ async fn dispatch_request_with_identity(
                     workspace: workspace_id.clone(),
                 })
             });
+            // The owner's own daemon starts this machine's own chat, not a remote chain
+            // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
+            // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
+            let remote_start = conn.origin.web_class()
+                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    && !crate::hub::vm_boundary::asked(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    ));
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1884,7 +1895,7 @@ async fn dispatch_request_with_identity(
                 workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin.web_class(),
+                remote: remote_start,
                 vm_boundary: crate::hub::vm_boundary::asked(
                     conn.auth,
                     super::remote_guard::control_of(conn.origin, conn.auth, &params),
@@ -1926,7 +1937,7 @@ async fn dispatch_request_with_identity(
             {
                 hub.set_tags(&s, Some(tags), &[], None);
             }
-            if conn.origin.web_class() {
+            if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
@@ -2485,8 +2496,10 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
-            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
-            let remote_switch = conn.origin.web_class();
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`); the
+            // owner's own daemon's is this machine's (`remote_guard::owner_control`).
+            let remote_switch = conn.origin.web_class()
+                && !super::remote_guard::owner_control(conn.origin, conn.auth, &params);
             let retarget = super::fork_through::retarget(&params)?
                 .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
             let switched = retarget.is_some();
@@ -2638,12 +2651,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, false, why)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -2849,6 +2864,25 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
+        // place picker and chip, on the same sockets `_acpmux/place` answers on.
+        "_acpmux/chat_place" | "_acpmux/chat_place_set"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/chat_place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/chat_place" => Ok(super::chat_place::read(hub, &params).await),
+        "_acpmux/chat_place_set" => super::chat_place::set(hub, &params).await,
+        // Where a new Auto chat runs, from this machine's budget: the same clients as
+        // `_acpmux/place` (its reason names this machine's numbers).
+        method::MUX_PLACE_CHAT if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_chat answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        method::MUX_PLACE_CHAT => Ok(super::place::place_chat(&params).await),
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),
@@ -3815,7 +3849,10 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
+            // refused.
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).
@@ -3982,6 +4019,8 @@ async fn dispatch_request_with_identity(
         method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE => {
             crate::hub::media_read::handle(hub, &conn.media, m, &params).await
         }
+        // A chat's subagents, running and lately ended, from its subagent tree.
+        method::MUX_SUBAGENT_LIST => crate::hub::subagent_list::handle(hub, &params),
         // A subagent's transcript, read from the files Claude Code writes for the chat.
         method::MUX_SUBAGENT_TRANSCRIPT => {
             heap(|| crate::hub::subagent_transcript::handle(hub, &params)).await
@@ -4170,7 +4209,7 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     }
     let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
     let (reply, following) =
-        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+        tokio::task::spawn_blocking(move || crate::rows::read(&*hub2, &id, &params))
             .await
             .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
     if let Some(following) = following

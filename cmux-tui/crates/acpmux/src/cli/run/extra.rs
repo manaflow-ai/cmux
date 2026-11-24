@@ -144,7 +144,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge, condition } => {
+        Command::Kill { session, purge, condition, close } => {
             let client = connect(true).await?;
             // An older daemon would ignore the condition and stop a busy session.
             if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
@@ -163,6 +163,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             if let Some(rev) = condition.expect_revision {
                 cmux_json::JsonSet::set(&mut params, "expectRevision", json!(rev));
+            }
+            // Recorded with the close (`close_why.rs`); an older daemon ignores them.
+            if let Some(reason) = close.reason {
+                cmux_json::JsonSet::set(&mut params, "reason", json!(reason));
+            }
+            if let Some(outcome) = close.outcome {
+                cmux_json::JsonSet::set(&mut params, "outcome", json!(outcome));
             }
             let v = client.request(method::MUX_KILL, params).await?;
             if json_out {
@@ -709,11 +716,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             cwd,
             dry_run,
             from,
+            slow_ok,
+            abort,
             from_snapshot,
         }) => {
+            if abort {
+                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+            }
             let args = super::session_move::MoveArgs {
                 sessions,
-                host,
+                host: host.unwrap_or_default(),
                 all_idle,
                 interrupt,
                 after_turn,
@@ -724,6 +736,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 dry_run,
                 resume_there: false,
                 from,
+                slow_ok,
                 from_snapshot,
             };
             super::session_move::run(args, json_out).await
