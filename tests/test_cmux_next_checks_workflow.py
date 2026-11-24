@@ -4569,20 +4569,22 @@ class FastTierCargoRoute(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.reaches("docs/x.md", path))
 
-    def test_every_tree_input_runs_it(self):
-        # The crates' embeds and build scripts outside cmux-tui/ (check_cmux_tui_tree_inputs.py keeps the list whole).
-        for raw in (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text(encoding="utf-8").splitlines():
-            parts = raw.split("#", 1)[0].split()
-            if len(parts) == 2:
-                with self.subTest(line=raw):
-                    self.assertTrue(self.reaches(parts[1] + ("/x" if parts[0] == "tree" else "")))
+    def test_a_dependency_crate_or_tree_input_change_waits_for_the_base_run(self):
+        # The feat-cmux-next push run and the merge car's cargo_affected.py test these after the merge.
+        self.assertFalse(self.reaches("cmux-tui/crates/acpmux/src/lib.rs", "webviews/src/app.tsx",
+                                      "cmux-tui/crates/acpmux-core/src/lib.rs", "schemas/x/vectors.json"))
 
     def test_every_registry_entry_runs_it(self):
         registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
         for entry in registry["entries"]:
             if entry["kind"] in ("cargo", "script"):
                 with self.subTest(entry=entry["name"]):
-                    path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
+                    if entry["kind"] == "cargo":
+                        own = self.route.package_dir(ROOT, entry["path"], entry["package"])
+                        self.assertIsNotNone(own, entry["package"])
+                        path = own + "src/lib.rs"
+                    else:
+                        path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
     def test_a_change_that_reaches_no_entry_skips_it(self):

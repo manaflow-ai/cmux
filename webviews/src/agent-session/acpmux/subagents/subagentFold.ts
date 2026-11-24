@@ -379,6 +379,7 @@ export class SubagentFold {
     const spawn = update?.sessionUpdate !== "subagent_progress";
     // Met first through its progress or its end: its start is older than what this fold read.
     const unseenStart = kind === "subagent_progress" || kind === "subagent_state_update";
+    const recoveryMark = event.msg?._acpmuxRecovery === true;
     for (const change of events) {
       if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
       const rootRepair =
@@ -398,7 +399,16 @@ export class SubagentFold {
       const authoritative =
         sender !== undefined &&
         (this.rootThreads.has(sender) || (this.agents.has(sender) && this.canParent(change.id, sender)));
-      this.apply(normalized, event, spawn, authoritative, unseenStart);
+      // A record a daemon's own recovery wrote after a restart (acpmux `RECOVERY_MARK`) says an end
+      // after the fact, as `recovered` does, even where an older acpmux wrote no `recovered` on it
+      // (its retry settle, `settle_subagent_retries`; cmux#52916).
+      this.apply(
+        recoveryMark && change.state !== "running" ? { ...normalized, __recovered: true } : normalized,
+        event,
+        spawn,
+        authoritative,
+        unseenStart,
+      );
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
@@ -1157,6 +1167,11 @@ export class SubagentFold {
     // restart: "and more bullshit somehow happened here").
     const recovered = recoveredEnd(change);
     if (recovered && !this.agents.has(change.id)) return;
+    // An end that names nothing, of a subagent whose spawn this fold never read (an older page): a
+    // retry's bookkeeping entry, which says only its id and state. Drawn, it was a "Subagent
+    // Failed" line, 0s long and with no reason, wherever the entry was written (cmux#52916). Its
+    // spawn's page, once loaded, draws it with its name.
+    if (unseenStart && !this.agents.has(change.id) && endsNamingNothing(change)) return;
     if (!recovered) this.heard.set(change.id, Math.max(event.at, this.heard.get(change.id) ?? 0));
     if (authoritative || change.__rootRepair) this.forgetPending(change.id);
     if (typeof change.toolCallId === "string") {
@@ -1564,7 +1579,21 @@ const RECOVERED_REASONS = new Set(["harness_exit", "aged_out", "task_gone"]);
 /// Whether `change` is an end acpmux recovered after the fact, not one the harness reported live.
 const recoveredEnd = (change: any): boolean =>
   change?.recovered === true ||
+  change?.__recovered === true ||
   (typeof change?.reason === "string" && RECOVERED_REASONS.has(change.reason) && change.state !== "running");
+
+/// Whether `change` ends a subagent (any state but running) and says nothing that names it.
+// acpmux's own retry bookkeeping (`retryable` set) that names neither the subagent nor its failure:
+// a harness end that carries an error or a result still draws, named by its id.
+const endsNamingNothing = (change: any): boolean =>
+  typeof change?.state === "string" &&
+  change.state !== "running" &&
+  change.retryable !== undefined &&
+  !text(change.error) &&
+  change.result === undefined &&
+  !text(change.name) &&
+  !text(change.task) &&
+  !text(change.prompt);
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const count = (value: unknown) =>

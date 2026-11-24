@@ -59,7 +59,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
-      size: a.size,
+      ...knownSize(a),
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
@@ -82,7 +82,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         attachmentId: a.id,
         name: a.name,
         mimeType: a.mimeType,
-        size: a.size,
+        ...knownSize(a),
         ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
@@ -105,6 +105,13 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     blockIndex += blocks.length;
   }
   return { parts, display };
+}
+/// `{size}` when the chip knows its file's size: a link chip (a dropped file's, an image past the
+/// budget gone as its original's link, promptBudget.ts `originalLink`) has neither a type nor a
+/// size, and its 0 is no size, so the sent bubble never names it "0 byte" (Leo, 2026-11-22: "WHAT
+/// THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?"). stripFileDisplay keeps the same rule.
+function knownSize(a: Pick<ComposerAttachment, "mimeType" | "size">): { size?: number } {
+  return a.mimeType || a.size > 0 ? { size: a.size } : {};
 }
 export function normalizePromptContentPart(value: unknown): PromptContentPart | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -139,7 +146,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(typeof raw.uri === "string" ? { uri: raw.uri } : {}),
     ...(typeof raw.text === "string" ? { text: raw.text } : {}),
     ...(typeof raw.mimeType === "string" ? { mimeType: raw.mimeType } : {}),
-    ...(typeof raw.size === "number" ? { size: raw.size } : {}),
+    // A recorded 0 with no type is a link chip's unknown size (`knownSize`), never "0 byte".
+    ...(typeof raw.size === "number" && (raw.size > 0 || (typeof raw.mimeType === "string" && raw.mimeType))
+      ? { size: raw.size }
+      : {}),
     ...(typeof raw.pageCount === "number" ? { pageCount: raw.pageCount } : {}),
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
@@ -390,6 +400,21 @@ export async function restoreInline(
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
+  }
+  // An image recorded only in the legacy `images` shape beside inline-recorded parts (UserBubble
+  // draws it as a loose image) goes back too, read back by id: Retry never drops it.
+  for (const image of row.images ?? []) {
+    if (row.inlineParts?.some((part) => part.kind === "image" && part.id === image.id)) continue;
+    const data = await read(image.id);
+    if (!data) throw new Error(translate("attachment.unavailable", { name: image.name ?? image.id }));
+    attachments.push({
+      id: `sent-${image.id}`,
+      kind: "image",
+      name: image.name ?? "image",
+      ...data,
+      size: Math.floor((data.data.length * 3) / 4),
+      ...(image.source ? { source: image.source } : {}),
+    });
   }
   for (const [index, chip] of attachments.entries()) {
     const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;
