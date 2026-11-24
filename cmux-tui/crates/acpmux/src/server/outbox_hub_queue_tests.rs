@@ -174,6 +174,50 @@ async fn settled(hub: &Arc<Hub>, id: &str, within: Duration) -> Delivery {
 
 const BOUND: Duration = Duration::from_millis(500);
 
+/// Replay the backlog while the first eight relay posts hang. Once their deadlines pass,
+/// the same queue must drain, including the timed-out posts on their retry schedule.
+#[tokio::test(start_paused = true)]
+async fn outbox_replay_bounds_stalled_attempts_and_drains() {
+    const COUNT: usize = 547;
+    let (hub, stub) =
+        setup(StubHub { script: Mutex::new(vec![Answer::Stall; 8].into()), ..StubHub::default() });
+    let now = crate::store::now_ms();
+    let pending: Vec<_> = (0..COUNT)
+        .map(|n| {
+            let mut d = super::retry_delay_tests::delivery(now, false);
+            d.id = format!("delivery-{n}");
+            let key = format!("prompt-{n}");
+            d.request = request(&d.target, &key)["request"].clone();
+            d.attempts = 1;
+            d.relay_post = Some(OutMessage {
+                to: Target { name: Some("lane".into()), ..Default::default() },
+                from: Default::default(),
+                kind: crate::mesh::Kind::Prompt,
+                op: None,
+                body: "from a lane VM".into(),
+                mode: Default::default(),
+                idempotency_key: key,
+            });
+            hub.outbox.add(d).unwrap()
+        })
+        .collect();
+    resume(&hub, pending);
+    // The paused clock advances when runnable tasks have parked. The relay deadline is 30 s.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(stub.posts.lock().unwrap().len(), 8);
+    assert_eq!(hub.outbox.unsettled(), COUNT);
+    let attempted = (0..COUNT)
+        .filter(|n| hub.outbox.get(&format!("delivery-{n}")).unwrap().attempts > 1)
+        .count();
+    assert_eq!(attempted, 8, "admission must precede the journal write");
+
+    for n in 0..COUNT {
+        let d = settled(&hub, &format!("delivery-{n}"), Duration::from_secs(120)).await;
+        assert_eq!(d.state, State::Delivered);
+    }
+    assert_eq!(stub.held.lock().unwrap().len(), COUNT);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_hub_503_queues_the_send_and_the_outbox_delivers_it_once() {
     let script = [Answer::Fail(503, "mesh.unavailable"), Answer::Fail(503, "mesh.unavailable")];
