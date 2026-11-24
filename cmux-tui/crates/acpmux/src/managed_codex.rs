@@ -1,7 +1,6 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
 use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 const CURRENT: &str = "current";
@@ -75,14 +74,23 @@ pub async fn install() -> Result<serde_json::Value> {
     if url.is_empty() {
         bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
-    // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
-    // process-level provider until one is installed (as `catalog/fetch.rs`).
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    let got = format!("{:x}", Sha256::digest(&bytes));
-    if got != expected {
-        bail!("Codex archive SHA-256 mismatch: expected {expected}, got {got}")
-    }
+    // A 40 MB release asset over one stream took 12 minutes on a Freestyle VM's IPv4 path (RFD
+    // 0067); read in parallel ranges it takes about one. The same bytes, checked against the same
+    // sha256 before anything is kept. `ACPMUX_FETCH_RANGES=1` reads one stream, as before.
+    let fetched = tempfile::tempdir()?;
+    let archive_path = fetched.path().join("codex.tar.gz");
+    let opts = crate::range_fetch::Options {
+        ranges: std::env::var("ACPMUX_FETCH_RANGES")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(crate::range_fetch::DEFAULT_RANGES),
+        sha256: Some(expected.to_owned()),
+        ..Default::default()
+    };
+    crate::range_fetch::fetch_to_file(&crate::range_fetch::client()?, url, &archive_path, &opts)
+        .await
+        .map_err(|e| anyhow::anyhow!("Codex archive: {e:#}"))?;
+    let bytes = std::fs::read(&archive_path)?;
     let base = base();
     crate::home_fs::create_dirs(&base)?;
     let staging = base.join(format!(".staging-{}", std::process::id()));
