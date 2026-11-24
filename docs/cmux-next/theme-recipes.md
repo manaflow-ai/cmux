@@ -74,6 +74,12 @@ as a set of fonts) installs the same way with `cmux snippet install`.
 `cmux theme import FILE` only copies one theme file into the themes folder; add `--use` to put it
 on, or run the `cmux theme use NAME` it prints.
 
+`cmux theme import FILE` also takes a terminal color scheme: base16 YAML, iTerm2 `.itermcolors`,
+Windows Terminal JSON, a Ghostty theme, or a VS Code color theme (the `.json` an editor theme
+extension ships; comments and trailing commas are fine). A VS Code theme's `terminal.ansi*`
+colors become the 16 terminal colors; one without them gets each from its nearest syntax color.
+It installs as a terminal theme; `cmux theme set appearance.theme "<its name>"` puts it on.
+
 ## Share a theme so people find it
 
 1. Make a repository: `cmux theme export --save NAME` writes your look as `themes/NAME.json`; add a
@@ -143,6 +149,11 @@ backdrop picture is:
   theme file there; `cmux theme remove` deletes them.
 - `cmux theme check DIR` on the repository folder reports a missing license, a bad font file and a
   bad face before you publish.
+- A setup repo (`cmux-setup.json`, installed with `cmux setup install`) carries fonts the same way:
+  `fonts/` beside `themes/`, `"fontLicense"` in `cmux-setup.json`, the same license and size rules.
+  Install copies them to `~/.config/cmux/fonts/setup-OWNER-NAME/` and points the setup's theme files
+  there; `cmux setup remove` deletes them. One repo can be both a theme and a setup, as
+  [manaflow-ai/cmux-quillet-look](https://github.com/manaflow-ai/cmux-quillet-look) is.
 
 ## Keep it fast
 

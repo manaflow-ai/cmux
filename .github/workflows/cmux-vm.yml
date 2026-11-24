@@ -1161,7 +1161,7 @@ jobs:
         if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 50
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.deploy-mode.outputs.enabled == 'true'
@@ -1231,7 +1231,7 @@ jobs:
         if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform-pins
           token: ${{ steps.pins-token.outputs.token }}
           persist-credentials: false

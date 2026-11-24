@@ -255,6 +255,11 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
         json!({"tool":"engine","action":"set","classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
             "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"})
     );
+    // The Chief card's Computer picker (cmux issue 36047).
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefEngineSet, &fields(json!({"computer":"machine:vm-1"}))),
+        json!({"tool":"engine","action":"set","computer":"machine:vm-1"})
+    );
     assert_eq!(
         tool_line(ResourceOperation::ChiefStop, &fields(json!({"name":"a3"}))),
         json!({"tool":"stop","name":"a3"})

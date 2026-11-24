@@ -7,62 +7,15 @@
 // (Lucas 2026-11-10). Narrower than a name, the name wraps (Lawrence 2026-11-05: "cant see full model
 // name").
 import { useSyncExternalStore } from "react";
+import { sizeStore } from "../../ui/popupResizeDrag";
 
 /// The narrowest a drag makes the menu, in px. The default width still follows its text size.
 export const MODEL_MENU_MIN_WIDTH = 270;
 /// The shortest a drag makes the menu, in px: the search row and a few rows under it.
 export const MODEL_MENU_MIN_HEIGHT = 160;
 
-/// One size the person dragged the menu to, in px, kept in local storage under `key`. The sizes kept
-/// under `retired` keys (an older default's) are dropped once, so an update that changes the default
-/// starts everyone from it; a drag after that is kept as before (Lucas 2026-11-12).
-export function sizeStore(key: string, least: number, retired: readonly string[] = []) {
-  try {
-    for (const old of retired) globalThis.localStorage?.removeItem(old);
-  } catch {
-    // A blocked store has nothing to drop.
-  }
-  const stored = (): number | undefined => {
-    try {
-      const value = Number(globalThis.localStorage?.getItem(key));
-      return Number.isFinite(value) && value >= least ? Math.round(value) : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  let size = stored();
-  const listeners = new Set<() => void>();
-  const get = (): number | undefined => size;
-  const set = (next: number | undefined) => {
-    const value = next === undefined ? undefined : Math.max(least, Math.round(next));
-    if (value === size) return;
-    size = value;
-    try {
-      if (value === undefined) globalThis.localStorage?.removeItem(key);
-      else globalThis.localStorage?.setItem(key, String(value));
-    } catch {
-      // A blocked store keeps the size for this page only.
-    }
-    for (const listener of listeners) listener();
-  };
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    // Another page (another chat's tab, the New Tab page) changed it.
-    const changed = (event: StorageEvent) => {
-      if (event.key !== key && event.key !== null) return;
-      const next = stored();
-      if (next === size) return;
-      size = next;
-      for (const each of listeners) each();
-    };
-    globalThis.addEventListener?.("storage", changed);
-    return () => {
-      listeners.delete(listener);
-      globalThis.removeEventListener?.("storage", changed);
-    };
-  };
-  return { get, set, subscribe };
-}
+// The store is shared with every resizable dropdown (ui/popupResizeDrag.ts).
+export { sizeStore };
 
 // v2 (2026-11-12): the default became a fit of both columns, its height the tallest Reasoning column;
 // a width dragged under the older default is dropped once. Bump the version again to reset everyone's.

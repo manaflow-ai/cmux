@@ -270,6 +270,13 @@ pub fn turn_preset(
         session_dir::TURN_TOOLS_ENV.to_owned(),
         session_dir::CHIEF_CMUX_TOOLS.join(","),
     );
+    // The cmux server reads the Chief's attached Cloud computer from its
+    // engine.json at each call: `cloud_computer`'s default machine (acpmux
+    // `agent_tools::CHIEF_ENGINE_ENV`, passed to the `cmux` server only).
+    env.insert(
+        session_dir::CHIEF_ENGINE_ENV.to_owned(),
+        crate::engine::path(home).display().to_string(),
+    );
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -2140,6 +2147,21 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
+    // The machine's own helper limit (machine_limits.rs): a ceiling from its
+    // cores and memory, and a hold while it is over budget. Queues, never
+    // refuses; OPTCHAT_MACHINE_HELPERS=0 turns it off.
+    let machine = crate::machine_limits::this_machine();
+    if let (Some(m), Some(ceiling)) = (
+        machine,
+        crate::machine_limits::ceiling_with(env(crate::machine_limits::ENV).as_deref(), machine),
+    ) {
+        brain.set_machine_limit(
+            ceiling,
+            Box::new(move || {
+                crate::machine_limits::over_budget(m, crate::machine_limits::load_now())
+            }),
+        );
+    }
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // A person's message steered into the running turn and still unread

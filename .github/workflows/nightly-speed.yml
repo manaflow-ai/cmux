@@ -45,6 +45,7 @@ jobs:
             scripts/ci/nightly_speed.py
             tests/test_nightly_speed.py
             tests/git_fixture_env.py
+            tests/fleet_test_host.py
             tests/fixtures/nightly-speed
           sparse-checkout-cone-mode: false
 

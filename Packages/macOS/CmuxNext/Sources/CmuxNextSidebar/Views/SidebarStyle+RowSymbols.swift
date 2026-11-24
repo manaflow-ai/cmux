@@ -35,9 +35,11 @@ extension SidebarStyle {
         let glyphInk = Metrics.densityToken("sidebarGlyphInk") ?? Metrics.tabIconSize * 11 / 16
         return (rowGlyphOpticalSide * Metrics.tabIconSize / max(1, glyphInk) * 2).rounded() / 2
     }
-    /// ``rowGlyphOptics`` at the favicon's side.
+    /// ``rowGlyphOptics`` at the favicon's side, its raster box grown by the same share, so a favicon's bitmap holds
+    /// the pixels its larger frame draws (a margined app icon draws past its ink's square).
     static var rowFaviconOptics: SidebarOpticalGlyph {
-        SidebarOpticalGlyph(target: rowFaviconOpticalSide, box: rowGlyphOptics.box.map { max($0, rowFaviconOpticalSide) })
+        let grow = rowFaviconOpticalSide / max(1, rowGlyphOpticalSide)
+        return SidebarOpticalGlyph(target: rowFaviconOpticalSide, box: rowGlyphOptics.box.map { ($0 * grow * 2).rounded(.up) / 2 })
     }
 }
 

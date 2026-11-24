@@ -5,6 +5,7 @@
   perceived-speed.py run --socket SOCK --out DIR [--surface NAME ...] [--runs N]
   perceived-speed.py table OUT [OUT ...]
   perceived-speed.py find-socket BUNDLE_ID --since EPOCH DIR [DIR ...]
+  perceived-speed.py ready --socket SOCK
 
 `analyze` reads one `debug.window_record` folder (frame-NNNNN.jpg plus frames.json
 {"times": [...]}, one frame per display frame) and prints JSON:
@@ -30,11 +31,14 @@ OUT/<surface>-<n>/metrics.json. `table` ranks every surface in the OUT folders b
 diff_area, then shift (medians over runs) and prints a Markdown table. `find-socket` prints
 the debug socket (cmux-debug*.sock in DIR, newer than EPOCH) whose `system.identify` names
 BUNDLE_ID: newer DEV builds listen at ~/.local/state/cmux/cmux-debug--<hash>.sock, not by tag.
+`ready` waits for the app's first main window, its prewarmed New Tab spare (`debug.new_tab`) and a
+still window; exit 1 when no window comes.
 
 Needs Pillow. A warning, never a gate.
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 import socket
@@ -193,6 +197,67 @@ def find_socket(bundle_id, since, dirs):
     return None
 
 
+def wait_until(predicate, timeout, interval=0.1):
+    """The predicate's first truthy value, or None past `timeout` s. (This file is copied alone to the slot
+    host, so it has its own loop rather than state_wait.)"""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            value = predicate()
+            if value:
+                return value
+        except (OSError, ValueError):  # the app not answering yet
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(interval)
+
+
+def window_still(app, what, timeout=10, reads=3):
+    """Wait until the window's pixels stop changing (the same `debug.window_snapshot` bytes `reads` times in a
+    row): the previous step's animation and paint ended. Best effort: past `timeout` s it says so and goes on."""
+    path = os.path.join("/tmp", f"perceived-speed-still-{os.getpid()}.png")
+    last, same = None, 0
+
+    def settled():
+        nonlocal last, same
+        app.call("debug.window_snapshot", {"path": path}, timeout=10)
+        with open(path, "rb") as f:
+            digest = hashlib.sha1(f.read()).hexdigest()
+        same = same + 1 if digest == last else 1
+        last = digest
+        return same >= reads
+
+    try:
+        if not wait_until(settled, timeout, 0.05):
+            print(f"note: {what}: the window still changed after {timeout} s", file=sys.stderr, flush=True)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def ready(app, timeout=60):
+    """The first main window is up, the prewarmed New Tab spare is ready (when the build reports spares), and the
+    window is still."""
+    def main_window():
+        return [w for w in (app.call("debug.window_list") or {}).get("windows") or [] if w.get("kind", "main") == "main"]
+    if not wait_until(main_window, timeout, 0.25):
+        print(f"perceived-speed: no main window after {timeout} s", file=sys.stderr, flush=True)
+        return False
+
+    def spare_ready():
+        spares = (app.call("debug.new_tab", {"action": "state"}) or {}).get("spares")
+        if not isinstance(spares, list):
+            return "no spares reported"  # a build without the spare readout: nothing to wait for
+        return any(s.get("ready", True) for s in spares if isinstance(s, dict))
+    if not wait_until(spare_ready, 30, 0.25):
+        print("note: no ready New Tab spare after 30 s", file=sys.stderr, flush=True)
+    window_still(app, "the first window")
+    return True
+
+
 def step(app, spec):
     if isinstance(spec, dict):
         # A script run changes the view only with focus: true (ActionInvocation.allowsViewChange).
@@ -203,25 +268,25 @@ def step(app, spec):
 def run_surface(app, name, spec, folder, seconds, lead):
     for prep in RESET + list(spec.get("prep") or []):
         step(app, prep)
-        time.sleep(0.8)
-    time.sleep(0.7)
+        window_still(app, f"{name}: after {prep}")
+    window_still(app, f"{name}: before the recording", reads=5)
     reply = app.call("debug.window_record", {"dir": folder, "seconds": seconds})
     if not isinstance(reply, dict) or reply.get("error"):
         return {"error": f"debug.window_record: {reply}"}
     started = time.monotonic()
-    time.sleep(lead)
+    time.sleep(lead)  # sleep-ok: the still frames recorded before the trigger (--lead)
     trigger = time.monotonic() - started
     step(app, spec["key"] if "key" in spec else spec)
-    time.sleep(seconds - lead + 0.8)
+    # sleep-ok: the rest of the recording window after the trigger (--seconds); the recorder's end is waited on below.
+    time.sleep(max(0.0, seconds - lead))
+    # frames.json lands when the recorder finishes: the "after" key must not fall inside the recording.
+    if not wait_until(lambda: os.path.exists(os.path.join(folder, "frames.json")), 15):
+        print(f"note: {name}: no frames.json 15 s after the recording window", file=sys.stderr, flush=True)
     with open(os.path.join(folder, "meta.json"), "w") as f:
         json.dump({"surface": name, "trigger": trigger, "spec": spec}, f)
     if spec.get("after"):
         app.key(*spec["after"])
-        time.sleep(0.8)
-    for _ in range(20):  # frames.json lands when the recorder finishes
-        if os.path.exists(os.path.join(folder, "frames.json")):
-            break
-        time.sleep(0.25)
+        window_still(app, f"{name}: after closing it")
     try:
         result = analyze_folder(folder, strip_path=os.path.join(folder, "strip.png"))
     except ImportError:  # no Pillow on this host: `analyze` the copied folder elsewhere
@@ -289,12 +354,17 @@ def main():
     f.add_argument("bundle_id")
     f.add_argument("--since", type=float, default=0)
     f.add_argument("dirs", nargs="+")
+    w = sub.add_parser("ready")
+    w.add_argument("--socket", required=True)
+    w.add_argument("--timeout", type=float, default=60)
     opts = parser.parse_args()
     if opts.command == "find-socket":
         path = find_socket(opts.bundle_id, opts.since, opts.dirs)
         if path:
             print(path)
         return 0 if path else 1
+    if opts.command == "ready":
+        return 0 if ready(App(opts.socket), opts.timeout) else 1
     if opts.command == "analyze":
         print(json.dumps(analyze_folder(opts.folder, opts.trigger, opts.region, opts.strip), indent=1))
         return 0
@@ -303,7 +373,7 @@ def main():
         return 0
     app = App(opts.socket)
     app.key("n", ["command"])  # the base workspace every run starts from
-    time.sleep(1.5)
+    window_still(app, "the base workspace")
     for name in opts.surface or sorted(SURFACES):
         for n in range(opts.runs):
             folder = os.path.join(os.path.abspath(opts.out), f"{name}-{n + 1}")

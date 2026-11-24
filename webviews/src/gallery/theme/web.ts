@@ -12,7 +12,7 @@
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
 import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
-import { cardMaterial, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
+import { cardMaterial, menuClear, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
 import type { TitleAreaToneName } from "../env";
 import {
   BLACK,
@@ -109,6 +109,8 @@ export function webThemePayload(
       "--cmux-tooltip-ink": css(tooltip.ink),
       "--cmux-card-tint": css(card.tint),
       "--cmux-card-rim": lines ? css(card.rim) : "transparent",
+      // A menu's veil as the share a web menu's own glass lets through (WebTheme.menuClear, overlays.ts menuClear).
+      "--cmux-menu-clear": menuClear(tokens).toFixed(3),
       "--cmux-scrim": css(scrim(tokens)),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),

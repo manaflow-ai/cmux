@@ -24,7 +24,7 @@ implemented by this look. The section uses the normal SDK 50-row viewport.
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/hosts@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/hosts@feat-cmux-next
 ```
 
 To remove the installed layer, run `cmux setup remove manaflow-ai/rex-hosts`.

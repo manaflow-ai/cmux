@@ -76,6 +76,11 @@ class SyntheticSource(unittest.TestCase):
         self.assertEqual(got["target_kbps_series"], [30000, 12000, 11881])
         self.assertEqual(got["mbit_per_s_series"], [1.0, 1.0, 1.0])
 
+    def test_fine_rate_reads_each_100_ms_bucket(self):
+        # 125 000 bytes in 100 ms is 10 Mbit/s; a late bucket divides by its own span.
+        got = vs.fine_rate([[100, 125_000, 30000], [200, 250_000, 30000], [400, 250_000, None]])
+        self.assertEqual(got, [[100, 10.0, 30000], [200, 20.0, 30000], [400, 10.0, None]])
+
     def test_link_bind_must_be_an_ipv4_literal(self):
         with self.assertRaises(ValueError):
             orchestrator(link_bind="1.2.3.4; rm -rf ~").synthetic_serve("key")

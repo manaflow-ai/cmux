@@ -11,7 +11,7 @@
   // background: the one chrome colour. foreground: the ink. selection: the selected tab's and
   // row's highlight, the only second tone in the chrome (the ink at about 9% over the page).
   // accent: Send, focus and links only; never a selected row.
-  "colors": { "background": "#222424", "foreground": "#e3e2e2", "selection": "#3d4040", "accent": "#6682c2" },
+  "colors": { "background": "#222424", "foreground": "#e3e2e2", "selection": "#717575", "accent": "#6682c2" },
   "appearance.accent": "theme",
   // The terminal: Hush's palette unchanged, solved in OKLCH over this same page colour.
   "ghostty": [
