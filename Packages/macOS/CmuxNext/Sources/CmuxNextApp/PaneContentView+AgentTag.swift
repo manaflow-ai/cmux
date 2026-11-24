@@ -36,7 +36,7 @@ extension PaneContentView {
 extension PaneController {
     func showTerminalHistoryLink(in content: TabContent?) {
         let key = stripModel.selectedID.flatMap(stripModel.tab)?.terminalHistoryKey
-        guard case .terminal = content, let key else {
+        guard DesignSettings.shared.experiment("terminalHistory"), case .terminal = content, let key else { // Settings > Experiments > Terminal Agent History, off by default (Leo's UI hold, 2026-11-24)
             view.terminalHistoryButton?.discard()
             view.terminalHistoryButton = nil
             return
