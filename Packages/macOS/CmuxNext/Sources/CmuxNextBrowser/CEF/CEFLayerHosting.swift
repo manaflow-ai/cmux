@@ -299,7 +299,21 @@ final class CEFLayerHosting {
     func windowDidChange() {
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
-        if isDetached {
+        if isDetached, isParkedAway, firstFrameHold == .none, !inResizeMotion, view?.window != nil, !Self.liesOutsideWindow(view) {
+            // A parked-away page moved into view (Cmd-T's spare installed in its pane): the first frame first, from its
+            // hosted context, then the attach and the order-in, as for a page shown with its window out
+            // (``pageAppeared(windowInWindow:then:)``). The host's grant (``heldGrant``) ends the hold, whichever of
+            // this move and the tab's own show came first in the turn.
+            isParkedAway = false
+            firstFrameHold = .detached
+            afterFirstFrame = heldGrant
+            runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
+        } else if isDetached, firstFrameHold == .detached, !inResizeMotion {
+            // Shown and moved in one turn (Cmd-T's parked New Tab page: un-hidden in its parking spot, then installed in
+            // the pane): the hold stays, and its frame wait moves to the new window, whose first frame it waits for. An
+            // attach here made a second fork call in the key's turn and brought back the order-in the hold defers.
+            runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
+        } else if isDetached {
             // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
             // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
             attach()
@@ -490,6 +504,9 @@ final class CEFLayerHosting {
     /// only black while any page was parked (David Beyer's Zoom call, 2026-11-20). Read again at each geometry post,
     /// page visibility sync and window change (``placementChanged()``); every attach checks it afresh.
     private(set) var isParkedAway = false
+    /// What ends a first-frame hold that a window change began (``windowDidChange()``): the host's grant of its shown
+    /// tab's kept focus ask (``CEFPaneHost``), the same one its ``pageAppeared(windowInWindow:then:)`` passes.
+    var heldGrant: (@MainActor () -> Void)?
 
     /// The view may have moved wholly out of its window or back into it (``isParkedAway``): a parked hosted page is
     /// detached, and one whose view came back attaches at its new place, unless a motion or a first-frame hold owns
@@ -526,6 +543,7 @@ final class CEFLayerHosting {
     /// which came 30 to 40 ms after the key in half the presses). `grant` runs once the fork ordered the window in.
     /// A page in a resize motion, already detached, or not hosted is left as it is.
     func pageAppeared(windowInWindow: Bool, then grant: @escaping @MainActor () -> Void) {
+        if firstFrameHold == .detached, afterFirstFrame == nil { afterFirstFrame = grant } // a hold a move began, with no grant yet
         guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
         firstFrameHold = .detached
         afterFirstFrame = grant

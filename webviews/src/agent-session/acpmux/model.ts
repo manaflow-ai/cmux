@@ -1473,7 +1473,7 @@ export type AcpmuxSnapshot = {
     tools?: ChatTool[];
     toolsMutable?: boolean;
     /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    /// person started). The chat header does not draw it; the sidebar's hover card and Expanded rows do.
     rollingSummary?: { text: string; next?: string };
   };
   connection: string;

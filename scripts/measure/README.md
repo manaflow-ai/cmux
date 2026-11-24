@@ -160,6 +160,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
+| `interactive-lateness.sh` | One JSON line over N seconds: 10 ms timer lateness (p50/p95/p99/max, share over 5 and 16 ms), CPU busy %, memory pressure, swap and swap-out growth, thermal, HID idle, load, CPUs and perf levels (RFD 0072 piece 1; macOS and Linux). | RFD 0072 | 2026-11-24 | active |
 | `ci-vm-idle.py` | Running VM-hours, idle VM-hours and list-price USD for persistent and JIT GCP CI pools from a local capture (`cmux-bench ci-vm-idle --arg input=PATH`). | GCP CI capacity | 2026-11-23 | active |
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
