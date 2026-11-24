@@ -62,6 +62,8 @@ pub(in crate::server) mod room;
 
 pub(super) const GUEST_PREFIX: &str = "guest:";
 const FILE: &str = "agent-session-shares.json";
+/// Extra transfer-manifest member carrying link shares with a moved chat.
+pub(crate) const TRANSFER_FIELD: &str = "cmuxShares";
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_TTL_SECS: u64 = 7 * DEFAULT_TTL_SECS;
 const MIN_TTL_SECS: u64 = 60;
@@ -872,6 +874,77 @@ impl LinkShares {
         self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).insert(share_id.to_owned())
     }
 
+    /// A move carries the complete live share record, including its room credentials and guest
+    /// roles. The room keeps the link and guest sockets alive while the target daemon takes over.
+    pub(crate) fn export_for_transfer(
+        &self,
+        directory: Option<&Path>,
+        session: &str,
+    ) -> Option<Value> {
+        let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let shares = slot.get_or_insert_with(|| self.load(directory));
+        let shares: Vec<_> = shares
+            .iter()
+            .filter(|share| share.session == session && share.live().is_ok())
+            .cloned()
+            .collect();
+        (!shares.is_empty()).then(|| serde_json::to_value(shares).ok()).flatten()
+    }
+
+    /// Installs shares received with a chat before the target starts serving it. Existing share
+    /// ids are refused so a retry cannot overwrite a local owner record.
+    pub(crate) fn import_for_transfer(
+        &self,
+        directory: Option<&Path>,
+        session: &str,
+        payload: &Value,
+    ) -> Result<Vec<String>, &'static str> {
+        let incoming: Vec<LinkShare> =
+            serde_json::from_value(payload.clone()).map_err(|_| "share.bad_request")?;
+        if incoming.is_empty()
+            || incoming.iter().any(|share| share.session != session || share.live().is_err())
+        {
+            return Err("share.bad_request");
+        }
+        let ids = incoming.iter().map(|share| share.share_id.clone()).collect::<Vec<_>>();
+        let result = self.with(directory, |shares, _| {
+            if incoming
+                .iter()
+                .any(|share| shares.iter().any(|existing| existing.share_id == share.share_id))
+            {
+                return Err("share.exists");
+            }
+            shares.extend(incoming);
+            Ok((ids.clone(), true))
+        })?;
+        Ok(result)
+    }
+
+    /// Drops shares installed for a receive that was aborted, without sending a room DELETE.
+    pub(crate) fn discard_transfer(&self, directory: Option<&Path>, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let _ = self.with(directory, |shares, _| {
+            let before = shares.len();
+            shares.retain(|share| !ids.iter().any(|id| id == &share.share_id));
+            Ok(((), shares.len() != before))
+        });
+        for id in ids {
+            self.bridge.forget(id, None);
+        }
+    }
+
+    /// Removes source records after the target has taken ownership. The room remains intact and
+    /// the target host replaces this daemon's socket using the same host token.
+    pub(crate) fn detach_for_transfer(&self, directory: Option<&Path>, session: &str) {
+        let _ = self.with(directory, |shares, _| {
+            let before = shares.len();
+            shares.retain(|share| share.session != session);
+            Ok(((), shares.len() != before))
+        });
+    }
+
     pub(super) fn release_room_delete(&self, share_id: &str) {
         self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
     }
@@ -1538,15 +1611,36 @@ fn changed_chats(start: &[LinkShare], now: &[LinkShare], at: u64) -> BTreeSet<St
 /// the chat ends its shares"), their guests' connections end, and each room hears `end
 /// {reason: closed}` and its `DELETE`.
 pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
+    if mux.agent_transfers.moving_session(session) {
+        return;
+    }
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
     shares.close_chat(directory.as_deref(), session);
     shares.settle(mux);
 }
 
+/// Starts the hosted-room sockets for shares imported with a moved chat.
+pub(crate) fn start_transferred_share_hosts(mux: &Arc<Mux>, share_ids: &[String]) {
+    for share_id in share_ids {
+        room::host(mux, share_id);
+    }
+}
+
+/// Link shares are protected while their chat is in an outgoing transfer. The acpmux list closes
+/// its source copy as part of a successful move, which must not close the room share first.
+pub(crate) fn detach_transferred_chat_shares(mux: &Mux, session: &str) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    shares.detach_for_transfer(directory.as_deref(), session);
+}
+
 /// A page of acpmux's list named `session` closed: its link shares in `before`
 /// ([`open_chat_shares`]) close; one made since, for the chat reopened, stays.
 pub(crate) fn close_listed_chat_shares(mux: &Mux, session: &str, before: &HashSet<String>) {
+    if mux.agent_transfers.moving_session(session) {
+        return;
+    }
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
     shares.close_where(directory.as_deref(), |s| {
@@ -1577,9 +1671,13 @@ pub(crate) fn close_unlisted_chat_shares(
     before: &HashSet<String>,
 ) {
     let shares = &mux.control_clients.agent_sessions.link_shares;
+    // A moved chat is closed in the source daemon as part of the commit. Its room share is
+    // detached only after the target has imported it, so this list sweep must leave it alone.
     let directory = mux.session_state_directory();
     shares.close_where(directory.as_deref(), |s| {
-        before.contains(&s.share_id) && !listed.contains(&s.session)
+        before.contains(&s.share_id)
+            && !listed.contains(&s.session)
+            && !mux.agent_transfers.moving_session(&s.session)
     });
     shares.settle(mux);
 }

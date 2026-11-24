@@ -81,6 +81,10 @@ use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use super::agent_session_attach::agent_session_start::{self, vm_word};
+use super::agent_session_attach::{
+    TRANSFER_FIELD, detach_transferred_chat_shares, discard_transferred_chat_shares,
+    export_transferred_chat_shares, import_transferred_chat_shares, start_transferred_share_hosts,
+};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -173,6 +177,8 @@ struct Receive {
     touched: Instant,
     /// A finish of it is running: whether the chat lands is not known yet.
     finishing: bool,
+    /// Share ids installed for this receive, removed if the receive is aborted.
+    transferred_share_ids: Vec<String>,
 }
 
 /// A receive its finish ended (it landed, or it never can).
@@ -199,6 +205,7 @@ struct Move {
     files: BundleFiles,
     epoch: u64,
     touched: Instant,
+    session_id: String,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -305,16 +312,27 @@ impl AgentTransfers {
                 return Some(Prepared::Answer(UNKNOWN_LANDING.clone()));
             }
             if let Some(receive) = receives.remove(receive_id) {
-                let moved = receive.moved.clone();
+                let Receive { moved, transferred_share_ids, .. } = &receive;
+                let moved = moved.clone();
                 let receive_id = receive_id.to_owned();
-                return Some(Prepared::Forget { receive_id, moved, live: Some(receive) });
+                return Some(Prepared::Forget {
+                    receive_id,
+                    moved,
+                    transferred_share_ids: transferred_share_ids.clone(),
+                    live: Some(receive),
+                });
             }
         }
         let mut settled = lock(&self.settled);
         let entry = settled.get_mut(receive_id).filter(|e| e.touched.elapsed() < STALE)?;
         entry.touched = Instant::now();
         let moved = entry.moved.clone();
-        Some(Prepared::Forget { receive_id: receive_id.to_owned(), moved, live: None })
+        Some(Prepared::Forget {
+            receive_id: receive_id.to_owned(),
+            moved,
+            transferred_share_ids: Vec::new(),
+            live: None,
+        })
     }
 
     /// Puts back a live receive whose forget did not happen, so it can be
@@ -328,6 +346,10 @@ impl AgentTransfers {
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
         map.retain(|_, value| touched(value).elapsed() < STALE);
         map.len() >= cap
+    }
+
+    pub(crate) fn moving_session(&self, session: &str) -> bool {
+        lock(&self.moves).values().any(|entry| entry.session_id == session)
     }
 }
 
@@ -672,6 +694,7 @@ enum Prepared {
     Forget {
         receive_id: String,
         moved: Moved,
+        transferred_share_ids: Vec<String>,
         live: Option<Receive>,
     },
     Write {
@@ -772,7 +795,12 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 // answered here, asked again (acpmux's forget is idempotent).
                 None => {
                     let moved = mux.askable_receive(&receive_id).ok_or(Refusal::UnknownReceive)?;
-                    Prepared::Forget { receive_id, moved, live: None }
+                    Prepared::Forget {
+                        receive_id,
+                        moved,
+                        transferred_share_ids: Vec::new(),
+                        live: None,
+                    }
                 }
             }
         }
@@ -885,7 +913,7 @@ fn is_chat_name(name: &str) -> bool {
 
 // MARK: Calls
 
-fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
+fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     if let Prepared::Answer(answer) = prepared {
         return Ok(answer);
     }
@@ -938,9 +966,34 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             else {
                 return Err(Refusal::Unguarded.into());
             };
+            let transferred_share_ids = if let Some(payload) = manifest.get(TRANSFER_FIELD) {
+                match import_transferred_chat_shares(mux, &moved.session_id, payload) {
+                    Ok(ids) => {
+                        start_transferred_share_hosts(mux, &ids);
+                        ids
+                    }
+                    Err(_code) => {
+                        let _ = call(
+                            "_acpmux/transfer_forget",
+                            json!({"transferId": moved.transfer_id, "sessionId": moved.session_id}),
+                            CALL_TIMEOUT,
+                        );
+                        return Err(Refusal::BadRequest.into());
+                    }
+                }
+            } else {
+                Vec::new()
+            };
             // Before the pump learns the receive: it can always ask about it.
             mux.remember_askable_receive(receive_id, &moved);
-            let entry = Receive { cwd, moved, epoch, touched: Instant::now(), finishing: false };
+            let entry = Receive {
+                cwd,
+                moved,
+                epoch,
+                touched: Instant::now(),
+                finishing: false,
+                transferred_share_ids,
+            };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer.field("sessionId")}))
         }
@@ -999,7 +1052,11 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                     return Err(failure);
                 }
             };
-            let entry = Move { files, epoch, touched: Instant::now() };
+            if let Some(shares) = export_transferred_chat_shares(mux, &source_session) {
+                manifest.insert(TRANSFER_FIELD.to_owned(), shares);
+            }
+            let entry =
+                Move { files, epoch, touched: Instant::now(), session_id: source_session.clone() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
             // The chat is leaving this machine: no new tab of it may name it.
             mux.forget_landed_agent_session(&source_session);
@@ -1018,10 +1075,16 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             )
         }
         Prepared::Answer(answer) => Ok(answer),
-        Prepared::Forget { receive_id, moved: Moved { transfer_id, session_id }, live } => {
+        Prepared::Forget {
+            receive_id,
+            moved: Moved { transfer_id, session_id },
+            transferred_share_ids,
+            live,
+        } => {
             let params = json!({"transferId": transfer_id, "sessionId": session_id});
             Ok(match call("_acpmux/transfer_forget", params, CALL_TIMEOUT) {
                 Ok(answer) => {
+                    discard_transferred_chat_shares(mux, &transferred_share_ids);
                     json!({"dropped": true, "forgotten": true, "landed": answer.field("landed")})
                 }
                 Err(_) => {
@@ -1038,6 +1101,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 epoch,
             );
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
+            detach_transferred_chat_shares(mux, &session);
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
             mux.control_clients.agent_sessions.known_children.forget(&session);
