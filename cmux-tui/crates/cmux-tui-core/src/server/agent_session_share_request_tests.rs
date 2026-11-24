@@ -35,7 +35,7 @@ fn pending(shares: &LinkShares, dir: Option<&Path>) -> Value {
 fn redeem(share_id: &str, account: &str, attempt: &str) -> Redeem {
     Redeem {
         share_id: share_id.into(),
-        secret: String::new(),
+        secret: None,
         name: "Sam".into(),
         attempt_id: attempt.into(),
         account: Some(account.into()),
