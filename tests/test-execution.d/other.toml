@@ -564,16 +564,6 @@ path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_pair_e2e_build_space.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_build_space.py"
-
-[[test]]
-path = "tests/test_pair_e2e_signin_session.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_signin_session.py"
-
-[[test]]
 path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
 lane = "linux-guard"
 
@@ -589,10 +579,6 @@ lane = "linux-guard"
 path = "tests/test_playwright_system_chrome.py"
 lane = "manual"
 reason = "Static check run by the author on the fleet; kept manual under the 2026-10-23 no-new-CI rule, since lifted."
-
-[[test]]
-path = "tests/test_png_opaque.py"
-lane = "linux-guard"
 
 [[test]]
 path = "tests/test_poll_notary_submission.py"
