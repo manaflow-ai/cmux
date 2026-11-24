@@ -83,7 +83,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,live_resize,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "window_resize,fullscreen,resize_hitch,live_resize,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
                     "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
@@ -97,7 +97,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "live_resize", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "resize_hitch", "live_resize", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -1436,6 +1436,121 @@ def check_window_move(tab, pane):
          "pass_if": "no wrong frame (the page right against its window's own page edge in every frame) while the window moves"})
 
 
+SAMPLE_MARKERS = {  # main-thread stack frames to count in a sample of a live resize (resize_hitch)
+    "chromium_precommit_wait": "CATransactionCoordinator::PreCommitHandler",
+    "chromium_wait_task": "WaitForSingleTaskToRun",
+    "chromium_postcommit": "CATransactionCoordinator::PostCommitHandler",
+    "ca_commit": "CA::Transaction::commit",
+    "appkit_live_resize": "_resizeWithEvent",
+    "window_server_sync": "_NSWindowSyncResize",
+    "cg_sync": "CGSSync",
+    "cef_pump": "CefDoMessageLoopWork",
+    "layout": "layoutSubtreeIfNeeded",
+    "display": "displayIfNeeded",
+}
+
+
+def main_thread_counts(text):
+    """Per marker, the largest sample count of a main-thread line containing it (the samples that passed through that
+    frame), and the main thread's total. Reads `sample`'s call graph: the main thread's block is the one naming
+    com.apple.main-thread, up to the next thread's header."""
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    if start is None:
+        return {"error": "no main thread in the sample"}
+    total = None
+    try:
+        total = int(lines[start].split()[0])
+    except (ValueError, IndexError):
+        pass
+    import re
+    # Each thread of the call graph starts with "<count> Thread_<id>" at the graph's first indent.
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s{0,6}\d+ Thread_", lines[i])
+                or lines[i].startswith(("Total number", "Binary Images", "Sort by top of stack"))), len(lines))
+    block = lines[start:end]
+    counts = {}
+    for name, marker in SAMPLE_MARKERS.items():
+        best = 0
+        for l in block:
+            if marker in l:
+                tok = l.replace("+", " ").replace("!", " ").replace(":", " ").replace("|", " ").split()
+                n = next((int(t) for t in tok if t.isdigit()), 0)
+                best = max(best, n)
+        counts[name] = best
+    top = []
+    if "Sort by top of stack" in text:
+        tail = text.split("Sort by top of stack", 1)[1].splitlines()[1:]
+        for l in tail:
+            parts = l.strip().rsplit(None, 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                top.append((parts[0][:120], int(parts[1])))
+            if len(top) >= 15:
+                break
+    return {"main_samples": total, "counts": counts, "top_of_stack": top}
+
+
+def check_resize_hitch(tab, pane):
+    """Defect 7 (bug 19): the main thread during three out-and-back window corner drags, in either in-tree mode (no page
+    view needed): debug.frames (the longest frame, p95, missed), and `sample` of the app at 1 ms for the drags, with the
+    main thread's samples in Chromium's pre-commit wait (CATransactionCoordinator), Core Animation's commit, AppKit's
+    live resize loop and the window server's sync. The other Mac saw a ~500 ms frame in every corner drag of every
+    build (Chromium's kUIPaintTimeout is 500 ms)."""
+    window = main_layers().get("frame")
+    pid = RAW.get("pid")
+    if not window or not pid:
+        row("INFO", "resize_hitch", {"note": "no window frame or pid"})
+        return
+    w, h = window[2], window[3]
+
+    def corner(dx, dy, steps=60):
+        x0, y0 = w - 1, h - 1
+        rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        started = time.monotonic()
+        for i in range(1, steps + 1):
+            x, y = x0 + dx * i / steps, y0 + dy * i / steps
+            rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1, "press": False, "release": False})
+            next_at = started + i / 120
+            if next_at > time.monotonic():
+                time.sleep(next_at - time.monotonic())  # test harness: one event a 120 Hz frame
+        return rpc("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
+
+    path = os.path.join(opts.out, "resize-hitch.sample.txt")
+    seconds = 7
+    try:
+        sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-mayDie", "-file", path],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except OSError as error:
+        sampler = None
+        RAW["resize_hitch_sample_error"] = repr(error)
+    time.sleep(0.5)  # test harness: sample attaches
+    rpc("debug.frames", {"action": "start"})
+    work0 = work_counters()
+    started = time.monotonic()
+    for _ in range(3):
+        corner(240, 120)
+        corner(-240, -120)
+    drag_s = round(time.monotonic() - started, 2)
+    app_frames = rpc("debug.frames", {"action": "stop"})
+    work = work_delta(work0, work_counters())
+    sample_err = None
+    if sampler:
+        try:
+            _, sample_err = sampler.communicate(timeout=seconds + 30)
+        except subprocess.TimeoutExpired:
+            sampler.kill()
+            sample_err = "sample timed out"
+    parsed = {"error": f"no sample file: {(sample_err or '')[-300:]}"}
+    if os.path.exists(path):
+        with open(path, errors="replace") as f:
+            parsed = main_thread_counts(f.read())
+    RAW["resize_hitch"] = {"app_frames": app_frames, "work": work, "sample": parsed, "drag_s": drag_s}
+    longest = (app_frames or {}).get("max_ms") if isinstance(app_frames, dict) else None
+    row(longest is not None and longest <= 50, "resize_hitch",
+        {"bug": 19, "in_tree": opts.in_tree, "drag_s": drag_s, "app_frames": frame_detail(app_frames), "work": work,
+         "sample": parsed, "sample_file": os.path.basename(path),
+         "pass_if": "no app frame over 50 ms during the corner drags; the sample names what the main thread does"})
+
+
 def check_pane_zoom(tab, pane):
     """Bug 14: Cmd-Shift-Enter (toggleSplitZoom) on the page's pane: zoomed, the page's view is at least 1.3x its
     area, exactly one page view shows, no page child window or overlay panel, and the page fits its view within 1 pt
@@ -1762,7 +1877,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "window_move", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "window_move", "tab_spam", "pane_zoom",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -1963,7 +2078,7 @@ try:
             time.sleep(0.5)  # test harness: the layout page draws
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
-                              ("live_resize", check_live_resize),
+                              ("resize_hitch", check_resize_hitch), ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
