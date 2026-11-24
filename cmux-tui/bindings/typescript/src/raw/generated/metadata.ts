@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 005a276467f3138d99565db25d3341637ad3eda08fb30f0ea8e8a6fd264b4726. */
+/* cmux-tui mux protocol 12, IR f3174b78fe7ddef4977731c41d29a17297974d7ebb8fac89686017e0af429316. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "005a276467f3138d99565db25d3341637ad3eda08fb30f0ea8e8a6fd264b4726" as const;
+export const SDK_IR_SHA256 = "f3174b78fe7ddef4977731c41d29a17297974d7ebb8fac89686017e0af429316" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -120,6 +120,10 @@ export const COMMAND_METADATA = {
       "resume_generation": {
         "since": null,
         "capability": "terminal-resume-v1"
+      },
+      "resume_max_bytes": {
+        "since": null,
+        "capability": "terminal-resume-bounded-v1"
       },
       "resume_offset": {
         "since": null,
@@ -16834,6 +16838,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "resume_max_bytes": {
+          "capability": "terminal-resume-bounded-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "resume_offset": {
