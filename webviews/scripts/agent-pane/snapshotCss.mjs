@@ -28,11 +28,30 @@ function namesStandIn(selector) {
   return true;
 }
 
+/** Whether `selector` names the shadow host (`:host`, `:host(...)`, alone or in a list's member). */
+const namesHost = (selector) => /(^|[\s,>+~(]):host(?![-\w])/.test(selector);
+
 /** The rules of `css` whose selectors name the page's roots, only those selectors, rewritten for the
- * copy's shadow tree, each inside clones of its at-rule ancestors; keyframes are left out. */
+ * copy's shadow tree, each inside clones of its at-rule ancestors; keyframes are left out. Then, unlayered
+ * and last, `:host{--x:inherit}` for every custom property a page rule sets on `:host`: the page's sheet is
+ * linked in the copy's shadow root, where `:host` names the copy's host, and the shared Tailwind theme sets
+ * its variables on `:root, :host`, some as themselves (`--text-detail: var(--text-detail)`, ui/theme.generated.css
+ * `@theme inline`). On the page an unlayered `:root` rule wins, but on the host only the layered theme rule
+ * matched: the cycle left `--text-detail` unset across the copy, its folder trust ask drew at 16px against the
+ * live page's 12, 4 px taller, and the swap never found the live page matching (relaunch-shift bench; Leo,
+ * 2026-11-14: "too much render shift when the thing restarts to update"). The host is in the live page's body,
+ * so inheriting gives the copy the live page's own values. */
 export function snapshotCss(css) {
   const out = postcss.root();
-  postcss.parse(css).walkRules((rule) => {
+  const hostVars = new Set();
+  const parsed = postcss.parse(css);
+  parsed.walkRules((rule) => {
+    if (!rule.selectors.some(namesHost)) return;
+    rule.walkDecls(/^--/, (decl) => {
+      if (decl.parent === rule) hostVars.add(decl.prop);
+    });
+  });
+  parsed.walkRules((rule) => {
     const ancestors = [];
     for (let parent = rule.parent; parent && parent.type !== "root"; parent = parent.parent) {
       if (parent.type !== "atrule") return; // a nested style rule: its parent carries it
@@ -55,6 +74,13 @@ export function snapshotCss(css) {
     }
     into.append(copy);
   });
+  if (hostVars.size > 0)
+    out.append(
+      postcss.rule({
+        selector: ":host",
+        nodes: [...hostVars].sort((a, b) => a.localeCompare(b)).map((prop) => postcss.decl({ prop, value: "inherit" })),
+      }),
+    );
   return transformSync(out.toString(), { loader: "css", minify: true }).code;
 }
 
