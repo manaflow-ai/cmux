@@ -22,7 +22,8 @@ fn launched_env(root: &Path, env: &[(&str, &str)]) -> BTreeMap<String, String> {
     }
     let received = root.join("claude-env");
     let claude = bin.join("claude");
-    fs::write(&claude, format!("#!/bin/sh\nenv > '{}'\n", received.display())).unwrap();
+    // `PATH` is only `bin`, so the fake names `env` by its full path.
+    fs::write(&claude, format!("#!/bin/sh\n/usr/bin/env > '{}'\n", received.display())).unwrap();
     fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
 
     let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
@@ -35,7 +36,8 @@ fn launched_env(root: &Path, env: &[(&str, &str)]) -> BTreeMap<String, String> {
     for (key, value) in env {
         command.env(key, value);
     }
-    assert!(command.status().unwrap().success());
+    let output = command.output().unwrap();
+    assert!(output.status.success(), "{output:?}");
     fs::read_to_string(&received)
         .unwrap()
         .lines()
