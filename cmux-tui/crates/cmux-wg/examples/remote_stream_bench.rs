@@ -56,8 +56,7 @@
 //! in-process link with that round trip and that loss in each direction;
 //! kernel TCP runs on plain loopback only. `--bulk-bytes 0` skips the bulk
 //! transfer after the stream. `scripts/remote-stream-bench.sh`
-//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one,
-//! `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
+//! runs the matrix, `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
 //! Prints one JSON object.
 //!
 //! ```text
