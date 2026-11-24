@@ -329,3 +329,91 @@ fn the_launch_anchor_survives_the_first_screens() {
     store.flush().unwrap();
     assert_eq!(read(&dir.file()).0.unwrap().scroll, None);
 }
+
+/// The cost this adds to launch (open + restore) and to a scroll rest (note + write), printed
+/// idle and under duress (every core busy plus a writer thrashing the same disk). Run with
+/// `cargo test -p cmux-mobile-last-place --lib -- --ignored --nocapture timing`.
+#[test]
+#[ignore = "timing, prints numbers"]
+fn timing_launch_read_and_save_idle_and_under_duress() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Instant;
+
+    fn pct(mut v: Vec<f64>) -> (f64, f64, f64) {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let at = |p: f64| v[((v.len() - 1) as f64 * p).round() as usize];
+        (at(0.5), at(0.95), at(0.99))
+    }
+    fn run(label: &str) {
+        let dir = Dir::new();
+        let workspaces: Vec<String> = (0..200).map(|n| format!("w{n}")).collect();
+        let items = ids(&["c1", "c2", "c3", "c4"]);
+        let (mut launch, mut save) = (Vec::new(), Vec::new());
+        for n in 0..400u64 {
+            let t = Instant::now();
+            let mut store = Store::open(dir.file(), 400, 2000);
+            let restored = store.restore(&workspaces, Some(&items));
+            launch.push(t.elapsed().as_secs_f64() * 1e6);
+            if n > 0 {
+                assert!(matches!(restored, Restore::Place(_)));
+            }
+            let t = Instant::now();
+            store.note_location(
+                Some("w7".into()),
+                Some(Screen::Chat),
+                Some("c2".into()),
+                n * 10_000,
+            );
+            store.note_scroll(
+                "w7",
+                "c2",
+                Some(ScrollAnchor { row: format!("m{n}"), offset: 12.5 }),
+                n * 10_000 + 1,
+            );
+            store.tick(n * 10_000 + 5_000);
+            save.push(t.elapsed().as_secs_f64() * 1e6);
+        }
+        let (l50, l95, l99) = pct(launch);
+        let (s50, s95, s99) = pct(save);
+        println!(
+            "LASTPLACE_TIMING {label}: launch open+restore p50 {l50:.1} us p95 {l95:.1} us p99 {l99:.1} us; \
+             scroll rest note+write p50 {s50:.1} us p95 {s95:.1} us p99 {s99:.1} us (n=400)"
+        );
+    }
+
+    run("idle");
+    let stop = Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let mut load = Vec::new();
+    for _ in 0..cores * 2 {
+        let stop = stop.clone();
+        load.push(std::thread::spawn(move || {
+            let mut x = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            }
+            x
+        }));
+    }
+    let disk = Dir::new();
+    let disk_path = disk.0.join("thrash.bin");
+    {
+        let stop = stop.clone();
+        load.push(std::thread::spawn(move || {
+            let block = vec![7u8; 1 << 20];
+            while !stop.load(Ordering::Relaxed) {
+                let _ = fs::write(&disk_path, &block);
+                if let Ok(f) = fs::File::open(&disk_path) {
+                    let _ = f.sync_all();
+                }
+            }
+            0
+        }));
+    }
+    run(&format!("duress ({} busy threads on {cores} cores + 1 MiB write/fsync loop)", cores * 2));
+    stop.store(true, Ordering::Relaxed);
+    for t in load {
+        let _ = t.join();
+    }
+}
