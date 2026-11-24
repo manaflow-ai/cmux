@@ -56,6 +56,14 @@ public final class LocalLinkBrowser: @unchecked Sendable {
         }
         browser.stateUpdateHandler = { [weak self] state in
             switch state {
+            case .waiting:
+                // No permission or no network yet (a declined Local Network prompt lands here): the
+                // browser resumes by itself when that changes; the half-made resolves are dropped.
+                self?.queue.async {
+                    guard let self else { return }
+                    for connection in self.resolving.values { connection.cancel() }
+                    self.resolving.removeAll()
+                }
             case .failed, .cancelled:
                 // A failed browse (the Local Network prompt refused, the radio reset) starts again at the next start().
                 self?.queue.async { self?.browser = nil }
@@ -80,6 +88,9 @@ public final class LocalLinkBrowser: @unchecked Sendable {
         if case .bonjour(let record) = result.metadata {
             pairs = record.dictionary.map { LocalTxt(key: $0.key, value: $0.value) }
         }
+        // The core says whether this ad is worth a connection: a paired Mac's, with its key's tag,
+        // not already live (a TXT refresh of the same ad resolves nothing).
+        guard localLinkWantsResolve(instance: name, txt: pairs) else { return }
         resolving[name]?.cancel()
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true

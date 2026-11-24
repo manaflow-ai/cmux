@@ -110,6 +110,24 @@ pub fn local_link_observe(instance: String, txt: Vec<LocalTxt>, endpoints: Vec<L
     true
 }
 
+/// Whether the browser should resolve service `instance` (ad TXT `txt`) now. Resolving opens a
+/// connection to the Mac's hub, so it is worth it only for the ad of a Mac this phone paired with,
+/// carrying the tag of the key it pinned, and not again while that instance's addresses are still
+/// live (a TXT refresh of the same ad changes nothing). Another phone's Mac is never touched.
+#[uniffi::export]
+pub fn local_link_wants_resolve(instance: String, txt: Vec<LocalTxt>) -> bool {
+    let Some(ad) = ad_of(&txt) else { return false };
+    let mac = ad.device_id.to_lowercase();
+    with_state(|state| {
+        let Some(tag) = state.tags.get(&mac) else { return false };
+        if !ad.matches(&ad.device_id, Some(tag)) {
+            return false;
+        }
+        let known = state.instances.get(&instance).is_some_and(|id| id.eq_ignore_ascii_case(&ad.device_id));
+        !(known && !state.peers.addresses(&ad.device_id, Some(tag), Instant::now()).is_empty())
+    })
+}
+
 /// The browser saw service `instance` go away.
 #[uniffi::export]
 pub fn local_link_remove(instance: String) {
@@ -283,6 +301,12 @@ mod tests {
         pairs.iter().map(|(k, v)| LocalTxt { key: (*k).into(), value: (*v).into() }).collect()
     }
 
+    /// The ads and pins are one process-wide table: the tests that read or change it take turns.
+    static TABLE: Mutex<()> = Mutex::new(());
+    fn table() -> std::sync::MutexGuard<'static, ()> {
+        TABLE.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     #[test]
     fn endpoints_parse_with_and_without_scope() {
         assert_eq!(parse_endpoint("192.168.1.5", 7).unwrap().to_string(), "192.168.1.5:7");
@@ -295,6 +319,7 @@ mod tests {
 
     #[test]
     fn a_found_ad_is_nearby_only_for_its_mac_and_key() {
+        let _table = table();
         let tag = local::key_tag(b"mac-key");
         let ad = txt(&[("id", "mac-A"), ("v", "1"), ("k", &tag)]);
         let here = vec![LocalEndpoint { host: "10.0.0.9".into(), port: 4000 }];
@@ -317,5 +342,26 @@ mod tests {
         local_link_remove("Mac A".into());
         assert!(!local_link_nearby("mac-A".into()));
         local_link_pair("mac-A".into(), None);
+    }
+
+    #[test]
+    fn only_a_paired_macs_ad_is_resolved_and_only_once_while_live() {
+        let _table = table();
+        let tag = local::key_tag(b"mac-key");
+        let ad = txt(&[("id", "mac-R"), ("v", "1"), ("k", &tag)]);
+        let here = vec![LocalEndpoint { host: "10.0.0.7".into(), port: 4000 }];
+        // Not paired: somebody else's Mac, never connected to.
+        assert!(!local_link_wants_resolve("Mac R".into(), ad.clone()));
+        assert!(!local_link_wants_resolve("junk".into(), txt(&[("x", "y")])));
+        local_link_pair("mac-R".into(), Some(b"other-key".to_vec()));
+        assert!(!local_link_wants_resolve("Mac R".into(), ad.clone()), "an ad with another key's tag");
+        local_link_pair("MAC-R".into(), Some(b"mac-key".to_vec()));
+        assert!(local_link_wants_resolve("Mac R".into(), ad.clone()));
+        assert!(local_link_observe("Mac R".into(), ad.clone(), here));
+        // A TXT refresh of the same live ad: nothing to resolve.
+        assert!(!local_link_wants_resolve("Mac R".into(), ad.clone()));
+        local_link_remove("Mac R".into());
+        assert!(local_link_wants_resolve("Mac R".into(), ad));
+        local_link_pair("mac-R".into(), None);
     }
 }
