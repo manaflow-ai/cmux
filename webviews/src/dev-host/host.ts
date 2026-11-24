@@ -18,6 +18,10 @@ export type DevHostParams = {
   /// `#machine=…`: the machine the app names the chat's (`machineName`), for the composer and the
   /// unavailable state.
   machineName?: string;
+  /// `#scheme=…`: the link scheme the handshake names (default `cmux-dev`). The benches pass a shipped
+  /// build's (`cmux`), so their page runs what ships: a `cmux-dev` scheme turns on the dev-only
+  /// layout-motion audit (devMotionAudit.ts), which asks for a frame on every DOM change.
+  linkScheme?: string;
 };
 
 type Request = { id: string; method: string; params?: Record<string, unknown> };
@@ -59,6 +63,7 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     editorOrigin,
     sessionMustExist: params.has("must") || undefined,
     machineName: params.get("machine") ?? undefined,
+    linkScheme: params.get("scheme") ?? undefined,
   };
 }
 
@@ -200,7 +205,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           newSession: host.newSession,
           ...(host.newTab ? { newTab: true } : {}),
           cwd: host.cwd,
-          linkScheme: "cmux-dev",
+          linkScheme: host.linkScheme ?? "cmux-dev",
           ...(host.sessionMustExist ? { sessionMustExist: true } : {}),
           ...(host.machineName ? { machineName: host.machineName } : {}),
         },
