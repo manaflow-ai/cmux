@@ -2110,6 +2110,8 @@ def run_web_status(
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
     subareas: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -2151,6 +2153,8 @@ def run_web_status(
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
         "WEB_NEEDS": json.dumps(needs),
+        "WEB_EVENT": event,
+        "WEB_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -5101,6 +5105,40 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs web-typecheck as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+    result = run_web_status(results={"web-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode == 0, result.stderr
+    for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+        result = run_web_status(results={"web-typecheck": "skipped"}, event=event, base_ref=base_ref)
+        assert result.returncode != 0, (event, base_ref)
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"web-typecheck": outcome}, event="pull_request", base_ref="feat-cmux-next")
+        assert result.returncode != 0, outcome
+    # Only web-typecheck moved: another routed job's skip is still a red there.
+    result = run_web_status(results={"web-tests": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode != 0
+    block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_the_web_typecheck_step_keeps_the_jobs_commands() -> None:
+    # The step a feat-cmux-next pull request runs instead (ci/steps.toml) keeps the job's install, catalog check,
+    # retry and fixit-compile wrappers and its retry of a native tsgo abort.
+    import tomllib
+
+    step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["web-typecheck"]["run"]
+    script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
+    for line in ("bun install --frozen-lockfile", "bun tools/generate-managed-iroh-relay-catalog.ts --check",
+                 "python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \\",
+                 "python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee \"$log\"",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in step, line
+    for line in ("python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in script, line
 
 
 def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
