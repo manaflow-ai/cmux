@@ -5,7 +5,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -180,6 +182,77 @@ class SidecarTests(Fixture):
     def test_a_full_sidecar_is_quiet(self) -> None:
         side = {"variable": "look", "control": "default", "runs": 3}
         self.assertEqual(self.rules([self.file("s.png", png(720, 640), side)]), [])
+
+
+HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+FULL_SIDE = {"variable": "look", "control": "default", "runs": 3}
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "needs ffmpeg and ffprobe")
+class ClipTests(Fixture):
+    """Tiny 64x48 clips made by ffmpeg at test time."""
+
+    def clip(self, name: str, *lavfi: str) -> tuple[str, Path]:
+        path = self.dir / name
+        args = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
+        for source in lavfi:
+            args += ["-f", "lavfi", "-i", source]
+        if len(lavfi) > 1:
+            args += ["-filter_complex", "".join(f"[{i}:v]" for i in range(len(lavfi))) +
+                     f"concat=n={len(lavfi)}:v=1:a=0"]
+        if path.suffix == ".mp4":
+            args += ["-c:v", "mpeg4", "-pix_fmt", "yuv420p"]
+        subprocess.run(args + [str(path)], check=True, capture_output=True, timeout=60)
+        return name, path
+
+    def test_a_long_static_clip_is_too_long_and_static(self) -> None:
+        name, path = self.clip("long.mp4", "color=c=gray:s=64x48:r=1:d=22")
+        warnings = lint_mod.lint([(name, path)])
+        self.assertEqual(sorted(w[1] for w in warnings), ["clip-no-early-difference", "clip-too-long"])
+        too_long = next(w[2] for w in warnings if w[1] == "clip-too-long")
+        self.assertRegex(too_long, r"2[12]\.\d s long")
+        self.assertIn("media_polish.py trim", too_long)
+        self.assertIn("sbs", too_long)
+
+    def test_static_for_four_seconds_then_changing_warns(self) -> None:
+        clip = self.clip("late.mp4", "color=c=blue:s=64x48:r=4:d=4", "testsrc=s=64x48:r=4:d=2")
+        warnings = lint_mod.lint([clip])
+        self.assertEqual([w[1] for w in warnings], ["clip-no-early-difference"])
+        self.assertIn("first 3 s are static", warnings[0][2])
+
+    def test_a_clip_changing_from_the_first_frame_is_quiet(self) -> None:
+        self.assertEqual(self.rules([self.clip("busy.mp4", "testsrc=s=64x48:r=4:d=4")]), [])
+
+    def test_a_gif_is_a_clip(self) -> None:
+        self.assertEqual(self.rules([self.clip("late.gif", "color=c=red:s=64x48:r=4:d=4",
+                                               "testsrc=s=64x48:r=4:d=1")]), ["clip-no-early-difference"])
+        self.assertEqual(self.rules([self.clip("busy.gif", "testsrc=s=64x48:r=4:d=4")]), [])
+
+
+class ClipSidecarAndPairTests(Fixture):
+    """No ffmpeg needed: durations from the sidecar, pairs from names."""
+
+    def test_sidecar_duration_or_trim_counts_when_ffprobe_cannot_read(self) -> None:
+        with mock.patch.object(lint_mod.shutil, "which", return_value=None):
+            for extra in ({"duration": 25}, {"trim": {"start": 5, "end": 40, "diverge_start": 30,
+                                                      "diverge_end": 38, "source_duration": 60}}):
+                with self.subTest(extra=extra):
+                    side = dict(FULL_SIDE, **extra)
+                    self.assertEqual(self.rules([self.file("t.mp4", b"\0", side)]), ["clip-too-long"])
+            side = dict(FULL_SIDE, trim={"start": 28, "end": 40})
+            self.assertEqual(self.rules([self.file("t.webm", b"\0", side)]), [])
+
+    def test_a_before_after_clip_pair_gets_the_sbs_hint(self) -> None:
+        with mock.patch.object(lint_mod.shutil, "which", return_value=None):
+            warnings = lint_mod.lint([self.file("fold-before.mp4", b"\0"), self.file("fold-after.mp4", b"\0")])
+        self.assertEqual([w[1] for w in warnings], ["clip-pair-sbs"])
+        self.assertIn("media_polish.py sbs fold-before.mp4 fold-after.mp4 --out X.mp4", warnings[0][2])
+
+    def test_still_pairs_and_lone_clips_get_no_hint(self) -> None:
+        with mock.patch.object(lint_mod.shutil, "which", return_value=None):
+            self.assertEqual(self.rules([self.file("fold-before.png", png(720, 640)),
+                                         self.file("fold-after.png", png(720, 640)),
+                                         self.file("tour.mp4", b"\0")]), [])
 
 
 class CliTests(Fixture):
