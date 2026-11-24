@@ -127,6 +127,48 @@ pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
     }
 }
 
+impl StreamState {
+    /// The reply segment of an `agent_message_chunk` of message `id` in turn `turn` (None: no
+    /// turn, the agent's own text between turns), starting a new one when the message or the turn
+    /// changed or the last one was cut. Numbered within the turn, a turn's ids are unique by its
+    /// id. Text with no turn is numbered on its own count, which no turn resets: numbered from 1
+    /// again after every turn, a later reply took an earlier one's id (`-.<boot>.1` named "The
+    /// reviewer returned FIX" and, an hour later, "The review is FIX"), so a page of the log that
+    /// held only the later one named its row by that id, and the page before it, once read, gave
+    /// the id to the earlier reply: the chat drew the old reply over the new rows (cmux#48659).
+    pub(super) fn reply_segment_for(
+        &mut self,
+        turn: Option<&str>,
+        id: Option<&str>,
+        boot: &str,
+    ) -> String {
+        let key = turn.unwrap_or("-");
+        // A turn the agent started on its own has no prompt to end the last one's.
+        if let Some(open) = &self.reply_segment
+            && id == self.segment_message.as_deref()
+            && self.segment_turn.as_deref() == Some(key)
+        {
+            return open.clone();
+        }
+        // Numbered within the turn: a new turn starts again at 1.
+        if self.segment_turn.as_deref() != Some(key) {
+            self.segment_turn = Some(key.to_owned());
+            self.reply_segments = 0;
+        }
+        let number = if turn.is_some() {
+            self.reply_segments += 1;
+            self.reply_segments
+        } else {
+            self.loose_segments += 1;
+            self.loose_segments
+        };
+        let segment = format!("{key}.{boot}.{number}");
+        self.reply_segment = Some(segment.clone());
+        self.segment_message = id.map(str::to_owned);
+        segment
+    }
+}
+
 impl Hub {
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
@@ -175,23 +217,7 @@ impl Hub {
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
-                    let turn = turn_id.as_deref().unwrap_or("-");
-                    // A turn the agent started on its own has no prompt to end the last one's.
-                    if st.reply_segment.is_none()
-                        || id != st.segment_message.as_deref()
-                        || st.segment_turn.as_deref() != Some(turn)
-                    {
-                        // Numbered within the turn: a new turn starts again at 1.
-                        if st.segment_turn.as_deref() != Some(turn) {
-                            st.segment_turn = Some(turn.to_owned());
-                            st.reply_segments = 0;
-                        }
-                        st.reply_segments += 1;
-                        st.reply_segment =
-                            Some(format!("{turn}.{}.{}", segment_boot(), st.reply_segments));
-                        st.segment_message = id.map(str::to_owned);
-                    }
-                    segment = st.reply_segment.clone();
+                    segment = Some(st.reply_segment_for(turn_id.as_deref(), id, segment_boot()));
                     if let Some((old, notice)) = st.retry_from.take()
                         && let Some(new) = id
                         && new != old
@@ -351,5 +377,44 @@ impl Hub {
             out.insert("errorChunkSeqs".into(), json!(st.trailing_seqs));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod reply_segment_tests {
+    use super::StreamState;
+
+    /// Text between turns never takes an id an earlier run of such text had, however many turns
+    /// come between them (cmux#48659: `-.<boot>.1` named two replies an hour apart).
+    #[test]
+    fn replies_with_no_turn_never_reuse_a_segment() {
+        let mut st = StreamState::default();
+        let first = st.reply_segment_for(None, Some("msg_a"), "b");
+        assert_eq!(first, "-.b.1");
+        assert_eq!(
+            st.reply_segment_for(None, Some("msg_a"), "b"),
+            first,
+            "one message, one segment"
+        );
+        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_b"), "b"), "t1.b.1");
+        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_c"), "b"), "t1.b.2");
+        let later = st.reply_segment_for(None, Some("msg_d"), "b");
+        assert_eq!(later, "-.b.2");
+        assert_ne!(later, first);
+        assert_eq!(
+            st.reply_segment_for(Some("t2"), Some("msg_e"), "b"),
+            "t2.b.1",
+            "a turn counts from 1"
+        );
+        assert_eq!(st.reply_segment_for(None, Some("msg_f"), "b"), "-.b.3");
+    }
+
+    /// A cut (`reply_segment` cleared) starts a new segment of the same message.
+    #[test]
+    fn a_cut_starts_a_new_segment_of_the_same_message() {
+        let mut st = StreamState::default();
+        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.1");
+        st.reply_segment = None;
+        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.2");
     }
 }
