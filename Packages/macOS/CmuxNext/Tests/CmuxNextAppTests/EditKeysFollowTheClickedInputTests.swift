@@ -69,6 +69,28 @@ import Testing
         #expect(!consumed, "the router took Cmd-V; AppKit never gave it to the message box")
     }
 
+    /// The Chief chat as a Chromium page: its page window over the cmux window has the keys while the
+    /// model still names the terminal. A key in that window is the page's, never the terminal's.
+    @Test func aPageWindowOverTheShellKeepsCmdVFromTheNamedTerminal() throws {
+        let (services, controller, window, _) = try Self.harness()
+        let page = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        defer {
+            page.close()
+            for controller in services.windows.controllers { controller.window?.close() }
+            AppHarnessWindows.closeThoseThisTestOpened()
+        }
+        window.addChildWindow(page, ordered: .above)
+        let router = services.keyRouter
+        #expect(!router.facts(in: window, controller: controller).typingOutsideFocusedTerminal, "the shell itself lost its terminal's keys")
+        let facts = router.facts(in: page, controller: controller)
+        #expect(facts.typingOutsideFocusedTerminal, "the page window's keys were taken for the terminal")
+        #expect(!router.keyContext(for: controller.focus.state, facts: facts).bits.contains(.terminalFocused))
+        let event = try Self.command("v", keyCode: 9, in: page)
+        let candidate = router.candidate(for: event, focus: controller.focus.state, facts: facts)
+        #expect(candidate?.id.rawValue != "terminalPaste", "Cmd-V in the page ran the terminal's Paste")
+    }
+
     /// The pure rule: the fact clears only the terminal bit.
     @Test func theFactClearsOnlyTheTerminalBit() {
         var focus = FocusState()

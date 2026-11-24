@@ -158,12 +158,15 @@ extension KeyRouter {
                      typingOutsideFocusedTerminal: typingOutsideFocusedTerminal(window, controller: controller))
     }
 
-    /// The model names a terminal, but `window`'s first responder is a visible, editable text input
-    /// outside it (``KeyFacts/typingOutsideFocusedTerminal``, #52840). Only such an input counts: the
-    /// window itself or no responder (a terminal whose surface is on its way) keeps the terminal's keys.
-    private func typingOutsideFocusedTerminal(_ window: NSWindow, controller: WindowController) -> Bool {
-        guard case .terminal(let pane, _) = controller.focus.state.resolved,
-              let responder = window.firstResponder, responder.ownsTypedText else { return false }
+    /// The model names a terminal, but the keys go elsewhere (``KeyFacts/typingOutsideFocusedTerminal``,
+    /// #52840): `window`, the key window, is not the cmux window itself (a Chromium page window over it,
+    /// such as a Chief chat page, which a terminal never lives in), or its first responder is a visible,
+    /// editable text input outside the terminal (Home's message box). The window itself or no responder
+    /// (a terminal whose surface is on its way) keeps the terminal's keys.
+    func typingOutsideFocusedTerminal(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved else { return false }
+        if let shell = controller.window, window !== shell { return true }
+        guard let responder = window.firstResponder, responder.ownsTypedText else { return false }
         guard case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return true }
         return !entry.session.hasKeyboard(responder)
     }
