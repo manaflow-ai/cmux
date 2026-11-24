@@ -11,6 +11,10 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
+//! chats fold behind Settled, and what Archive Settled Chats archives),
+//! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
+//! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -23,6 +27,7 @@
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -74,6 +79,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -239,6 +245,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_automatic_plan" => {
+                use cmux_layout_reducer::automatic;
+                let request: automatic::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_settle_plan" => {
+                use cmux_layout_reducer::settle;
+                let request: settle::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&settle::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"keep_awake_plan" => {
                 use cmux_layout_reducer::keep_awake;
                 let request: keep_awake::Request =
@@ -268,6 +286,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_nav" => {
+                use cmux_layout_reducer::sidebar_nav;
+                let request: sidebar_nav::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_nav::respond(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_section_customization" => {
                 let request: cmux_layout_reducer::sidebar_section_customization::Request =
@@ -526,6 +550,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
+            }
+            operation if cloud_hybrid::handles(operation) => {
+                cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_sequence::handles(operation) => {

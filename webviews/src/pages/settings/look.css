@@ -53,13 +53,7 @@
   --ds-radius-xl: var(--page-size-14);
 }
 
-/* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
-   page's own title ("Notifications") at the heading size (the type scale's nearest steps). */
-:root[data-settings-look="refined"] .settings .sidebar-title {
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-}
-
+/* The page's own title ("Notifications") at the heading size. */
 :root[data-settings-look="refined"] .settings .section-title {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
@@ -127,16 +121,20 @@
       mask-image: none;
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[aria-current])) {
+    /* Nested links sit inside the expanding group. The folder cutout belongs to top-level tabs. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[data-section-link][aria-current])) {
       background: var(--cmux-sidebar-surface, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings :is(.section-link[aria-current], .section-link[aria-current]:hover) {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current] {
       position: relative;
-      background: var(--cmux-folder-fill, transparent);
     }
 
-    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current] {
+      --settings-nav-selection-fill: var(--cmux-folder-fill, transparent);
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[data-section-link][aria-current]::before {
       content: "";
       position: absolute;
       z-index: var(--layer-backdrop);
@@ -179,7 +177,7 @@
    one fills; its weight stays, so selecting never widens its name. */
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--look-nav-height);
-  padding: 0 var(--look-nav-inset);
+  --settings-nav-padding: 0 var(--look-nav-inset);
   border-radius: var(--look-nav-radius);
   font-size: var(--look-nav-font-size);
 }
@@ -187,11 +185,6 @@
 :root[data-settings-look="refined"] .settings .sidebar-section {
   gap: var(--look-nav-gap);
 }
-
-/* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
-   over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
-   changes the row's fill only: no sink, no scale (Lawrence 2026-11-15: a held button changes its
-   background, nothing else; design/pressed-state.md). */
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
   font-weight: inherit;
@@ -323,8 +316,12 @@
 
 /* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
    to the focus ink; a refused value keeps its danger edge. */
+/* Over a see-through window the fill lies over the field's glass surface (ui/controls.css,
+   --ui-input-glass-underlay; unset elsewhere, so the field stays clear). */
 :root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
-  background: var(--look-control-fill);
+  background:
+    linear-gradient(var(--look-control-fill), var(--look-control-fill)),
+    var(--ui-input-glass-underlay, transparent);
   box-shadow: var(--look-control-edge);
 }
 
@@ -382,7 +379,8 @@
 }
 
 /* More Options: the card's row that opens the rows behind it in place (MoreOptions.tsx). Quiet at
-   rest (muted label, count and chevron). */
+   rest: its count and chevron are muted. Its label is a button's, in the text ink: muted, it read 1.8:1
+   over a busy picture in dark (control-contrast-11, #aaaaaa on #7c7c7c). */
 .more-options {
   --more-options-inset: var(--ds-space-2);
   --more-options-inset-top: var(--ds-space-1);
@@ -431,7 +429,8 @@
 }
 
 .more-options:hover,
-.more-options[data-open] {
+.more-options[data-open],
+.more-options .more-options-label {
   color: var(--text);
 }
 

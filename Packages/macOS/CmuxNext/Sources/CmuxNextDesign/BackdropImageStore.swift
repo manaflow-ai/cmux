@@ -20,6 +20,10 @@ public final class BackdropImageStore {
     /// The app's store, with snapshots in the app's caches folder.
     public static let shared = BackdropImageStore(snapshots: defaultSnapshots, desktop: .live())
 
+    /// Draws the living wallpapers of every window this store serves (``BackdropShaderView``); nil
+    /// without Metal.
+    public let shaders = BackdropShaderRenderer()
+
     /// The longest side, in pixels, of a decoded backdrop: by default the largest screen's.
     public let maxPixelSize: Int
     /// Where snapshots of the decoded, textured images live; nil keeps none.
@@ -45,6 +49,13 @@ public final class BackdropImageStore {
     private struct Key: Hashable {
         let id: String
         let texture: BackdropTexture
+        /// Drawn for the Desktop Wallpaper (each screen's picture, movie or frame, ``DesktopShown``):
+        /// its own entry, dropped when the desktop moves on, so a picture overwritten in place
+        /// decodes again, a rotation keeps no old pictures, and a window that picked the same file
+        /// itself keeps its copy.
+        var desktop = false
+
+        var isDesktop: Bool { desktop || id == BackdropSelection.desktopID }
     }
 
     /// A decoded bitmap handed from the decoding task to the main actor.
@@ -88,8 +99,9 @@ public final class BackdropImageStore {
 
     /// The decoded image of `selection` (in light or `dark`, for one that follows the
     /// appearance), or nil until it has loaded.
-    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
-        images[Key(id: selection.variantID(dark: dark), texture: texture)]
+    /// - Parameter desktop: Whether it is drawn for the Desktop Wallpaper (its own entry).
+    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false, desktop: Bool = false) -> NSImage? {
+        images[Key(id: selection.variantID(dark: dark), texture: texture, desktop: desktop)]
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
@@ -113,9 +125,9 @@ public final class BackdropImageStore {
     func forgetDesktopPicture(olderThan generation: Int) {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
-        images = images.filter { $0.key.id != BackdropSelection.desktopID }
-        let retired = loads.filter { $0.key.id == BackdropSelection.desktopID }.map(\.value)
-        loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
+        images = images.filter { !$0.key.isDesktop }
+        let retired = loads.filter { $0.key.isDesktop }.map(\.value)
+        loads = loads.filter { !$0.key.isDesktop }
         guard !retired.isEmpty else { return }
         let earlier = retiredDesktopLoads
         // task-owner: the chain of retired desktop decodes; it ends when they do (never cancelled)
@@ -123,6 +135,11 @@ public final class BackdropImageStore {
             await earlier?.value
             for load in retired { _ = await load.value }
         }
+    }
+
+    /// How many Desktop Wallpaper entries are decoded and decoding (tests).
+    func desktopEntries() -> (images: Int, loads: Int) {
+        (images.keys.filter(\.isDesktop).count, loads.keys.filter(\.isDesktop).count)
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
@@ -141,10 +158,12 @@ public final class BackdropImageStore {
     }
 
     /// The decoded, textured image of `selection`, loading it off the main actor once.
-    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) async -> NSImage? {
+    /// - Parameter desktop: Whether it is drawn for the Desktop Wallpaper: its own entry, which
+    ///   goes when the desktop moves on (``forgetDesktopPicture(olderThan:)``).
+    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false, desktop: Bool = false) async -> NSImage? {
         // Light and Dark loads the side the appearance shows, under that side's own key.
         let selection = selection.resolved(dark: dark)
-        let key = Key(id: selection.variantID(dark: dark), texture: texture)
+        let key = Key(id: selection.variantID(dark: dark), texture: texture, desktop: desktop)
         if let image = images[key] { return image }
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
@@ -153,7 +172,7 @@ public final class BackdropImageStore {
         }
         // Every caller waits on the newest chain until none is newer (the desktop can move on
         // again while it waits); the first to resume starts the decode, the rest join it below.
-        while key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
+        while key.isDesktop, loads[key] == nil, let retired = retiredDesktopLoads {
             await retired.value
             guard !Task.isCancelled else { return nil }
             if let image = images[key] { return image }
@@ -175,9 +194,9 @@ public final class BackdropImageStore {
         if loads[key] == load { loads[key] = nil }
         // The desktop moved on while this decoded: its picture is stale, so load the new one,
         // unless the caller gave up (a newer apply cancelled its art load).
-        if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+        if key.isDesktop, generation != desktopGeneration {
             guard !Task.isCancelled else { return nil }
-            return await image(selection, texture: texture, dark: dark)
+            return await image(selection, texture: texture, dark: dark, desktop: desktop)
         }
         if let image = images[key] { return image }
         guard let decoded else { return nil }
@@ -216,6 +235,8 @@ public final class BackdropImageStore {
     /// a video's first frame, and a dynamic HEIC's `frame` when it has one, else its frame for light
     /// or `dark` (``BackdropAppearance``).
     nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false, frame pinned: Int? = nil) -> CGImage? {
+        // A living wallpaper's still is rendered the first time it is decoded.
+        BackdropShaderRenderer.preparePoster(at: url)
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [

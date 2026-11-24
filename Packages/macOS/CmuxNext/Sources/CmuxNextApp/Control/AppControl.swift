@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
 import CmuxNextNotifications
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -31,6 +32,15 @@ final class AppControl {
     private let terminalDisplayProbe = TerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
+    /// `perf.*`: the frame and layout probes in every build, off until `perf.probes.enable` (`cmux perf profile --frames`).
+    private lazy var perfProbes = PerfProbes(
+        watchdog: watchdog,
+        frames: { [probe = DebugFrameProbe()] in
+            CmuxNextSettings.JSONValue(foundation: probe.handle(action: $0["action"]?.stringValue, raw: $0["raw"]?.boolValue == true)) ?? .null
+        },
+        layoutCounters: { DebugLayoutCounters.handle($0) },
+        tabSwitch: { DebugTabSwitch.timer.handle($0, key: "switches") },
+        workspaceSwitch: { DebugWorkspaceSwitch.timer.handle($0, key: "switches") })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
@@ -73,8 +83,7 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
-                                               sessionHandoff: .forNightly(launch: launch, productionAuth: services.cloud.configuration.isProductionAuth, session: services.cloud.auth.storedSession))
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -122,6 +131,12 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
+            // One cmux page's JS heap after GC, its counters and an optional CPU profile (Usage/PageProfiler.swift),
+            // Release too, off unless the hidden defaults key CMUXPageProfiler is set.
+            .async("renderers.profile") { [engine = services.cache.cef] call in
+                let report = await engine.pageProfileReport(browser: call.params["browser"]?.intValue, seconds: call.params["seconds"]?.intValue)
+                return try JSONValue.parse(CEFPageProfileReport.encoded(report))
+            }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
@@ -133,14 +148,17 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
+        // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
+        // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
+        service.router.register(perfProbes.methods())
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.healthFeeds.debugMethod()])  // debug.chief_pet, debug.act_as_me, debug.app_health_card: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -213,9 +231,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
+            .mainActor("debug.home") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+                return .value(DebugHome.report(services: services, paths: call.params["paths"]?.boolValue == true))
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -253,10 +271,10 @@ final class AppControl {
             // Repeating Core Animation loops and whether anyone can see them (hq#3716).
             .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
-            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            // `{dismiss: true}` first dismisses the shown card as an app action would; `{press: "Show details"}` presses that button.
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
+                if let error = services.hoverCards.debugCommand(dismiss: call.params["dismiss"]?.boolValue == true, press: call.params["press"]?.stringValue) { return .value(["error": .string(error)]) }
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
@@ -365,9 +383,15 @@ final class AppControl {
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: CmuxDialogKeys.onlyCancels(key: call.params["key"]?.stringValue, modifiers: call.params["modifiers"]?.arrayValue?.count ?? 0, sequence: call.params["sequence"] != nil, read: call.params["last"]?.boolValue == true || call.params["dry_run"]?.boolValue == true)) { return .value(refusal) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
-                return .value(DebugKey.send(call.params, services: services))
+                return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -427,6 +451,11 @@ final class AppControl {
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             DebugWindowSnapshot.controlMethod(services: services),
+            .async("debug.glass_parity") { @MainActor [weak services, glassParity = GlassParityPlayground()] call in
+                guard let services else { return .null }
+                // Native and web glass side by side over one backdrop, diffed (CmuxNextPages GlassParity).
+                return await glassParity.handle(call.params) { await DebugWindowSnapshot.captureAsync($0, services: services) }
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
@@ -440,14 +469,9 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_rows") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_wheel") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarWheel.post(call.params, services: services))
-            },
+            .mainActor("debug.sidebar_rows") { [weak services] call in .value(services.map { DebugSidebarRows.report(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in .value(services.map { DebugSidebarWheel.post(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.text_field") { [weak services] call in .value(DebugFieldEditor.run(call.params, window: services?.windows.active?.window)) },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
@@ -662,6 +686,7 @@ final class AppControl {
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
             .mainActor("debug.view_key") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
                 return .value(DebugViewKey.send(call.params, services: services))
             }.injectingInput(),
             .mainActor("debug.focus_ring") { [weak services] call in

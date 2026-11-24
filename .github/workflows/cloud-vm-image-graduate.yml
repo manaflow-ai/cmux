@@ -1,0 +1,65 @@
+name: Cloud VM image graduate
+
+# Graduate (cmuxterm-hq plans/cloud/images-per-user.md, step 4): reads the platform's additions summary (the names
+# people added since the image, one count per person, under the opt-in usage setting) and reports which apt and npm
+# names at least --min-people people hold. web/scripts/cmux-vm-image/graduate.ts; its report is the summary and an
+# artifact. Landing those names in images/cmux-vm/graduated.json (graduate.ts --write) puts them in the next bake's
+# agents layer.
+#
+# Secrets: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev, which admits feat-cmux-next only; the summary
+# answers only a member of the sharing team (USAGE_SHARING_TEAMS).
+# Runs on feat-cmux-next only: a push there that changes .github/cloud-vm-image-graduate/request (land a PR that edits
+# it), or a manual dispatch once this file is on the default branch.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/cloud-vm-image-graduate/request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-vm-image-graduate
+  cancel-in-progress: false
+
+jobs:
+  graduate:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /web/scripts/cmux-vm-image/graduate.ts
+            /images/cmux-vm/graduated.json
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Read the additions summary and graduate
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/graduate"
+          bun web/scripts/cmux-vm-image/graduate.ts --backend dev --out "$RUNNER_TEMP/graduate/report.json" 2>&1 | tee "$RUNNER_TEMP/graduate/log.txt"
+      - name: Summary
+        if: always()
+        run: |
+          { echo '## Graduate'; echo '```'; cat "$RUNNER_TEMP/graduate/log.txt" 2>/dev/null || echo "no report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: cloud-vm-image-graduate-${{ github.run_id }}
+          path: ${{ runner.temp }}/graduate/
+          if-no-files-found: warn
+          retention-days: 7

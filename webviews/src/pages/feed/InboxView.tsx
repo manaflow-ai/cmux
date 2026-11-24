@@ -132,7 +132,6 @@ function InboxHeader({ store, snap, strings, hasUnread, onListKeys }: HeaderProp
         <button
           type="button"
           className="feed-add"
-          title={t("feed.addConnection")}
           aria-label={t("feed.addConnection")}
           onClick={() => store.addConnection()}
         >

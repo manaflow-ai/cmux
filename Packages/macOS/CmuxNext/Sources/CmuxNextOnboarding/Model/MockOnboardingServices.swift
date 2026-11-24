@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextBrowserImport
 public import Foundation
