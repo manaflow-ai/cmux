@@ -1118,8 +1118,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
         let cwd = baseDirectory
         let macName = summary.macName
-        let upload: AttachmentPrestager.Upload? = hub?.macLink.map { link in
-            { payload, name in try await Self.upload(payload, name: name, cwd: cwd, link: link, macName: macName) }
+        var upload: AttachmentPrestager.Upload?
+        if let link: any MacLink = hub?.macLink {
+            upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
+                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+            }
         }
         prestager.sync(attachments, upload: upload)
     }
