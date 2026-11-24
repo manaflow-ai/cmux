@@ -2806,6 +2806,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "cmux-remote",
+ "cmux-remote-protocol",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "tokio",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cmux-repro"
 version = "0.1.0"
 dependencies = [

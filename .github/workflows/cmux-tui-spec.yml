@@ -1070,6 +1070,34 @@ jobs:
           fi
           exit "$rc"
 
+  # The browser client is a wasm32 crate but keeps native compilation for its protocol tests.
+  # Keep this check on the Linux path so a cmux-tui change cannot land with a wasm-only compile
+  # failure hidden behind the native package checks.
+  remote-web-wasm:
+    name: cmux remote web wasm
+    needs: changes
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
+
+      - name: Install the wasm compiler dependencies
+        run: bash scripts/ci/apt-ensure.sh clang
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build cmux-remote-web for wasm32
+        working-directory: cmux-tui
+        run: cargo build --locked --target wasm32-unknown-unknown -p cmux-remote-web
+
   # PR CI never runs cmux-tui.yml (dispatch only), whose workspace clippy is the only
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
   # So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/ and broke
