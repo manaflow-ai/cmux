@@ -172,7 +172,8 @@ import {
   readOnlyContinuationRequest,
   readOnlyHarness,
 } from "./folderContinuation";
-import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseRequest } from "./browseProject";
+import { cloudRepositoryPick } from "./sourcePickerModel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -458,7 +459,6 @@ import {
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
-  composerCloudStartFolder,
   pageOnOtherMachine,
   pickedChatCloudCall,
   pickOnlyNewChat,
@@ -725,7 +725,9 @@ const settledBy = <T,>(promise: Promise<T>, until: number): Promise<T | undefine
   Promise.race([promise, new Promise<undefined>((settled) => setTimeout(settled, Math.max(0, until - Date.now())))]);
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
-const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
+// `need`: the width less the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY), what decides whether the pane offers the row.
+const reportTabRowTools = (width: number, need: number) =>
+  void callNative("pane.tabRowTools", { width, need }).catch(() => undefined);
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
 /// last resort only: the page reports its first paint once the chat's rows are in (`chatRead`) or
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
@@ -2009,7 +2011,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
-  const startFolder = freshChat && !snapshot.sessionId ? projectDraft : undefined;
+  const startFolder = freshChat && !snapshot.sessionId ? projectDraft || undefined : undefined;
   const startFolderRef = useRef(startFolder);
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
@@ -2309,8 +2311,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // there are none, never the chat's rows (Leo, 2026-11-07: "is this your sub-agent, or is this
   // literally just a duplicate of you?"; 2026-11-12: "NO MESSAGES DISPLAYED?").
   const subagentReadsOwnLog = useMemo(
-    () => !!subagentView && needsOwnLog(subagentView, { rows: snapshot.rows, views: snapshot.subagentViews }),
-    [subagentView, snapshot.rows, snapshot.subagentViews],
+    () =>
+      !!subagentView &&
+      needsOwnLog(subagentView, {
+        rows: snapshot.rows,
+        views: snapshot.subagentViews,
+        wholeHistory: !snapshot.canLoadOlder,
+      }),
+    [subagentView, snapshot.rows, snapshot.subagentViews, snapshot.canLoadOlder],
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
@@ -3140,6 +3148,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const reconnectMcp = useCallback(
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
+  );
+  // Session Info's Carried memory (CarriedSection.tsx): the chat's carried files and proposals, and
+  // Accept or Drop, sent on the click with no await before it (acpmux takes it only from the person).
+  const carriedSessionId = snapshot.sessionId;
+  const readCarried = useCallback(
+    () =>
+      carriedSessionId
+        ? (directClient.current?.agentHome(carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
+  );
+  const resolveCarried = useCallback(
+    (change: { accept: string[]; drop: string[] }) =>
+      carriedSessionId
+        ? (directClient.current?.resolveAgentHome(change, carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
   );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
@@ -4252,16 +4277,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// grant of the folder it sends, at most CLOUD_FOLDER_GRANT_WAIT_MS, so a Return right after
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
+  const [checkedOutGitHub, setCheckedOutGitHub] = useState<{ cwd: string; name: string }>();
+  const [cloudSourceWaiting, setCloudSourceWaiting] = useState(false);
+  const cloudSourcePick = (cwd: string | undefined) =>
+    cloudRepositoryPick(
+      cwd,
+      checkedOutGitHub?.cwd === cwd
+        ? checkedOutGitHub?.name
+        : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
+    );
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
+    if (mode !== sandboxModeRows.mode) {
+      dropFolderRequest.current?.();
+      folderPick.current += 1;
+      setWorktreeCreating(false);
+      setCloudSourceWaiting(false);
+    }
     if (mode === "cloud") {
-      const folder = composerCloudStartFolder(composerSnapshot.summary);
-      // A GitHub repository (githubRepos.ts) is cloned on the machine: no folder of this Mac to grant.
-      if ("cwd" in folder && !githubFolderRepo(folder.cwd))
-        cloudFolderGrant.granting(
-          folder.cwd,
-          pickFolder(callNative, folder.cwd, () => undefined),
-        );
+      setProjectDraft(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd) ?? "");
+    } else if (githubFolderRepo(projectDraft)) {
+      setProjectDraft("");
     }
     sandboxModeRows.onMode(mode);
   };
@@ -5139,6 +5175,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
     // beside the chat), only where the header offers it.
     readChanges: quick ? undefined : readChanges,
+    // Carried memory: the chat's own panel, not Quick Chat's (useSessionInfo leaves a subagent's out).
+    readCarried: quick ? undefined : readCarried,
+    onResolveCarried: quick ? undefined : resolveCarried,
     onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
@@ -6371,6 +6410,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paintReported = useRef(false);
   /// The chat whose settled frame the paint report named (`pane.painted` with `settled: true`).
   const settledReported = useRef<string | undefined>(undefined);
+  /// The chat whose live draw the paint report named (`pane.painted` with `live: true`).
+  const liveReported = useRef<string | undefined>(undefined);
   // The chat whose saved draft the composer read (Composer `onDraftSettled`), and the chat whose
   // wait for it ran out: until one names the chat, its draft is not in the prompt yet.
   const [draftSettled, setDraftSettled] = useState<string>();
@@ -6521,6 +6562,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       settledReported.current = undefined;
+      liveReported.current = undefined;
       setAdoptingSession(adoption.sessionId);
       setAwaitsChat(true);
       setNewTab(undefined);
@@ -6564,6 +6606,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // report follows, once per chat opened.
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  // The chat on screen is the live one, settled view or not: its own attach answered on this selection
+  // (direct.ts `chatAttached`). A chat's first open has no settled view (acpmux writes it for the next
+  // open, settled_attach.rs), so this is what tells the host a fresh chat drew live, `live: true`, once
+  // per chat opened: a remote chat's `agent.chat.live_paint` (RemoteChatEvents.swift).
+  const liveSession =
+    clientSnapshot.chatAttached === true && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   // The first report waits for the rows' parts that draw a moment late (math, diagrams, images the
   // host reads) to settle, at most OPEN_SETTLE_MAX_MS: the host shows the page at its final layout,
   // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
@@ -6571,10 +6619,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
-    if (paintReported.current && !settledNow) return;
+    const liveNow = liveSession !== undefined && liveReported.current !== liveSession;
+    if (paintReported.current && !settledNow && !liveNow) return;
     const first = !paintReported.current;
     paintReported.current = true;
     if (settledNow) settledReported.current = settledSession;
+    if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
     if (first) swapChatSnapshot();
@@ -6590,9 +6640,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (first) performance.mark?.(PANE_PAINTED_MARK);
         // The perf watch's page-load span ends here (perfReporter.ts): once per page.
         if (first) acpmuxPerf.markLaunch("painted");
-        void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
-          () => undefined,
-        );
+        void callNative("pane.painted", {
+          drewKeptTail,
+          ...(settledNow ? { settled: true } : {}),
+          ...(liveNow ? { live: true } : {}),
+        }).catch(() => undefined);
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
@@ -6600,7 +6652,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         preloadNewTabWhenIdle();
       }, 0),
     );
-  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, newTab]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
@@ -6778,7 +6830,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
     // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
     const withPick = withCloudStartPick(withCommands, cloudStartPickShown);
-    return projectDraft
+    return projectDraft !== undefined
       ? withDraftFolder(withPick, projectDraft)
       : withCloudStartFolder(withPick, cloudStartFolderShown);
   }, [
@@ -6934,6 +6986,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const worktreeCreatingHere = Boolean(
     inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId,
   );
+  const cloningGitHub = worktreeCreatingHere && worktreeCreating ? worktreeCreating.repo : undefined;
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -7092,8 +7145,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
         pickedProject.current = folder;
         // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
-        if (freshRef.current) setProjectDraft(folder);
-        else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
+        if (freshRef.current) {
+          setCheckedOutGitHub(github ? { cwd: folder, name: github.repo } : undefined);
+          setProjectDraft(folder);
+        } else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
       void newWorktree(
         callNative,
@@ -8118,8 +8173,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     void callNative("chat.leftoverTaken", { text: host.draft }).catch(() => undefined);
     return { text: host.draft, attachments: [] };
   };
+  const [emptyProjectPage, setEmptyProjectPage] = useState<NewTabHost>();
+  const emptyProjectDraft = useRef<CloudStartDraft>(undefined);
+  const openEmptyProject = () => {
+    const page: NewTabHost = { hotkeys: newTab?.hotkeys ?? {}, initialKind: "agent", layout: "b", template: "default" };
+    emptyProjectDraft.current = composerHandle.current?.draft();
+    setEmptyProjectPage(page);
+    adoptNewTab(page);
+    setNewTabStartPage(newTabGeneration);
+    setCloudLeftPage(undefined);
+  };
   /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
   const takeNewTabDraft = () => {
+    if (emptyProjectPage === newTab && emptyProjectDraft.current) {
+      const draft = emptyProjectDraft.current;
+      emptyProjectDraft.current = undefined;
+      return draft;
+    }
     if (!composerStoodIn.current) return takeNewChatLeftover();
     const sent = returnedDraft.current;
     returnedDraft.current = undefined;
@@ -8529,7 +8599,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    return [...byPath.values()];
+    // A No folder chat's private agent-home folder is no project: every picker fed from this list (the
+    // composer's folder menu, the hero chooser) listed it by its id, a bare UUID (cmux#53226).
+    return [...byPath.values()].filter((project) => !isAgentHome(project.cwd));
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
   const newTabProjectList = useMemo(
@@ -8563,7 +8635,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
       // Every folder: the chooser lists one row per repository and finds the rest by search.
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [...newTabProjects, ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -9504,6 +9576,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandState,
     harnessSwitch,
     projectDraft,
+    cloudSourceWaiting,
+    setCloudSourceWaiting,
+    cloudSourcePick,
+    checkedOutGitHub,
+    cloningGitHub,
+    openEmptyProject:
+      freshChat && !quick && !remoteChat && sandboxView === undefined && !sandboxDraftMoved
+        ? openEmptyProject
+        : undefined,
+    clearProject: () => {
+      dropFolderRequest.current?.();
+      folderContinuation.invalidate();
+      continuationProjectGeneration.current += 1;
+      folderPick.current += 1;
+      setWorktreeCreating(false);
+      setCloudSourceWaiting(false);
+      setCheckedOutGitHub(undefined);
+      pickedProject.current = undefined;
+      setChooseFolder(false);
+      setProjectDraft("");
+    },
+    pickSourceProject: (cwd: string, peer?: string) => {
+      if (peer && sandbox.mode === "cloud") applyRunMode("persistent");
+      return chooseProject(cwd, peer);
+    },
     cloudPicked,
     cloudWakeChat,
     cloudRecovery,
@@ -9932,6 +10029,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabStartMachine,
     leaveNewTabDraft,
     takeNewTabDraft,
+    initialNewProject: emptyProjectPage !== undefined && emptyProjectPage === newTab,
     cloudPickPending,
     takeCloudPick,
     cloudHintShown,
