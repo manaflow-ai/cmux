@@ -1700,9 +1700,19 @@ function TranscriptView({
         dockCardRef.current < cardBefore - 0.5 && performance.now() < sendRiseUntil.current && !(sendClockMs(rows) > 0);
       // With the transaction (motionTransaction.ts) the send's motion is one glide: the room it gives
       // back while the send's hold is open joins that glide instead of landing in a frame of its own.
-      if (sendGaveRoom && transactionOn(rows) && threadTransaction(rows).expecting()) {
-        threadTransaction(rows).settle("stack");
-        return;
+      if (sendGaveRoom && transactionOn(rows)) {
+        const tx = threadTransaction(rows);
+        if (tx.expecting()) {
+          tx.settle("stack");
+          return;
+        }
+        // The send's hold already released (its prompt's rows came in the send's own commit, the
+        // order a loaded host draws): the room joins the glide still playing, never a frame of its own
+        // before it (#50851, send-5-one-commit drew v1f@31.2 then the glide).
+        if (tx.active()) {
+          tx.move(delta, "stack");
+          return;
+        }
       }
       const ms = Math.abs(delta) < 0.5 || sendGaveRoom ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
@@ -5596,8 +5606,12 @@ function TranscriptView({
     // echo): the rows hold where they are drawn until it does, and the composer's room and the
     // prompt's rows then move them as one motion (motionTransaction.ts). Two moves made it a
     // one-two: the rows slid down into the room, then jumped up by the prompt.
+    // A send while a turn runs goes to the queue: no prompt row lands to release a hold, which then
+    // lapsed at its bound and played the composer's room as a second step (#50851, 15-lines-busy-latest).
     const sendTx =
-      fromLatest && thread.current && transactionOn(thread.current) ? threadTransaction(thread.current) : undefined;
+      fromLatest && !working && thread.current && transactionOn(thread.current)
+        ? threadTransaction(thread.current)
+        : undefined;
     sendTx?.expect("send");
     // Only then does the composer's prompt become the sent message in place; scrolled up, it fades in
     // where it lands (conversation/sendMorph.ts, Leo 2026-11-08: "if you're at the bottom").
