@@ -203,6 +203,9 @@ public struct RootView: View {
             if phase == .active {
                 keyboard.dropKeyboardWithoutOwner()
                 HomeNewMessage.appActiveChanged()
+            } else if phase == .background {
+                // Where the person was is on disk before the app may be killed.
+                LastPlaceMemory.shared.flush()
             }
         }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
@@ -755,6 +758,8 @@ struct ShellView: View {
         // the shared store from each one: an endless update loop at launch.
         // A tapped notification decides where the app opens instead.
         .onAppear {
+            // The last place's one small file, read now, before the restored chat's first frame.
+            _ = LastPlaceMemory.shared
             if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
         }
         .onChange(of: shell.lastOpenLocation) { _, location in

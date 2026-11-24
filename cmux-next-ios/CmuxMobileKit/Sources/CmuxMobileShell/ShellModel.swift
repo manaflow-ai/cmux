@@ -700,6 +700,10 @@ final class ShellModel {
         // The user left the restored workspace: no late link for it.
         if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
         lastOpen.save(location)
+        // The Rust last place (`LastPlaceMemory`): the same move, with the reading place kept
+        // for the tab it names.
+        let tab = location.workspaceID.flatMap { store.workspace(id: $0) }?.tabs.first { $0.id == location.tabID }
+        LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
     /// How many screens are pushed on `tab`'s stack.
