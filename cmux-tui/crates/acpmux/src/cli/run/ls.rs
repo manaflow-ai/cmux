@@ -69,6 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
+    /// Only closed sessions (`--status closed`); `--json` rows carry `close`: who closed each,
+    /// why, and its outcome (`done`, `dropped`, `unfinished`).
+    #[arg(long, conflicts_with_all = ["live", "status"])]
+    closed: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
     /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
     /// after its own sessions passes `--machine local`.
@@ -303,8 +307,11 @@ async fn scoped_output_with_budget(
         wide,
         leads,
         archived,
+        closed,
         refresh_relay_cache: _,
     } = args;
+    // `--closed` is `--status closed` (clap refuses the two together).
+    let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);
