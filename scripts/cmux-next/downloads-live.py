@@ -11,7 +11,10 @@ Chromium tab:
   2. the broken download fails, offers Retry, and a retry lands whole in its
      place in the list;
   3. (Chromium) a download Chromium resumes by itself after the connection
-     breaks continues in its row and file, with no automatic-downloads question.
+     breaks continues in its row and file, with no automatic-downloads question;
+  4. trusted Chromium clicks save HTTP attachments and blob/data links with their
+     suggested names and bytes, show progress on a 64 MiB file, and make the
+     downloaded attachment available to a single-file input.
 `debug.downloads` (DEBUG builds) lists the App's downloads list and runs the
 Downloads menu's Pause, Resume and Retry on a row, as a click there does.
 
@@ -20,6 +23,8 @@ Quits the app through the socket (by PID if it hangs), stops the tag's daemons a
 import argparse, glob, hashlib, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import downloads_links  # noqa: E402
+from kit_downloads import require as require_downloads_folder  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
@@ -66,6 +71,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path in ("/attachment", "/large", "/download-links"):
+            return downloads_links.serve(self, RUN)
         name = path.rsplit("/", 1)[-1]
         ranged = self.headers.get("Range")
         requests.append((round(time.monotonic(), 1), path, ranged))
@@ -201,7 +208,7 @@ safe_print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.ou
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
     to_workspace()
-    check("error" not in rpc("debug.downloads"), f"debug.downloads answers ({rpc('debug.downloads')})")
+    require_downloads_folder(rpc("debug.downloads"), DOWNLOADS)
     for engine in ("webkit", "chromium"):
         slow = f"slow-{engine}-{RUN}.bin"
         rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": f"{ORIGIN}/{slow}"}, "focus": True})
@@ -256,6 +263,7 @@ try:
               f"chromium: Chromium's own resume lands whole in one row ({rows}, ranges {resumed})")
         prompts = rpc("debug.browser.prompts").get("prompts") or []
         check(not any("automaticDownloads" in p.get("kind", "") for p in prompts), f"chromium: its resume asks nothing ({prompts})")
+    downloads_links.exercise(rpc, wait_for, check, ORIGIN, DOWNLOADS, RUN, written)
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
