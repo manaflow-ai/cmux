@@ -1620,6 +1620,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-land.test.sh
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
+            bash scripts/cmux-next/tests/base-autofix-window.test.sh
             bash scripts/cmux-next/tests/generated-autofixable.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/judge-action-exports.test.sh
@@ -2674,7 +2675,8 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || github.event_name == 'pull_request' && format('cmux-next-pr-{0}-swift-canary-fleet', github.event.pull_request.number) || github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary-fleet', github.ref) || format('cmux-next-run-{0}-swift-canary-fleet', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+    runs-on: ${{ github.event_name == 'pull_request' && 'cmux-linux' || needs.macos-placement.outputs.gateway_runner }}
     permissions:
       contents: read  # the sparse checkout of the fleet compile reader
     timeout-minutes: 45  # up to 16 min reading the tip check, then the compile it had before
@@ -2711,6 +2713,23 @@ jobs:
                 exit 0 ;;
             esac
           done
+          # A pull request reads its head's Debug app compile, which the controller submits when this job is
+          # queued and posts back; no runner waits on it. Any non-pass leaves the Mac canary to run.
+          if [[ -n "${PR:-}" ]]; then
+            word=none
+            reader=scripts/ci/fleet_compile_result.py
+            if [[ -f "$reader" ]] && grep -q '"app-debug"' "$reader"; then
+              word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \
+                --wait 2400 --no-record 300)" || word=none
+            fi
+            case "$word" in
+              pass) verdict=pass; echo "::notice title=Build fleet compile check::the build fleet compiled and linked this head (Debug); not compiled again" ;;
+              fail) verdict=fail; echo "::notice title=Build fleet compile check::CmuxNext did not compile on the build fleet; the Mac canary runs and shows the errors." ;;
+              *) verdict=unavailable; echo "::notice title=Build fleet compile check::No build-fleet verdict ($word); the Mac canary runs." ;;
+            esac
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A gateway without the client has no verdict (cmux17, run 39573725240).
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
@@ -2826,16 +2845,30 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
       cancel-in-progress: true
-    runs-on: ${{ needs.app-compile-placement.outputs.gateway_runner }}
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+    runs-on: cmux-linux
+    permissions:
+      contents: read  # the sparse checkout of the fleet compile reader
     timeout-minutes: 45  # the Debug app compile has up to 20 min plus queue time
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
+      # Trusted base copy of the reader: the pull request's head never runs here.
+      - name: Check out the fleet compile reader
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-181
       - name: Compile-check the app at the pull request's head on the build fleet
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
           MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail
@@ -2849,17 +2882,24 @@ jobs:
             echo "::error title=Build fleet compile: no verdict::$summary"
             exit 1
           }
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            no_verdict "$client is not installed on runner $RUNNER_NAME"
-            exit 1  # no_verdict exits already; this keeps the guard's shape visible
+          # The controller submits this head's Debug app compile when this job is queued (or when this read
+          # names the pull request) and posts its result here; nothing waits on a runner of its own.
+          reader=scripts/ci/fleet_compile_result.py
+          if ! [[ -f "$reader" ]] || ! grep -q '"app-debug"' "$reader"; then
+            no_verdict "the trusted compile result reader predates the app compile's own check"
           fi
-          status=0 how="Debug, swift.org toolchain"
-          "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
-          case "$status" in
-            0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
-            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
-            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
+          word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \
+            --wait 2400 --no-record 300)" || word=none
+          how="Debug, swift.org toolchain"
+          case "$word" in
+            pass) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
+            fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in the build fleet job's log linked above." ;;
+            # pending: the controller holds this head's check but the fleet kept it queued or running past the wait. Like a
+            # cmux-ci exit 75 (652 of 1030 red runs re-queued, 2026-11-23/24) it is a warning, and the
+            # Release compile at land, plus the fallback where mac_release asks for it, still compile the head.
+            pending) verdict=unavailable; summary="The build fleet kept the compile of \`$REF\` queued past the wait, so nothing compiled this head here; the Release compile at land compiles it."
+              echo "::warning title=Build fleet compile: still queued::no verdict for $REF; the Release compile at land compiles it" ;;
+            *) no_verdict "the build fleet posted no result for this head (reader said ${word:-nothing})" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
@@ -3467,6 +3507,7 @@ jobs:
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
@@ -5142,6 +5183,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
+          CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
