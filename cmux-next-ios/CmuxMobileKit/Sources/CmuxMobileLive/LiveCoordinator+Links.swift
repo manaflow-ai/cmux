@@ -1098,6 +1098,7 @@ extension LiveCoordinator {
             session.linkDownSince = now
         }
         let down = session.linkDownSince.map { now - $0 } ?? .zero
+        updateMacStalled(session, down: down)
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
         // nothing has dialed yet, so nothing has failed.
@@ -1114,6 +1115,36 @@ extension LiveCoordinator {
             guard let clock = self?.clock else { return }
             do { try await clock.sleep(for: wait) } catch { return }
             guard let self, let session else { return }
+            self.updateTerminalsOffline(session)
+        }
+    }
+
+    /// How long a redial may run before the Mac's view says it isn't responding: the shared quiet
+    /// bound, twice that for a first dial (a slow connect is not a dead Mac).
+    static let macStallAfter: Duration = QuietStatusGate.threshold
+
+    /// A Mac whose link stays down while the phone keeps redialing it (frozen, overloaded, or a
+    /// socket the service still holds open, so it lists the Mac online): past ``macStallAfter`` its
+    /// view says "<Mac> isn't responding" with Retry, instead of the service's "Online" for as long
+    /// as the redials last (cmux#52200 walk: a frozen Mac read "Online" for 5 minutes). Not while a
+    /// Retry runs: that has its own steps and deadline. A connected link clears it (`updateMacState`).
+    private func updateMacStalled(_ session: MacSession, down: Duration) {
+        session.stallTask?.cancel()
+        session.stallTask = nil
+        let macID = session.macID
+        guard case .connecting(_, let attempt) = session.link.phase, session.linkDownSince != nil,
+              store.macRecovery[macID]?.isRunning != true else { return }
+        let bound = attempt <= 1 ? Self.macStallAfter * 2 : Self.macStallAfter
+        guard down < bound else {
+            if store.macConnection[macID] == .connecting { store.macConnection[macID] = .failed("Not responding") }
+            if store.macFailure[macID] == nil { store.macFailure[macID] = .hostUnreachable }
+            return
+        }
+        let wait = bound - down
+        session.stallTask = Task { [weak self, weak session] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self, let session, self.sessions[session.macID] === session else { return }
             self.updateTerminalsOffline(session)
         }
     }
