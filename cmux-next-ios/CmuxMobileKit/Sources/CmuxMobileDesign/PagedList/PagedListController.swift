@@ -130,9 +130,6 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     private(set) var corrections = 0
     /// Each correction as it is made (the frame-shift measure tells it from a scroll).
     var corrected: ((CGFloat, Int?) -> Void)?
-    /// The line above which a row that changes height is corrected (``PagedListKeepLine``); nil:
-    /// the reader's top edge.
-    var keepLine: (() -> CGFloat)?
 
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
@@ -147,8 +144,8 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
         guard abs(delta) > 0.25 else { return context }
         // The row starts above the reader's top edge: everything the reader sees is below it and would
         // move by `delta`. Move the viewport with it.
-        let line = keepLine?() ?? collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        guard original.frame.minY < line - 0.5 else { return context }
+        let readerTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        guard original.frame.minY < readerTop - 0.5 else { return context }
         context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         corrections += 1
         corrected?(delta, preferred.indexPath.item)
@@ -448,7 +445,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView = PagedListCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init()
         swipes.provide = { [weak self] indexPath in self?.swipeConfiguration(at: indexPath) }
-        layout.keepLine = { [weak self] in self?.keepLine ?? 0 }
         layout.corrected = { [weak self] delta, item in
             guard let self else { return }
             self.ledger.corrected(delta, item: item)
@@ -526,7 +522,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func rowSized(_ attributes: UICollectionViewLayoutAttributes, _ height: CGFloat) {
         let delta = height - attributes.size.height
         guard abs(delta) > 0.25 else { return }
-        let above = attributes.frame.minY < keepLine - 0.5
+        let above = attributes.frame.minY < readerTop - 0.5
         ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
         note(above ? "m" : "m_", delta)
     }
@@ -710,13 +706,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     private var readerTop: CGFloat { collectionView.contentOffset.y + collectionView.adjustedContentInset.top }
-
-    /// Where a row that changes height stops moving what the reader sees (``PagedListKeepLine``).
-    private var keepLine: CGFloat {
-        PagedListKeepLine.line(.init(up: direction == .up, follows: followsNewest, sliding: spring.isRunning,
-                                     scrolling: collectionView.isTracking || collectionView.isDecelerating,
-                                     readerTop: readerTop, bottomEdge: bottomEdgeY))
-    }
 
     /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read),
     /// or, `fromBottom`, those whose top is above the bottom edge, lowest first, by their bottoms.
