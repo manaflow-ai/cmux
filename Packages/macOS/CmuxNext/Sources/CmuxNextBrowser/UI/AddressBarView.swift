@@ -338,7 +338,19 @@ public final class AddressBarView: NSView {
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
+        let wanted = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
+        // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
+        let shown = badges.arrangedSubviews.filter { !$0.isHidden }
+        let badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
+        let fit = OmnibarNarrowFit.resolve(barWidth: bounds.width, chipLeading: OmnibarStyle.chipLeading, chipIcon: OmnibarStyle.chipSize,
+                                           chipLabeled: chip.labeledWidth, textLeading: OmnibarStyle.textLeading, badges: badgesWidth,
+                                           badgesInset: OmnibarStyle.badgesTrailingInset, fieldTrailingGap: OmnibarStyle.fieldTrailingGap,
+                                           trailingPadding: OmnibarStyle.trailingPadding)
+        // Before the bar has a width (its first layout) nothing folds.
+        let narrow = bounds.width > 0
+        chip.collapsesLabel = narrow && !fit.showsChipLabel
+        if badges.isHidden != (narrow && !fit.showsBadges) { badges.isHidden = narrow && !fit.showsBadges }
+        let visible = wanted && !badges.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -524,7 +536,7 @@ public final class AddressBarView: NSView {
     /// height. The chip, badges and star keep the arrow and their presses.
     var textArea: NSRect {
         let leading = chip.isHidden ? bounds.minX : chip.frame.maxX
-        let trailing = badges.arrangedSubviews.contains { !$0.isHidden } ? badges.frame.minX : bounds.maxX
+        let trailing = !badges.isHidden && badges.arrangedSubviews.contains { !$0.isHidden } ? badges.frame.minX : bounds.maxX
         return NSRect(x: leading, y: bounds.minY, width: max(0, trailing - leading), height: bounds.height)
     }
 
@@ -584,6 +596,14 @@ public final class AddressBarView: NSView {
         if text.maxX < bounds.maxX { addCursorRect(NSRect(x: text.maxX, y: bounds.minY, width: bounds.maxX - text.maxX, height: bounds.height), cursor: edge) }
     }
 
+    /// A new width can fold or unfold the chip's label and the badges (``updateBadgeSpace()``); the bar's width comes
+    /// from the toolbar (`BrowserToolbarLayout`), never from what folds here, so this settles in one pass.
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if changed { updateBadgeSpace() }
+    }
+
     public override func layout() {
         // Before the pass, so the card top's frame takes this reach in the same pass, not the next one.
         updateBackdropReach()
@@ -629,6 +649,7 @@ public final class AddressBarView: NSView {
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()
+        updateBadgeSpace() // a new label (Not secure, a keyword) may not fit the bar's width
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
