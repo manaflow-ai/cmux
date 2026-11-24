@@ -49,8 +49,6 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -58,6 +56,7 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type DesignSystemState,
   type LibraryListing,
   type LibraryRun,
   type SharesState,
@@ -92,8 +91,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -103,9 +100,13 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type HubRun,
+  type HubState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1075,6 +1076,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Design System: the resolved design system, its layers and the SDK viewer's scene;
+   * null when the host has no CLI or the read failed. */
+  async designSystem(): Promise<DesignSystemState | null> {
+    const reply = await this.request("cmux.settings.designSystem.state", {});
+    return reply.ok && Array.isArray(reply.value?.scene) ? reply.value : null;
   }
 
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,

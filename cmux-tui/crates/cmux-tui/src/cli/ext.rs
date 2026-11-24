@@ -10,6 +10,7 @@
 
 mod daemon;
 mod design;
+mod design_layers;
 mod design_system;
 mod dev;
 #[cfg(test)]
@@ -105,8 +106,15 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
   cmux ext design FILE... [--widget] [--system cmux-design.json] [--json]
                                the design check ext dev runs, on recorded scenes (a JSON array
-                               of scene ops, or an object of them by name), against cmux's design
-                               system or yours (ext dev reads DIR/cmux-design.json); exit 1 on a warning
+                               of scene ops, or an object of them by name), against your design
+                               system: cmux's, then the theme file's design layer, then
+                               design.json beside the settings, then --system (ext dev reads
+                               DIR/cmux-design.json); exit 1 on a warning
+  cmux ext design --show [DIR] [--scene] [--json]
+                               that system, layer by layer, and each role cmux changed since your
+                               design.json recorded its base; --scene adds the scene Settings >
+                               Design system draws (JSON)
+  cmux ext design --stamp      record cmux's current system as design.json's base
   cmux ext design --listing DIR [--json]
                                registry review's design check: the folder's recorded scenes
                                (preview/scenes.json, which its files must ship) against its own
@@ -176,9 +184,17 @@ pub(super) enum Request {
     Design {
         files: Vec<PathBuf>,
         widget: bool,
-        /// `--system FILE`: a `cmux-design.json` to check against instead of cmux's system.
+        /// `--system FILE`: a `cmux-design.json` layered over the person's system.
         system: Option<PathBuf>,
     },
+    /// `ext design --show [DIR]`: the resolved system an extension in DIR gets.
+    DesignShow {
+        dir: Option<PathBuf>,
+        system: Option<PathBuf>,
+        scene: bool,
+    },
+    /// `ext design --stamp`: record cmux's base in the person's design.json.
+    DesignStamp,
     /// `ext design --listing DIR`: registry review's design check of a folder.
     DesignListing {
         dir: PathBuf,
@@ -350,11 +366,17 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut files = Vec::new();
             let mut widget = false;
             let mut system = None;
+            let mut show = false;
+            let mut stamp = false;
+            let mut scene = false;
             let mut listing = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--widget" => widget = true,
+                    "--show" => show = true,
+                    "--stamp" => stamp = true,
+                    "--scene" => scene = true,
                     "--listing" => {
                         listing = Some(PathBuf::from(
                             words.next().ok_or_else(|| usage("--listing needs a folder"))?,
@@ -372,6 +394,21 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     }
                     _ => files.push(PathBuf::from(word)),
                 }
+            }
+            if stamp {
+                if show || widget || scene || system.is_some() || !files.is_empty() {
+                    return Err(usage("ext design --stamp takes no other argument"));
+                }
+                return Ok(Request::DesignStamp);
+            }
+            if show {
+                if widget || files.len() > 1 {
+                    return Err(usage("ext design --show takes one folder at most"));
+                }
+                return Ok(Request::DesignShow { dir: files.pop(), system, scene });
+            }
+            if scene {
+                return Err(usage("--scene goes with ext design --show"));
             }
             if let Some(dir) = listing {
                 if !files.is_empty() || widget || system.is_some() {
@@ -602,22 +639,34 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
         Request::Design { files, widget, system } => {
             let surface = if widget { design::Surface::Widget } else { design::Surface::Other };
-            let system = match system {
-                None => design_system::System::cmux(),
-                Some(path) => match std::fs::read_to_string(&path)
+            if let Some(path) = &system {
+                // A --system file that does not hold is an argument error, as it always was.
+                if let Err(problem) = std::fs::read_to_string(path)
                     .map_err(|e| e.to_string())
                     .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
                     .and_then(|value| design_system::System::from_json(&value))
                 {
-                    Ok(system) => system,
-                    Err(problem) => {
-                        eprintln!("cmux: {}: {problem}", path.display());
-                        return exit::MANIFEST_INVALID;
-                    }
-                },
-            };
-            design::run(&files, surface, &system, json_out)
+                    eprintln!("cmux: {}: {problem}", path.display());
+                    return exit::MANIFEST_INVALID;
+                }
+            }
+            let places = design_layers::Places::current();
+            let resolved =
+                design_layers::Resolved::from_sources(&places.sources(None, system.as_deref()));
+            for text in design::lines(&resolved.problems) {
+                eprintln!("cmux: {text}");
+            }
+            design::run(&files, surface, &resolved.system, json_out)
         }
+        Request::DesignShow { dir, system, scene } => {
+            let places = design_layers::Places::current();
+            let dir = dir.map(absolute);
+            let resolved = design_layers::Resolved::from_sources(
+                &places.sources(dir.as_deref(), system.as_deref()),
+            );
+            design_layers::show(&resolved, scene, json_out)
+        }
+        Request::DesignStamp => design_layers::stamp(&design_layers::Places::current(), json_out),
         Request::DesignListing { dir } => design::run_listing(&absolute(dir), json_out),
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);

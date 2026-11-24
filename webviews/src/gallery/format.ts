@@ -47,8 +47,9 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  HubState,
+  DesignSystemState,
   DoctorReport,
+  HubState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -75,6 +76,8 @@ export type SettingsPageVariant = VariantBase & {
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;
+  /** Settings > Design System fixture state (the CLI's answer and scene); default cmux's own. */
+  designSystem?: DesignSystemState;
   /** Personalization > Customization Problems: `cmux customize doctor`'s report; default none. */
   doctor?: DoctorReport;
   /** Where the doctor's one-line notice draws; default the shipped one (customizeDoctor.ts). */

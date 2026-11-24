@@ -52,6 +52,21 @@ export type DesignSpec = {
   limits?: { typeRoles?: number; accents?: number }
 }
 
+/**
+ * One value cmux changed since a person's file recorded its base (`cmux ext design --stamp`), as
+ * `cmux ext design --show --json` lists it: `type.ROLE`, `space` or `limits.KEY`, cmux's value then
+ * and now, and whether a layer of the person's still sets it (`kept`) or the new value shows.
+ */
+export type DesignChange = { key: string; was: unknown; now: unknown; kept: boolean; text: string; file?: string }
+
+/** What `DesignSystemView` shows beside the system: where it came from and what cmux changed under it. */
+export type DesignSystemViewOptions = {
+  /** The line under the name, in place of "Built on cmux" (the Settings page names the layers). */
+  note?: string
+  /** The values cmux changed since the person's base: marked on their rows, listed at the top. */
+  changed?: readonly DesignChange[]
+}
+
 /** The format a design system file declares. */
 export const DESIGN_FORMAT = "cmux.design/1"
 /** The cmux color roles, in the order a viewer lists them. */
@@ -182,7 +197,11 @@ function section(system: DesignSystem, title: string, note: string, rows: View[]
   ])
 }
 
-function typeRows(system: DesignSystem): View[] {
+function changeMark(change: DesignChange | undefined): View | null {
+  return change ? Badge(change.kept ? "cmux changed, yours holds" : "cmux changed", "warning") : null
+}
+
+function typeRows(system: DesignSystem, changed: ReadonlyMap<string, DesignChange>): View[] {
   return Object.entries(system.type).map(([role, style]) => {
     const mark = typeMark(role, style)
     const facts = `${style.size} pt ${style.weight}${style.monospaced ? ", monospaced" : ""}`
@@ -192,6 +211,7 @@ function typeRows(system: DesignSystem): View[] {
         system.text("label", role),
         system.text("caption", facts).color("secondary"),
         mark ? Badge(mark, mark === "adds" ? "success" : "accent") : null,
+        changeMark(changed.get(`type.${role}`)),
         Spacer(),
       ]),
     ])
@@ -279,27 +299,38 @@ function componentRows(system: DesignSystem): View[] {
  *
  *     export const renderPane = pane(() => DesignSystemView(defineDesign(spec)))
  */
-export function DesignSystemView(system: DesignSystem = cmuxDesign): View {
+export function DesignSystemView(system: DesignSystem = cmuxDesign, options: DesignSystemViewOptions = {}): View {
   const own = system === cmuxDesign
+  const changes = options.changed ?? []
+  const changed = new Map(changes.map((change) => [change.key, change]))
   const added = Object.entries(system.type).filter(([role, style]) => typeMark(role, style) === "adds").length
-  const changed = Object.entries(system.type).filter(([role, style]) => typeMark(role, style) === "overrides").length
+  const overridden = Object.entries(system.type).filter(([role, style]) => typeMark(role, style) === "overrides").length
   const scaleNote = system.space.join(" ") === cmuxDesign.space.join(" ") ? "cmux's scale, in points" : "Replaces cmux's scale, in points"
   return VStack({ spacing: step(system, 24), alignment: "leading" }, [
     VStack({ spacing: step(system, 4), alignment: "leading" }, [
       system.text("heading", system.name),
-      system.text("caption", own ? "cmux's own design system" : "Built on cmux").color("secondary"),
+      system.text("caption", options.note ?? (own ? "cmux's own design system" : "Built on cmux"), { lines: 2 }).color("secondary"),
     ]),
-    section(system, "Type", own ? "Each role, at its size and weight" : `${changed} overridden, ${added} added; the rest are cmux's`, typeRows(system)),
+    changes.length
+      ? section(
+          system,
+          "Changed in cmux",
+          "cmux's own values that moved since your design.json recorded its base; run cmux ext design --stamp once you have looked",
+          changes.map((change) => HStack({ spacing: step(system, 8) }, [system.text("caption", change.text, { lines: 2 }), changeMark(change), Spacer()]))
+        )
+      : null,
+    changes.length ? Divider() : null,
+    section(system, "Type", own ? "Each role, at its size and weight" : `${overridden} overridden, ${added} added; the rest are cmux's`, typeRows(system, changed)),
     Divider(),
-    section(system, "Spacing", scaleNote, spaceRows(system)),
+    section(system, "Spacing", scaleNote, [...(changed.has("space") ? [changeMark(changed.get("space"))!] : []), ...spaceRows(system)]),
     Divider(),
     section(system, "Color", "Each name and the cmux role it draws as, so light, dark and contrast hold", colorRows(system)),
     Divider(),
     section(system, "Components", "The widget helpers, drawn with this system", componentRows(system)),
     Divider(),
     section(system, "Limits", "What one view may use before the design check warns", [
-      HStack({ spacing: step(system, 8) }, [system.text("label", "Type roles"), Spacer(), system.text("body", `${system.limits.typeRoles}`)]),
-      HStack({ spacing: step(system, 8) }, [system.text("label", "Accent colors"), Spacer(), system.text("body", `${system.limits.accents}`)]),
+      HStack({ spacing: step(system, 8) }, [system.text("label", "Type roles"), changeMark(changed.get("limits.typeRoles")), Spacer(), system.text("body", `${system.limits.typeRoles}`)]),
+      HStack({ spacing: step(system, 8) }, [system.text("label", "Accent colors"), changeMark(changed.get("limits.accents")), Spacer(), system.text("body", `${system.limits.accents}`)]),
     ]),
   ])
     .padding(step(system, 16))

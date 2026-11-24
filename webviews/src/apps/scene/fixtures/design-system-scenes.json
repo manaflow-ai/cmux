@@ -90,7 +90,7 @@
         "text": "cmux's own design system",
         "font": 12,
         "weight": "regular",
-        "lineLimit": 1,
+        "lineLimit": 2,
         "color": "secondary"
       }
     },
@@ -2764,7 +2764,7 @@
         "text": "Built on cmux",
         "font": 12,
         "weight": "regular",
-        "lineLimit": 1,
+        "lineLimit": 2,
         "color": "secondary"
       }
     },

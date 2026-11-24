@@ -95,6 +95,15 @@ impl Schema {
             }),
         );
         root.insert(
+            "design".into(),
+            json!({
+                "type": "object",
+                "description": "The look's design-system layer for extensions (cmux.design/1): type roles, the spacing scale, color roles and limits. It sits between cmux's system and design.json beside the settings file; `cmux ext design --show` prints the result.",
+                "properties": { "design": { "const": "cmux.design/1" } },
+                "required": ["design"],
+            }),
+        );
+        root.insert(
             "fonts".into(),
             json!({
                 "type": "array",

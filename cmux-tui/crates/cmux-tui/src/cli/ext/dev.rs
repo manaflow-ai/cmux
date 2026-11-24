@@ -1296,13 +1296,14 @@ impl Session {
                         if VIEWS.contains(&interface.as_str()) {
                             outcome.recorded = vec![(name.clone(), ops.clone())];
                         }
-                        let (system, problem) = super::design_system::System::load(&pkg.dir);
-                        outcome.design = problem
+                        let resolved = super::design_layers::Resolved::for_folder(&pkg.dir);
+                        outcome.design = resolved
+                            .problems
                             .into_iter()
                             .chain(super::design::check_in(
                                 &[&ops],
                                 super::design::Surface::of(&interface),
-                                &system,
+                                &resolved.system,
                             ))
                             .collect();
                     }

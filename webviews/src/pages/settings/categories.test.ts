@@ -61,6 +61,8 @@ test("the categories are the approved ones, in order", () => {
     "newTab",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
+    // Design System, under More: the design system extension views draw with (RFD 0009 slice 8).
+    "designSystem",
     "computerUse",
     // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
     "mcpServers",
