@@ -438,15 +438,13 @@ async fn localhost_forward(link: &cmux_mobile_link::Link) {
         tokio::spawn(async move {
             let (mut stream, _) = tls.accept().await.unwrap();
             let mut hello = [0u8; 5];
-            stream.read_exact(&mut hello).await.unwrap();
+            tokio::io::AsyncReadExt::read_exact(&mut stream, &mut hello).await.unwrap();
             // Echo the "ClientHello" bytes reversed: proves nothing parsed or rewrote them.
             hello.reverse();
             stream.write_all(&hello).await.unwrap();
         });
-        let mut channel = link
-            .open("localhost", serde_json::json!({"host": "127.0.0.2", "port": tls_port}))
-            .await
-            .unwrap();
+        let mut channel =
+            link.open("localhost", serde_json::json!({"host": "127.0.0.2", "port": tls_port})).await.unwrap();
         channel.send(Bytes::from_static(&[0x16, 0x03, 0x01, 0x02, 0x00])).await.unwrap();
         match channel.recv().await {
             Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], &[0x00, 0x02, 0x01, 0x03, 0x16]),

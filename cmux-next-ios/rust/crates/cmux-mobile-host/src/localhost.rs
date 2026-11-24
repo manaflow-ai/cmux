@@ -174,10 +174,17 @@ mod tests {
 
     #[test]
     fn a_host_is_loopback_a_name_or_an_address_and_nothing_else() {
-        for none in [serde_json::json!({}), serde_json::json!({"host": ""}), serde_json::json!({"host": "LocalHost"})] {
+        for none in
+            [serde_json::json!({}), serde_json::json!({"host": ""}), serde_json::json!({"host": "LocalHost"})]
+        {
             assert_eq!(host(&none).unwrap(), None, "{none}");
         }
-        for (given, want) in [("devbox", "devbox"), ("a.tail1234.ts.net", "a.tail1234.ts.net"), ("[fd00::1]", "fd00::1"), ("10.0.0.2", "10.0.0.2")] {
+        for (given, want) in [
+            ("devbox", "devbox"),
+            ("a.tail1234.ts.net", "a.tail1234.ts.net"),
+            ("[fd00::1]", "fd00::1"),
+            ("10.0.0.2", "10.0.0.2"),
+        ] {
             assert_eq!(host(&serde_json::json!({"host": given})).unwrap().as_deref(), Some(want));
         }
         for bad in ["a/b", "u@h", "h:80", "-x", "a b", "http://x"] {
@@ -188,10 +195,35 @@ mod tests {
 
     #[test]
     fn only_private_tailnet_and_loopback_addresses_are_allowed() {
-        for ok in ["127.0.0.1", "::1", "10.1.2.3", "172.16.0.9", "172.31.255.1", "192.168.1.5", "100.64.0.1", "100.127.255.1", "fd7a:115c:a1e0::1", "::ffff:10.0.0.1"] {
+        for ok in [
+            "127.0.0.1",
+            "::1",
+            "10.1.2.3",
+            "172.16.0.9",
+            "172.31.255.1",
+            "192.168.1.5",
+            "100.64.0.1",
+            "100.127.255.1",
+            "fd7a:115c:a1e0::1",
+            "::ffff:10.0.0.1",
+        ] {
             assert!(allowed_ip(ok.parse().unwrap()), "{ok}");
         }
-        for no in ["8.8.8.8", "1.1.1.1", "100.63.255.1", "100.128.0.1", "172.32.0.1", "169.254.169.254", "fe80::1", "0.0.0.0", "::", "224.0.0.1", "255.255.255.255", "2606:4700::1111", "::ffff:8.8.8.8"] {
+        for no in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "100.63.255.1",
+            "100.128.0.1",
+            "172.32.0.1",
+            "169.254.169.254",
+            "fe80::1",
+            "0.0.0.0",
+            "::",
+            "224.0.0.1",
+            "255.255.255.255",
+            "2606:4700::1111",
+            "::ffff:8.8.8.8",
+        ] {
             assert!(!allowed_ip(no.parse().unwrap()), "{no}");
         }
     }
