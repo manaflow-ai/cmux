@@ -32,9 +32,21 @@ pub struct ForkParams {
     /// With `live`: the harness the fork runs on, carrying the conversation over (a model switch).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
-    /// With `harness`: the model the fork starts on, at most 256 bytes.
+    /// The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the
+    /// chat's own harness's (set before the reply, or the fork is refused and removed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's
+    /// own conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`
+    /// names it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).
+    /// A Claude Code or Codex chat only; a running subagent forks through its last settled step.
+    /// Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    /// With `live`: the permission mode the fork starts in, one of the modes the chat's harness
+    /// lists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }
@@ -1070,6 +1082,36 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+    /// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+    /// this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+    /// chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_seq: Option<u64>,
+}
+
+/// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+/// place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+/// (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+/// of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+/// an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPatch {
+    pub session_id: String,
+    /// A peer's chat: the id its row has here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualified_session_id: Option<String>,
+    pub patch: Value,
+    pub row_seq: u64,
+    pub base_row_seq: u64,
+    /// As `session_changed`'s.
+    pub kind: String,
+    pub record_kind: String,
+    pub seq: u64,
+    /// The peer a remote session runs on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     pub list_seq: u64,
 }
 
