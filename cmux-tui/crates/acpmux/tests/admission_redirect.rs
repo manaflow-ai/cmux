@@ -104,10 +104,12 @@ async fn fake_peer(seen: Seen) -> u16 {
                                 )
                             }
                         }
+                        // A dated build, not older than this one: an undated or older one is
+                        // `outdated` (`build_info::lags`), which placement passes over.
                         method::INITIALIZE => Message::ok(
                             id,
                             json!({"protocolVersion": 1, "_meta": {"acpmux": {
-                                "build": "older", "origin": "peer", "features": []}}}),
+                                "build": "newer 2099-12-31", "origin": "peer", "features": []}}}),
                         ),
                         method::MUX_WATCH => Message::ok(id, json!({"sessions": []})),
                         "_acpmux/host_health" => Message::ok(
@@ -185,7 +187,12 @@ async fn a_create_past_the_cap_starts_on_the_picked_peer_only_when_its_client_as
         assert_eq!(placed_on(&old), None, "an old client's create moved: {old}");
         assert!(old.get("peer").is_none(), "{old}");
         let admission = &old["_meta"]["acpmux"]["admission"];
-        assert_eq!(admission["suggestedHost"], "far", "warned as before: {admission}");
+        assert_eq!(
+            admission["suggestedHost"],
+            "far",
+            "warned as before: {admission}; peers: {:?}",
+            a.peers()
+        );
         before_local += 1;
     }
     assert!(seen.lock().unwrap().is_empty(), "an old client's create reached the peer");
