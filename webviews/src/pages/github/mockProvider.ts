@@ -225,6 +225,8 @@ export class MockGitHubProvider implements PageClient {
     },
     private readonly details: PullRequestDetails | null = mockDetails,
     private readonly checks: DashboardChecks | null = mockChecks,
+    /** What the host says to a review or thread write: taken, or refused with this code and sentence. */
+    private readonly writeRefusal: { code: string; message: string } | null = null,
   ) {}
 
   async call<R>(op: string, params?: unknown): Promise<R> {
@@ -237,6 +239,10 @@ export class MockGitHubProvider implements PageClient {
     if (op === GitHubOps.merge) return { merged: true, queued: false } as R;
     if (op === GitHubOps.checks) return { checks: this.checks, reading: false } as R;
     if (op === GitHubOps.rerun) return { rerun: 1 } as R;
+    if (op === GitHubOps.reviewSubmit || op === GitHubOps.threadReply || op === GitHubOps.threadResolve) {
+      if (this.writeRefusal) throw pageError(this.writeRefusal.code, this.writeRefusal.message);
+      return (op === GitHubOps.reviewSubmit ? { submitted: true } : { done: true }) as R;
+    }
     if (op === GitHubOps.openIn || op === GitHubOps.openDiff) return {} as R;
     throw pageError("cmux.op.unknown", op);
   }
