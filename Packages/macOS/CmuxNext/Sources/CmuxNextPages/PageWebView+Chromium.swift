@@ -53,6 +53,10 @@ extension PageWebView {
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 
+    /// What the Chromium page was last told about its visibility (nil: no Chromium page). A page told it is
+    /// visible keeps drawing wherever its view is, so the agent page census (`AgentPageLiveness`) reads this.
+    public var chromiumReportedVisible: Bool? { chromiumSession.map(\.shows) }
+
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
     var liesOutsideWindowContent: Bool {

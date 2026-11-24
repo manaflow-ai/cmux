@@ -1407,6 +1407,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -2332,6 +2351,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2523,7 +2546,8 @@ dependencies = [
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-signed-envelope",
- "cmux-tui-core",
+ "cmux-terminal-host-protocol",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -2858,6 +2882,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-pty",
+ "getrandom 0.3.4",
+ "serde",
+ "socket2",
+]
+
+[[package]]
 name = "cmux-terminal-iface"
 version = "0.1.0"
 dependencies = [
@@ -3132,6 +3167,7 @@ dependencies = [
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-find",
+ "cmux-terminal-host-protocol",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
