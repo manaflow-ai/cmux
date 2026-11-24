@@ -17,9 +17,10 @@ import MessagesLabSidebar
 /// the top row to themselves with the Unread toggle and New Chief at its right end on their line, and the
 /// search field spans the list on the row under them. In the avatar-only list the circles, and an
 /// open search, sit under the lights too. Beside the window's sidebar (the lights clear of the
-/// list) the header keeps that shape with nothing on the lights' line, so the sidebar's toggle
-/// moves the list sideways only (the user, 2026-11-19, msg 42221: "stuff in the home imessage
-/// chief ui shifts around too"). Only full screen, with no lights, has the one-row band.
+/// list) and in full screen the header is one row: Search on the top row with the Unread toggle
+/// and New Chief to its right, as in Messages (#48467, the person: "can we make this text search
+/// bar in the top and then the filter on the right"; this replaces the empty lights' row kept
+/// beside the window's sidebar since 2026-11-19).
 public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The band the row sits in; the list starts under it. One height at every density and text
     /// size: it lines up with the chat's header beside it (`HomeChatColumnView`), and it holds the
@@ -86,9 +87,9 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// - Parameters:
     ///   - width: The list's width.
     ///   - searchOpen: The search field edits or holds a query.
-    ///   - windowControls: The traffic lights' row over the header's band (`homeLightsRow`), in its
-    ///     flipped coordinates: the lights and the accessory after them as they lie over a list at
-    ///     the window's left edge, the same while the list is clear of them; nil with no lights (full screen).
+    ///   - windowControls: The traffic lights over the header's band (`homeWindowControls`), in its
+    ///     flipped coordinates: the lights and the accessory after them while they lie over the list;
+    ///     nil when the list is clear of them or there are none (full screen): the one-row header.
     ///   - metrics: The header's sizes at the sidebar's density and text size.
     init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, metrics: HomeSidebarHeaderMetrics = .standard) {
         let width = max(0, width)
@@ -126,9 +127,7 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
             // Circles centred on the lights' line, as tall as fits under the window's top.
             let d = (min(side, 2 * (controls.midY - Self.topMargin)) / 2).rounded(.down) * 2
             let onLine = CGRect(x: width - Self.inset - d, y: (controls.midY - d / 2).rounded(), width: d, height: d)
-            // The search row's height in the window is one, wherever the toggle sits. The lights'
-            // row (`homeLightsRow`) is the same with the lights over the list or clear of it, so
-            // a toggle of the window's sidebar moves neither the row nor the toggle.
+            // The search row's height under the lights is one, wherever the toggle sits.
             let rowY = max(searchY, (onLine.maxY + Self.rowGap).rounded(.up))
             // The two buttons at the top row's right end, on the lights' line, when they clear
             // them (a list narrower than the lights and the buttons keeps them on the search row).

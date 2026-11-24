@@ -23,7 +23,7 @@ final class PaneHeaderView: NSView {
     /// The avatar's monogram (the conversation's other participant).
     var initials: String = "" { didSet { if initials != oldValue { applyAvatar() } } }
     /// A picture for the avatar (the Home Chief's), drawn in the disc over
-    /// the monogram; nil shows the monogram.
+    /// the monogram's grey gradient (no letters); nil shows the monogram.
     var picture: NSImage? { didSet { if picture !== oldValue { applyAvatar() } } }
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
@@ -200,7 +200,7 @@ final class PaneHeaderView: NSView {
     @objc private func contactClicked() { onContact() }
 
     private func applyAvatar() {
-        avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
+        avatar.image = picture.map { PaneHeaderView.avatarImage(picture: $0, light: light) } ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
     /// cmux: the name pill as glass. macOS 26 and newer: the pill's own
@@ -237,10 +237,14 @@ final class PaneHeaderView: NSView {
         }
     }
 
-    /// A picture clipped to the avatar disc, filling it (its centered square).
-    static func avatarImage(picture: NSImage) -> NSImage {
-        NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: false) { r in
+    /// A picture clipped to the avatar disc, filling it (its centered square), on Messages' grey
+    /// monogram disc: a picture with a transparent background (a Chief's character) reads as a contact
+    /// photo in a circle, as a Memoji does in Messages, instead of floating with no disc (#48467).
+    static func avatarImage(picture: NSImage, light: Bool = false) -> NSImage {
+        let colors = MonogramAvatar.gradient(light: light)
+        return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: false) { r in
             NSBezierPath(ovalIn: r).addClip()
+            NSGradient(starting: colors.bottom, ending: colors.top)?.draw(in: r, angle: 90)
             let size = picture.size, side = min(size.width, size.height)
             let square = CGRect(x: (size.width - side) / 2, y: (size.height - side) / 2, width: side, height: side)
             picture.draw(in: r, from: square, operation: .sourceOver, fraction: 1)

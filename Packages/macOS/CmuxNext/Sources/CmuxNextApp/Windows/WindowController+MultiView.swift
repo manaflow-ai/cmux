@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextSidebar
@@ -304,19 +305,28 @@ extension WindowController {
         if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
         view.mount(in: root.contentHost)
         giveBackToHome(view.hold(chief))
+        Self.chiefSplit(of: chief)?.foldsList = true // the panel shows the Chief's chat alone
         return state.chiefPanel
     }
 
     /// Takes the panel off screen; Home's pane that shows the Chief tab takes its view back.
     func removeChiefPanel() {
         guard let view = chiefPanelView, view.superview != nil else { return }
-        let hadKeys = view.hasKeys, homeContent = giveBackToHome(view.release())
+        let released = view.release()
+        let hadKeys = view.hasKeys, homeContent = giveBackToHome(released)
         view.unmount()
         if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
     }
 
+    /// The Home page's list split inside a Chief view the panel holds (the Home page in its chat dock).
+    private static func chiefSplit(of chief: NSView?) -> HomeSidebarSplitView? {
+        ((chief as? InternalPageView)?.content as? HomeDockView)?.messages?.split
+    }
+
     /// Home's pane that shows `chief` (a view the panel let go) takes it back; Home's content.
+    /// Its list shows again: the panel folded it only while it held the view.
     @discardableResult private func giveBackToHome(_ chief: NSView?) -> WorkspaceContentController? {
+        Self.chiefSplit(of: chief)?.foldsList = false
         let home = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
         if let chief { for pane in home.map({ Array($0.panes.values) }) ?? [] where pane.view.content === chief { _ = pane.view.show(chief) } }
         return home

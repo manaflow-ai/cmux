@@ -170,6 +170,71 @@ struct HomeNewMessageTests {
         #expect(merged.map(\.id) == [Self.ada.id, Self.grace.id, Self.alan.id, Self.chief.id])
     }
 
+    /// #48467, the person: "this is weird and pretty bad ui here". New Message listed six Chiefs, five of them named
+    /// "Chief" with the same "CH": each took its conversation participant's display name (the default "Chief"), not
+    /// the Chief's own name. Each row now shows the name the Home tile and the chat header show.
+    @Test func eachChiefIsListedByItsOwnName() {
+        let a = Participant(id: ParticipantID("chief-a"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let b = Participant(id: ParticipantID("chief-b"), kind: .agent, displayName: "Chief", agentClass: .chief)
+        let rows = [Self.row("conv-a", participants: [a]), Self.row("conv-b", participants: [b])]
+        let names = [ConversationID("conv-a"): "Main", ConversationID("conv-b"): "joker"]
+        #expect(HomeContact.agents(in: rows, me: Self.me, names: names).map(\.name) == ["Main", "joker"])
+        // A Chief with no record name keeps its participant's.
+        #expect(HomeContact.agents(in: rows, me: Self.me, names: [ConversationID("conv-b"): "joker"]).map(\.name) == ["Chief", "joker"])
+        // Another agent posting in a Chief's conversation keeps its own name, not the Chief's.
+        let helper = Participant(id: ParticipantID("helper"), kind: .agent, displayName: "Helper")
+        let mixed = [Self.row("conv-a", participants: [a, helper])]
+        #expect(HomeContact.agents(in: mixed, me: Self.me, names: names).map(\.name) == ["Main", "Helper"])
+    }
+
+    /// The list before anything is typed has the main Chief and the Chiefs with a message in the last 14 days, as
+    /// Messages lists recent conversations; an idle or never-used Chief is left out (the person's list had three old
+    /// "Chief" rows: "Active 3 days ago", "3 days ago · 2", "2 weeks ago"). The team stays.
+    @Test func theIdleListHasTheMainChiefAndRecentOnes() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        func chief(_ id: String, seq: Int, daysAgo: Double) -> (HomeContact, InboxRow) {
+            let p = Participant(id: ParticipantID(id), kind: .agent, displayName: "Chief", agentClass: .chief)
+            var row = Self.row("conv-\(id)", participants: [p])
+            row.summary.lastSeq = Seq(seq)
+            row.timestamp = now.addingTimeInterval(-daysAgo * 86_400)
+            return (HomeContact(id: p.id, name: id, source: .agent), row)
+        }
+        let main = chief("main", seq: 0, daysAgo: 30)      // the main Chief, even unused
+        let recent = chief("recent", seq: 4, daysAgo: 2)
+        let stale = chief("stale", seq: 9, daysAgo: 15)
+        let unused = chief("unused", seq: 0, daysAgo: 1)
+        var made = chief("made", seq: 0, daysAgo: 0)          // New Chief just now: listed before its first message
+        made.1.summary.createdAt = now.addingTimeInterval(-60)
+        let rows = [main.1, recent.1, stale.1, unused.1, made.1]
+        let roster = HomeChiefRoster(main: main.1.id)
+        let contacts = [main.0, recent.0, stale.0, unused.0, made.0, Self.ada]
+        #expect(roster.recentChiefs(contacts, rows: rows, now: now).map(\.id) == [main.0.id, recent.0.id, made.0.id, Self.ada.id])
+        // No main Chief known: only the recent ones.
+        #expect(HomeChiefRoster().recentChiefs(contacts, rows: rows, now: now).map(\.id) == [recent.0.id, made.0.id, Self.ada.id])
+    }
+
+    /// #48467: in the dev build the list under To: cut its last row off ("Member" with half of "Team" under it): the
+    /// table's automatic style added padding `preferredHeight` did not count. At its preferred height, in a window
+    /// whose content runs under the titlebar, every row shows whole and nothing scrolls.
+    @Test func theListShowsItsLastRowWhole() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let list = HomeRecipientSuggestionsView(frame: .zero)
+        list.show(rows: [.header("Chiefs"), .recipient(.contact(Self.chief)), .newChief, .header("Team"), .recipient(.contact(Self.ada))])
+        list.frame = NSRect(x: 20, y: 500 - 40 - list.preferredHeight, width: 400, height: list.preferredHeight)
+        window.contentView?.addSubview(list)
+        list.layoutSubtreeIfNeeded()
+        list.table.layoutSubtreeIfNeeded()
+        let visible = list.scroll.contentView.documentVisibleRect
+        for row in 0..<list.rows.count {
+            let rect = list.table.rect(ofRow: row)
+            #expect(visible.minY <= rect.minY + 0.5 && rect.maxY <= visible.maxY + 0.5, "row \(row) \(rect) is cut off (visible \(visible))")
+        }
+        #expect(list.table.style == .plain)
+    }
+
     // MARK: The To: field
 
     @Test func theFieldTokenizesOnReturnCommaAndTab() throws {

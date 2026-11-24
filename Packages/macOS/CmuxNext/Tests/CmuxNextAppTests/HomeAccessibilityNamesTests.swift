@@ -46,7 +46,7 @@ import Testing
         let chat = HomeNativeTranscriptView(store: store, conversation: ConversationID("conv_names"), me: ParticipantID("user_me"))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let split = HomeSidebarSplitView(sidebar: home, content: chat, widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
+        split.showsList = true // the list shows (its default since #48467; set so a test suite default cannot fold it)
         split.windowKey = { "w" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable, .fullSizeContentView],
                               backing: .buffered, defer: false)
