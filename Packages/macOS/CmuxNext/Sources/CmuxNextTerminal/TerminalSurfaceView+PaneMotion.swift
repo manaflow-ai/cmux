@@ -130,6 +130,8 @@ extension TerminalSurfaceView {
             resendShownGrid(atRest: true)
             gridReports.flush()
             if isHeldGridPending { updateSurfaceSize() }
+            // Bounds the drag moved ahead of their frame get it now (lockstep, ``locksBoundsToPane``).
+            settleBoundsAhead()
         }
     }
 

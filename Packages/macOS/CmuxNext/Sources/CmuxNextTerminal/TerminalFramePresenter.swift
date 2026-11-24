@@ -40,6 +40,19 @@ import QuartzCore
 /// presents it runs at once, not at the next refresh. The divider and the pane chrome never wait: their layout never asks
 /// the presenter. Chromium does the same for a renderer's new size: the compositor keeps the old surface until the
 /// renderer submits a frame for the new size, then shows it with its bounds.
+///
+/// Lockstep (Leo, 2026-11-24: "it lags, it doesn't follow in lockstep. i want all our resizing at any cpu to be able to
+/// happen in lockstep. the agent pane, chromium, terminal, the relevant ui elements like the top right buttons."): under
+/// load (load average 150) Ghostty's renderer thread is starved, and a kept frame held the terminal's bounds several
+/// refreshes behind a divider that the pane chrome and the toolbar already followed. So while a person drags a divider, a
+/// window edge or the sidebar (``TerminalSurfaceView/isFollowingResizeGesture``) the deadline for a new size's frame is
+/// zero refreshes: the view's bounds take the pane's frame in the layout pass that moves the divider
+/// (``TerminalSurfaceView/locksBoundsToPane``), and a frame not drawn by that commit shows from their top-left corner,
+/// clipped or beside the host's terminal background, as Chromium shows a page's old surface in a resized view. This pass
+/// still presents each drawn frame under the lock, now into bounds that already moved; the program hold and the group wait
+/// only delay the content, never the edge. One size is asked of Ghostty at a time, as outside a gesture: a new size each
+/// refresh would drop each frame still drawing, and under load none would show. Outside gestures the bounds still change
+/// only with their frame.
 final class TerminalFramePresenter {
     /// Refreshes a group of requests waits for its slowest member.
     static let groupTicks: UInt64 = 2

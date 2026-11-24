@@ -35,6 +35,12 @@ struct TerminalFrameOwnership {
     /// (``TerminalSurfaceView/drawAhead(_:)``): a held snap's bound starts one refresh later when the size's grid went in
     /// a later refresh than this (``TerminalSurfaceView/aheadAwaitsProgram(refreshesWaited:)``, RESIZE P0 24).
     var aheadAskedEpoch: UInt64?
+    /// Lockstep (Leo, 2026-11-24: "i want all our resizing at any cpu to be able to happen in lockstep"): the size of
+    /// the frame the layer shows while the view's bounds went ahead of it to its pane's frame in a resize gesture
+    /// (``TerminalSurfaceView/locksBoundsToPane``). That frame shows from the top-left corner of the new bounds (Ghostty's
+    /// `contentsGravity`), clipped by them or beside the host's terminal background, until a frame drawn at the bounds'
+    /// size lands. Nil when the bounds have the shown frame's size.
+    var boundsAhead: CGSize?
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -43,6 +49,10 @@ struct TerminalFrameOwnership {
 /// where it is larger. In a spring the frame of the next refresh's size is asked one refresh ahead, so it is drawn when that
 /// refresh's commit comes. This is Chromium's model: the browser compositor shows a new size only with a frame the
 /// renderer submitted for it, and the renderer gets the size before it is needed.
+///
+/// In a person's resize gesture (a divider, window or sidebar drag) the bounds do not wait (``locksBoundsToPane``): they
+/// take the pane's frame in the layout pass that moves the divider, so the terminal's edge lands in the divider's commit at
+/// any CPU load, and the frame it shows catches up when Ghostty draws the new size (``TerminalFramePresenter``, "Lockstep").
 extension TerminalSurfaceView {
     /// Places the surface at `frame` in its host. A new size goes to Ghostty, or is the size drawn ahead for this
     /// refresh, and the view keeps its size, its old frame on the `anchor` edge of `frame`, until its window's commit
@@ -58,13 +68,16 @@ extension TerminalSurfaceView {
                 frameOwnership.pendingAhead = nil
                 applyHeldScale()
             }
+            frameOwnership.boundsAhead = nil
             if self.frame != frame { self.frame = frame }
             return
         }
         frameOwnership.wanted = frame
         frameOwnership.anchor = anchor
         guard frameOwnership.inFlight == nil else { return keepOrigin() }
-        guard frame.size != bounds.size else {
+        guard frame.size != shownSize else {
+            // The shown frame has this size (a drag back to it): the bounds take it with their frame.
+            frameOwnership.boundsAhead = nil
             if self.frame != frame { self.frame = frame }
             return
         }
@@ -75,6 +88,7 @@ extension TerminalSurfaceView {
         guard state != GHOSTTY_HOST_FRAME_NONE, state != GHOSTTY_HOST_FRAME_HIDDEN else {
             // Nothing shown, or nothing drawn while hidden: nothing to keep; the frame that comes fits these bounds.
             frameOwnership.ahead = nil
+            frameOwnership.boundsAhead = nil
             self.frame = frame
             if state == GHOSTTY_HOST_FRAME_NONE { framePresenter?.watch(self) }
             return
@@ -98,10 +112,12 @@ extension TerminalSurfaceView {
         guard isShown, let presenter = framePresenter else {
             // Not shown (or no window): nothing to keep; the view takes the size and the scale it wants now.
             applyHeldScale()
+            frameOwnership.boundsAhead = nil
             if frame != wanted { frame = wanted }
             return
         }
-        guard wanted.size != bounds.size else {
+        guard wanted.size != shownSize else {
+            frameOwnership.boundsAhead = nil
             if frame != wanted { frame = wanted }
             return
         }
@@ -228,13 +244,16 @@ extension TerminalSurfaceView {
     }
 
     /// Inside the commit: the view takes the size Ghostty's shown frame has, on the anchor edge of the wanted frame,
-    /// and its layer the same geometry (a held display scale included) in this commit. Returns whether it wants
-    /// another size since.
+    /// and its layer the same geometry (a held display scale included) in this commit. In lockstep (``locksBoundsToPane``)
+    /// the bounds stay on the wanted frame, ahead of a frame drawn for an older size (``TerminalFrameOwnership/boundsAhead``).
+    /// Returns whether it wants another size since.
     func landRequestedFrame() -> Bool { // perf-hot: 1ms motion-frame (each frame of a key resize, under the CA lock)
         applyHeldScale()
         guard let size = frameOwnership.inFlight, let wanted = frameOwnership.wanted else { return false }
         frameOwnership.inFlight = nil
-        let target = Self.anchoredFrame(size: size, in: wanted, anchor: frameOwnership.anchor)
+        let lockstep = locksBoundsToPane
+        frameOwnership.boundsAhead = lockstep && size != wanted.size ? size : nil
+        let target = lockstep ? wanted : Self.anchoredFrame(size: size, in: wanted, anchor: frameOwnership.anchor)
         frameOwnership.landing = true
         frame = target
         frameOwnership.landing = false
@@ -264,6 +283,7 @@ extension TerminalSurfaceView {
         // Epochs are the old window's presenter's: the next hold counts from a send in the new window.
         frameOwnership.gridSentEpoch = nil
         frameOwnership.aheadAskedEpoch = nil
+        frameOwnership.boundsAhead = nil
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }
@@ -337,9 +357,11 @@ extension TerminalSurfaceView {
         layer?.contentsScale = scale
     }
 
-    /// While a size waits, the kept frame rides the wanted frame's anchor edge (the host's area moves on).
+    /// While a size waits, the kept frame rides the wanted frame's anchor edge (the host's area moves on). In lockstep
+    /// (``locksBoundsToPane``) the bounds take the wanted frame now and the shown frame stays (``takeBoundsAhead(_:)``).
     private func keepOrigin() {
         guard let wanted = frameOwnership.wanted else { return }
+        if locksBoundsToPane { return takeBoundsAhead(wanted) }
         let origin = Self.anchoredFrame(size: bounds.size, in: wanted, anchor: frameOwnership.anchor).origin
         if frame.origin != origin { setFrameOrigin(origin) }
     }
