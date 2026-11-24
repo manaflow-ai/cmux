@@ -42,7 +42,9 @@ use super::{
 };
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
-use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION};
+use crate::signaling::{
+    SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_REACH_VERSION, WG_VERSION,
+};
 use crate::timing::Timeline;
 
 pub use super::turn::missing_turn;
@@ -154,7 +156,7 @@ pub fn set_answer_after_gather(on: bool) {
 /// side with no plain UDP (whose only endpoint is its TURN address), gets
 /// the answer after the gather, as before.
 fn answer_trickles(options: &DialOptions, peer_version: u32) -> bool {
-    peer_version >= WG_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
+    peer_version >= WG_REACH_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
 }
 /// Once one STUN server answered, how much longer the others get. Cloudflare
 /// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
@@ -932,7 +934,7 @@ impl HybridUnderlay {
                 peer_relayed: addresses(spec.peer_relayed),
                 peer_relayed_tls: addresses(spec.peer_relayed_tls),
             },
-            peer_reaches: spec.peer_version >= WG_VERSION,
+            peer_reaches: spec.peer_version >= WG_REACH_VERSION,
             direct: None,
             last_direct: None,
             last_udp: None,
@@ -2626,6 +2628,16 @@ impl Dialer for WireGuardDialer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Version 3 (cell beside Wi-Fi) against a version-2 peer: the peer
+    /// keeps the trickled answer and `reach` it had.
+    #[test]
+    fn a_version_2_peer_keeps_reach_and_trickle_beside_version_3() {
+        const { assert!(WG_VERSION > WG_REACH_VERSION) };
+        assert!(answer_trickles(&DialOptions::default(), 2));
+        assert!(answer_trickles(&DialOptions::default(), WG_VERSION));
+        assert!(!answer_trickles(&DialOptions::default(), 0));
+    }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.
     #[test]
