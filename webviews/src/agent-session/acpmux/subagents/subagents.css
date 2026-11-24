@@ -634,10 +634,12 @@ button.cv-subagent > :last-child {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  /* One line, exactly: the row never wraps, so no sliver of a second line shows under it (Leo, 2026-11-23,
-     of the hat: "the sliver of the second line still shows"). Words come whole first; what does not fit
-     ends in an ellipsis (the kinds below shrink, their text clips), so 1 item or many read in one layout. */
-  flex-wrap: nowrap;
+  /* What does not fit drops whole: each kind with its separator wraps onto a second line the header's
+     height hides, so the header never ends on half a word (Leo, 2026-11-22: "this should not be cutting
+     off so harshly like this"). The height is exact and clips hard, so no sliver of that second line
+     shows (Leo, 2026-11-23, of the hat: "the sliver of the second line still shows"). */
+  flex-wrap: wrap;
+  overflow: clip;
   align-content: flex-start;
   height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
   max-height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
@@ -646,14 +648,12 @@ button.cv-subagent > :last-child {
   height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
 }
 .acpmux-running-tray__kind-unit {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: none;
   display: inline-flex;
   align-items: center;
 }
 .acpmux-running-tray__kind {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-1, 4px);
@@ -666,10 +666,6 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__kind-text {
   font-variant-numeric: tabular-nums;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* The `tally` arm (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each type of
    ongoing thing would be better"): each kind its mark and its number, a gap apart, no words, no
