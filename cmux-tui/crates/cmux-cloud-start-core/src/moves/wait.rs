@@ -109,6 +109,38 @@ pub fn start_redial(look: RedialLook) -> Redial {
     Redial::Nothing
 }
 
+/// How long a record a create's or a spare claim's own answer gave stays the machine's state for an
+/// attach: the platform answered it moments ago, and its idle auto-pause parks a machine only after
+/// minutes with no use, so it cannot have parked a machine it just answered as running.
+pub const ANSWER_FRESH_MS: u64 = 10_000;
+
+/// One look at a machine an attach is about to connect (the app's
+/// `CloudMachineSession.refreshIfMaybePaused`).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecordLook {
+    /// Its daemon connection is up.
+    pub connected: bool,
+    /// The record reads paused (the attach resumes it, no read needed).
+    pub paused: bool,
+    /// The record reads running.
+    pub running: bool,
+    /// How long ago a create's or a spare claim's answer gave the record; none for a list's.
+    pub answered_ago_ms: Option<u64>,
+}
+
+/// Whether an attach reads the machine's record again before it connects: a machine with no daemon
+/// connection that does not read paused may be one the idle auto-pause parked behind the app's
+/// copy. Not one a create's or claim's answer gave as running within [`ANSWER_FRESH_MS`]: that read
+/// was the claimed spare's whole `connect.resume` (175 to 266 ms, 1.2 s at worst, in the production
+/// chat probe's 31 good starts of 2026-11-21), with its link already up or dialing.
+pub fn rereads_record(look: RecordLook) -> bool {
+    if look.connected || look.paused {
+        return false;
+    }
+    !(look.running && look.answered_ago_ms.is_some_and(|ago| ago < ANSWER_FRESH_MS))
+}
+
 /// Whether a machine's link came back after an update restarted its daemon: its handshake key is
 /// there and differs from the one before (`refused`, a refused handshake, is no new link).
 pub fn relinked(before: Option<&str>, now: Option<&str>, refused_counts: bool) -> bool {

@@ -13,7 +13,7 @@
 # So: ask dpkg which packages are not installed; with none missing, do nothing.
 # Otherwise install just those, with sudo only when the user is not root. When
 # no install is possible, fail with an annotation naming the runner and the
-# packages to provision on it (brew-ensure.sh does the same for Homebrew).
+# packages to provision on it.
 #
 # Usage: apt-ensure.sh PACKAGE [PACKAGE ...]
 set -uo pipefail

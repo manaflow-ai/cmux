@@ -184,8 +184,8 @@ import Testing
                 shots.append(("\(style?.rawValue ?? "unset (flat)") \(density)", image))
             }
         }
-        let sheet = PaneMoreShotsTests.contactSheet(shots)
-        let out = PaneMoreShotsTests.packageRoot.appending(path: ".build/tab-concentric-corners.png")
+        let sheet = ShotSheet.contactSheet(shots)
+        let out = ShotSheet.packageRoot.appending(path: ".build/tab-concentric-corners.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try #require(NSBitmapImageRep(cgImage: sheet).representation(using: .png, properties: [:])).write(to: out)
         print("tab-concentric-corners: wrote \(out.path)")
@@ -220,7 +220,7 @@ import Testing
         return try upright(root)
     }
 
-    /// The flipped host's layer tree drawn top side up (`PaneMoreShotsTests.snapshot` expects an
+    /// The flipped host's layer tree drawn top side up (`ShotSheet.snapshot` expects an
     /// unflipped root), at 2x.
     static func upright(_ view: NSView) throws -> CGImage {
         let scale: CGFloat = 2
