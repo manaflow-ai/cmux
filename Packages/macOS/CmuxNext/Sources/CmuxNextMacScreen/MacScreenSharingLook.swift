@@ -1,9 +1,13 @@
 public import CmuxNextDesign
 
 /// How the home page draws Allow Mac Screen on This Mac (Debug Settings `macScreen.sharingLook`,
-/// Lawrence 2026-11-07: "improve this ui"). The list is the default; the others stay selectable
-/// to compare them live.
+/// Lawrence 2026-11-07: "improve this ui"). Simple is the default (Leo 2026-11-16: "i hate the
+/// "you approve each one" and i hate the ... appearance of the whole allow deny etc etc it's too
+/// many ... steps"); the others stay selectable to compare them live.
 public nonisolated enum MacScreenSharingLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// One switch (its detail is the status), a Connected row with Stop while a device is connected,
+    /// and the macOS permissions as one Grant Access step while one is missing.
+    case simple
     /// A settings list under "This Mac": the switch, then one row per permission and the status,
     /// their glyphs in one column. A permission's detail shows only while it is missing.
     case list
@@ -16,7 +20,8 @@ public nonisolated enum MacScreenSharingLook: String, Sendable, CaseIterable, Ha
 
     public var tunableTitle: String {
         switch self {
-        case .list: "List (default): permissions as aligned rows, details only when missing"
+        case .simple: "Simple (default): one switch, Connected with Stop, one Grant Access step"
+        case .list: "List: permissions as aligned rows, details only when missing"
         case .summary: "Summary: both permissions on one line"
         case .status: "Status first: the status is the switch's title"
         case .classic: "Classic (before 2026-11-08)"
@@ -56,7 +61,7 @@ public nonisolated struct MacScreenTunables {
     public static let sharingLook = Tunable<MacScreenSharingLook>.choice(
         "macScreen.sharingLook", section, "This Mac section look",
         help: "How the Screen Sharing page draws Allow Mac Screen on this Mac and its permissions. Applies at once.",
-        default: .list, code: "MacScreenTunables.sharingLook")
+        default: .simple, code: "MacScreenTunables.sharingLook")
 
     /// The look of the home page's Your Devices list.
     public static let devicesLook = Tunable<MacScreenDevicesLook>.choice(

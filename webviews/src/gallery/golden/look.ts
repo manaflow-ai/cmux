@@ -15,6 +15,8 @@ export type GoldenScheme = {
   colors?: { background?: string; foreground?: string; selection?: string; accent?: string };
   /** `appearance.accent` (theme/appTheme.ts APP_ACCENTS). */
   accent?: string;
+  /** `appearance.selection`: `neutral` keeps the selection fill gray under any accent. */
+  selection?: "accent" | "neutral";
   /** `appearance.surfaces.sidebar.color` and `appearance.surfaces.agentPane.color`. */
   surfaces?: { sidebar?: string; agentPane?: string };
   /** `appearance.density`. */
@@ -32,6 +34,8 @@ export type GoldenLook = {
   /** agent-pane/theme.css (cmux.agentPane.style/1 tokens). */
   themeCSS?: string;
   composerLook?: "claude" | "codex";
+  /** The setup folder a look came from (a look repo), absolute; absent for theme files and registry looks. */
+  setupDir?: string;
 };
 
 export type Scheme = "light" | "dark";

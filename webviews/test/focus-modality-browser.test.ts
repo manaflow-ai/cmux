@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { focusByKey } from "./support/focusByKey";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("focus-modality-browser.test.ts", async () => {
@@ -47,7 +47,10 @@ await requireBrowserLane("focus-modality-browser.test.ts", async () => {
 
   for (const [name, engine] of [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("focus-modality-browser webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ] as [string, BrowserType][]) {
     describe(name, () => {
       let browser: Browser | undefined;

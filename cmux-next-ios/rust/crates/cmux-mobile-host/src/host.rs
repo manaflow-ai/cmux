@@ -272,6 +272,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             identity: pairing.identity.clone(),
             activity: Arc::clone(&pairing.activity),
             links: Default::default(),
+            pairing: Some(pairing.clone()),
         });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
@@ -643,6 +644,7 @@ async fn answer_session(
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        route: None,
         path: None,
     };
     let session_id = first.session_id.clone();
@@ -679,6 +681,8 @@ async fn answer_session(
         }
     };
     let path = *connected.path.borrow();
+    peer.route =
+        Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
     peer.path = Some(connected.path.clone());
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
@@ -704,7 +708,25 @@ async fn answer_session(
             });
         }
     });
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // Path and srtt on every path change and every 10 s (path_report.rs): a
+    // relay link, its resets and its round trip, readable from this log.
+    let report_session = session_id.clone();
+    let path_report = tokio::spawn(cmux_mobile_link::path_report::run(
+        connected.path.clone(),
+        connected.link.rtt(),
+        move |line| {
+            tracing::info!(
+                session_id = report_session,
+                path = ?line.path,
+                srtt_ms = ?line.srtt_ms(),
+                rtt_ms = ?line.rtt_ms(),
+                changes = line.changes,
+                reason = ?line.reason,
+                "link path rtt"
+            );
+        },
+    ));
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
@@ -758,6 +780,7 @@ async fn answer_session(
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    path_report.abort();
     drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });

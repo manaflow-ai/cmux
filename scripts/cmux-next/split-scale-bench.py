@@ -145,9 +145,18 @@ parser.add_argument("--moves", default="",
                     help=f"the move family instead of the transitions: 'all' or a comma list of {','.join(MOVES)}")
 parser.add_argument("--move-shapes", default=",".join(MOVE_SHAPES), help="rows of 2, 3 and 4 panes")
 parser.add_argument("--gate", action="store_true", help="exit 1 when a move fails its verdict (--moves)")
+parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
+                    help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
+                         "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
+APP_ENV = {}
+for pair in opts.app_env:
+    name, sep, value = pair.partition("=")
+    if not sep or not name.strip():
+        parser.error(f"--app-env takes NAME=VALUE, not {pair!r}")
+    APP_ENV[name.strip()] = value
 APP = os.path.realpath(opts.app.rstrip("/"))
 if opts.quick:
     opts.splits, opts.contents, opts.workspaces, opts.rounds = "1,4", "empty,browser", "1", 1
@@ -903,9 +912,11 @@ def finish(results):
                 wanted = [t for t in WANTED if not (t == "divider_drag" and splits == 1)]
                 missing += [f"{cell} {t}" for t in wanted if t not in cells.get(cell, {})]
     results["missing"] = missing
-    if results["errors"] or missing:
-        results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": sorted(results["errors"])}
-    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not results["errors"]
+    # A cell with no settled time failed even when no round raised: the headline's None must never ship beside
+    # "0 failed cells" (the b2dab851a nightly read unknown for a day that way).
+    failed = sorted(set(results["errors"]) | set(ssm.unmeasured(cells, unsettled_ms=opts.strip_ms)))
+    results["worst"] = {**results["worst"], "incomplete": len(missing), "failed_cells": failed}
+    results["pass"] = (bool(pairs) and results["passing"] == len(pairs) and not missing and not failed
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
@@ -941,7 +952,9 @@ def main():
                 if not wait_until(lambda: primary_screen_size() == want, f"a {want} main screen", timeout=20,
                                   interval=0.25, raise_on_timeout=False):
                     say(f"split-scale: the main screen is {primary_screen_size()!r}, not {want}, 20 s after the display came up")
-        env, chats = {}, []
+        env, chats = dict(APP_ENV), []
+        if APP_ENV:
+            results["app_env"] = dict(APP_ENV)
         if "chat" in WANTED_CONTENTS:
             say(f"split-scale: seeding a {opts.chat_turns}-turn chat")
             copies = sum(SPLITS) * len(WORKSPACES) + 2  # every chat cell's panes, each a fresh copy

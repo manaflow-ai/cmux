@@ -206,8 +206,12 @@ struct Hosted {
     /// logged once: a reader skips an entry at or below `logged` and only acknowledges it.
     log_turn: tokio::sync::Mutex<()>,
     /// The reader stopped (an entry could not be logged): the agent is not
-    /// usable through this link; the next request adopts the host again.
+    /// usable through this link until a reattach replays it (`Hub::reach_broken_link`, which retries
+    /// with a backoff while the store still cannot log).
     broken: std::sync::atomic::AtomicBool,
+    /// One `Hub::reach_broken_link` retries this link (`claim_broken_retry`): a replay that breaks
+    /// again on a still full disk starts no second one.
+    broken_retry: std::sync::atomic::AtomicBool,
     /// How far the host replays on this link (`learn_replay_end`): until `logged` reaches it, what
     /// the host kept while no reader logged it is not all in the session log. `u64::MAX` while it is
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
@@ -419,6 +423,10 @@ fn key(id: &Id) -> String {
 
 /// This side's own error for a request whose agent or connection went: no answer of its agent.
 pub(crate) const AGENT_CLOSED: &str = "agent process closed";
+/// The error of a request to an agent whose host link broke because an entry from it could not
+/// be stored (`ChildAgent::start_reader`), when the store gives no refusal of its own.
+pub(crate) const LINK_UNLOGGED: &str =
+    "the agent's output could not be stored, so its link stopped; send again to reconnect";
 
 /// A request's error once its message was cut (`Fence::cut`) before it was written.
 pub const FENCE_CUT: &str =
@@ -917,6 +925,7 @@ struct Spawned {
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
+    plugin_hook_home: Option<std::path::PathBuf>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -942,6 +951,12 @@ impl Spawned {
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
+        let plugin_hook_home = cmd.as_std().get_envs().find_map(|(key, value)| {
+            (key == crate::bg_hook::HOME_ENV)
+                .then_some(value)
+                .flatten()
+                .map(std::path::PathBuf::from)
+        });
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -991,6 +1006,7 @@ impl Spawned {
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
+            plugin_hook_home,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1012,6 +1028,7 @@ impl Spawned {
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
+            plugin_hook_home: None,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1103,11 +1120,15 @@ impl ChildAgent {
             preview_format,
             run_class,
             repo_gated,
+            plugin_hook_home,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
+        if let (Some(translator), Some(home)) = (&translator, plugin_hook_home) {
+            let _ = translator.plugin_hook_home.set(home);
+        }
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<(String, Option<Fence>)>(256);
         let pending = Arc::new(Mutex::new(Pending {
@@ -1498,12 +1519,19 @@ impl ChildAgent {
     /// under the same lock, so a late notice of an old link never fails the open requests of the
     /// link that replaced it (review 2 of #26059).
     pub async fn fail_pending_if_unheard(&self) {
+        self.fail_pending_if_unheard_with(AGENT_CLOSED).await;
+    }
+
+    /// [`Self::fail_pending_if_unheard`] with `why` as each request's error: a link that broke
+    /// because an entry could not be stored answers its open requests with the store's refusal
+    /// (`disk.full` on a full disk) at once, rather than leaving them to the client's limit.
+    pub async fn fail_pending_if_unheard_with(&self, why: &str) {
         let mut p = self.pending.lock().await;
         if !self.is_broken() && !self.is_stopped() {
             return;
         }
         for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            let _ = tx.send(Err(RpcError::internal(why.to_owned())));
         }
     }
 
@@ -1751,15 +1779,13 @@ impl ChildAgent {
                     if let Some(f) = fence.filter(|f| f.begin()) {
                         f.written();
                     }
-                    // Immediate local answer: feed it back as if claude replied.
-                    if let Message::Response { id, result, error } = reply
-                        && let Some(tx) = self.pending.lock().await.take(&id)
-                    {
-                        let _ = tx.send(match error {
-                            Some(e) => Err(e),
-                            None => Ok(result.unwrap_or(Value::Null)),
-                        });
-                    }
+                    self.answer_locally(reply).await;
+                    Ok(())
+                }
+                // Written first, so Claude Code reads them; then answered without it.
+                crate::claude_stdio::Outbound::LinesThenReply(lines, reply) => {
+                    self.claude_lines(lines, fence).await?;
+                    self.answer_locally(reply).await;
                     Ok(())
                 }
             }
@@ -1768,6 +1794,18 @@ impl ChildAgent {
                 .send((msg.to_line(), fence.cloned()))
                 .await
                 .map_err(|_| anyhow!("agent {} stdin closed", self.name))
+        }
+    }
+
+    /// The translator's own answer to a request of ours, as if claude replied.
+    async fn answer_locally(&self, reply: Message) {
+        if let Message::Response { id, result, error } = reply
+            && let Some(tx) = self.pending.lock().await.take(&id)
+        {
+            let _ = tx.send(match error {
+                Some(e) => Err(e),
+                None => Ok(result.unwrap_or(Value::Null)),
+            });
         }
     }
 
@@ -1924,7 +1962,16 @@ impl ChildAgent {
     ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        {
+            let mut p = self.pending.lock().await;
+            // A link that broke on an entry it could not store (`start_reader`) is marked under
+            // this lock, and its notice answers every request open then: one added after it would
+            // wait for a reattach nothing starts. It is answered now; the next request reattaches.
+            if self.is_broken() {
+                return Err(RpcError::internal(LINK_UNLOGGED));
+            }
+            p.map.insert(key(&Value::from(id)), tx);
+        }
         let mut abandoned = Abandoned {
             pending: self.pending.clone(),
             sink: self.cancel_sink(),
@@ -2264,6 +2311,21 @@ impl ChildAgent {
         self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
     }
 
+    /// Take the one retry of this broken link (`Hub::reach_broken_link`): false while another
+    /// runs, or for an agent with no host.
+    pub fn claim_broken_retry(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            h.broken_retry.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+        })
+    }
+
+    /// End the retry [`Self::claim_broken_retry`] took.
+    pub fn release_broken_retry(&self) {
+        if let Some(h) = &self.hosted {
+            h.broken_retry.store(false, Ordering::SeqCst);
+        }
+    }
+
     /// The reader of the current host link stopped otherwise (`Hosted::stopped`): what the host
     /// reports is not heard until a reattach.
     pub fn is_stopped(&self) -> bool {
@@ -2502,6 +2564,7 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
+                broken_retry: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
@@ -2576,8 +2639,9 @@ impl ChildAgent {
                 let fresh = h > *hosted.logged.borrow();
                 if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     drop(turn);
-                    // Not stored: never acknowledge it or anything after it.
-                    // Open requests stay open; the next request reattaches.
+                    // Not stored: never acknowledge it or anything after it. The hub answers the
+                    // open requests at the notice below (`Inbound::LinkBroken`), with the store's
+                    // refusal; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                         return;

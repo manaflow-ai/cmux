@@ -184,6 +184,16 @@ impl TerminalStreamProgress {
         Some(revision)
     }
 
+    /// A resource subscriber waits on this terminal now.
+    pub(super) fn has_resource_waiters(&self) -> bool {
+        !self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_waiters
+            .is_empty()
+    }
+
     #[cfg(test)]
     pub(super) fn waiter_count(&self) -> usize {
         let state = self.state.lock().unwrap();

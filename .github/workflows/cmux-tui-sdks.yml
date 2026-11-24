@@ -1,19 +1,29 @@
 name: cmux-tui SDKs
 
 on:
+  # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite cmux-tui-sdks
+  # in .github/post-merge-batch.json), not once per merge: sha is the commit to test, only one job
+  # id a bisect probe runs alone. Leo 2026-11-21: "whatever we need to cut, we cut."
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to test (empty is the caller's commit).
+        type: string
+        default: ""
+      only:
+        description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
   push:
-    # feat-cmux-next too: a pull request into it is judged against the base's own verdict
-    # (scripts/ci/base_red_excuse.py), and with main alone a contract red the base caused
-    # (b9783320dc5, create-workspace first_tab) had no feat-cmux-next verdict to excuse it
-    # with, so every cmux-tui pull request stalled behind it (cmux#41132).
     branches:
       - main
-      - feat-cmux-next
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -30,19 +40,17 @@ on:
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
-      - ".github/workflows/sdk-bootstrap-crates.yml"
-      - ".github/workflows/sdk-bootstrap-npm.yml"
-      - ".github/workflows/sdk-bootstrap-pypi.yml"
       - ".github/workflows/sdk-publish-crates.yml"
       - ".github/workflows/sdk-publish-go.yml"
       - ".github/workflows/sdk-publish-java.yml"
       - ".github/workflows/sdk-publish-npm.yml"
       - ".github/workflows/sdk-publish-python.yml"
-      - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -129,6 +137,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
@@ -167,6 +176,8 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -179,6 +190,7 @@ on:
       - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-extension-author/recipes/**"
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
@@ -188,6 +200,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -204,19 +218,17 @@ on:
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
-      - ".github/workflows/sdk-bootstrap-crates.yml"
-      - ".github/workflows/sdk-bootstrap-npm.yml"
-      - ".github/workflows/sdk-bootstrap-pypi.yml"
       - ".github/workflows/sdk-publish-crates.yml"
       - ".github/workflows/sdk-publish-go.yml"
       - ".github/workflows/sdk-publish-java.yml"
       - ".github/workflows/sdk-publish-npm.yml"
       - ".github/workflows/sdk-publish-python.yml"
-      - ".github/workflows/sdk-release-cut.yml"
       - ".github/workflows/tui-publish-npm.yml"
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
@@ -303,6 +315,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
@@ -341,6 +354,8 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
       - "webviews/src/apps/scene/extTemplateScenes.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -353,15 +368,16 @@ on:
       - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-extension-author/recipes/**"
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
   workflow_dispatch:
 
 concurrency:
-  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}
-  # A pull request's newer push supersedes its run. A base push never cancels a started run (conformance now
-  # judges merges there): the next one waits, one pending at most, so the runs batch the merges between them.
+  # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job each)
+  # never cancel one another, and a started batch run is never cancelled.
+  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -394,6 +410,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
           # The pull request merge commit and its base parent.
           fetch-depth: 2
 
@@ -550,8 +567,8 @@ jobs:
     name: ${{ matrix.language }} package
     needs: contract
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'packages') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
@@ -569,6 +586,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Set up Python 3.9
         if: matrix.language == 'python'
@@ -594,6 +612,8 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
@@ -755,8 +775,8 @@ jobs:
     name: ${{ matrix.language }} consumer
     needs: contract
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'consumers') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     strategy:
@@ -774,6 +794,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Set up Python 3.9
         if: matrix.language == 'python'
@@ -801,6 +822,8 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: |
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
@@ -943,14 +966,15 @@ jobs:
     name: Rust SDK MSRV (1.88)
     needs: contract
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'rust-msrv') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
       # provision it as setup-cmux-tui-rust does.
@@ -978,6 +1002,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: |
             cmux-tui -> target
@@ -1018,14 +1044,15 @@ jobs:
     # on 11-21 14:29-17:00Z ran on heads that changed no SDK input (5 of 282 merged commits did).
     # After merge (CI 10x, 2026-11-21: 1.57% of pull request runner-minutes, 0.05% of heads it alone caught): a
     # pull request runs it only when it changes the SDK and protocol inputs (sdk_inputs: bindings/, spec/, the
-    # workspace manifests) or carries full-ci; every feat-cmux-next push the graph reaches runs it.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
+    # workspace manifests) or carries full-ci; every post-merge batch the graph reaches runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
@@ -1136,6 +1163,8 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-headless-debug
@@ -1157,7 +1186,7 @@ jobs:
       # Pull request caches stay read-only. main publishes the build they reuse,
       # and cmux-tui-headless-debug.yml does on feat-cmux-next.
       - name: Save the headless cmux-tui build
-        if: ${{ steps.tree.outputs.hit != 'true' && (github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true') }}
+        if: ${{ steps.tree.outputs.hit != 'true' && ((github.event_name == 'push' || inputs.sha != '') && steps.headless-cache.outputs.cache-hit != 'true') }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-tui/target/debug/cmux-tui
@@ -1220,14 +1249,15 @@ jobs:
   code-mode:
     name: code-mode MCP cancellation
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (inputs.only == '' || inputs.only == 'code-mode') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

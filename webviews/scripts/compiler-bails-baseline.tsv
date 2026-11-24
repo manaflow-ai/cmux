@@ -131,7 +131,6 @@ src/agent-session/acpmux/stableProps.ts	1
 src/agent-session/acpmux/stopThroughReconnect.ts	1
 src/agent-session/acpmux/subagents/DisclosureRow.tsx	1
 src/agent-session/acpmux/subagents/SenderIcon.tsx	1
-src/agent-session/acpmux/subagents/SubagentComposer.tsx	1
 src/agent-session/acpmux/subagents/SubagentDoneLine.tsx	1
 src/agent-session/acpmux/subagents/subagentEscape.ts	1
 src/agent-session/acpmux/subagents/SubagentTray.tsx	2

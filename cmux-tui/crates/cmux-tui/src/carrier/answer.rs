@@ -28,6 +28,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_rd_link::dlink::TurnName;
+use cmux_remote::provider::BoundCredential;
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
@@ -517,7 +518,7 @@ impl HttpSource {
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
         // try connects with no connect timeout. Both clients carry the space.
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
-            reqwest::Client::builder()
+            cmux_egress::client_builder("cmux_tui::carrier::answer")
                 .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(FETCH_TIMEOUT)
@@ -642,7 +643,10 @@ impl CarrierSource for HttpSource {
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
         let body = match noise_key {
-            Some(key) => json!({ "noise_key": key_text(key) }),
+            // `bind_grant`: the Connect ticket names this grant, so the relay
+            // admits the Connect only with it (cmuxterm-hq#19075); a platform
+            // that does not bind answers the same unbound ticket.
+            Some(key) => json!({ "noise_key": key_text(key), "bind_grant": true }),
             None => json!({}),
         };
         let (status, body) =
@@ -693,24 +697,61 @@ pub(super) fn now_unix() -> u64 {
 
 /// The relay credential for each control connect and allocation: one
 /// ticket reused until [`TICKET_MARGIN_SECS`] before it expires, then a
-/// fresh ticket-only fetch (no grant is minted for a ticket).
+/// fresh fetch. A ticket that names its grant (`bind_grant`, cmuxterm-hq#19075)
+/// travels with that grant, which the relay spends once per lane, for at most
+/// [`GRANT_LANES`] lanes: after that many allocations, or once it expires, the
+/// pair is fetched afresh with the device key, which mints a new grant. An
+/// unbound ticket is renewed by a ticket-only fetch, as before.
 pub(super) struct TicketCache {
     source: Arc<dyn CarrierSource>,
     machine: String,
-    held: Mutex<Option<(Zeroizing<String>, u64)>>,
+    key: [u8; 32],
+    held: Mutex<Option<Held>>,
+}
+
+/// The lanes the relay admits on one grant (cmux-platform
+/// workers/cmux-remote-relay/src/grant.rs `MAX_GRANT_LANES`).
+pub(super) const GRANT_LANES: u32 = 4;
+
+struct Held {
+    ticket: Zeroizing<String>,
+    grant: Option<Zeroizing<String>>,
+    expires_at: u64,
+    /// Allocations this pair was handed out for (counted only when bound).
+    uses: u32,
+}
+
+impl Held {
+    fn of(answer: CarrierAnswer) -> Self {
+        let grant = answer.grant.filter(|_| ticket_names_grant(&answer.ticket));
+        Self { ticket: answer.ticket, grant, expires_at: answer.expires_at, uses: 0 }
+    }
+}
+
+/// Whether a `v2.<claims>.<mac>` relay ticket's claims name a grant. The
+/// claims are not secret; the relay checks the MAC.
+pub(super) fn ticket_names_grant(ticket: &str) -> bool {
+    let mut parts = ticket.split('.');
+    let (Some("v2"), Some(claims), Some(_), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    URL_SAFE_NO_PAD
+        .decode(claims)
+        .ok()
+        .and_then(|claims| serde_json::from_slice::<Value>(&claims).ok())
+        .is_some_and(|claims| claims.get("grant").is_some_and(Value::is_string))
 }
 
 impl TicketCache {
     pub(super) fn new(
         source: Arc<dyn CarrierSource>,
         machine: String,
+        key: [u8; 32],
         first: &CarrierAnswer,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            source,
-            machine,
-            held: Mutex::new(Some((first.ticket.clone(), first.expires_at))),
-        })
+        Arc::new(Self { source, machine, key, held: Mutex::new(Some(Held::of(first.clone()))) })
     }
 
     /// A ticket that is good for at least the margin at `now` (Unix seconds).
@@ -718,18 +759,48 @@ impl TicketCache {
         now.saturating_add(TICKET_MARGIN_SECS) < expires_at
     }
 
+    /// The ticket alone, for a control socket's authentication: it spends no
+    /// grant.
     pub(super) async fn ticket(&self) -> Result<String, ()> {
-        if let Some((ticket, expires_at)) =
-            self.held.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
-            && Self::usable(*expires_at, now_unix())
+        self.take(false).await.map(|credential| credential.ticket.to_string())
+    }
+
+    /// The ticket and its grant, for one lane's allocation.
+    pub(super) async fn credential(&self) -> Result<BoundCredential, ()> {
+        self.take(true).await
+    }
+
+    async fn take(&self, allocation: bool) -> Result<BoundCredential, ()> {
         {
-            return Ok(ticket.to_string());
+            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(pair) = held.as_mut()
+                && Self::usable(pair.expires_at, now_unix())
+                && (pair.grant.is_none() || !allocation || pair.uses < GRANT_LANES)
+            {
+                if allocation && pair.grant.is_some() {
+                    pair.uses += 1;
+                }
+                return Ok(BoundCredential {
+                    ticket: pair.ticket.clone(),
+                    grant: pair.grant.clone(),
+                });
+            }
         }
-        let answer = self.source.fetch(&self.machine, None).await.map_err(|_| ())?;
-        let ticket = answer.ticket.to_string();
-        *self.held.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some((answer.ticket, answer.expires_at));
-        Ok(ticket)
+        let bound = self
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|pair| pair.grant.is_some());
+        let key = bound.then_some(&self.key);
+        let answer = self.source.fetch(&self.machine, key).await.map_err(|_| ())?;
+        let mut pair = Held::of(answer);
+        if allocation && pair.grant.is_some() {
+            pair.uses = 1;
+        }
+        let credential = BoundCredential { ticket: pair.ticket.clone(), grant: pair.grant.clone() };
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some(pair);
+        Ok(credential)
     }
 }
 

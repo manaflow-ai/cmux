@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod act;
 pub mod act_ids;
+pub mod prompt_lifecycle;
 pub mod queue;
 pub mod source;
 pub mod stream;
@@ -1499,8 +1500,10 @@ fn apply_changes(
     let mut lacks = BTreeMap::<u64, u64>::new();
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
-            || matches!(&op.change, Change::Patch(_));
-        if matches!(&op.change, Change::Row(row) if !row.open) {
+            || matches!(&op.change, Change::Patch(_) | Change::Leave(_));
+        if matches!(&op.change, Change::Row(row) if !row.open)
+            || matches!(&op.change, Change::Leave(row) if row.rev <= 1)
+        {
             state.settled_since_checkpoint = state.settled_since_checkpoint.saturating_add(1);
         }
         let raw = RawRange {
@@ -1522,6 +1525,15 @@ fn apply_changes(
             Change::Patch(row) => {
                 lacks.remove(&row.id);
                 patch(state, row, raw)?;
+            }
+            // A row taken back: an open one settles hidden, a settled one is patched hidden.
+            Change::Leave(row) => {
+                lacks.remove(&row.id);
+                if row.rev <= 1 {
+                    settle_or_open(state, row, raw)?;
+                } else {
+                    patch(state, row, raw)?;
+                }
             }
             Change::Body { id, field, append, source } => {
                 let mut missed = 0u64;
@@ -1746,7 +1758,8 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     let final_bytes = state.blobs.settle(body)?;
     if final_bytes.is_none() {
-        let outline = Outline { head: "{}", preview: "" };
+        let head = row.head();
+        let outline = Outline { head: &head, preview: "" };
         encoded.clear();
         row.as_row("{}")
             .encode_blob(body.len(), outline, &mut encoded)
