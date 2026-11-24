@@ -52,7 +52,10 @@ jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 300
+    # The job's clock includes the wait for the pinned worker's exclusive lease, which ran 2.5 h on
+    # 2026-11-22 and past the old 300 min on 2026-11-23 (run 45160093472, cancelled, nothing measured).
+    # 720 min leaves that wait room beside the step's own 7200 s.
+    timeout-minutes: 720
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
