@@ -76,6 +76,10 @@ pub struct MacFrames {
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    // One-window sharing exists on Linux X11 only; never stream the whole display instead.
+    if let Some(id) = cfg.window {
+        return Err(format!("window {id}: sharing one window is not available on macOS yet").into());
+    }
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -86,21 +90,40 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     let cursor_metadata = cursor_metadata && cursor::available();
     // The cursor is in the pictures unless the viewer draws it or asked for none at all.
     let in_pictures = !cursor_metadata && cfg.show_cursor;
-    let mut capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
-    capture.ready(FIRST_FRAME_TIMEOUT_NS)?;
+    let make_encoder = move |(width, height): (u32, u32)| -> Res<VideoToolbox> {
+        let mut encoder = VideoToolbox::new(
+            width,
+            height,
+            encoder_fps(width, height, cfg.max_fps),
+            cfg.start_kbps,
+            cfg.profile == "baseline",
+        )?;
+        // The session's profile and the encoder's resources now, not on the first frame: an
+        // ultra session would otherwise rebuild the encoder inside the session's first keyframe.
+        encoder.set_ultra(cfg.encode_profile.is_ultra());
+        encoder.prepare()?;
+        Ok(encoder)
+    };
+    // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
+    // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request,
+    // the stream start and the first frame, not after them.
+    let (capture, early) = std::thread::scope(|scope| {
+        let early = capture::expected_size(&cfg.display, cfg.max_width)
+            .map(|size| (size, scope.spawn(move || make_encoder(size))));
+        let capture =
+            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
+                .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
+        let early = early.map(|(size, thread)| (size, thread.join()));
+        (capture, early)
+    });
+    let capture = capture?;
     let (width, height) = capture.size();
-    let mut encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
-    // The session's profile and the encoder's resources now, not on the first frame: an ultra
-    // session would otherwise rebuild the encoder inside the session's first keyframe.
-    encoder.set_ultra(cfg.encode_profile.is_ultra());
-    encoder.prepare()?;
+    let encoder = match early {
+        Some((size, Ok(encoder))) if size == (width, height) => encoder?,
+        // A guess that missed (a display change between the two reads) or a panicked thread:
+        // make it again at the stream's size.
+        _ => make_encoder((width, height))?,
+    };
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;

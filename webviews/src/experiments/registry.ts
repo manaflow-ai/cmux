@@ -22,6 +22,7 @@ import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experim
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
@@ -186,6 +187,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartAskLook,
   startRecoveryLook,
   agentStartLook,
+  composerUnpop,
   liveLineTokens,
   compactingLine,
   liveLineTimes,

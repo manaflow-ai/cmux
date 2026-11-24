@@ -181,6 +181,45 @@ describe("computer use", () => {
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
   });
+  const footnote =
+    "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
+  test("the footnote under the grants says the helper runs on its own", () => {
+    expect(text(render(computerUseState("fresh")))).toContain(footnote);
+    expect(text(render(computerUseState("allGranted")))).toContain(footnote);
+  });
+  test("a note on why Allow cannot help takes the footnote's place", () => {
+    const words = text(render(computerUseState("helperFailed")));
+    expect(words).toContain("The cmux Computer Use helper did not respond.");
+    expect(words).not.toContain(footnote);
+  });
+  test("finished: the done view replaces the head and rows", () => {
+    const html = render(computerUseState("finished"));
+    const words = text(html);
+    expect(words).toContain("Computer Use Is Ready");
+    expect(words).toContain("Setup is complete. You can now ask agents to use apps on your Mac.");
+    expect(words).not.toContain("Turn On Computer Use");
+    expect(html).not.toContain('class="onb-grant"');
+    expect(words).not.toContain(footnote);
+    expect(words).toContain("Done");
+  });
+  test("opened with every grant on: the rows and the ready line, no done view", () => {
+    const words = text(render(computerUseState("allGranted")));
+    expect(words).toContain("Turn On Computer Use");
+    expect(words).not.toContain("Computer Use Is Ready");
+  });
+  test("screenshots just allowed: its row asks to allow screen capture, the bypass warning expected", () => {
+    const html = render(computerUseState("confirmingCapture"));
+    const words = text(html);
+    expect(words).toContain("macOS asks for confirmation. Allow screen capture.");
+    expect(words).toContain("The system “bypass” warning is expected here.");
+    expect(words).not.toContain("Lets agents see the window they work in");
+    expect(words).toContain("Lets agents click and type in your apps");
+  });
+  test("no capture note before Screenshots was allowed here", () => {
+    const words = text(render(computerUseState("oneGranted")));
+    expect(words).not.toContain("macOS asks for confirmation.");
+    expect(words).toContain("Lets agents see the window they work in");
+  });
 });
 
 describe("store", () => {
