@@ -554,6 +554,29 @@ struct UdpBlock {
     /// the server's answer, so the client's retransmit meets an allocation
     /// that already exists).
     drop_allocate_successes: std::sync::atomic::AtomicU32,
+    /// Every client address the UDP port heard from.
+    clients: std::sync::Mutex<std::collections::HashSet<std::net::SocketAddr>>,
+    /// Clients whose permissions lapsed ([`TestTurn::lapse_permissions`]):
+    /// their relayed data (ChannelData, Send indications) is dropped until
+    /// they send a CreatePermission or ChannelBind again.
+    lapsed: std::sync::Mutex<std::collections::HashSet<std::net::SocketAddr>>,
+    /// Relayed datagrams dropped for a lapsed permission.
+    dropped_lapsed: std::sync::atomic::AtomicU64,
+}
+
+/// What a lapsed client's datagram does to its lapse: renews it (a
+/// CreatePermission or ChannelBind request), is dropped (relayed data), or
+/// passes (any other STUN).
+fn lapse_effect(datagram: &[u8]) -> Option<bool> {
+    match datagram.first()? {
+        0x40..=0x7f => Some(false),
+        _ if datagram.len() >= 2 => match [datagram[0], datagram[1]] {
+            [0x00, 0x08] | [0x00, 0x09] => Some(true),
+            [0x00, 0x16] => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Whether `datagram` is a STUN Allocate success response (type 0x0103).
@@ -581,6 +604,20 @@ impl webrtc::util::Conn for BlockableUdp {
         loop {
             let (len, from) = self.socket.recv_from(buf).await?;
             if !self.block.on.load(std::sync::atomic::Ordering::Relaxed) {
+                self.block.clients.lock().unwrap().insert(from);
+                let mut lapsed = self.block.lapsed.lock().unwrap();
+                if lapsed.contains(&from) {
+                    match lapse_effect(&buf[..len]) {
+                        Some(true) => {
+                            lapsed.remove(&from);
+                        }
+                        Some(false) => {
+                            self.block.dropped_lapsed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            continue;
+                        }
+                        None => {}
+                    }
+                }
                 return Ok((len, from));
             }
             self.block.dropped_from_clients.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -757,6 +794,21 @@ impl TestTurn {
     /// a lossy link that loses the server's answer to an allocation.
     pub fn drop_allocate_successes(&self, count: u32) {
         self.udp_block.drop_allocate_successes.store(count, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Every permission every current UDP client holds lapses now, as when
+    /// a phone sleeps past the server's 300 s permission lifetime with no
+    /// refresh: the server drops what a client relays (ChannelData, Send
+    /// indications) until that client sends a CreatePermission or
+    /// ChannelBind again. A new client (a fresh allocation) is unaffected.
+    pub fn lapse_permissions(&self) {
+        let clients = self.udp_block.clients.lock().unwrap().clone();
+        self.udp_block.lapsed.lock().unwrap().extend(clients);
+    }
+
+    /// Relayed datagrams dropped so far for a lapsed permission.
+    pub fn dropped_lapsed(&self) -> u64 {
+        self.udp_block.dropped_lapsed.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Datagrams the blocked UDP port dropped so far: (from its clients, to

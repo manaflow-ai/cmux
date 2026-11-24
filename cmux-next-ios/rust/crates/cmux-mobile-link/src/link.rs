@@ -182,6 +182,32 @@ fn probe_timeout(floor: Duration, srtt: Option<Duration>) -> Duration {
     let scaled = srtt.map_or(Duration::ZERO, |srtt| (srtt * PROBE_RTT_FACTOR).min(PROBE_TIMEOUT_CAP));
     floor.max(scaled)
 }
+/// A resumed parked link that has not answered after this many smoothed
+/// round trips, plus [`RESUME_HEDGE_SLACK`], is presumed stale and a fresh
+/// dial is started next to it (the old link keeps being probed; whichever
+/// answers first is kept). A live resume answers in two round trips: the
+/// tunnel's handshake on its new socket, then the ping's pong. The third
+/// round trip and the slack absorb jitter and one lost datagram's pacing.
+pub const RESUME_HEDGE_RTT_FACTOR: u32 = 3;
+/// Fixed slack on top of [`RESUME_HEDGE_RTT_FACTOR`] round trips: wake-up
+/// scheduling and the radio's promotion from idle.
+pub const RESUME_HEDGE_SLACK: Duration = Duration::from_millis(100);
+/// The hedge never fires sooner: under this, a healthy resume on a fast
+/// path still races a needless dial.
+pub const RESUME_HEDGE_FLOOR: Duration = Duration::from_millis(250);
+/// Nor later than the parked-resume probe's own 1.5 s: past that the app
+/// already gives up on the old link and redials.
+pub const RESUME_HEDGE_CAP: Duration = Duration::from_millis(1500);
+/// With no round trip measured on the link yet.
+pub const RESUME_HEDGE_UNKNOWN: Duration = Duration::from_millis(500);
+
+fn resume_hedge_after(srtt: Option<Duration>) -> Duration {
+    srtt.map_or(RESUME_HEDGE_UNKNOWN, |srtt| {
+        (srtt.saturating_mul(RESUME_HEDGE_RTT_FACTOR) + RESUME_HEDGE_SLACK)
+            .clamp(RESUME_HEDGE_FLOOR, RESUME_HEDGE_CAP)
+    })
+}
+
 /// While a link is suspect it pings this often, so the first ping after
 /// the network comes back is answered within about this long, and so the
 /// tunnel has a datagram to resume on. Only while suspect: an idle healthy
@@ -1387,6 +1413,15 @@ impl Link {
         probe_timeout(floor, srtt)
     }
 
+    /// How long a resumed parked link may stay silent before a fresh dial
+    /// is raced against it: [`RESUME_HEDGE_RTT_FACTOR`] smoothed round trips
+    /// plus [`RESUME_HEDGE_SLACK`], within [`RESUME_HEDGE_FLOOR`] and
+    /// [`RESUME_HEDGE_CAP`]. A remembered endpoint that died during the park
+    /// then costs this plus the dial instead of the full 1.5 s probe plus it.
+    pub fn resume_hedge_after(&self) -> Duration {
+        resume_hedge_after(*self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
     /// pong, `Ok(None)` as soon as any other frame arrives after the ping went
     /// out (a pong can trail a full transmit queue on a slow relay; the link's
@@ -2298,6 +2333,17 @@ mod tests {
             "lossy-10's 1 s round trip"
         );
         assert_eq!(probe_timeout(floor, Some(Duration::from_secs(4))), PROBE_TIMEOUT_CAP);
+    }
+
+    #[test]
+    fn resume_hedge_scales_with_the_round_trip_within_bounds() {
+        let ms = Duration::from_millis;
+        assert_eq!(resume_hedge_after(None), RESUME_HEDGE_UNKNOWN);
+        assert_eq!(resume_hedge_after(Some(ms(2))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(20))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
+        assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
+        assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
     }
 
     fn pair() -> (Link, Link) {
