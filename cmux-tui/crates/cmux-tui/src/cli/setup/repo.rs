@@ -10,6 +10,13 @@
 //! the App Store's own `cmux apps install` (which shows cmux's card for each),
 //! and keeps a receipt. `remove` undoes it; `update` moves it to the newest
 //! commit of the ref it was installed from. Every verb takes `--json`.
+//!
+//! A look is edited live from a folder on this computer: `install ./DIR`
+//! reads it in place (no fetch, no push), `--watch` (or `dev DIR`) reapplies
+//! it on every save. `undo` and `redo` walk install, update, remove, swap,
+//! variant, on/off, order and reload steps, each one whole (cmux-customize
+//! `setup::history`). `variant LOOK NAME` picks one of a look's theme files
+//! inside its layer.
 
 use cmux_process::Command;
 use std::io::{BufRead, IsTerminal, Write};
@@ -34,6 +41,11 @@ pub(super) const VERBS: &[&str] = &[
     "on",
     "off",
     "order",
+    "undo",
+    "redo",
+    "swap",
+    "variant",
+    "dev",
 ];
 
 pub(super) const HELP: &str = "\
@@ -44,6 +56,12 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
                                                      --strict: warnings fail too)
   cmux setup install HOST/OWNER/REPO[@REF] [--yes]   Fetch it at one commit, show what it changes, apply it
   cmux setup install ./DIR [--as OWNER/NAME] [--yes] Try a setup folder on this machine before you publish it
+  cmux setup install ./DIR --watch [--as OWNER/NAME] The same, then reapply it on every save until Ctrl-C (no push)
+  cmux setup dev DIR [--as OWNER/NAME] [--yes]       The same as install ./DIR --watch
+  cmux setup swap OLD NEW [--yes]                    Install NEW in OLD's place in the order and remove OLD, as one undo step
+  cmux setup variant [LOOK] [NAME]                   List a look's variants (its theme files), or pick NAME in its layer
+  cmux setup undo | redo                             One install, update, remove, swap, variant, on/off, order or live
+                                                     edit back or forward
   cmux setup install-link URL                        Install from a cmux.com setup page's Open in cmux link
                                                      (<scheme>://setups/install?repo=HOST/OWNER/REPO&commit=SHA):
                                                      the same card; it never takes --yes
@@ -83,6 +101,8 @@ pub(super) enum Request {
         reference: String,
         yes: bool,
         as_id: Option<String>,
+        /// Reapply the folder on every save (`--watch`, `dev`).
+        watch: bool,
     },
     /// cmux.com's Open in cmux link for a setup: an install that always asks.
     InstallLink {
@@ -112,13 +132,29 @@ pub(super) enum Request {
         owner: Option<String>,
         strict: bool,
     },
+    Undo,
+    Redo,
+    Swap {
+        from: String,
+        to: String,
+        yes: bool,
+    },
+    Variant {
+        words: Vec<String>,
+    },
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
     let (verb, rest) = args.split_first().ok_or_else(|| HELP.to_owned())?;
     let yes = rest.iter().any(|word| word == "--yes" || word == "-y");
-    let words: Vec<&String> =
-        rest.iter().filter(|word| *word != "--yes" && *word != "-y").collect();
+    let watch = rest.iter().any(|word| word == "--watch");
+    if watch && verb != "install" {
+        return Err(format!("cmux setup {verb}: --watch is for install ./DIR"));
+    }
+    let words: Vec<&String> = rest
+        .iter()
+        .filter(|word| *word != "--yes" && *word != "-y" && *word != "--watch")
+        .collect();
     let one = |words: &[&String]| -> Result<Option<String>, String> {
         match words {
             [] => Ok(None),
@@ -127,7 +163,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         }
     };
     match verb.as_str() {
-        "install" => {
+        "install" | "dev" => {
             let mut words = words;
             let as_id = match words.iter().position(|word| *word == "--as") {
                 Some(at) => {
@@ -135,19 +171,42 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
                         .get(at + 1)
                         .filter(|id| !id.starts_with('-'))
                         .map(|id| (*id).clone())
-                        .ok_or("cmux setup install: --as needs OWNER/NAME")?;
+                        .ok_or_else(|| format!("cmux setup {verb}: --as needs OWNER/NAME"))?;
                     words.drain(at..=at + 1);
                     Some(id)
                 }
                 None => None,
             };
-            match one(&words)? {
-                Some(reference) => Ok(Request::Install { reference, yes, as_id }),
-                None => Err(
+            match (one(&words)?, verb.as_str()) {
+                (Some(reference), "dev") => Ok(Request::Install {
+                    reference: folder_text(&reference),
+                    yes,
+                    as_id,
+                    watch: true,
+                }),
+                (Some(reference), _) => Ok(Request::Install { reference, yes, as_id, watch }),
+                (None, "dev") => {
+                    Err("cmux setup dev needs a folder that holds cmux-setup.json".to_owned())
+                }
+                (None, _) => Err(
                     "cmux setup install needs a repo (HOST/OWNER/REPO[@REF]) or a folder (./DIR)"
                         .to_owned(),
                 ),
             }
+        }
+        "undo" if rest.is_empty() => Ok(Request::Undo),
+        "redo" if rest.is_empty() => Ok(Request::Redo),
+        "swap" => match words.as_slice() {
+            [from, to] if !from.starts_with('-') && !to.starts_with('-') => {
+                Ok(Request::Swap { from: (*from).clone(), to: (*to).clone(), yes })
+            }
+            _ => Err("cmux setup swap needs OLD NEW: an installed setup and the one to put on"
+                .to_owned()),
+        },
+        "variant"
+            if !yes && words.len() <= 2 && words.iter().all(|word| !word.starts_with('-')) =>
+        {
+            Ok(Request::Variant { words: words.into_iter().cloned().collect() })
         }
         "install-link" => match (yes, words.as_slice()) {
             (false, [link]) if !link.starts_with('-') => {
@@ -258,30 +317,86 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
     };
     let apps = CliApps { global };
+    let output = global.output;
+    let mut watching = None;
     let answer = match request {
-        Request::Install { reference, yes, as_id } => {
-            install_as(&customize, &apps, global.output, &reference, yes, as_id.as_deref())
+        Request::Install { reference, yes, as_id, watch } => {
+            stepped(&customize, "install", &format!("install {reference}"), || {
+                let source = parse_source(&reference)?;
+                if watch && source.folder().is_none() {
+                    return Err(refused(
+                        "setup.not_a_folder",
+                        "--watch is for a folder on this computer (cmux setup install ./DIR --watch)",
+                    ));
+                }
+                let answer =
+                    install_as(&customize, &apps, output, &reference, yes, as_id.as_deref())?;
+                if watch {
+                    watching = Some((source, as_id.clone()));
+                }
+                Ok(answer)
+            })
         }
-        Request::InstallLink { link } => install_link(&customize, &apps, global.output, &link),
+        Request::InstallLink { link } => {
+            stepped(&customize, "install", &format!("install {link}"), || {
+                install_link(&customize, &apps, output, &link)
+            })
+        }
         Request::Update { which, yes } => {
-            update(&customize, &apps, global.output, which.as_deref(), yes)
+            let label = format!("update {}", which.as_deref().unwrap_or("setup"));
+            stepped(&customize, "update", &label, || {
+                update(&customize, &apps, output, which.as_deref(), yes)
+            })
         }
-        Request::Remove { which } => remove(&customize, &apps, which.as_deref()),
+        Request::Remove { which } => {
+            let label = format!("remove {}", which.as_deref().unwrap_or("setup"));
+            stepped(&customize, "remove", &label, || remove(&customize, &apps, which.as_deref()))
+        }
         Request::Installed => {
             customize.setups().map(|setups| json!({"setups": setups})).map_err(Failure::from)
         }
-        Request::On { which, on } => set_on(&customize, &apps, which.as_deref(), on),
-        Request::Order { ids } => order(&customize, &apps, &ids),
+        Request::On { which, on } => {
+            let label = format!(
+                "{} {}",
+                if on { "on" } else { "off" },
+                which.as_deref().unwrap_or("setup")
+            );
+            stepped(&customize, if on { "on" } else { "off" }, &label, || {
+                set_on(&customize, &apps, which.as_deref(), on)
+            })
+        }
+        Request::Order { ids } => {
+            stepped(&customize, "order", &format!("order {}", ids.join(" ")), || {
+                order(&customize, &apps, &ids)
+            })
+        }
+        Request::Swap { from, to, yes } => {
+            stepped(&customize, "swap", &format!("swap {from} for {to}"), || {
+                swap(&customize, &apps, output, &from, &to, yes)
+            })
+        }
+        Request::Variant { words } => {
+            let label = format!("variant {}", words.join(" "));
+            stepped(&customize, "variant", &label, || variant(&customize, &words))
+        }
+        Request::Undo => undo_redo(&customize, &apps, false),
+        Request::Redo => undo_redo(&customize, &apps, true),
         Request::Export { dir, header } => export(&customize, &dir, &header),
         Request::Check { .. } => unreachable_check(),
     };
     match answer {
         Ok(value) => {
-            if global.output == OutputMode::Human {
+            let code = if global.output == OutputMode::Human {
                 println!("{}", human(&value));
                 0
             } else {
                 wire::print_local_success(&value, global.output)
+            };
+            match watching {
+                Some((source, as_id)) if code == 0 => {
+                    watch(&customize, &apps, global.output, &source, as_id.as_deref())
+                }
+                _ => code,
             }
         }
         Err(Failure { code, message, details }) => {
@@ -349,7 +464,7 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
     // Every string comes from the folder: shown inert.
     let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
     let mut lines = Vec::new();
-    for finding in value["findings"].as_array().into_iter().flatten() {
+    for finding in value.get("findings").and_then(Value::as_array).into_iter().flatten() {
         let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
         let mut place = text("path");
         if let Some(line) = finding["line"].as_u64() {
@@ -363,10 +478,13 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
             lines.push(format!("  fix: {fix}"));
         }
     }
-    for skipped in value["skipped"].as_array().into_iter().flatten() {
+    for skipped in value.get("skipped").and_then(Value::as_array).into_iter().flatten() {
         lines.push(format!("note: not checked: {}", skipped["why"].as_str().unwrap_or_default()));
     }
-    let name = value["setup_id"].as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+    let name = value
+        .get("setup_id")
+        .and_then(Value::as_str)
+        .map_or_else(|| dir.display().to_string(), str::to_owned);
     let (errors, warnings) = (report.errors(), report.warnings());
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
     lines.push(if errors > 0 {
@@ -716,7 +834,7 @@ pub(super) fn card_text(card: &Value) -> String {
         at(card, "/source/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default(),
     )];
     if card["reviewed"] != json!(true) {
-        lines.push(if card["source"]["local"] == json!(true) {
+        lines.push(if at(card, "/source/local") == &json!(true) {
             "Not reviewed by cmux: it comes straight from this folder.".to_owned()
         } else {
             "Not reviewed by cmux: it comes straight from the repo.".to_owned()
@@ -909,6 +1027,18 @@ fn open(apps: &dyn Apps, source: &SetupSource, as_id: Option<&str>) -> Result<Op
     }
 }
 
+/// `text` as a folder path [`parse_source`] reads as one: `dev DIR` takes
+/// a bare folder name (`looks/night`) that holds the setup file too.
+fn folder_text(text: &str) -> String {
+    let is_path = matches!(text, "." | ".." | "~")
+        || ["./", "../", "/", "~/"].iter().any(|start| text.starts_with(start));
+    if is_path || !Path::new(text).join(SETUP_FILE).is_file() {
+        text.to_owned()
+    } else {
+        format!("./{text}")
+    }
+}
+
 /// The source `text` names: a folder when it is a path (`./`, `../`, `/`
 /// or `~`, made absolute; it must hold the setup file), else a repo.
 fn parse_source(text: &str) -> Result<SetupSource, Failure> {
@@ -987,7 +1117,7 @@ pub(super) fn install_as(
         "installed": receipt,
         "card": card,
         "extension_errors": extension_errors,
-        "undo": card["undo"],
+        "undo": card.get("undo"),
         "page": opened.source.reference().map(Reference::page_url),
     }))
 }
@@ -1182,6 +1312,236 @@ fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Va
     }))
 }
 
+/// Runs one verb as one undo step: what was live before, the verb, then the
+/// step from there to what is live now (none when nothing changed). The
+/// answer names the step (`step`), so `cmux setup undo` is the way back.
+fn stepped(
+    customize: &Customize,
+    verb: &str,
+    label: &str,
+    run: impl FnOnce() -> Result<Value, Failure>,
+) -> Result<Value, Failure> {
+    let before = customize.setup_state(now_ms())?;
+    let mut answer = run()?;
+    let step = customize.record_setup_step(verb, label, before, None, now_ms())?;
+    if !step.is_empty()
+        && let Some(object) = answer.as_object_mut()
+    {
+        object.insert("step".to_owned(), json!({"id": step, "verb": verb, "label": label}));
+    }
+    Ok(answer)
+}
+
+/// Puts NEW on in OLD's place: OLD comes off, NEW goes on where OLD was in
+/// the order; when NEW does not (declined, unreadable, refused), what was
+/// live before OLD came off is back. One undo step (the caller's `stepped`).
+fn swap(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    from: &str,
+    to: &str,
+    yes: bool,
+) -> Result<Value, Failure> {
+    let old = find(customize, Some(from))?;
+    let place = customize.setups()?.iter().position(|receipt| receipt.id == old.id);
+    let before = customize.setup_state(now_ms())?;
+    let installed = remove(customize, apps, Some(&old.id)).and_then(|removed| {
+        let answer = install_as(customize, apps, output, to, yes, None)?;
+        Ok((removed, answer))
+    });
+    let put_in_place = |answer: &Value| -> Result<(), Failure> {
+        // A new setup goes on top: NEW takes OLD's place in the order.
+        let Some(id) = answer.pointer("/installed/id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let mut ids: Vec<String> = customize
+            .setups()?
+            .into_iter()
+            .map(|receipt| receipt.id)
+            .filter(|other| other != id)
+            .collect();
+        let at = place.unwrap_or(0).min(ids.len());
+        if at > 0 {
+            ids.insert(at, id.to_owned());
+            customize.order_setups(&ids, "cli", now_ms())?;
+            apps.reload_layers();
+        }
+        Ok(())
+    };
+    match installed.and_then(|(removed, answer)| put_in_place(&answer).map(|()| (removed, answer)))
+    {
+        Ok((removed, mut answer)) => {
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("swapped".to_owned(), json!({"from": old.id, "removed": removed}));
+                object.remove("undo");
+            }
+            Ok(answer)
+        }
+        Err(error) => {
+            customize.restore_setup_state(
+                &before,
+                &format!("setup swap {from} for {to}: put back"),
+                "cli",
+                now_ms(),
+            )?;
+            apps.reload_layers();
+            Err(error)
+        }
+    }
+}
+
+/// `variant`: lists the only installed look's variants; `variant LOOK`
+/// lists LOOK's (or, when LOOK is not an installed setup, picks it as a
+/// variant of the only one); `variant LOOK NAME` picks NAME in LOOK's layer.
+fn variant(customize: &Customize, words: &[String]) -> Result<Value, Failure> {
+    let (receipt, name) = match words {
+        [] => (find(customize, None)?, None),
+        [one] => match customize.setup(one)? {
+            Some(receipt) => (receipt, None),
+            None => (find(customize, None)?, Some(one.as_str())),
+        },
+        [look, name, ..] => (find(customize, Some(look))?, Some(name.as_str())),
+    };
+    if let Some(name) = name {
+        customize.setup_variant(&receipt, name, "cli", now_ms())?;
+    }
+    let (variants, picked) = customize.setup_variants(&receipt)?;
+    Ok(json!({
+        "variants": {"id": receipt.id, "variants": variants, "picked": picked},
+        "set": name.is_some(),
+    }))
+}
+
+/// One setup step back (`forward`: forward). The extensions the step
+/// installed or removed stay as they are; the answer names them.
+fn undo_redo(customize: &Customize, apps: &dyn Apps, forward: bool) -> Result<Value, Failure> {
+    let step = if forward {
+        customize.redo_setup("cli", now_ms())?
+    } else {
+        customize.undo_setup("cli", now_ms())?
+    };
+    // The layers changed with the step: a running cmux reads them again.
+    apps.reload_layers();
+    let extensions_of = |state: &setup::SetupState| -> Vec<String> {
+        state
+            .receipts
+            .iter()
+            .flat_map(|receipt| &receipt.extensions)
+            .filter(|extension| extension.installed_by_setup)
+            .map(|extension| extension.reference.clone())
+            .collect()
+    };
+    let (before, after) = (extensions_of(&step.before), extensions_of(&step.after));
+    let mut extensions: Vec<String> =
+        before.iter().filter(|reference| !after.contains(reference)).cloned().collect();
+    extensions.extend(after.iter().filter(|reference| !before.contains(reference)).cloned());
+    Ok(json!({
+        if forward { "redone" } else { "undone" }: {"id": step.id, "verb": step.verb, "label": step.label},
+        "extensions_left": extensions,
+    }))
+}
+
+/// `install ./DIR --watch`: every save in DIR reapplies the look (an update
+/// with no question: the folder is yours and you said yes once). All the
+/// reloads of one session are one undo step (the history's `amend`); a save
+/// that does not read keeps the last good look. Ctrl-C ends it.
+fn watch(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    source: &SetupSource,
+    as_id: Option<&str>,
+) -> i32 {
+    use super::super::pack::{DEBOUNCE, relevant};
+    use notify::Watcher as _;
+    let Some(dir) = source.folder().map(Path::to_path_buf) else {
+        return failure(
+            output,
+            "setup.not_a_folder",
+            "--watch is for a folder on this computer",
+            Value::Null,
+            1,
+        );
+    };
+    let (send, receive) = std::sync::mpsc::channel::<notify::Result<notify::Event>>();
+    let watched = notify::recommended_watcher(send).and_then(|mut watcher| {
+        watcher.watch(&dir, notify::RecursiveMode::Recursive).map(|()| watcher)
+    });
+    let _watcher = match watched {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            let message = format!("could not watch {}: {error}", dir.display());
+            return failure(output, "io", &message, Value::Null, 1);
+        }
+    };
+    let json = matches!(output, OutputMode::Json | OutputMode::JsonLines);
+    if !json {
+        println!("watching {} (Ctrl-C ends)", dir.display());
+    }
+    let mut session: Option<String> = None;
+    let mut reloads = 0u64;
+    loop {
+        let Ok(first) = receive.recv() else {
+            return failure(output, "io", "the folder watch stopped", Value::Null, 1);
+        };
+        let mut changed = relevant(&first);
+        while let Ok(more) = receive.recv_timeout(DEBOUNCE) {
+            changed |= relevant(&more);
+        }
+        if !changed {
+            continue;
+        }
+        reloads += 1;
+        let started = std::time::Instant::now();
+        let answer = reload(customize, apps, output, source, as_id, session.as_deref());
+        let ms = started.elapsed().as_millis();
+        match answer {
+            Ok((value, step)) => {
+                if !step.is_empty() {
+                    session = Some(step);
+                }
+                let updated = value.get("updated") != Some(&json!(false));
+                if json {
+                    println!("{}", json!({"reload": reloads, "ms": ms, "updated": updated}));
+                } else if updated {
+                    println!("reloaded in {ms} ms");
+                }
+            }
+            Err(Failure { message, .. }) => {
+                if json {
+                    println!(
+                        "{}",
+                        json!({"reload": reloads, "error": message, "kept": "last good look"})
+                    );
+                } else {
+                    eprintln!("{message}; keeping the last good look");
+                }
+            }
+        }
+    }
+}
+
+/// One live reload of the folder `source` names (under `as_id` when it was
+/// installed `--as`): an update to what it holds now (an install when an
+/// undo took it off meanwhile), recorded into the session's step
+/// (`session`), or a new one. Returns the answer and the step's id.
+pub(super) fn reload(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    source: &SetupSource,
+    as_id: Option<&str>,
+    session: Option<&str>,
+) -> Result<(Value, String), Failure> {
+    let before = customize.setup_state(now_ms())?;
+    // An installed folder is an update; one an undo took off installs again.
+    let value = install_as(customize, apps, output, &source.key(), true, as_id)?;
+    let label = format!("live edit of {}", source.key());
+    let step = customize.record_setup_step("reload", &label, before, session, now_ms())?;
+    Ok((value, step))
+}
+
 /// The answer as a person reads it.
 fn human(value: &Value) -> String {
     let value = &inert(value);
@@ -1200,8 +1560,13 @@ fn human(value: &Value) -> String {
                 error["error"].as_str().unwrap_or_default()
             ));
         }
+        if let Some(from) = value.pointer("/swapped/from").and_then(Value::as_str) {
+            lines.push(format!("In place of {from}."));
+        }
         if let Some(undo) = value["undo"].as_str() {
-            lines.push(format!("Undo: {undo}"));
+            lines.push(format!("Undo: {undo} (or cmux setup undo)"));
+        } else if value.get("step").is_some() {
+            lines.push("Undo: cmux setup undo".to_owned());
         }
         return lines.join("\n");
     }
@@ -1255,6 +1620,39 @@ fn human(value: &Value) -> String {
             )
         }));
         return lines.join("\n");
+    }
+    if let Some(step) = value.get("undone").or_else(|| value.get("redone")) {
+        let mut line = format!(
+            "{} {}.",
+            if value.get("undone").is_some() { "Undid" } else { "Redid" },
+            step["label"].as_str().unwrap_or_default()
+        );
+        if let Some(left) = value["extensions_left"].as_array().filter(|left| !left.is_empty()) {
+            let names: Vec<_> = left.iter().filter_map(Value::as_str).collect();
+            line.push_str(&format!(" Extensions left as they are: {}.", names.join(", ")));
+        }
+        return line;
+    }
+    if let Some(variants) = value.get("variants") {
+        let id = variants["id"].as_str().unwrap_or_default();
+        let picked = variants["picked"].as_str();
+        if value["set"] == json!(true) {
+            return format!("{id} now shows {}. Undo: cmux setup undo", picked.unwrap_or_default());
+        }
+        let names: Vec<_> = variants["variants"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if names.is_empty() {
+            return format!("{id} ships no variants (no themes/*.json).");
+        }
+        return names
+            .iter()
+            .map(|name| format!("{} {name}", if Some(*name) == picked { "*" } else { " " }))
+            .collect::<Vec<_>>()
+            .join("\n");
     }
     if let Some(exported) = value.get("exported") {
         let mut lines = vec![format!(

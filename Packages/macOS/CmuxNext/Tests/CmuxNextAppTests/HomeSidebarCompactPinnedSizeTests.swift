@@ -5,8 +5,8 @@ import Testing
 
 /// The compact Home list draws a pinned conversation at the same size and on the same rhythm as
 /// every other conversation (the user, 2026-10-19: "pinned should be same size imo"): one column of
-/// big avatars with the name under each (2026-11-03, msg 20149). Pinned shows as a thin ring around
-/// the avatar, inside the selection disc's footprint, never as a bigger avatar.
+/// the full rows with the avatar alone (Messages' narrow list, 2026-11-23). Pinned shows as a thin
+/// ring around the avatar, never as a bigger avatar.
 @MainActor
 struct HomeSidebarCompactPinnedSizeTests {
     private func rail(width: CGFloat) -> CmuxSidebarView {
@@ -44,24 +44,26 @@ struct HomeSidebarCompactPinnedSizeTests {
         let step = c.metrics.listRowHeight
         #expect(abs((rowAvatar.midY - pinAvatar.midY) - step) < 0.5,
                 "pinned-to-row step \(rowAvatar.midY - pinAvatar.midY), row step \(step)")
-        // Pinned stays visible: a ring around the avatar, within the selection disc's footprint.
+        // Pinned stays visible: a ring just around the avatar.
         #expect(!tile.pinRing.isHidden, "nothing marks the pinned avatar")
         #expect(tile.pinRing.borderWidth > 0)
         #expect(abs(tile.pinRing.frame.midX - tile.avatar.frame.midX) < 0.5)
         #expect(abs(tile.pinRing.frame.midY - tile.avatar.frame.midY) < 0.5)
         let avatar = c.metrics.compactAvatar
         #expect(tile.pinRing.frame.width <= avatar + 8, "the ring grows the footprint")
-        // The selection disc is the row's disc size too.
+        // The selection is the row's: across the tile, which spans the list less the row's inset.
         list.select("a")
-        #expect(abs(tile.selection.frame.width - (avatar + 8)) < 0.5)
-        // The unread dot sits where a row's dot sits: before the name ("CM" on both), on its line.
+        #expect(tile.selection.frame == tile.bounds)
+        #expect(abs(tileFrame.minX - SidebarMetrics.selectionInsetX) < 0.5)
+        #expect(tile.selection.cornerRadius == SidebarMetrics.selectionRadius)
+        // The unread dot sits where a row's dot sits, and no name shows.
         let dot = try #require(c.tileGeometry(0).dot)
         #expect(abs(dot.width - SidebarMetrics.dotDiameter) < 0.5)
         let row = try #require(c.rowLayers.values.first { $0.conversationID == "b" })
         #expect(!row.dot.isHidden)
         #expect(abs(dot.midX + tileFrame.minX - (row.dot.frame.midX + rowFrame.minX)) < 0.5, "tile coordinates vs row coordinates")
         #expect(abs(dot.midY - row.dot.frame.midY) < 0.5)
-        #expect(dot.maxX <= tile.content.frame.minX, "the dot comes before the name")
+        #expect(tile.content.isHidden, "a name shows in the narrow list")
     }
 
     /// The full-width list keeps Messages' big pinned grid (only the rail changed).

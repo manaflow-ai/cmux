@@ -8,7 +8,7 @@ import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
 import { type ChatAccounts, ownRouteOf } from "../chatAccounts";
 import type { Presentation } from "../chatDisplay";
-import type { CloudSignIn } from "../cloudAgentLogin";
+import { type CloudSignIn, terminalSignIn } from "../cloudAgentLogin";
 import type { ComposerHandle } from "../Composer";
 import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
@@ -97,6 +97,9 @@ export interface TurnRowsShownDeps {
 /// What `turnActionsFrom` reads of AcpmuxPane: the values its `turnActions` memo closes over.
 export interface TurnActionsDeps {
   showCall: (toolCallId: string, startedAt?: number) => boolean;
+  /// True: a failed turn's Retry of `prompt` is held (`@computer-use` while Computer Use is not ready,
+  /// CMUX-682); the chat already said why, or the click opened setup.
+  holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
@@ -302,6 +305,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
 export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
   const {
     showCall,
+    holdsRetry,
     restartChat,
     queuedMessageActionsRef,
     stableBranches,
@@ -340,6 +344,16 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     chatAccounts,
     access,
   } = deps;
+  // Sign in again's terminal login: a chat here or on an own machine, and a Cloud chat on an older
+  // machine whose acpmux runs no in-card sign-in (cloudAgentLogin.ts `terminalSignIn`).
+  const terminalLogin = terminalSignIn({
+    connected,
+    loginCommand,
+    card: chatSignIns.cloudSignIn,
+    onCloud: cloudMachineID !== undefined || snapshot.summary?.hostKind === "cloud",
+    machineSignsIn: directClient.current?.supportsAgentLogin === true,
+    teamMachine: cloudTeamMachine,
+  });
   return {
     showCall,
     canSendPromptAgain: restartChat !== undefined,
@@ -431,6 +445,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             // to another chat): say so on the card. Settling as sent left a Retry that did nothing
             // (cmux#34369).
             if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
+            // The footer's Retry sends the turn's prompt again (acpmux rebuilds it): held as a send is.
+            if (prompt && holdsRetry?.(prompt)) return Promise.resolve("retry.failed" as const);
             return retryFailedPrompt({
               sessionId: owner,
               rowId,
@@ -556,12 +572,10 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
         }),
     }),
     // Sign in again runs the login in a terminal only where the card can't: a chat on this Mac, or
-    // on a machine whose acpmux has no `agent_login`.
-    ...(connected &&
-      loginCommand &&
-      !cloudMachineID &&
-      !chatSignIns.cloudSignIn &&
-      snapshot.summary?.hostKind !== "cloud" && {
+    // on a machine whose acpmux has no `agent_login` (an older Cloud machine too: its pane's terminal
+    // opens on that machine).
+    ...(terminalLogin.runs &&
+      loginCommand && {
         reauthenticate: () =>
           void callNative("tab.open", {
             kind: "terminal",
@@ -578,6 +592,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
       hostKind: cloudRouteHostKind,
       ...(cloudMachineID && cloudTeamMachine && { teamMachine: true }),
+      ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
     // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.

@@ -129,6 +129,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personDecision",
     "personKey",
     "personStop",
+    "placeRedirect",
     "policy",
     "pr",
     "preset",
@@ -202,6 +203,10 @@ keyed! {
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/agent_home`.
+    AgentHomeParams: ["sessionId"];
+    /// `_acpmux/agent_home_resolve`.
+    AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
@@ -253,7 +258,7 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
@@ -316,6 +321,8 @@ keyed! {
     SubagentStopParams: ["sessionId", "subagentSessionId"];
     /// `_acpmux/subagent_transcript`.
     SubagentTranscriptParams: ["sessionId", "runId", "agentId", "before", "after", "limit"];
+    /// `_acpmux/subagents`.
+    SubagentListParams: ["sessionId", "ended"];
     /// `_acpmux/subsession/limits`.
     SubsessionLimitsParams: ["sessionId", "maxRunning", "workspaceId"];
     /// `acp.trust.get`.
