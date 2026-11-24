@@ -196,7 +196,11 @@ export type LaunchMark =
   | "firstEvent"
   | "liveEvent"
   | "painted"
-  | "transcriptMount";
+  | "transcriptMount"
+  /// The page's first paint report of a chat (App.tsx `pane.painted`): its rows are on screen.
+  | "rowsDrawn"
+  /// The frame that drew acpmux's settled view of the chat was reported (`pane.painted` `settled`).
+  | "settledDrawn";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 /// How many of a page's start states `startStateTrail` keeps (the newest).
@@ -281,22 +285,19 @@ export class AcpmuxPerf {
         key: event.key,
       };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
-      // The key's edit: its `input` event, then the microtasks the field and React run it in.
-      const input = () => {
-        const done = new MessageChannel();
-        done.port1.onmessage = () => {
-          sample.work ??= performance.now() - start;
-          done.port1.close();
-        };
-        done.port2.postMessage(0);
-      };
-      page.addEventListener("input", input, { capture: true, once: true });
+      // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
+      // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
+      // commit) run before the next handler. A microtask from here ends the key's work. A point after the task (a
+      // posted message) also counted whatever ran before it: on Mac WebKit the next frame ran first on nearly every
+      // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
+      const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
+      page.addEventListener("input", input, { once: true });
       requestAnimationFrame((timestamp) => {
         const frame = performance.now();
         // A trace's handle on the key's frame callback and its paint (bench/keyFrameTrace.ts).
         performance.mark?.("acpmux:key-frame");
         sample.frame_timestamp_ms = timestamp;
-        page.removeEventListener("input", input, { capture: true });
+        page.removeEventListener("input", input);
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
           performance.mark?.("acpmux:key-paint");
@@ -391,6 +392,13 @@ export class AcpmuxPerf {
     if (typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin))
       value.page_origin_epoch_ms = Math.round(performance.timeOrigin);
     for (const [name, at] of Object.entries(this.launchMarks)) if (at !== undefined) value[`${name}_epoch_ms`] = at;
+    // The page's last layout shift (the Layout Instability API, Chromium), how many and their sum: a relaunch
+    // bench reads whether the chat moved after it drew its settled frame.
+    if (layoutShifts.count > 0) {
+      value.lastShift_epoch_ms = Math.round(performance.timeOrigin + layoutShifts.last);
+      value.layout_shift_count = layoutShifts.count;
+      value.layout_shift_sum = Math.round(layoutShifts.sum * 10_000) / 10_000;
+    }
     return value;
   }
 
@@ -560,3 +568,20 @@ export class AcpmuxPerf {
 }
 
 export const acpmuxPerf = new AcpmuxPerf();
+
+/// Every layout shift the page had with no input just before it, from its start: one buffered observer, so a
+/// shift before this module ran counts too. Engines without the API (WebKit) record none.
+const layoutShifts = { count: 0, sum: 0, last: 0 };
+if (
+  typeof PerformanceObserver !== "undefined" &&
+  (PerformanceObserver.supportedEntryTypes ?? []).includes("layout-shift")
+) {
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as (PerformanceEntry & { value?: number; hadRecentInput?: boolean })[]) {
+      if (entry.hadRecentInput) continue;
+      layoutShifts.count += 1;
+      layoutShifts.sum += entry.value ?? 0;
+      layoutShifts.last = Math.max(layoutShifts.last, entry.startTime);
+    }
+  }).observe({ type: "layout-shift", buffered: true });
+}

@@ -109,3 +109,33 @@ fn the_ring_keeps_order_and_refuses_when_full() {
     assert_eq!(last, 7);
     assert_eq!(ring.waiting(), 0);
 }
+
+/// A hop that stopped between its claim of a flight slot and its publish (a thread that panicked or was
+/// preempted mid-hop) leaves the slot mid-write. The recorder has no lock: a dump on another thread returns at
+/// once, skips that one slot and keeps every other hop.
+#[test]
+fn a_dump_while_a_slot_is_mid_write_returns_and_skips_only_that_slot() {
+    hop("flight.held.before", 11, "aa");
+    let (held, old) = flight::hold_next_slot();
+    for flow in 0..8 {
+        hop("flight.held.after", flow, "bb");
+    }
+    let (done, wait) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = [RecentEvent::EMPTY; RECENT_EVENTS];
+        let count = dump_recent(&mut out, None);
+        let _ = done.send(out[..count].to_vec());
+    });
+    let events = wait
+        .recv_timeout(Duration::from_secs(5))
+        .expect("dump_recent returned while a slot was held");
+    assert!(events.iter().any(|event| event.name == "flight.held.before" && event.flow == 11));
+    let after: Vec<u64> = events
+        .iter()
+        .filter(|event| event.name == "flight.held.after")
+        .map(|event| event.flow)
+        .collect();
+    assert_eq!(after, (0..8).collect::<Vec<_>>(), "oldest first, every hop after the held slot");
+    // Release the slot as the stopped hop would have.
+    held.store(old, Ordering::Relaxed);
+}
