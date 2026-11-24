@@ -589,6 +589,9 @@ impl Link {
     /// until a route came.
     pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
         let gap = handshake_retry_us(self.handshake_resends);
+        // The same gap and count as a sent retry (`poll_handshake_timers`), so the deadline
+        // `next_deadline_us` reports is the one this moves to.
+        let gap = handshake_retry_us(self.handshake_resends);
         if let Some((_, sent)) = &mut self.last_handshake
             && now_us.saturating_sub(*sent) >= gap
         {

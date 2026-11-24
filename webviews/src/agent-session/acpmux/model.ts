@@ -62,6 +62,7 @@ import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./con
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import type { LiveWait } from "./conversation/liveWait";
+import type { GitHubConnectNeed } from "./conversation/githubConnect";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagent";
@@ -672,6 +673,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The chat's last turn's GitHub call that found no GitHub connection for this chat
+  /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
+  githubConnect?: GitHubConnectNeed;
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -1473,7 +1477,7 @@ export type AcpmuxSnapshot = {
     tools?: ChatTool[];
     toolsMutable?: boolean;
     /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
+    /// person started). The chat header does not draw it; the sidebar's hover card and Expanded rows do.
     rollingSummary?: { text: string; next?: string };
   };
   connection: string;
@@ -1799,6 +1803,8 @@ const META_ROW_PT = gridLength("transcript-action-control");
 const metaRow = () => META_ROW_PT * chromeScale;
 /// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
 const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
+/// The Connect GitHub card above a footer: its line and button, in the failure card's padding.
+const GITHUB_CONNECT_CARD = 56;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -2675,7 +2681,11 @@ export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
 }
 /// turns.ts isEmptyFooter, which this module cannot import.
 const isBlankFooter = (row: AcpmuxRow) =>
-  row.status !== "failed" && row.status !== "error" && !row.text && !((row.turnCopy?.length ?? 0) > 0);
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.githubConnect &&
+  !((row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||
@@ -2941,7 +2951,11 @@ function fallbackRowHeight(
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
-  if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A Connect GitHub card (conversation/GitHubConnectCard.tsx) adds its one line and button above it.
+  if (row.kind === "turnSummary")
+    return finish(
+      isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow() + (row.githubConnect ? GITHUB_CONNECT_CARD : 0),
+    );
   // A finished subagent's line: the chat's reply to its end is the chat's own message, never under it
   // (direct.ts `settleReaction`).
   if (row.kind === SUBAGENT_DONE || row.kind === SUBAGENT_STARTED) return finish(toolRowHeight());
