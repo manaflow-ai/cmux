@@ -10,9 +10,12 @@ import UIKit
 
 /// The transcript's one-column layout: each row's frame is its gap plus the sum of the
 /// heights above it. A row's height is known once its cell measured it, kept per
-/// (row id, content revision, disclosures, width, text size), and estimated until then. Visible rows
-/// are found by binary search, so a frame costs O(visible rows) and a streamed change
-/// re-sums only the rows below the one that grew.
+/// (row id, content revision, disclosures, width, text size), and estimated until then. The sums
+/// are a Fenwick tree (`RowOffsets`): visible rows are found in O(log n), so a frame costs
+/// O(visible rows), and one row that changed height (a streamed token, a cell that measured
+/// itself) moves the rows below it in O(log n). A new width keeps every row at the height it is
+/// laid out at (measured at the old width) as its estimate: the cells on screen measure their rows
+/// again, the rest when they come into view.
 @MainActor
 final class ChatTranscriptLayout: UICollectionViewLayout {
     struct Item: Equatable {
@@ -53,10 +56,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 
     private(set) var items: [Item] = []
     private var heights: [CGFloat] = []
-    private var tops: [CGFloat] = []
+    /// Each row's gap plus its height, summed: a row's top is the extents above it plus its gap.
+    private var offsets = RowOffsets()
     private var index: [String: Int] = [:]
     private var measured: [String: RowHeights] = [:]
-    private var dirtyFrom: Int? = 0
     private var width: CGFloat = 0
     /// The collection view's width the column was laid out in (the column is `width`).
     private var boundsWidth: CGFloat = 0
@@ -74,7 +77,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     var columnWidth: CGFloat { columnWidth(in: collectionView?.bounds.width ?? 0) }
     private(set) var contentHeight: CGFloat = 0
     /// Space under the last row.
-    var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
+    var trailingGap: CGFloat = 24
     /// Whether a cell's measurement of this row can be its height now: false while a disclosure
     /// change that moves this row's disclosures waits for the list's reload (a SwiftUI row reads
     /// its disclosures itself, so its cell may already draw the new state while its layout item is
@@ -85,6 +88,11 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     var followsBottom: () -> Bool = { true }
     /// Rows measured by a cell (tests and the rig's log).
     private(set) var measurements = 0
+    /// Rows whose height was looked up again from what cells measured (tests: a width change or one
+    /// changed row looks up the rows it changed, not every row).
+    private(set) var heightsResolved = 0
+    /// Row offsets written (tests: one changed height writes O(log n) of them, not every row's).
+    private(set) var offsetWrites = 0
 
     // MARK: Rows
 
@@ -99,43 +107,86 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         }
         if first == nil, new.count != items.count { first = common }
         guard let first else { return }
-        var idsMoved = new.count != items.count
-        if !idsMoved {
-            for row in first..<new.count where new[row].id != items[row].id {
-                idsMoved = true
-                break
-            }
+        var idsMoved = false
+        for row in first..<common where new[row].id != items[row].id {
+            idsMoved = true
+            break
         }
         let old = items
         items = new
-        if heights.count > new.count { heights.removeSubrange(new.count...) }
-        heights.reserveCapacity(new.count)
-        for row in first..<new.count {
-            var height = height(for: new[row])
-            // Only the row's disclosures changed: it keeps the height it is laid out at (its cell
-            // already draws the new state while it opens on the disclosure's spring) until its cell
-            // measures it. Its estimate (a 32 pt line) made the list's reload, a turn after the tap,
-            // snap the opening row shut and back. While a fold holds the heights it keeps it even
-            // when the new state was measured before, so a second open or close springs too
-            // (`layOut` moves it to the measured height inside the spring) instead of snapping.
-            if row < old.count, row < heights.count, old[row].id == new[row].id, old[row].revision == new[row].revision,
-               old[row].fold != new[row].fold, !new[row].exact,
-               holdsHeights || measured[new[row].id]?.height(fold: new[row].fold) == nil {
-                // Held although its new state has a height: `layOut` moves it there on the spring,
-                // or the hold's end does (a row the spring did not lay out: off screen, native, or
-                // changed by something other than a fold toggle while the spring ran).
-                if measured[new[row].id]?.height(fold: new[row].fold) != nil { heldStale.insert(new[row].id) }
-                height = heights[row]
+        guard !idsMoved else {
+            // Rows went in or out above the end (an older page landed): every row from the first
+            // change takes its place again, and the sums are made again.
+            if heights.count > new.count { heights.removeSubrange(new.count...) }
+            heights.reserveCapacity(new.count)
+            for row in first..<new.count {
+                let height = placedHeight(row, old: old)
+                if row < heights.count { heights[row] = height } else { heights.append(height) }
             }
-            if row < heights.count { heights[row] = height } else { heights.append(height) }
-        }
-        if idsMoved {
             index = Dictionary(new.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+            rebuildOffsets()
+            return
         }
-        markDirty(first)
+        // The same rows up to the shorter end: only the rows that changed take a new height (a
+        // streamed token changes one), and each moves the rows below it in O(log n). The rest keep
+        // the height they are laid out at.
+        for row in first..<common where new[row] != old[row] {
+            heights[row] = placedHeight(row, old: old)
+            extentChanged(row)
+        }
+        if new.count < old.count {
+            for row in new.count..<old.count where index[old[row].id] == row { index[old[row].id] = nil }
+            heights.removeSubrange(new.count...)
+            offsets.removeLast(old.count - new.count)
+        } else if new.count > old.count {
+            heights.reserveCapacity(new.count)
+            for row in old.count..<new.count {
+                heights.append(placedHeight(row, old: old))
+                if index[new[row].id] == nil { index[new[row].id] = row }
+                let writes = offsets.writes
+                offsets.append(new[row].gap + heights[row])
+                offsetWrites += offsets.writes - writes
+            }
+        }
+    }
+
+    /// Row `row`'s height for its new item: what a cell measured for it at this width, else its
+    /// estimate.
+    private func placedHeight(_ row: Int, old: [Item]) -> CGFloat {
+        let item = items[row]
+        var height = height(for: item)
+        // Only the row's disclosures changed: it keeps the height it is laid out at (its cell
+        // already draws the new state while it opens on the disclosure's spring) until its cell
+        // measures it. Its estimate (a 32 pt line) made the list's reload, a turn after the tap,
+        // snap the opening row shut and back. While a fold holds the heights it keeps it even
+        // when the new state was measured before, so a second open or close springs too
+        // (`layOut` moves it to the measured height inside the spring) instead of snapping.
+        if row < old.count, row < heights.count, old[row].id == item.id, old[row].revision == item.revision,
+           old[row].fold != item.fold, !item.exact,
+           holdsHeights || measured[item.id]?.height(fold: item.fold) == nil {
+            // Held although its new state has a height: `layOut` moves it there on the spring,
+            // or the hold's end does (a row the spring did not lay out: off screen, native, or
+            // changed by something other than a fold toggle while the spring ran).
+            if measured[item.id]?.height(fold: item.fold) != nil { heldStale.insert(item.id) }
+            height = heights[row]
+        }
+        return height
+    }
+
+    /// Row `row`'s height or gap changed: the rows below it move (O(log n)).
+    private func extentChanged(_ row: Int) {
+        let writes = offsets.writes
+        offsets.set(row, items[row].gap + heights[row])
+        offsetWrites += offsets.writes - writes
+    }
+
+    private func rebuildOffsets() {
+        offsets = RowOffsets((0..<items.count).map { items[$0].gap + heights[$0] })
+        offsetWrites += offsets.writes
     }
 
     private func height(for item: Item) -> CGFloat {
+        heightsResolved += 1
         guard !item.exact, let known = measured[item.id]?.height(fold: item.fold) else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
     }
@@ -144,7 +195,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     func forgetHeights() {
         measured = [:]
         heights = items.map(\.estimate)
-        markDirty(0)
+        rebuildOffsets()
         invalidateLayout()
     }
 
@@ -168,14 +219,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private var heldStale: Set<String> = []
 
     private func releaseHeldStale() {
-        var first: Int?
         for id in heldStale {
             guard let row = index[id], row < items.count, row < heights.count else { continue }
             heights[row] = height(for: items[row])
-            first = min(first ?? row, row)
+            extentChanged(row)
         }
         heldStale = []
-        if let first { markDirty(first) }
     }
 
     /// Lays row `id` out at `height` (a disclosure's spring, `ChatTranscriptList.resizeForFold`,
@@ -185,7 +234,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         heldStale.remove(id)
         guard let row = index[id], row < heights.count, abs(heights[row] - height) > 0.25 else { return false }
         heights[row] = height
-        markDirty(row)
+        extentChanged(row)
         return true
     }
 
@@ -205,8 +254,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// A row's top (after its gap), in content coordinates.
     func top(of id: String) -> CGFloat? {
         prepareIfNeeded()
-        return index[id].flatMap { $0 < tops.count ? tops[$0] : nil }
+        return index[id].flatMap { $0 < items.count ? top($0) : nil }
     }
+
+    private func top(_ row: Int) -> CGFloat { offsets.offset(of: row) + items[row].gap }
 
     /// A row's height as laid out (measured, else estimated).
     func height(of id: String) -> CGFloat? {
@@ -219,34 +270,21 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         prepareIfNeeded()
         let row = firstIndex(bottomAfter: y)
         guard row < items.count else { return nil }
-        return (items[row].id, tops[row])
-    }
-
-    private func markDirty(_ row: Int) {
-        dirtyFrom = min(dirtyFrom ?? row, row)
+        return (items[row].id, top(row))
     }
 
     // MARK: Layout
 
     private func prepareIfNeeded() {
         boundsWidth = collectionView?.bounds.width ?? 0
-        let width = columnWidth(in: boundsWidth)
-        if width != self.width {
-            self.width = width
-            heights = items.map(height(for:))
-            dirtyFrom = 0
-        }
-        guard let dirty = dirtyFrom else { return }
-        dirtyFrom = nil
-        let from = min(dirty, items.count, tops.count)
-        if tops.count > items.count { tops.removeSubrange(items.count...) }
-        var y: CGFloat = from > 0 && from - 1 < tops.count ? tops[from - 1] + heights[from - 1] : 0
-        for row in from..<items.count {
-            y += items[row].gap
-            if row < tops.count { tops[row] = y } else { tops.append(y) }
-            y += heights[row]
-        }
-        contentHeight = items.isEmpty ? 0 : y + trailingGap
+        let column = columnWidth(in: boundsWidth)
+        // A new width: every row keeps the height it is laid out at as its estimate. The cells on
+        // screen measure their rows at the new width as UIKit lays them out (each moving the rows
+        // below in O(log n), the reader's row held by `invalidationContext`), and a row coming into
+        // view measures when it does. Looking every row's height up again, and re-summing every
+        // row, was a pass over the whole transcript on each step of a rotation or a Split View drag.
+        width = column
+        contentHeight = items.isEmpty ? 0 : offsets.total + trailingGap
     }
 
     override func prepare() {
@@ -268,21 +306,21 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         newBounds.width != boundsWidth
     }
 
+    /// The first row whose bottom is at or below `y` (O(log n)).
     private func firstIndex(bottomAfter y: CGFloat) -> Int {
-        var low = 0, high = items.count
-        while low < high {
-            let mid = (low + high) / 2
-            if tops[mid] + heights[mid] < y { low = mid + 1 } else { high = mid }
-        }
-        return low
+        min(offsets.firstRow(endingAtOrAfter: y), items.count)
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
         prepareIfNeeded()
         var out: [UICollectionViewLayoutAttributes] = []
         var row = firstIndex(bottomAfter: rect.minY)
-        while row < items.count, tops[row] <= rect.maxY {
-            out.append(attributes(row))
+        var y = row < items.count ? offsets.offset(of: row) : 0
+        while row < items.count {
+            let top = y + items[row].gap
+            guard top <= rect.maxY else { break }
+            out.append(attributes(row, top: top))
+            y = top + heights[row]
             row += 1
         }
         return out
@@ -315,10 +353,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return attributes(indexPath.item)
     }
 
-    private func attributes(_ row: Int) -> UICollectionViewLayoutAttributes {
+    private func attributes(_ row: Int, top: CGFloat? = nil) -> UICollectionViewLayoutAttributes {
         let attributes = ChatRowAttributes(forCellWith: IndexPath(item: row, section: 0))
         // A capped column sits in the middle of a wider screen.
-        attributes.frame = CGRect(x: ((boundsWidth - width) / 2).rounded(), y: tops[row], width: width, height: heights[row])
+        attributes.frame = CGRect(x: ((boundsWidth - width) / 2).rounded(), y: top ?? self.top(row), width: width, height: heights[row])
         attributes.held = holdsHeights
         return attributes
     }
@@ -354,11 +392,12 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         let row = preferred.indexPath.item
         guard row < items.count, let collectionView else { return context }
         let delta = preferred.size.height - heights[row]
+        let top = self.top(row)
         heights[row] = preferred.size.height
-        markDirty(row)
+        extentChanged(row)
         // A row above what the reader sees grew or shrank: keep what they see in place.
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        if !followsBottom(), row < tops.count, tops[row] + heights[row] - delta <= visibleTop {
+        if !followsBottom(), top + heights[row] - delta <= visibleTop {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         }
         return context
@@ -552,7 +591,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var items: [ChatTranscriptLayout.Item]
         /// The rows the items were weighed for.
         var rows: [ChatRow]
+        /// The width step the items were weighed at (`widthStep`): a turn weighed before the last
+        /// width change keeps its items, their heights the estimates, until it comes near the screen.
+        var widthStep = 0
     }
+    /// Width changes so far (`widthChanged`).
+    private var widthStep = 0
+    /// A reload is queued for turns weighed at an older width that came into view.
+    private var rewidthQueued = false
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
     /// Older turns that came in above the rows shown and were weighed for holding (`reload`):
@@ -576,6 +622,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var warmUpOffers = 0
     /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
     private(set) var snapshotApplies = 0
+    /// Native rows sent to be laid out off the main thread (tests: a width change sends the rows near
+    /// the screen, not every row of the chat).
+    private(set) var layoutsAsked = 0
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
 
@@ -643,8 +692,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         let shownID = dataSource.itemIdentifier(for: indexPath)
-        // A cell made ahead (prefetched) before its row changed shows the row as it is now.
-        if let id = shownID, lookup.stale.contains(id) { redraw(cell, id) }
+        // A cell made ahead (prefetched) before its row changed shows the row as it is now; a native
+        // one made before a width change draws at the new width.
+        if let id = shownID, lookup.stale.contains(id) || drawsAtOldWidth(cell) { redraw(cell, id) }
+        // A row weighed before the last width change came into view: its turn is weighed at the new
+        // width (after this layout pass; a reload inside it would re-enter the collection view's).
+        if let id = shownID, let turn = rows[id]?.turnID, let shown = shownTurns[turn], shown.widthStep != widthStep {
+            queueRewidth()
+        }
         // The oldest turn shown came into view (the reader scrolled up, or the first page is
         // shorter than the screen): read the page before it. The list keeps the reader's rows
         // in place as it lands (`reload`'s anchor).
@@ -707,6 +762,36 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         store.spillOlder(keeping: AgentChatStore.pressureKeep, protecting: reading)
     }
 
+    private func drawsAtOldWidth(_ cell: UICollectionViewCell) -> Bool {
+        guard let native = cell as? ChatNativeRowCell, let environment = lookup.layouts.environment, native.layoutWidth > 0 else { return false }
+        return abs(native.layoutWidth - (environment.width + 40)) > 0.5
+    }
+
+    private func queueRewidth() {
+        guard !rewidthQueued else { return }
+        rewidthQueued = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.rewidthQueued = false
+            self.reload()
+        }
+    }
+
+    /// The turns of the rows within one screen of the visible rect (`reload` weighs those again at a
+    /// new width; the rest keep their items until they come near).
+    private func turnsNearScreen() -> Set<String> {
+        let bounds = collectionView.bounds
+        guard bounds.height > 0 else { return [] }
+        let near = bounds.insetBy(dx: 0, dy: -bounds.height)
+        var turns = Set<String>()
+        for attributes in layout.layoutAttributesForElements(in: near) ?? [] {
+            let row = attributes.indexPath.item
+            guard row < layout.items.count, let turn = rows[layout.items[row].id]?.turnID else { continue }
+            turns.insert(turn)
+        }
+        return turns
+    }
+
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         cell.contentView.alpha = 1
     }
@@ -722,6 +807,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private func prepare(_ ids: [String], urgent: Bool) {
         let jobs = ids.compactMap { lookup.job(for: $0) }
         guard !jobs.isEmpty else { return }
+        layoutsAsked += jobs.count
         lookup.layouts.prepare(jobs, urgent: urgent) { [weak self] ready in self?.layoutsReady(ready) }
     }
 
@@ -747,8 +833,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let width = layout.columnWidth
         layout.columnCap = cap
         // On a screen narrower than the cap the column keeps its width: nothing to measure again.
+        // Otherwise a width change as any other: measured heights are kept per width, so none is
+        // forgotten, and only the rows near the screen are laid out again.
         guard layout.columnWidth != width else { return }
-        layout.forgetHeights()
         environmentChanged()
     }
 
@@ -758,6 +845,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let environment = ChatNativeEnvironment(width: width, category: collectionView.traitCollection.preferredContentSizeCategory,
                                                 wrapCode: CmuxMobilePreferences.wrapCode())
         guard environment != lookup.layouts.environment else { return }
+        if loaded, let previous = lookup.layouts.environment, previous.category == environment.category,
+           previous.wrapCode == environment.wrapCode {
+            widthChanged(to: environment)
+            return
+        }
         // Native rows are laid out again for the new environment. Chosen before it is installed
         // (at an accessibility size no row is native any more), and with the rows whose cell type
         // the new environment changes (native to SwiftUI and back), which `reload` reloads.
@@ -766,6 +858,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         shownTurns = [:]
         forced.formUnion(wereNative)
         forced.formUnion(lookup.shownNative.compactMap { id, native in native != lookup.isNativeCandidate(id) ? id : nil })
+        reload()
+    }
+
+    /// Only the width changed (a rotation, a Split View drag, Text and Width's column): the rows near
+    /// the screen are weighed and laid out again, now; every other turn keeps its items, and each of
+    /// its rows the height it is laid out at, as estimates until it comes near the screen (`reload`,
+    /// `willDisplay`). Which rows draw
+    /// natively does not depend on the width, so no cell changes type. Weighing every row again, with
+    /// a native layout for each sent off the main thread and every native row reconfigured, cost a
+    /// pass over the whole chat per step of a rotation.
+    private func widthChanged(to environment: ChatNativeEnvironment) {
+        lookup.layouts.environment = environment
+        widthStep &+= 1
+        let near = turnsNearScreen()
+        for turn in near {
+            guard let shown = shownTurns[turn] else { continue }
+            for id in shown.ids where lookup.shownNative[id] == true { forced.insert(id) }
+        }
         reload()
     }
 
@@ -930,8 +1040,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 for row in turn.rows.reversed() where prime.count < 24 && lookup.eligible(row) { prime.insert(row.id) }
             }
         }
+        // Turns near the screen, read only when a turn weighed at an older width comes up.
+        var near: Set<String>?
+        func weighedAtOldWidth(_ shown: ShownTurn, _ turn: String) -> Bool {
+            guard shown.widthStep != widthStep else { return false }
+            if near == nil { near = turnsNearScreen() }
+            return near?.contains(turn) == true
+        }
         for turn in built {
-            if let shown = shownTurns[turn.turnID], shown.generation == turn.generation, !shown.ids.contains(where: seen.contains) {
+            if let shown = shownTurns[turn.turnID], shown.generation == turn.generation, !shown.ids.contains(where: seen.contains),
+               !weighedAtOldWidth(shown, turn.turnID) {
                 seen.formUnion(shown.ids)
                 ids += shown.ids
                 items += shown.items
@@ -944,8 +1062,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             turnItems.reserveCapacity(turn.rows.count)
             turnRows.reserveCapacity(turn.rows.count)
             // The turn as last shown: a row at the same place with the same content keeps its
-            // layout item (a streamed token changes the answer's last block, not the ones above it).
-            let previous = shownTurns[turn.turnID]
+            // layout item (a streamed token changes the answer's last block, not the ones above it),
+            // unless it was weighed at an older width.
+            let previous = shownTurns[turn.turnID].flatMap { $0.widthStep == widthStep ? $0 : nil }
             for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
@@ -1006,7 +1125,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     continue
                 }
             }
-            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems, rows: turnRows)
+            shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems, rows: turnRows,
+                                                widthStep: widthStep)
             ids += turnIDs
             items += turnItems
         }

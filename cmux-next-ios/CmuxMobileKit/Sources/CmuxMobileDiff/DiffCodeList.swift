@@ -92,16 +92,22 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         let previous = self.model
         self.model = model
         layout.model = model
-        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
-        snapshot.appendSections([0])
-        snapshot.appendItems(model.ids)
         guard let dataSource else { return }
         if let previous, previous.key.contentKey == model.key.contentKey {
+            // A resized model shares its rows' ids: the comparison is O(1).
             if previous.ids == model.ids {
-                // A new width: the same rows at new heights (wrap indents can change the text).
+                // A new width: the same rows at new heights (wrap indents can change the text). The
+                // rows near the screen are measured now, the reader's line held where it was; the
+                // rest when they come near (`DiffCodeLayout`). No snapshot: the rows are the same.
+                let view = collectionView
+                let adjustment = layout.measureRows(near: view.bounds, visibleTop: view.contentOffset.y + view.adjustedContentInset.top)
                 layout.invalidateLayout()
+                if adjustment != 0 { view.contentOffset.y += adjustment }
                 reconfigureVisible()
             } else {
+                var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+                snapshot.appendSections([0])
+                snapshot.appendItems(model.ids)
                 // An expansion: lines keep their ids and content; bands that kept an id may
                 // read differently (a merged hunk's header, a smaller "Expand N lines").
                 let kept = model.ids.filter { id in
@@ -112,6 +118,9 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
                 dataSource.apply(snapshot, animatingDifferences: UIView.areAnimationsEnabled)
             }
         } else {
+            var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+            snapshot.appendSections([0])
+            snapshot.appendItems(model.ids)
             if previous?.key.fileID != model.key.fileID {
                 pendingScroll = nil
                 collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: false)
@@ -161,10 +170,10 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
         let viewport = collectionView.bounds.width
         switch (model.rows.rows[index], cell) {
         case (.line(let line), let cell as DiffLineCell):
-            cell.configure(line: model.rows.lines[line], text: model.texts[line], indent: model.indents[line], model: model)
+            cell.configure(line: model.rows.lines[line], text: model.text(line), indent: model.indent(line), model: model)
             cell.setCurrentMatch(line == currentLine)
         case (.split(let left, let right), let cell as DiffSplitCell):
-            cell.configure(left: left.map { (model.rows.lines[$0], model.texts[$0]) }, right: right.map { (model.rows.lines[$0], model.texts[$0]) },
+            cell.configure(left: left.map { (model.rows.lines[$0], model.text($0)) }, right: right.map { (model.rows.lines[$0], model.text($0)) },
                            model: model)
             cell.setCurrentMatch(currentLine != nil && (left == currentLine || right == currentLine))
         case (.header(_, let text), let cell as DiffBandCell):
@@ -221,33 +230,103 @@ final class DiffCodeListController: NSObject, UICollectionViewDelegate {
 // MARK: Layout
 
 /// Rows stacked at their prepared heights. The content is as wide as the longest unwrapped
-/// line (plus the gutter), or the list's width when wrapping. Offsets are summed once per
-/// model; a rect query is a binary search, so scrolling costs O(visible rows).
+/// line (plus the gutter), or the list's width when wrapping. The offsets are a Fenwick tree
+/// (`RowOffsets`): a rect query is O(log n), so scrolling costs O(visible rows), and one row's
+/// new height moves the rows below it in O(log n).
+///
+/// A model that only changed width (`DiffRenderModel.init(resizing:key:)`) measured no row: every
+/// row keeps the height it was laid out at, at the old width, as its estimate, and the rows within
+/// one screen of the visible rect are measured as they come near (`measureRows`), the reader's
+/// line held in place.
 final class DiffCodeLayout: UICollectionViewLayout {
     var model: DiffRenderModel? {
         didSet {
             guard model !== oldValue else { return }
-            offsets = []
-            invalidateLayout()
+            defer { invalidateLayout() }
+            measured = []
+            guard let model else {
+                offsets = RowOffsets()
+                exact = true
+                return
+            }
+            if model.heights.isEmpty, let oldValue, oldValue.ids == model.ids, offsets.count == model.ids.count {
+                // A new width alone: the heights laid out stay, as estimates.
+                exact = false
+                return
+            }
+            let heights = model.heights.isEmpty ? (0..<model.ids.count).map(model.height(row:)) : model.heights
+            if model.heights.isEmpty { rowsMeasured += heights.count }
+            offsets = RowOffsets(heights)
+            offsetWrites += offsets.writes
+            exact = true
         }
     }
 
-    /// `offsets[i]` is row i's top; the last entry is the rows' total height.
-    private var offsets: [CGFloat] = []
+    /// Each row's height, summed.
+    private var offsets = RowOffsets()
+    /// Every row's height is measured at the model's width (the model measured them).
+    private var exact = true
+    /// Otherwise, the rows measured at the model's width so far.
+    private var measured = Set<Int>()
     static let bottomPadding: CGFloat = 24
+    /// Rows this layout measured itself (tests: a width step measures the rows near the screen).
+    private(set) var rowsMeasured = 0
+    /// Row offsets written (tests: a width step writes the offsets of the rows it measured).
+    private(set) var offsetWrites = 0
 
-    override func prepare() {
-        super.prepare()
-        guard let model, offsets.count != model.heights.count + 1 else { return }
-        var offsets: [CGFloat] = []
-        offsets.reserveCapacity(model.heights.count + 1)
-        var y: CGFloat = 0
-        for height in model.heights {
-            offsets.append(y)
-            y += height
+    /// Measures the rows within one screen of `bounds` that are still estimates. Returns how far the
+    /// rows above `visibleTop` moved: the content offset moves by as much, so the reader's line stays.
+    @discardableResult
+    func measureRows(near bounds: CGRect, visibleTop: CGFloat) -> CGFloat {
+        guard let model, !exact, !offsets.isEmpty, bounds.height > 0 else { return 0 }
+        let window = bounds.insetBy(dx: 0, dy: -bounds.height)
+        let first = min(offsets.firstRow(endingAtOrAfter: visibleTop.nextUp), offsets.count)
+        // From the reader's first row down: a row's change moves only the rows below it.
+        var row = first
+        var y = offsets.offset(of: row)
+        while row < offsets.count, y <= window.maxY {
+            measure(row, model)
+            y += offsets[row]
+            row += 1
         }
-        offsets.append(y)
-        self.offsets = offsets
+        // Up from the row above it: each change moves the reader's rows, made up by the offset.
+        var adjustment: CGFloat = 0
+        var above: CGFloat = 0
+        row = first - 1
+        while row >= 0, above < visibleTop - window.minY {
+            adjustment += measure(row, model)
+            above += offsets[row]
+            row -= 1
+        }
+        return adjustment
+    }
+
+    /// Measures row `row` at the model's width (once); how much its height changed.
+    @discardableResult
+    private func measure(_ row: Int, _ model: DiffRenderModel) -> CGFloat {
+        guard measured.insert(row).inserted else { return 0 }
+        rowsMeasured += 1
+        let height = model.height(row: row)
+        let delta = height - offsets[row]
+        guard delta != 0 else { return 0 }
+        let writes = offsets.writes
+        offsets.set(row, height)
+        offsetWrites += offsets.writes - writes
+        return delta
+    }
+
+    /// Whether a row within one screen of `bounds` is still an estimate (O(rows near the screen)).
+    private func hasEstimates(near bounds: CGRect) -> Bool {
+        guard !exact, !offsets.isEmpty, bounds.height > 0 else { return false }
+        let window = bounds.insetBy(dx: 0, dy: -bounds.height)
+        var row = offsets.firstRow(endingAtOrAfter: window.minY)
+        var y = offsets.offset(of: row)
+        while row < offsets.count, y <= window.maxY {
+            if !measured.contains(row) { return true }
+            y += offsets[row]
+            row += 1
+        }
+        return false
     }
 
     private var contentWidth: CGFloat {
@@ -257,42 +336,48 @@ final class DiffCodeLayout: UICollectionViewLayout {
     }
 
     override var collectionViewContentSize: CGSize {
-        CGSize(width: contentWidth, height: (offsets.last ?? 0) + Self.bottomPadding)
+        CGSize(width: contentWidth, height: offsets.total + Self.bottomPadding)
     }
 
-    private func attributes(_ index: Int, width: CGFloat) -> UICollectionViewLayoutAttributes {
+    private func attributes(_ index: Int, top: CGFloat, width: CGFloat) -> UICollectionViewLayoutAttributes {
         let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: index, section: 0))
-        attributes.frame = CGRect(x: 0, y: offsets[index], width: width, height: offsets[index + 1] - offsets[index])
+        attributes.frame = CGRect(x: 0, y: top, width: width, height: offsets[index])
         return attributes
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        let count = offsets.count - 1
+        let count = offsets.count
         guard count > 0 else { return [] }
         // The first row whose bottom is below rect.minY.
-        var low = 0
-        var high = count
-        while low < high {
-            let mid = (low + high) / 2
-            if offsets[mid + 1] <= rect.minY { low = mid + 1 } else { high = mid }
-        }
+        var index = offsets.firstRow(endingAtOrAfter: rect.minY.nextUp)
+        var y = offsets.offset(of: index)
         let width = contentWidth
         var result: [UICollectionViewLayoutAttributes] = []
-        var index = low
-        while index < count, offsets[index] < rect.maxY {
-            result.append(attributes(index, width: width))
+        while index < count, y < rect.maxY {
+            result.append(attributes(index, top: y, width: width))
+            y += offsets[index]
             index += 1
         }
         return result
     }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        guard indexPath.item < offsets.count - 1 else { return nil }
-        return attributes(indexPath.item, width: contentWidth)
+        guard indexPath.item < offsets.count else { return nil }
+        return attributes(indexPath.item, top: offsets.offset(of: indexPath.item), width: contentWidth)
     }
 
+    /// A new width lays out again; a scroll that brings rows still at their estimates near the
+    /// screen measures them (`invalidationContext(forBoundsChange:)`).
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        newBounds.width != collectionView?.bounds.width
+        newBounds.width != collectionView?.bounds.width || hasEstimates(near: newBounds)
+    }
+
+    override func invalidationContext(forBoundsChange newBounds: CGRect) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(forBoundsChange: newBounds)
+        guard let collectionView, newBounds.width == collectionView.bounds.width else { return context }
+        let adjustment = measureRows(near: newBounds, visibleTop: newBounds.minY + collectionView.adjustedContentInset.top)
+        if adjustment != 0 { context.contentOffsetAdjustment = CGPoint(x: 0, y: adjustment) }
+        return context
     }
 }
 
