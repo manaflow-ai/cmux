@@ -55,6 +55,10 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no

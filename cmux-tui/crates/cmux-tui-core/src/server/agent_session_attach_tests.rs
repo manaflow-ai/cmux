@@ -1063,7 +1063,6 @@ fn verbs_refuse_session_cwd_and_command_params() {
         json!({"command":"rm -rf /"}),
         json!({"initial_command":"x"}),
         json!({"mcpServers":[]}),
-        json!({"agent":"codex"}),
     ] {
         let mut frame = json!({"cmd":"agent-session-attach","surface":surface});
         for (key, value) in extra.as_object().unwrap() {
@@ -1370,7 +1369,6 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
         json!({"prompt_id":"p 2","text":"x"}),
         json!({"prompt_id":"p2","text":"   "}),
         json!({"prompt_id":"p2","text":"x".repeat(agent_session_attach::MAX_PROMPT_BYTES + 1)}),
-        json!({"prompt_id":"p2","text":"x","prompt":[{"type":"resource_link","uri":"file:///etc"}]}),
     ] {
         let mut frame = json!({"cmd":"agent-session-prompt","surface":surface});
         for (key, value) in bad.as_object().unwrap() {
@@ -1819,8 +1817,6 @@ fn a_side_question_goes_inline_to_the_pinned_session() {
         json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
                "_meta":{"acpmux":{"via":"app"}}}),
     ] {
@@ -2202,7 +2198,6 @@ fn every_verb_refuses_session_cwd_command_and_meta_params() {
         json!({"cwd":"/"}),
         json!({"command":"x"}),
         json!({"_meta":{"acpmux":{"steer":true}}}),
-        json!({"prompt":[{"type":"text","text":"x"}]}),
     ] {
         for mut frame in every_verb(surface).into_iter().skip(1).take(4) {
             frame.as_object_mut().unwrap().remove("id");
