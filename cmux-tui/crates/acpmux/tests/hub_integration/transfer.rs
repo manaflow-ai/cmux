@@ -688,8 +688,54 @@ async fn a_chat_that_moves_away_and_comes_back_keeps_its_name_and_takes_prompts_
     }
 }
 
+/// A chat on an agent that cannot load its session (no `loadSession`, as the bench's `benchecho`)
+/// gets a new agent session on every machine it runs on. Moved A to B, run there and moved back,
+/// it is still the same chat: A's moved-away copy gives way instead of refusing the move with
+/// "closed session identity does not match transfer bundle", so a ring A, B, C, A goes round.
+#[tokio::test]
+async fn a_chat_whose_agent_cannot_load_its_session_moves_back_where_it_was() {
+    let dirs = ["a", "b"]
+        .map(|n| std::env::temp_dir().join(format!("acpmux-home-{n}-{}", uuid::Uuid::now_v7())));
+    let no_load = |prefix: &str| {
+        BTreeMap::from([
+            ("FAKE_NO_LOAD".to_owned(), "1".to_owned()),
+            ("FAKE_SESSION_PREFIX".to_owned(), prefix.to_owned()),
+        ])
+    };
+    let hub_a = local_hub_env(&dirs[0], no_load("on-a-"));
+    let hub_b = local_hub_env(&dirs[1], no_load("on-b-"));
+    let (mut a, mut b) = (connect(&hub_a).await, connect(&hub_b).await);
+    let s = a.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    a.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+
+    move_whole(&mut a, &mut b, &id, json!({"host": "b", "sessionId": id})).await;
+    b.request(method::SESSION_PROMPT, prompt(&id, "p-there", "there")).await.unwrap();
+    let there = b.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let here = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_ne!(
+        there["agentSessionId"], here["agentSessionId"],
+        "a new agent session on B: {there}"
+    );
+
+    let back = move_whole(&mut b, &mut a, &id, json!({"host": "a", "sessionId": id})).await;
+    assert_eq!(back["committed"], true, "{back}");
+    let home = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(home["movedTo"].is_null(), "the live copy, not the moved-away one: {home}");
+    a.request(method::SESSION_PROMPT, prompt(&id, "p-back", "back")).await.unwrap();
+    assert_eq!(texts(&mut a, &id, "user_message").await, ["hi", "there", "back"]);
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 /// A daemon on a local store, as a restart sees it: the same folder opened again.
 fn local_hub(dir: &std::path::Path) -> Arc<Hub> {
+    local_hub_env(dir, BTreeMap::new())
+}
+
+/// `local_hub` whose fake agent runs with `env`.
+fn local_hub_env(dir: &std::path::Path, env: BTreeMap<String, String>) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -697,7 +743,7 @@ fn local_hub(dir: &std::path::Path) -> Arc<Hub> {
         HarnessProfile {
             kind: Default::default(),
             argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
