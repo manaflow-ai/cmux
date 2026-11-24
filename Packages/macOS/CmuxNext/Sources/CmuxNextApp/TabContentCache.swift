@@ -43,6 +43,8 @@ final class TabContentCache {
     /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
     var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
+    /// Tab `key` is leaving the screen, before its pane shows another view (`AgentPanePictures.willLeaveScreen`).
+    var onConceal: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
     /// Hibernated tabs, observed by the tab strips.
