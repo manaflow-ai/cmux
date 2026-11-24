@@ -321,6 +321,8 @@ impl Hub {
         self.cold_wake.notify_one();
         // So does the cold segments' worker (`cold_segments.rs`).
         self.cold_sealed_wake.notify_one();
+        // So does the worker that packs chats' logs as they grow (`pack_as_it_grows.rs`).
+        self.pack_grown_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
