@@ -458,9 +458,13 @@ class BackendTests(unittest.TestCase):
 
     def test_resolve_backend(self):
         r = self.resolve('')
-        self.assertIn('URL=\n', r.stdout, r.stderr)
-        self.assertIn('REPORT=shared dev Workers (default, no override)', r.stdout)
+        self.assertIn('URL=\n', r.stdout, r.stderr)  # the default reads the stack only once its up ran
+        self.assertIn("REPORT=this tag's stack (not up yet)", r.stdout)
         self.assertNotIn('--backend', r.stdout)
+        r = self.resolve('dev')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('REPORT=shared dev Workers (--backend dev, no override)', r.stdout)
+        self.assertIn('--backend dev', r.stdout)
         r = self.resolve(self.STACK + '/')
         self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
         self.assertIn(f'--backend {self.STACK}/', r.stdout)
@@ -483,6 +487,70 @@ class BackendTests(unittest.TestCase):
         r = self.resolve('tag-stack', '#!/bin/sh\necho "no stack for this tag" >&2; exit 3\n')
         self.assertEqual(r.returncode, 2)
         self.assertIn('no stack for this tag', r.stderr)
+
+    def default(self, stack_body, arg=''):
+        """review_start_stack then review_await_backend (the default), against a fake cloud-dev-stack.sh that logs
+        each call."""
+        with tempfile.TemporaryDirectory() as temp:
+            calls = Path(temp) / 'calls'
+            stack = Path(temp) / 'cloud-dev-stack.sh'
+            stack.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n' + stack_body)
+            stack.chmod(0o755)
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'source "{REVIEW}"',
+                f'SLUG={TAG} BACKEND_ARG="{arg}" TAG_STATE="{temp}/state"',
+                'review_resolve_backend',
+                'review_start_stack',
+                'review_await_backend',
+                'echo "URL=$BACKEND_URL"; echo "PHONE=$BACKEND_PHONE_URL"; echo "MOBILE=$BACKEND_MOBILE_URL"; echo "REPORT=$BACKEND_REPORT"',
+                'echo "LAUNCH=${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}"',
+            ])
+            r = bash(script, {'CNX_CLOUD_DEV_STACK': str(stack)})
+            return r, (calls.read_text() if calls.exists() else '')
+
+    def test_the_default_brings_the_tags_stack_up_and_points_both_apps_at_it(self):
+        body = ('case "$*" in up*) echo "== up in 31 s" ;; *--public*--service*) echo https://mobile.s7.wdev.cmux.dev ;; '
+                '*--public*) echo https://api.s7.wdev.cmux.dev ;; *--service*) echo https://cmux-dev-backend-1.tail137216.ts.net:3851 ;; '
+                f'*) echo {self.STACK} ;; esac\n')
+        r, calls = self.default(body)
+        self.assertEqual(calls.splitlines()[0], f'up --tag {TAG}', calls)
+        self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)  # the Mac: the tailnet origin
+        self.assertIn('PHONE=https://api.s7.wdev.cmux.dev\n', r.stdout)  # the phone: the public one
+        self.assertIn('LAUNCH=https://api.s7.wdev.cmux.dev\n', r.stdout)
+        self.assertIn('MOBILE=https://cmux-dev-backend-1.tail137216.ts.net:3851\n', r.stdout)
+        self.assertIn("this tag's stack: API, mobile Worker and device hub, default)", r.stdout)
+
+    def test_a_stack_that_does_not_come_up_falls_back_to_the_shared_workers_and_says_why(self):
+        r, calls = self.default('case "$*" in up*) echo "cloud-dev-stack: ssh: connect to host cmux-dev-backend-1: timed out" >&2; exit 1 ;; '
+                                f'*) echo {self.STACK} ;; esac\n')
+        self.assertEqual(r.returncode, 0, r.stderr)  # the hand-off still finishes
+        self.assertEqual(calls.splitlines(), [f'up --tag {TAG}'], 'no url read after a failed up')
+        self.assertIn('URL=\n', r.stdout)
+        self.assertIn('LAUNCH=default\n', r.stdout)  # the phone's kept override is cleared
+        self.assertIn('REPORT=shared dev Workers (FALLBACK: this tag\'s stack did not come up: cloud-dev-stack: ssh: connect to host '
+                      'cmux-dev-backend-1: timed out', r.stdout)
+        # An up that passed but names an origin outside the allowlist falls back too.
+        r, _ = self.default('case "$*" in up*) exit 0 ;; *) echo https://attacker.example ;; esac\n')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('is not a tailnet origin', r.stdout)
+
+    def test_an_up_that_fails_silently_still_falls_back(self):
+        r, _ = self.default('case "$*" in up*) exit 1 ;; *) exit 0 ;; esac\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("did not come up: up exited 1", r.stdout)
+
+    def test_a_stack_with_no_public_slot_says_the_phone_is_tailnet_only(self):
+        r, _ = self.default(f'case "$*" in up*) exit 0 ;; *--public*) echo "stack has no public origin" >&2; exit 3 ;; *) echo {self.STACK} ;; esac\n')
+        self.assertIn('PHONE=\n', r.stdout, r.stderr)
+        self.assertIn(f'LAUNCH={self.STACK}\n', r.stdout)
+        self.assertIn('the phone: tailnet only (no free public slot', r.stdout)
+
+    def test_backend_dev_touches_no_stack(self):
+        r, calls = self.default(f'echo {self.STACK}\n', arg='dev')
+        self.assertEqual(calls, '', 'no up, no url')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('LAUNCH=default\n', r.stdout)
 
     def check_mac(self, backend_url, answer):
         with tempfile.TemporaryDirectory() as temp:
