@@ -119,23 +119,34 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
                       displays: @escaping @Sendable ([CGSize], Int) -> Void) async throws {
+        try requireActive()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        try requireActive()
         let found = content.displays.sorted { $0.frame.minX < $1.frame.minX }
         // No shareable display (all asleep, or capture refused): fail the session, never index an empty list.
         guard !found.isEmpty else { throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "no display to capture"]) }
         let main = found.firstIndex { $0.displayID == CGMainDisplayID() } ?? 0
         let rates = await Self.displayFrameRates()
-        lock.withLock {
+        let admitted = lock.withLock { () -> Bool in
+            guard !stopped else { return false }
             self.displays = found
             current = main
             frameRates = rates
             onFrame = frame
             onDisplays = displays
+            return true
         }
+        guard admitted else { throw CancellationError() }
         displays(found.map { pixelSize($0) }, main)
         try await capture(found[main])
         watchDisplays()
         watchExclusions()
+    }
+
+    /// Cancellation alone does not stop an already queued source task from entering start().
+    private func requireActive() throws {
+        try Task.checkCancellation()
+        guard !lock.withLock({ stopped }) else { throw CancellationError() }
     }
 
     /// A display added, removed or changing mode: read the displays again
@@ -313,6 +324,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
     }
 
     private func capture(_ display: SCDisplay) async throws {
+        try requireActive()
         let (rate, cursor, cap, excluded, windows) = lock.withLock {
             (frameRate, drawsCursor, longEdgeCap, excludedSource, excludedWindowSource)
         }
@@ -320,11 +332,23 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
         let size = CGSize(width: configuration.width, height: configuration.height)
         let exclusion = Exclusion(pids: Self.excluded(excluded, drawsCursor: cursor), windows: windows?() ?? [])
         let (filter, applied) = await Self.filter(display: display, excluding: exclusion)
+        try requireActive()
         // Not applied (the window list failed): the watcher tries again.
         lock.withLock { excludedApplied = applied ? exclusion : Exclusion() }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        try await stream.startCapture()
+        try requireActive()
+        // Invoke the native start under the same lock as Stop. A check followed by an
+        // async start leaves a gap in which a revoked source could begin capture.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            lock.withLock {
+                guard !stopped else { continuation.resume(throwing: CancellationError()); return }
+                stream.startCapture { error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume() }
+                }
+            }
+        }
         // stop() may have run while this capture started: it then ends here, never stored.
         let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, (Int, Bool), Int) in
             if stopped { return (nil, true, (rate, cursor), streamGeneration) }
@@ -437,7 +461,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
         timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
-        let (sink, damage, monitor) = lock.withLock { (onFrame, damageSink, sourceMonitor) }
+        let (sink, damage, monitor) = lock.withLock { stopped ? (nil, nil, nil) : (onFrame, damageSink, sourceMonitor) }
         // A new picture while locked or asleep: read again, so an unlock or wake clears the notice now.
         if let monitor, let state = monitor.state, state != .live { monitor.check() }
         let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
@@ -451,7 +475,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
 
     public func select(display index: Int) {
         let target = lock.withLock { () -> (SCDisplay, [CGSize], (@Sendable ([CGSize], Int) -> Void)?)? in
-            guard displays.indices.contains(index), index != current else { return nil }
+            guard !stopped, displays.indices.contains(index), index != current else { return nil }
             current = index
             return (displays[index], displays.map { pixelSize($0) }, onDisplays)
         }
@@ -461,6 +485,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
     }
 
     public func handle(_ message: ScreenInput) {
+        guard !lock.withLock({ stopped }) else { return }
         input.handle(message)
     }
 
@@ -473,6 +498,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
     /// then ⌘V pastes it where this Mac's focus is (as the viewer's own ⌘V
     /// would), in order with the input around it.
     public func pasteImage(_ data: Data, type: String) -> Bool {
+        guard !lock.withLock({ stopped }) else { return false }
         guard writePasteboard(data, type) else { return false }
         input.pasteShortcut()
         return true
@@ -501,6 +527,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, ScreenDamageSo
                 streamDisplay = nil
                 streamGeneration += 1
                 stopped = true
+                onFrame = nil
+                onDisplays = nil
                 self.reconfiguration = nil
                 damageSink = nil
                 self.sourceMonitor = nil

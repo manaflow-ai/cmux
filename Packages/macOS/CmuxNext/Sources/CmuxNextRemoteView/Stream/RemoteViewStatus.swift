@@ -31,6 +31,9 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// What the connect waits on, in the transport's words (a Cloud desktop dial's step and how long is
     /// left); nil when the transport gives none. Read by tools, never shown in the pane.
     public var connectingReason: String?
+    /// The host's accepted Welcome carrier, only while streaming. Diagnostic data,
+    /// not the requested carrier or the local byte path; unknown values stay unknown.
+    public var carrier: String?
     /// The stream's width and height in pixels from the host's welcome (a `cmux.rd/1` transport);
     /// nil before the welcome and from transports that give none. Pointer input is in these
     /// pixels; under `video.scaled` the decoded picture may be smaller.
@@ -40,6 +43,7 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     public init(
         path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
         upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil,
+        carrier: String? = nil,
         streamWidth: Int? = nil, streamHeight: Int? = nil
     ) {
         self.path = path
@@ -49,6 +53,7 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
         self.upstream = upstream
         self.endReason = endReason
         self.connectingReason = connectingReason
+        self.carrier = carrier
         self.streamWidth = streamWidth
         self.streamHeight = streamHeight
     }

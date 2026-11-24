@@ -146,3 +146,63 @@ is served by the WebRTC host. The phone keeps WebRTC until the link ships as a l
 - The phone on cmux.rd/1 (iOS starts no helper process: the link has to be a library there).
 - Frames in flight follow the round trip at stream start only, not during the session.
 - Content filters that hide password and authentication windows.
+
+### Same-session WebRTC fallback
+
+The Rust carrier may emit a typed `AppLine.fallback` only after authenticating
+its peer and before media starts. The decision names rd-wg, a carrier failure,
+and WebRTC as the retry. Consent, peer identity and revocation errors are not
+fallback reasons. The app reads that decision through the Rust line reader;
+it does not classify stderr strings or turn arbitrary disconnections into retries.
+
+The viewer forwards its already-open ticket signaling into `ScreenSession`.
+Its new WebRTC offer and answer still pass through `TicketSignaling` fingerprint
+signing and verification. The host buffers Rust's decision because that local
+stdout line and the signed offer can arrive in either order. It switches only
+when the decision permits it, retaining the original session and view-only scope.
+There is no new approval, ticket redemption or automatic reconnect after streaming.
+
+The worker's typed terminal output is authoritative during negotiation. The
+Unix pane socket can reach EOF before stdout delivers a permitted fallback;
+close the worker's input to bound local socket failures, but keep its output
+reader alive until fallback, ended, or stdout EOF. A process-exit notification
+must not finish that reader before the final stdout bytes have drained.
+`MacScreenViewerFallbackTests` exercises EOF before fallback, terminal output,
+worker EOF, stop/restart, and a short-lived child's final line. These tests
+are lifecycle evidence, not performance measurements.
+
+Stop is an irreversible fence on the native host owner, including work already
+queued for fallback. Shared WebRTC setup also binds asynchronous ICE discovery
+and resource installation to the current session generation; a stopped hub
+ticket cannot create another source. `MacScreenHostFallbackTests` and
+`ScreenHostRevocationTests` cover actual Stop during suspended setup, synchronous
+callback revocation, queued capture and preserved pairing-room reconnects.
+
+Both carriers feed the same `RemoteFramePresenter` and remote input surface.
+WebRTC's decoded hardware pixel buffers are passed through without copying;
+software I420 frames use the existing pooled NV12 conversion. Disconnect fences
+late render callbacks before another session can show frames.
+
+The comparison remains unverified until the same two Macs run both carriers
+and Apple Screen Sharing on both network paths. Historical decoder timings
+are not presented-frame measurements; no performance win follows from this glue.
+
+
+### Carrier negotiation and older peers
+
+New Mac peers add `a=fingerprint:cmux-rd-carrier rd_wg/1` to the existing signed
+rd offer and answer. `TicketSignaling` authenticates that line with the session
+key fingerprint. The platform passes its raw value as `peer_carrier` to Rust;
+Rust validates it before starting the network. Missing metadata selects the
+original rd-link protocol for an older peer. Empty, unknown, null or duplicate
+metadata does not select that compatibility path: it fails closed. Once both
+peers select WG, failure may only negotiate WebRTC, never downgrade to legacy
+media. Hub tickets, approval, scope and revocation are unchanged.
+
+The app invokes `cmux rd serve-v2` / `connect-v2`, asserting that the bundled
+worker implements this contract before it emits a key. An older worker rejects
+those commands instead of silently ignoring the JSON field and advertising
+support it lacks. The unversioned commands remain available for older app
+callers. Verify the app and bundled worker together, as well as new/new,
+new/old, old/new and old/old peers. A new FFI pin alone does not prove the bundled
+worker contains the carrier change.

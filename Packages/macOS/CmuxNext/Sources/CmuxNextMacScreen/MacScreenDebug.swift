@@ -193,7 +193,7 @@ extension MacScreenPages {
             row["reconnecting"] = .bool(session.isReconnecting)
             row["path"] = .string(session.streamPath)
             // The validated carrier the benchmark rig gates on (live.py pane_attestation); null with no stream.
-            row["transport"] = session.transportCarrier.map(JSONValue.string) ?? .null
+            row["transport"] = (session.selectedTransport ?? session.transportCarrier).map(JSONValue.string) ?? .null
             row["fps"] = .number(session.stats.fps)
             row["rtt_ms"] = session.stats.latencyMs.map(JSONValue.number) ?? .null
             row["encoding"] = .string(session.stats.encoding)

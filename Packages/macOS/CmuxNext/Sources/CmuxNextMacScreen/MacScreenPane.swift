@@ -110,8 +110,7 @@ public final class MacScreenPane {
     private let inputSink: MacScreenInputSink?
     private var visible = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
-    /// The decoder of the current transport (one per session).
-    private var decodeTask: Task<Void, Never>?
+    private lazy var videoPipeline = MacScreenVideo(presenter: view.presenter) { [weak self] in self?.framesShown($0) }
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
     private var cursorTask: Task<Void, Never>?
 
@@ -159,6 +158,7 @@ public final class MacScreenPane {
 
     private func wire(_ session: MacScreenSession) {
         session.onTransport = { [weak self] transport in self?.decode(transport) }
+        session.onVideoTrack = { [weak self] track in self?.present(track) }
         view.presenter.onFrameSize = { [weak self, weak session] size in
             guard let self else { return }
             // The decoded picture's size (it picks the video's filters); the video's pixel space
@@ -220,24 +220,11 @@ public final class MacScreenPane {
         observePhase(session)
     }
 
-    /// Decodes a new transport's video into the presenter; the first frame shows the picture.
+    /// Decodes a new rd/1 transport's video into the presenter; the first frame shows the picture.
     private func decode(_ transport: RemoteRdStreamTransport) {
-        decodeTask?.cancel()
         model.hasFrame = false
         model.recording.attach(transport)
-        let presenter = view.presenter
-        let counter = MacScreenFrameCounter()
-        session?.frameCounter = counter
-        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            presenter.present(frame)
-            // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick(frame: frame.frame, releasedAtNanos: frame.releasedAtNanos,
-                                     decodedAtNanos: frame.decodedAtNanos) else { return }
-            Task { @MainActor [weak self] in self?.framesShown(counter) }
-        }
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
-        // task-owner: this transport's decoder; ends with its stream or the next session's
-        decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        session?.frameCounter = videoPipeline.decode(transport)
         cursorTask?.cancel()
         view.cursor.setRemoteCursor(nil)
         let cursors = transport.cursorUpdates()
@@ -245,6 +232,15 @@ public final class MacScreenPane {
         cursorTask = Task { [weak self] in
             for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
         }
+    }
+
+    /// Presents the WebRTC fallback's track in the same pane (no rd cursor feed or recording).
+    private func present(_ track: VideoTrackBox) {
+        model.hasFrame = false
+        model.recording.stop()
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        session?.frameCounter = videoPipeline.present(track)
     }
 
     private func framesShown(_ counter: MacScreenFrameCounter) {
@@ -272,7 +268,9 @@ public final class MacScreenPane {
                     model.hasFrame = false
                 }
                 switch session.phase {
-                case .ended, .failed: model.recording.stop()
+                case .ended, .failed:
+                    model.recording.stop()
+                    videoPipeline.stop()
                 default: break
                 }
                 model.hub?.streamStalled(session.isStalled)
@@ -331,7 +329,7 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         model.recording.stop()
-        decodeTask?.cancel()
+        videoPipeline.stop()
         cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
