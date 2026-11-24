@@ -12,6 +12,10 @@ public struct AgentNotificationReconciler: Sendable {
     private struct SessionBoundary: Sendable {
         let sessionKey: String
         let sequence: Int64
+        /// Sessions this owner's start superseded. They come back when the
+        /// owner ends, because the pane's own agent can outlive a session
+        /// that briefly claimed its surface (#49646).
+        var supersededKeys: Set<String> = []
     }
 
     private struct Session: Sendable {
@@ -24,6 +28,13 @@ public struct AgentNotificationReconciler: Sendable {
         /// SessionStart ownership boundary.
         var retiredSurfaceIDs: Set<String> = []
         var superseded = false
+        /// When the start that superseded this session happened. A later
+        /// SessionStart from this session is the agent starting again, not a
+        /// delayed hook, and takes the pane back.
+        var supersededAtMs: Int64 = -1
+        /// Whether the session had ended before it was superseded, restored
+        /// when the superseding session ends.
+        var endedBeforeSupersede = false
         var turn: String = "initial"
         var nativeTurn: String?
         var seenTurns: Set<String> = []
@@ -100,20 +111,30 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.stale)
         }
         if draft.kind == .sessionStarted,
-           sessions[sessionKey]?.superseded == true {
-            // Session boundaries are one-way. A late start from a retired
-            // identity must not make it current again or invalidate the
-            // receipts of the replacement owner.
+           let existing = sessions[sessionKey], existing.superseded,
+           draft.occurredAtMs <= existing.supersededAtMs {
+            // A late start from a retired identity, older than the start that
+            // replaced it, must not make it current again or invalidate the
+            // receipts of the replacement owner. A newer start is the agent
+            // starting again and owns the pane like any other start.
             return .init(.stale)
         }
         var boundaryInvalidations: [String] = []
+        var newlySupersededKeys: Set<String> = []
         if draft.kind == .sessionStarted, draft.sessionStartOwnsSurface {
             // A new session boundary supersedes every older session that was
             // attached to this pane. Release their delivered notifications
             // through the same correlation-key path as attention resolution.
             let indexedKeys = sessionKeysBySurfaceAndAgent[boundaryKey, default: []]
+            // Sessions the previous owner superseded stay owed to the pane, so
+            // a chain of short-lived claimants still hands the pane back.
+            newlySupersededKeys = sessionBoundaries[boundaryKey]?.supersededKeys
+                .subtracting([sessionKey]) ?? []
             for key in indexedKeys where key != sessionKey {
                 guard var candidate = sessions[key] else { continue }
+                newlySupersededKeys.insert(key)
+                candidate.endedBeforeSupersede = candidate.ended
+                candidate.supersededAtMs = draft.occurredAtMs
                 boundaryInvalidations.append(contentsOf: candidate.delivered.values)
                 candidate.delivered.removeAll()
                 candidate.deliveredSurfaceIDs.removeAll()
@@ -458,10 +479,12 @@ public struct AgentNotificationReconciler: Sendable {
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }
             session.ended = false
             session.superseded = false
+            session.supersededAtMs = -1
             if draft.sessionStartOwnsSurface {
                 sessionBoundaries[boundaryKey] = SessionBoundary(
                     sessionKey: sessionKey,
-                    sequence: event.sequence
+                    sequence: event.sequence,
+                    supersededKeys: newlySupersededKeys
                 )
             }
         case .turnStarted:
@@ -497,6 +520,12 @@ public struct AgentNotificationReconciler: Sendable {
             session.phase = .error
         case .sessionEnded:
             session.ended = true
+            if let boundary = sessionBoundaries[boundaryKey], boundary.sessionKey == sessionKey {
+                // The session that claimed this pane is gone: the sessions it
+                // superseded are the pane's agents again (#49646).
+                sessionBoundaries.removeValue(forKey: boundaryKey)
+                restoreSuperseded(boundary.supersededKeys, indexKey: boundaryKey)
+            }
         case .stateChanged:
             if draft.declaredPhase == .running {
                 let isNewTurn = incomingTurn != nil
@@ -612,6 +641,21 @@ public struct AgentNotificationReconciler: Sendable {
     /// Names the bounded index and lifecycle boundary for one pane/agent pair.
     private static func surfaceAgentKey(surfaceID: String, agentKey: String) -> String {
         key([surfaceID, agentKey])
+    }
+
+    /// Returns sessions a departed boundary owner superseded to the pane.
+    /// Their released receipts stay released; only their ability to notify
+    /// comes back. A session that has since moved or started again is left alone.
+    private mutating func restoreSuperseded(_ keys: Set<String>, indexKey: String) {
+        for key in keys {
+            guard var candidate = sessions[key], candidate.superseded,
+                  let surfaceID = candidate.surfaceID, let agentKey = candidate.agentKey,
+                  Self.surfaceAgentKey(surfaceID: surfaceID, agentKey: agentKey) == indexKey else { continue }
+            candidate.superseded = false
+            candidate.supersededAtMs = -1
+            candidate.ended = candidate.endedBeforeSupersede
+            storeSession(candidate, for: key, indexKey: indexKey)
+        }
     }
 
     /// Persists a session and keeps the bounded surface index in sync.
