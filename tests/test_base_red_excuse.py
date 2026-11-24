@@ -1815,7 +1815,7 @@ class Excusing(unittest.TestCase):
                                         steps=[])
         self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
 
-        def run(args):
+        def run(args, *, repo=None):
             # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
             query = next(arg for arg in args if arg.startswith("query="))
             asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
@@ -2999,6 +2999,82 @@ class JoblessStatusChecks(unittest.TestCase):
         self.gh.logs[1] = log("brand new red", TEST_STEP, "##[error]something new")
         with self.assertRaisesRegex(excuse.Refused, "brand new red"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, checks=[self.CONTEXT])
+
+
+class LinuxCrossNotice(unittest.TestCase):
+    """cmux-tui-artifacts.yml posts `cmux-tui/linux-cross` = failure when the Linux cross build of the macOS targets
+    fails, and the same run rebuilds them on a Mac: its own comment calls the status one that "blocks nothing (no
+    ruleset requires cmux-tui/linux-cross)". No job carries that name and no base commit has the status, so every
+    comparison path refused it and cmux#52253 at 5f1fbbacaa51 could not land for a red its writer had covered. It is
+    excused on the proof of the cover -- the fallback built the targets in that run -- and never without it."""
+
+    CONTEXT = "cmux-tui/linux-cross"
+    COVERED = "linux-cross: failed at Build the macOS binaries on Linux (no Apple SDK), covered by macOS fallback"
+    FALLBACK = "build-darwin-fallback / build aarch64-apple-darwin"
+    SELECT = "build-darwin-fallback / build x86_64-pc-windows-gnu"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: dict(failed_job(1, 10, HEAD, "build / build aarch64-apple-darwin"),
+                                conclusion="failure"),
+                        2: dict(failed_job(2, 10, HEAD, self.FALLBACK), conclusion="success"),
+                        3: dict(failed_job(3, 10, HEAD, self.SELECT), conclusion="skipped")}
+        self.head = {"context": self.CONTEXT, "state": "failure", "description": self.COVERED,
+                     "target_url": f"https://github.com/{REPO}/actions/runs/10/job/1"}
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                self.gh.routes.append(route)
+                return {"statuses": [copy.deepcopy(self.head)]}
+            if route.endswith("/actions/runs/10"):
+                self.gh.routes.append(route)
+                return {"id": 10, "workflow_id": 7, "head_sha": HEAD, "event": "pull_request",
+                        "display_title": "cmux-tui artifacts"}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.CONTEXT])
+
+    def test_a_covered_notice_is_excused_by_the_fallback_that_built_the_targets(self):
+        self.assertEqual(self.judge(), [
+            f"excused '{self.CONTEXT}': a notice, not a verdict (\"{self.COVERED}\"); no ruleset requires it and "
+            f"the macOS fallback covered it in run 10: {self.FALLBACK} succeeded"])
+
+    def test_a_failed_fallback_is_no_cover(self):
+        self.gh.jobs[2]["conclusion"] = "failure"
+        with self.assertRaisesRegex(excuse.Refused, f"the macOS fallback did not cover it in run 10: "
+                                                    f"{re.escape(self.FALLBACK)} is failure"):
+            self.judge()
+
+    def test_a_fallback_still_running_is_no_cover(self):
+        self.gh.jobs[2]["status"] = "in_progress"
+        self.gh.jobs[2]["conclusion"] = None
+        with self.assertRaisesRegex(excuse.Refused, "the macOS fallback has not finished in run 10"):
+            self.judge()
+
+    def test_a_run_whose_fallback_never_ran_is_no_cover(self):
+        del self.gh.jobs[2]
+        del self.gh.jobs[3]
+        with self.assertRaisesRegex(excuse.Refused, "the macOS fallback never ran"):
+            self.judge()
+
+    def test_every_fallback_job_skipped_builds_nothing(self):
+        self.gh.jobs[2]["conclusion"] = "skipped"
+        with self.assertRaisesRegex(excuse.Refused, "every macOS fallback job in run 10 was skipped"):
+            self.judge()
+
+    def test_another_description_on_the_same_context_is_judged_as_before(self):
+        self.head["description"] = "linux-cross: the runner was lost"
+        with self.assertRaisesRegex(excuse.Refused, f"no job '{re.escape(self.CONTEXT)}' in run 10"):
+            self.judge()
+
+    def test_a_notice_with_no_run_in_its_target_url_is_refused(self):
+        self.head["target_url"] = "https://example.invalid/somewhere"
+        with self.assertRaisesRegex(excuse.Refused, "names no run of"):
+            self.judge()
 
 
 class BaseRedWindow(unittest.TestCase):
@@ -9231,7 +9307,7 @@ class SweepGitHub(FakeGitHub):
             return copy.deepcopy(self.runs[int(route.rsplit("/", 1)[1])])
         return super().json(route, paginate=paginate)
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         self.graphql += 1
         query = next(arg for arg in args if arg.startswith("query="))
@@ -9297,7 +9373,7 @@ class TreeReuseGitHub(FakeGitHub):
             {"conclusion": job["conclusion"].upper()} for job in self.jobs.values()
             if job["run_id"] == run and job["name"] == name]}
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
@@ -9347,9 +9423,50 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                                                             "feat-cmux-next run 20"):
                     self.judge(TreeReuseGitHub(nodes=nodes, base_conclusion="success"))
 
+    def test_cancelled_flood_uses_repository_scoped_suite_verdicts(self):
+        # The private run's suite IDs are invisible in the judge's checkout. Thirteen cancelled pushes have
+        # no jobs. The fourteenth has a verdict even though its workflow too was superseded (HQ#22832).
+        for conclusion in ("failure", "success"):
+            with self.subTest(conclusion=conclusion):
+                fixture = TreeReuseGitHub(nodes=True, base_conclusion=conclusion)
+                fixture.base_runs = fixture.base_runs[:13] + fixture.base_runs[-1:] + fixture.base_runs[13:24]
+                fixture.base_runs[13]["created_at"] = "2026-11-12T23:46:30Z"
+                for run in fixture.base_runs:
+                    run["conclusion"] = "cancelled"
+                fixture.jobs = {job_id: fixture.jobs[job_id] for job_id in (1, 2)}
+                # Let main pass --repo through the real GraphQL subprocess transport. Other evidence comes from
+                # the fixture. A repo-less query gets an unknown suite, which forces a bounded REST read.
+                suites, fixture.run = fixture.run, excuse.GitHub().run
+                scopes = []
+
+                def gh(argv, *, stdout, stderr, env=None):
+                    self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+                    scope = (env or os.environ).get("GH_REPO")
+                    scopes.append(scope)
+                    reply = suites(argv[1:]) if scope == REPO else json.dumps({"data": {"nodes": [None] * 25}})
+                    stdout.write(reply.encode())
+                    return unittest.mock.Mock(returncode=0)
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.dict(os.environ, {"GH_REPO": "teamleaderleo/leo-workspace",
+                                                           "TAP_TESTS_STATE": "off"}), \
+                        unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                        unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+                if conclusion == "failure":
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertIn("run 20", stdout.getvalue())
+                else:
+                    self.assertEqual(code, 1)
+                    self.assertIn("not red on feat-cmux-next run 20", stderr.getvalue())
+                self.assertEqual([run for run in fixture.job_reads() if run != 10], [20])
+                self.assertTrue(scopes)
+                self.assertEqual(set(scopes), {REPO})
+
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
@@ -9387,7 +9504,7 @@ class SweepLimit(unittest.TestCase):
 
     def test_a_suite_read_that_fails_reads_every_run_as_before(self):
         gh = SweepGitHub(1)
-        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         self.assertEqual(gh.judge(1), SweepGitHub(1, suites=False).judge(1))
         self.assertGreater(len(gh.targets), 30)
 
@@ -10913,6 +11030,20 @@ class FailingStepLogOnly(unittest.TestCase):
         for name in ("lines_of", "step_owners", "failed_steps_log", "STEP_NAMES_UNKNOWN", "STAMP", "ALIGN_MAX_STARTS",
                      "_one_to_one_starts", "_aligned_starts", "_live_red", "_line_time"):
             self.assertIs(getattr(excuse, name), getattr(excuse.steps_log, name), name)
+
+    def test_a_job_of_only_set_up_and_complete_job_is_unplaced_not_a_crash(self):
+        # Land refused cmux#52785 ("base_red_excuse.py exit 1"): a job with just "Set up job" and "Complete job" and a
+        # log with no step header made _one_to_one_starts return [] (0 headers for 0 printing steps), and step_owners
+        # took starts[0] of it: IndexError. An unplaceable log is AMBIGUOUS on every line.
+        steps = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "failure",
+                  "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
+                 {"number": 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": "2026-11-10T12:00:02Z", "completed_at": "2026-11-10T12:00:02Z"}]
+        log = "\n".join(f"job\tUNKNOWN STEP\t2026-11-10T12:00:01.0000000Z {text}"
+                        for text in ("Current runner version: '2.338.2'", "##[error]The runner lost contact"))
+        owned = excuse.step_owners({"steps": steps}, log, **UNKNOWN)
+        self.assertEqual([status for _, _, status in owned], [excuse.AMBIGUOUS] * 2)
+        self.assertIn("lost contact", excuse.failed_steps_log({"steps": steps}, log, **UNKNOWN))
 
     def adjacent_steps(self):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
@@ -14385,7 +14516,7 @@ class StepFixture:
                     found["workflow_runs"] = [run for run in found["workflow_runs"] if run["id"] != 19]
                 return found
 
-            def run(self, args):
+            def run(self, args, *, repo=None):
                 # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
                 assert args[:2] == ["api", "graphql"], args
                 query = next(arg for arg in args if arg.startswith("query="))
@@ -16585,7 +16716,7 @@ class SpawnOwnerGitHub:
     def log(self, repo, job):
         return self.logs[job["id"]]
 
-    def run(self, args):
+    def run(self, args, *, repo=None):
         # SuiteChecks' GraphQL read: each suite's check runs of the name, from these jobs.
         assert args[:2] == ["api", "graphql"], args
         query = next(arg for arg in args if arg.startswith("query="))
