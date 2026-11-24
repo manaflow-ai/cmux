@@ -214,7 +214,9 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     assert_eq!(draft["draft"], "unsent words");
     let info = dst.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["cwd"], destination.to_string_lossy().as_ref());
-    let left = src.call("_acpmux/info", json!({"sessionId": id})).await;
+    // The row the source keeps: a plain `{sessionId}` info follows the chat to its copy.
+    let kept = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+    let left = &kept["rows"][0];
     assert_eq!(left["status"], "closed");
     assert_eq!(left["movedTo"]["host"], "target");
 }
