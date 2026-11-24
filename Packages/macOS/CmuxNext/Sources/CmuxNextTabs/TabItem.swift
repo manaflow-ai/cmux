@@ -82,6 +82,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// tab that is no agent chat: it reserves no pill slot. 0: an agent chat with nothing to count, which keeps
     /// the slot so its title never moves when a count comes.
     public var agentBadgeCount: Int?
+    /// The agent whose mark the tab wears runs in this terminal (a terminal or remote terminal tab its hooks report
+    /// on, not an agent chat): the strip draws that mark as the reverse-video tile (`TerminalMarkTile`) at 16 pt and up.
+    public var agentInTerminal = false
     /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
     public var hover = TabHoverFacts()
 

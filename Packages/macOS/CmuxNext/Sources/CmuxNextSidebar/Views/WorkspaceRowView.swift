@@ -22,6 +22,10 @@ final class WorkspaceRowView: SidebarRowView {
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
     private(set) var agentMarkFallbackColor: GroupColor?
+    /// The agent mark draws as the terminal tile (`drawsTerminalTile`): tinted with the title's ink, not the marks'.
+    private(set) var agentMarkIsTile = false
+    /// The terminal tile the agent mark shows and what it draws (`terminalTileKey`), kept across configures.
+    var agentMarkTile: (key: String, image: NSImage)?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
@@ -368,8 +372,9 @@ final class WorkspaceRowView: SidebarRowView {
         activity.configure(badgesLead || pill != nil ? .idle : shown.activity, style: badgesLead || pill != nil ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
-        let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
+        let markImage = agentMarkImage(ws, placeholder: isShowingPlaceholder)
         agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
+        agentMarkIsTile = markImage != nil && Self.drawsTerminalTile(ws, variant: agentMarkVariant)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil || (pill != nil && agentMarkVariant == .replacesStatus)
         badge.configure(badgesLead ? .none : ws.unread)

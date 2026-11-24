@@ -439,9 +439,11 @@ struct AgentChatRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AgentBrandMark(agent: chat.harness, size: 20, style: .brand)
-                .frame(width: 32, height: 32)
-                .background(theme.colors.label.color.opacity(0.06), in: .circle)
+            if chat.runsInTerminal { terminalTile } else {
+                AgentBrandMark(agent: chat.harness, size: 20, style: .brand)
+                    .frame(width: 32, height: 32)
+                    .background(theme.colors.label.color.opacity(0.06), in: .circle)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(chat.displayTitle)
                     .font(.body)
@@ -481,6 +483,30 @@ struct AgentChatRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityHint(chat.archived ? "Archived" : "")
+    }
+
+    /// A chat whose agent runs in a terminal: its mark knocked out of a filled square in the label colour, the way a
+    /// terminal draws a selected cell (reverse video), in the frame the circle takes for a chat in the app.
+    /// Leo 2026-11-24 (ask-97938b6c84): "terminal agent chats. can they be demarcated a bit differently/should they?"
+    private var terminalTile: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(theme.colors.label.color)
+            .frame(width: 32, height: 32)
+            .overlay {
+                AgentBrandMark(agent: chat.harness, size: 20, style: .mono)
+                    .foregroundStyle(.black)
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(Self.inTerminal(chat.harness)))
+            .accessibilityAddTraits(.isImage)
+    }
+
+    /// The tile's words: "Claude Code, in a terminal" (the harness id when cmux lists no name for it).
+    static func inTerminal(_ harness: String) -> String {
+        let agent = AgentBrandCatalog.agents.first { $0.id == harness.lowercased() }?.name ?? harness
+        return String(localized: "agentChats.row.inTerminal", defaultValue: "\(agent), in a terminal")
     }
 
     private var subtitle: String {

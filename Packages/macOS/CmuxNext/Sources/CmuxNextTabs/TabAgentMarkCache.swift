@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentBrands
+import CmuxNextDesign
 
 /// Agent brand marks drawn in the tab's tint (the mono style), cached per brand, tint, and scale.
 final class TabAgentMarkCache {
@@ -29,5 +30,18 @@ final class TabAgentMarkCache {
         if cache.count > 256 { cache.removeAll() }
         cache[key] = image
         return image
+    }
+
+    /// A terminal agent's mark knocked out of a `size` tile filled `tint` (`TerminalMarkTile`), cached beside the
+    /// marks; nil when the brand has no mark.
+    func tile(brand: String, tint: NSColor, size: CGFloat, scale: CGFloat) -> CGImage? {
+        let resolved = tint.usingColorSpace(.sRGB) ?? tint
+        let key = "tile|\(brand)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(size)|\(scale)"
+        if let cached = cache[key] { return cached }
+        guard let mark = image(brand: brand, tint: .black, size: TerminalMarkTile.markSide(slot: size), scale: scale),
+              let tile = TerminalMarkTile.image(mark: mark, slot: size, scale: scale, ink: resolved.cgColor) else { return nil }
+        if cache.count > 256 { cache.removeAll() }
+        cache[key] = tile
+        return tile
     }
 }

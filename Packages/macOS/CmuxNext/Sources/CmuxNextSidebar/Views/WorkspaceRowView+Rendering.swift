@@ -90,7 +90,9 @@ extension WorkspaceRowView {
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
-            agentMark.setTint(waits ? Palette.statusAttention : agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
+            // A terminal agent's tile is the row's text ink (the title's), the mark cut out of it; waiting still colours it.
+            let markInk = agentMarkIsTile ? SidebarStyle.nameInk(.title, archived: isArchived) : nil
+            agentMark.setTint(waits ? Palette.statusAttention : markInk ?? agentMarkFallbackColor.map(SidebarStyle.color) ?? Palette.textSecondary)
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil

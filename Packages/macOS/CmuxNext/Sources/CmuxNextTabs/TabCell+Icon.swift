@@ -18,6 +18,9 @@ extension TabCell {
                                                size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
         case .agentMark(let brand):
+            // A terminal agent's mark draws as the reverse-video tile where the icon box holds one.
+            if item.agentInTerminal, TerminalMarkTile.holds(slot: metrics.iconSize),
+               let tile = TabAgentMarkCache.shared.tile(brand: brand, tint: tint, size: metrics.iconSize, scale: scale) { return tile }
             return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale)
                 ?? TabPackIconCache.shared.image(name: .tabTerminal, tint: tint, size: metrics.iconSize, scale: scale)
         case .icon(let name):

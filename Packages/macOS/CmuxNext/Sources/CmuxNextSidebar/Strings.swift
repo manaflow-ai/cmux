@@ -94,6 +94,10 @@ enum Strings {
         case .connected, .offline, .updateAvailable, .installing: nil
         }
     }
+    /// A row whose agent runs in a terminal (the reverse-video tile): "Claude Code, in a terminal".
+    static func agentInTerminal(_ agent: String) -> String {
+        String(localized: "sidebar.a11y.agentInTerminal", defaultValue: "\(agent), in a terminal", bundle: .localizedModule)
+    }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .localizedModule) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .localizedModule) }
     /// The agent chat's task list: steps done of all (the row's "3/7" in words, and the hover card's line).

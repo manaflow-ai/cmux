@@ -83,6 +83,9 @@ public struct TabItemMapping {
         item.hover = hover.facts
         if isConversation { item.subtitle = hover.folder }
         if hover.facts.kind == .agentChat { item.agentBadgeCount = agentBadgeCount(tab) }
+        // An agent its hooks report in a terminal of the tab's own (not an agent chat) wears its mark as a tile.
+        item.agentInTerminal = (tab.kind == .pty || tab.kind == .remoteTerminal) && tab.agentSession == nil
+            && { if case .agentMark = item.icon { true } else { false } }()
         if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
             if item.icon == .terminalDead { item.icon = .terminal }
             if item.status == .failure { item.status = .none }
