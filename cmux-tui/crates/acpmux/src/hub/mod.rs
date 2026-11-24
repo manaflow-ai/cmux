@@ -6,6 +6,8 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+#[cfg(unix)]
+mod closed_tmp;
 mod control_asks;
 
 mod account_usage;
@@ -44,8 +46,13 @@ mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_folder;
+#[cfg(all(test, unix))]
+mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
+#[cfg(test)]
+mod wait_reason_tests;
 #[cfg(test)]
 mod worker_lock_tests;
 pub use bg_tasks::{BgScope, bg_owner_words};
@@ -137,6 +144,7 @@ pub mod forum;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod handoff;
+mod harness_magic;
 mod harness_view;
 mod harness_watch;
 mod health_view;
@@ -180,6 +188,7 @@ pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
+pub(crate) mod subagent_list;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
@@ -225,6 +234,7 @@ pub use model_options::{
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod hybrid_hold;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -265,6 +275,8 @@ pub(crate) fn prompt_attribution_mark(
     prompt_attribution::mark(params, sender, provenance);
 }
 mod prompt_sender;
+// A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cold_wake;
 mod protected_hold;
 // The account's rate limit holds every turn of a chat until its reset.
 mod queue;
@@ -568,10 +580,58 @@ use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
-use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
+use crate::store::{
+    EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, WaitReason, now_ms,
+};
 use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+
+/// A status [`Hub::set_status`] writes: every [`SessionStatus`] but Waiting, which only
+/// [`Hub::set_waiting`] writes, with its [`WaitReason`]. A type of its own, so a Waiting with no
+/// reason does not compile (goal cloud-chat-waiting-always-explained).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NotWaiting {
+    Idle,
+    Ready,
+    Running,
+    Disconnected,
+    Closed,
+}
+
+impl From<NotWaiting> for SessionStatus {
+    fn from(s: NotWaiting) -> Self {
+        match s {
+            NotWaiting::Idle => Self::Idle,
+            NotWaiting::Ready => Self::Ready,
+            NotWaiting::Running => Self::Running,
+            NotWaiting::Disconnected => Self::Disconnected,
+            NotWaiting::Closed => Self::Closed,
+        }
+    }
+}
+
+impl NotWaiting {
+    /// `status` as one [`Hub::set_status`] writes; None for Waiting.
+    pub(crate) fn of(status: SessionStatus) -> Option<Self> {
+        Some(match status {
+            SessionStatus::Idle => Self::Idle,
+            SessionStatus::Ready => Self::Ready,
+            SessionStatus::Running => Self::Running,
+            SessionStatus::Disconnected => Self::Disconnected,
+            SessionStatus::Closed => Self::Closed,
+            SessionStatus::Waiting => return None,
+        })
+    }
+}
+
+impl WaitReason {
+    /// What a chat asked `request` (a permission request) waits for: a question when it carries
+    /// one, else a permission.
+    pub(crate) fn of_request(request: &Value) -> Self {
+        if is_question(request) { Self::Question } else { Self::Permission }
+    }
+}
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the
 /// person about it says the agent asks, never that it needs a permission.
@@ -1209,6 +1269,8 @@ pub struct Hub {
     pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
     /// Background-task starts, one at a time (`bg_tasks.rs`).
     pub(super) bg_starts: tokio::sync::Mutex<()>,
+    /// The chats' task folders at their last look (`bg_folder.rs`).
+    pub(super) bg_folders: bg_folder::BgFolders,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -1687,6 +1749,7 @@ impl Hub {
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
+            bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -2017,6 +2080,13 @@ impl Hub {
         if meta.status != SessionStatus::Closed && !kept {
             meta.status = SessionStatus::Idle;
         }
+        // A kept Waiting loads working: the ask it waited on lives in its host, which asks it
+        // again when adoption reaches it, and that ask sets it Waiting with what it asks
+        // (`hosts.rs`, `Hub::set_waiting`). Until then nothing here is open to answer, and a
+        // Waiting that says no reason is never shown (goal cloud-chat-waiting-always-explained).
+        if kept && meta.status == SessionStatus::Waiting {
+            meta.status = SessionStatus::Running;
+        }
         // Every child's short name stays taken (`subsessions.rs`).
         if let Some(link) = &meta.subsession {
             self.subsessions.note_name(&link.started_by, &link.short_name);
@@ -2249,6 +2319,7 @@ impl Hub {
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
+            wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
@@ -2269,6 +2340,7 @@ impl Hub {
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
+            respawn_when_quiet: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
             inbound_tx,
@@ -2295,6 +2367,8 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             gathering: StdMutex::new(None),
+            cold_batch: StdMutex::new(None),
+            cold_batch_turn: AtomicBool::new(false),
             person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
@@ -3348,8 +3422,17 @@ impl Hub {
     /// ending; each of them read the session as open before it waited, and its write came after
     /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
     /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
-    pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        self.write_status(session, status, None);
+    ///
+    /// Every status but Waiting ([`NotWaiting`]): a chat waits only through [`Self::set_waiting`],
+    /// with what it waits for, so no Waiting is ever bare.
+    pub(super) fn set_status(&self, session: &Session, status: NotWaiting) {
+        self.write_status(session, status.into(), None, None);
+    }
+
+    /// Sets `session` Waiting on the person for `reason`, the summary's `waitingOn` while no
+    /// open ask says more (`subsession_send.rs` `waiting_on`). The only way into Waiting.
+    pub(super) fn set_waiting(&self, session: &Session, reason: WaitReason) {
+        self.write_status(session, SessionStatus::Waiting, Some(reason), None);
     }
 
     #[cfg(test)]
@@ -3367,7 +3450,7 @@ impl Hub {
         if session.purging.load(Ordering::SeqCst) {
             return false;
         }
-        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
+        let reopened = self.write_status(session, SessionStatus::Idle, None, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));
         }
@@ -3376,7 +3459,15 @@ impl Hub {
 
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
-    fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+    /// `reason` is what a Waiting waits for, and only a Waiting has one ([`Self::set_waiting`]).
+    fn write_status(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        reason: Option<WaitReason>,
+        reopen: Option<u64>,
+    ) -> bool {
+        debug_assert_eq!(status == SessionStatus::Waiting, reason.is_some());
         // From before the status is set to after it is logged.
         session.status_writes.fetch_add(1, Ordering::SeqCst);
         struct Done<'a>(&'a AtomicU64);
@@ -3396,6 +3487,8 @@ impl Hub {
                 return false;
             }
             m.status = status;
+            // Under the meta lock with the status, so no read sees Waiting without its reason.
+            *session.wait_reason.lock().unwrap_or_else(|e| e.into_inner()) = reason;
             if was != status {
                 session.status_changes.fetch_add(1, Ordering::SeqCst);
             }
