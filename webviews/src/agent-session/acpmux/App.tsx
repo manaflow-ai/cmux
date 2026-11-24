@@ -109,6 +109,7 @@ import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { hatSide } from "./jumpPlace";
 import { hatPillPlace } from "./hatPillPlace.experiment";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { setFolderUseTimes } from "./addedRepos";
 import { useSendAfterCheckout } from "./sendAfterCheckout";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { shownTemplate } from "./newtab/templates";
@@ -8830,6 +8831,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composer: new SessionsBy(folderFields),
     recency: new FolderRecency(),
   };
+  // The folder menu orders the GitHub repositories added as projects among the folders by these times.
+  setFolderUseTimes((folder) => folderLists.current?.recency.usedAt(folder));
   const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
   const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
   const newTabRecentFolders = folderLists.current.recency.of(newTabSnapshot.sessions);
