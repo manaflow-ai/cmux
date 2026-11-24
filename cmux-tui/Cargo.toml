@@ -153,6 +153,7 @@ members = [
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
@@ -296,6 +297,7 @@ default-members = [
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
+    "crates/cmux-browser-sync",
     "crates/cmux-terminal-prediction",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
@@ -381,6 +383,7 @@ cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
+cmux-browser-sync = { path = "crates/cmux-browser-sync" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
