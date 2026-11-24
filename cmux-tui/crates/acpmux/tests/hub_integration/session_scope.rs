@@ -133,6 +133,9 @@ async fn no_limits_set_means_no_scope() {
             ("ACPMUX_SESSIONS_SWAP_MAX", "0"),
             ("ACPMUX_SESSION_TASKS_MAX", "0"),
             ("ACPMUX_SESSION_CPU_WEIGHT", "0"),
+            // The CPU quota and IO weight have defaults of their own since #54137.
+            ("ACPMUX_SESSION_CPU_QUOTA_PCT", "0"),
+            ("ACPMUX_SESSION_IO_WEIGHT", "0"),
         ],
     )
     .await;

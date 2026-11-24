@@ -243,7 +243,7 @@ async fn a_resumed_stage_the_source_does_not_match_is_written_again_from_zero() 
 async fn a_live_move_freezes_for_the_tail_only_over_a_slow_link() {
     // Each daemon step of the move, timed (`hub/transfer_live.rs` `MoveSteps`).
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("acpmux::move_steps=info")
+        .with_env_filter("acpmux::move_steps=debug")
         .with_writer(std::io::stderr)
         .try_init();
     let prompts: usize =

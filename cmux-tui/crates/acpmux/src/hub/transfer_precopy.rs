@@ -322,7 +322,7 @@ impl Hub {
 
     /// The move this daemon's moved-away copy of chat `id` was shipped by, while unrewritten.
     fn shipped_base(&self, id: &str) -> Option<String> {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        let session = self.session_get(id)?;
         if !self.moved_away(&session) {
             return None;
         }
