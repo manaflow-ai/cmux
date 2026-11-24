@@ -2,8 +2,8 @@ package import Darwin
 import Foundation
 import os
 
-/// How many file descriptors this process holds open, and how many of them are pipes: one
-/// `proc_pidinfo(PROC_PIDLISTFDS)` call, no file system access, a few microseconds.
+/// How many file descriptors this process holds open, and how many of them are pipes: its own
+/// `/dev/fd` listed once, a few microseconds for a few hundred descriptors.
 ///
 /// NIGHTLY held about 2,000 open pipes, 452 of them full at 64 KB, when its main thread waited
 /// 391 s in a pipe write (2026-11-09, cmuxterm-hq#8747): the kernel's pipe memory was used up and
@@ -12,7 +12,7 @@ import os
 package struct OpenDescriptors: Sendable, Equatable {
     /// Every open descriptor.
     package var total: Int
-    /// The pipes among them (`PROX_FDTYPE_PIPE`).
+    /// The pipes among them (`S_IFIFO`).
     package var pipes: Int
 
     package init(total: Int, pipes: Int) {
@@ -20,24 +20,23 @@ package struct OpenDescriptors: Sendable, Equatable {
         self.pipes = pipes
     }
 
-    /// This process's count now; nil when the kernel does not answer.
+    /// This process's count now; nil when `/dev/fd` cannot be listed. Reads this process's own
+    /// descriptor table only (`/dev/fd`, one `fstat` each): no other process is looked at.
     package static func current() -> OpenDescriptors? {
-        let pid = getpid()
-        // The size the kernel needs for every descriptor this process has now.
-        let needed = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard needed > 0 else { return nil }
-        let stride = MemoryLayout<proc_fdinfo>.stride
-        // Room for descriptors opened between the two calls.
-        let capacity = Int(needed) / stride + 64
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
-        let written = fds.withUnsafeMutableBytes { buffer in
-            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+        guard let directory = opendir("/dev/fd") else { return nil }
+        defer { closedir(directory) }
+        // The listing's own descriptor is not counted.
+        let own = dirfd(directory)
+        var total = 0, pipes = 0
+        while let entry = readdir(directory) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { String(decoding: $0.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self) }
+            guard let fd = Int32(name), fd != own else { continue }
+            var info = stat()
+            guard fstat(fd, &info) == 0 else { continue }
+            total += 1
+            if info.st_mode & S_IFMT == S_IFIFO { pipes += 1 }
         }
-        guard written > 0 else { return nil }
-        let count = min(Int(written) / stride, capacity)
-        var pipes = 0
-        for index in 0..<count where fds[index].proc_fdtype == UInt32(PROX_FDTYPE_PIPE) { pipes += 1 }
-        return OpenDescriptors(total: count, pipes: pipes)
+        return OpenDescriptors(total: total, pipes: pipes)
     }
 
     /// The pipe count past which ``noteBudget(_:)`` logs a fault. A healthy app holds a few dozen
