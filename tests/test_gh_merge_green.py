@@ -2707,32 +2707,47 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
 
+    def run_merge_recording_tmp(self, directory, fail_if):
+        """run_merge with a git shim that exits 42 when `fail_if` (Python over `args`) holds and a mktemp
+        shim that logs each `mktemp -d` directory, one per line; returns the result and the logged paths."""
+        real_git, real_mktemp = shutil.which("git"), shutil.which("mktemp")
+        made = Path(directory, "made-tmp")
+        Path(directory, "git").write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "args = sys.argv[1:]\n"
+            f"if {fail_if}:\n"
+            "    sys.exit(42)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
+        Path(directory, "git").chmod(0o755)
+        Path(directory, "mktemp").write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = -d ] && [ \"$#\" -eq 1 ]; then\n"
+            f"  d=$({real_mktemp!r} -d); printf '%s\\n' \"$d\" >> {str(made)!r}; printf '%s\\n' \"$d\"\n"
+            "else\n"
+            f"  exec {real_mktemp!r} \"$@\"\n"
+            "fi\n")
+        Path(directory, "mktemp").chmod(0o755)
+        result, _, _ = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"})
+        recorded = made.read_text().splitlines() if made.exists() else []
+        self.assertTrue(recorded, "the mktemp shim recorded no directory")
+        return result, recorded
+
     def test_a_merge_tree_failure_removes_the_merged_tree_temp_directory(self):
         with tempfile.TemporaryDirectory() as directory:
-            # A git shim fails only merge-tree; a mktemp shim records the directory the helper makes.
-            real_git, real_mktemp = shutil.which("git"), shutil.which("mktemp")
-            made = Path(directory, "made-tmp")
-            Path(directory, "git").write_text(
-                "#!/usr/bin/env python3\n"
-                "import os, sys\n"
-                "if 'merge-tree' in sys.argv[1:]:\n"
-                "    sys.exit(42)\n"
-                f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n")
-            Path(directory, "git").chmod(0o755)
-            Path(directory, "mktemp").write_text(
-                "#!/bin/sh\n"
-                "if [ \"$1\" = -d ] && [ \"$#\" -eq 1 ]; then\n"
-                f"  d=$({real_mktemp!r} -d); printf '%s\\n' \"$d\" >> {str(made)!r}; printf '%s\\n' \"$d\"\n"
-                "else\n"
-                f"  exec {real_mktemp!r} \"$@\"\n"
-                "fi\n")
-            Path(directory, "mktemp").chmod(0o755)
-            result, marker, log = self.run_merge(
-                directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"})
+            result, recorded = self.run_merge_recording_tmp(directory, "'merge-tree' in args")
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("does not merge cleanly", result.stderr)
-            leaked = [p for p in made.read_text().split() if Path(p).exists()] if made.exists() else []
-            self.assertEqual(leaked, [], "merged-tree temp directory was left behind")
+            self.assertEqual([p for p in recorded if Path(p).exists()], [], "merged-tree temp directory was left behind")
+
+    def test_an_unexpected_failure_after_the_merge_removes_the_merged_tree_temp_directory(self):
+        # Not only the refusals: the EXIT trap's tmp_files cleanup covers every exit, Ctrl-C and SIGTERM too (#50167).
+        with tempfile.TemporaryDirectory() as directory:
+            result, recorded = self.run_merge_recording_tmp(
+                directory, "'show' in args and args[-1].endswith(':scripts/cmux-next/check-no-godfiles.sh')")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("an unexpected command failed", result.stderr)
+            self.assertEqual([p for p in recorded if Path(p).exists()], [], "merged-tree temp directory was left behind")
 
     def test_a_webviews_change_that_fails_vp_check_refuses(self):
         with tempfile.TemporaryDirectory() as directory:
