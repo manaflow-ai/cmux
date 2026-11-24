@@ -31,13 +31,7 @@
 // section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
 // A curated change whose highlight carries a before/after pair shows it under its line
 // (MediaCompare.tsx); the sheet shows no other pictures.
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import { Icon } from "../settings/icons";
@@ -58,18 +52,8 @@ import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
-import type {
-  ChangelogFocus,
-  ChangelogSnapshot,
-  ChangelogStore,
-} from "./store";
-import type {
-  IndexEntry,
-  ReleaseNotes,
-  SheetLayout,
-  SheetLinks,
-  WhatsNewCategory,
-} from "./types";
+import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
+import type { IndexEntry, ReleaseNotes, SheetLayout, SheetLinks, WhatsNewCategory } from "./types";
 
 export function SheetPage({
   store,
@@ -90,10 +74,7 @@ export function SheetPage({
   const main = useFocusScroll(focus, focusReady(s));
   const entry = focus?.entry ? titleKey(focus.entry) : undefined;
   return (
-    <KeyboardScope
-      className={`cls cls-${layout} cls-prs-${links}`}
-      handleKeyDown={journalKeys}
-    >
+    <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
       <main aria-labelledby="cls-title" ref={main}>
         <header className="cls-masthead">
           <h1 className="cls-title" id="cls-title">
@@ -101,9 +82,7 @@ export function SheetPage({
           </h1>
         </header>
         {s.failed && <p className="cl-error">{s.failed}</p>}
-        {s.builds.length === 0 && !s.failed && (
-          <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>
-        )}
+        {s.builds.length === 0 && !s.failed && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
         {groupByDay(s.builds).map((day) => (
           <SheetDay
             key={day.day + day.builds[0]!.build}
@@ -136,19 +115,14 @@ function SheetDay({
   /** The focused change's title key: its area shows all its rows. */
   entry?: string;
 }) {
-  const loaded = builds
-    .map((b) => s.loaded[b.build])
-    .filter((n): n is ReleaseNotes => !!n);
-  const pending = builds.some(
-    (b) => !s.loaded[b.build] && !s.unavailable[b.build],
-  );
+  const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
+  const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const view = mergedView(loaded, strings.language);
   const rows = sheetRows(view, strings);
   // The day's own headline and picture lead it, as a release post does (Lawrence 2026-11-23, with
   // Conductor's and Linear's changelogs: a dated rail, a big title, the picture, then the changes).
   const headline = releaseTitle(loaded, strings.language) ?? view.hero?.title;
-  const heroMedia =
-    view.hero?.media && !view.hero.media.before ? view.hero.media : undefined;
+  const heroMedia = view.hero?.media && !view.hero.media.before ? view.hero.media : undefined;
   const installed = builds.some((b) => b.build === s.current);
   const [versions, setVersions] = useState(false);
   return (
@@ -159,18 +133,10 @@ function SheetDay({
     >
       <div className="cls-rail">
         <h2 className="cls-date">
-          <span
-            className="cls-dot"
-            aria-hidden="true"
-            data-installed={installed ? "" : undefined}
-          />
+          <span className="cls-dot" aria-hidden="true" data-installed={installed ? "" : undefined} />
           <time dateTime={day}>{dayLabel(day, strings.language)}</time>
         </h2>
-        {installed && (
-          <span className="cl-installed">
-            {strings.t("changelog.page.current")}
-          </span>
-        )}
+        {installed && <span className="cl-installed">{strings.t("changelog.page.current")}</span>}
         <Button
           size="sm"
           variant="ghost"
@@ -183,25 +149,9 @@ function SheetDay({
         </Button>
       </div>
       <div className="cls-body">
-        {headline && rows.length > 0 && (
-          <p className="cls-headline">{headline}</p>
-        )}
-        {heroMedia && rows.length > 0 && (
-          <Media
-            media={heroMedia}
-            className="cls-hero-media"
-            strings={strings}
-          />
-        )}
-        {versions && (
-          <SheetBuilds
-            builds={builds}
-            all={s.builds}
-            s={s}
-            store={store}
-            strings={strings}
-          />
-        )}
+        {headline && rows.length > 0 && <p className="cls-headline">{headline}</p>}
+        {heroMedia && rows.length > 0 && <Media media={heroMedia} className="cls-hero-media" strings={strings} />}
+        {versions && <SheetBuilds builds={builds} all={s.builds} s={s} store={store} strings={strings} />}
         {pending && rows.length === 0 ? (
           <div
             className="clj-placeholder"
@@ -217,13 +167,7 @@ function SheetDay({
           <Maintenance strings={strings} />
         ) : (
           byArea(rows).map((group) => (
-            <SheetArea
-              key={group.area ?? ""}
-              area={group.area}
-              rows={group.items}
-              strings={strings}
-              entry={entry}
-            />
+            <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
           ))
         )}
       </div>
@@ -254,55 +198,33 @@ export function SheetBuilds({
     <ul className="cls-builds">
       {builds.map((b) => {
         const before = all[all.findIndex((x) => x.build === b.build) + 1];
-        const failed =
-          s.installFailed?.build === b.build
-            ? s.installFailed.message
-            : undefined;
+        const failed = s.installFailed?.build === b.build ? s.installFailed.message : undefined;
         return (
           <li className="cls-build" key={b.build} data-build={b.build}>
             <span className="cls-build-version">{b.shortVersion}</span>
             {b.head && (
-              <a
-                className="cls-build-link"
-                href={`${COMMITS}/commit/${b.head}`}
-                rel="noreferrer"
-              >
+              <a className="cls-build-link" href={`${COMMITS}/commit/${b.head}`} rel="noreferrer">
                 {b.head.slice(0, 7)}
               </a>
             )}
             {b.head && before?.head && (
-              <a
-                className="cls-build-link"
-                href={`${COMMITS}/compare/${before.head}...${b.head}`}
-                rel="noreferrer"
-              >
+              <a className="cls-build-link" href={`${COMMITS}/compare/${before.head}...${b.head}`} rel="noreferrer">
                 {strings.t("changelog.build.changes")}
               </a>
             )}
             <span className="cls-build-action">
               {b.build === s.current ? (
-                <span className="cl-installed">
-                  {strings.t("changelog.page.current")}
-                </span>
+                <span className="cl-installed">{strings.t("changelog.page.current")}</span>
               ) : !s.installs ? null : s.installing === b.build ? (
                 <Button size="sm" variant="ghost" disabled aria-busy="true">
                   {strings.t("changelog.build.installing")}
                 </Button>
               ) : asking === b.build ? (
-                <Button
-                  size="sm"
-                  disabled={!!s.installing}
-                  onClick={() => void store.install(b.build)}
-                >
+                <Button size="sm" disabled={!!s.installing} onClick={() => void store.install(b.build)}>
                   {strings.t("changelog.build.confirm")}
                 </Button>
               ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!!s.installing}
-                  onClick={() => setAsking(b.build)}
-                >
+                <Button size="sm" variant="ghost" disabled={!!s.installing} onClick={() => setAsking(b.build)}>
                   {strings.t("changelog.build.install")}
                 </Button>
               )}
@@ -330,23 +252,13 @@ function SheetArea({
   entry?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const label = area
-    ? strings.t(`updates.area.${area}`)
-    : strings.t("changelog.page.otherArea");
+  const label = area ? strings.t(`updates.area.${area}`) : strings.t("changelog.page.otherArea");
   // The focused change is never folded away: its area shows every row.
-  const focused =
-    entry !== undefined && rows.some((row) => titleKey(row.title) === entry);
+  const focused = entry !== undefined && rows.some((row) => titleKey(row.title) === entry);
   // A fold that would hide one row hides none: the button would take that row's line.
-  const shown =
-    open || focused || rows.length <= AREA_ROWS + 1
-      ? rows
-      : rows.slice(0, AREA_ROWS);
+  const shown = open || focused || rows.length <= AREA_ROWS + 1 ? rows : rows.slice(0, AREA_ROWS);
   return (
-    <section
-      className="cls-area"
-      aria-label={label}
-      data-area={area ?? "other"}
-    >
+    <section className="cls-area" aria-label={label} data-area={area ?? "other"}>
       <h3 className="cls-area-head">
         <span className="cls-icon" aria-hidden="true">
           <AreaIcon area={area} />
@@ -356,12 +268,7 @@ function SheetArea({
       </h3>
       <ul className="cls-rows">
         {shown.map((row) => (
-          <li
-            className="cls-row"
-            key={row.key}
-            data-category={row.category}
-            data-entry={titleKey(row.title)}
-          >
+          <li className="cls-row" key={row.key} data-category={row.category} data-entry={titleKey(row.title)}>
             {KIND_GLYPHS[row.category] && (
               <span className="cls-icon cls-kind" aria-hidden="true">
                 <svg viewBox="0 0 20 20" width="14" height="14">
@@ -372,11 +279,7 @@ function SheetArea({
             {row.pr === undefined ? (
               <span className="cls-row-title">{row.title}</span>
             ) : (
-              <a
-                className="cls-row-title cls-row-link"
-                href={pullURL(row.pr)}
-                rel="noreferrer"
-              >
+              <a className="cls-row-title cls-row-link" href={pullURL(row.pr)} rel="noreferrer">
                 {row.title}
               </a>
             )}
@@ -386,23 +289,12 @@ function SheetArea({
                 #{row.pr}
               </span>
             )}
-            {row.media && (
-              <Media
-                media={row.media}
-                className="cls-row-media"
-                strings={strings}
-              />
-            )}
+            {row.media && <Media media={row.media} className="cls-row-media" strings={strings} />}
           </li>
         ))}
       </ul>
       {shown.length < rows.length && (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="cl-more cls-more"
-          onClick={() => setOpen(true)}
-        >
+        <Button size="sm" variant="ghost" className="cl-more cls-more" onClick={() => setOpen(true)}>
           {strings.t("changelog.page.showMore")}
           <span className="cl-count">{rows.length - shown.length}</span>
         </Button>
@@ -417,12 +309,8 @@ export const FOCUS_MARK_MS = 1600;
 /** Whether the rows a focus may name are on the page: the update's span builds, else the newest
     day's first build, loaded (or known unavailable). */
 export function focusReady(s: ChangelogSnapshot): boolean {
-  const needed =
-    s.inSpan.length > 0 ? s.inSpan : s.builds.slice(0, 1).map((b) => b.build);
-  return (
-    needed.length > 0 &&
-    needed.every((build) => !!s.loaded[build] || !!s.unavailable[build])
-  );
+  const needed = s.inSpan.length > 0 ? s.inSpan : s.builds.slice(0, 1).map((b) => b.build);
+  return needed.length > 0 && needed.every((build) => !!s.loaded[build] || !!s.unavailable[build]);
 }
 
 /** Scrolls `focus` into view once per click (its `n`), when `ready`: the first row titled
@@ -436,24 +324,18 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
     el: HTMLElement;
     timer: ReturnType<typeof setTimeout>;
   }>(undefined);
-  const key = focus
-    ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}`
-    : undefined;
+  const key = focus ? `${focus.area ?? ""}\n${focus.entry ?? ""}\n${focus.n ?? ""}` : undefined;
   useEffect(() => {
     const root = main.current;
     if (!focus || !key || !ready || !root || handled.current === key) return;
     handled.current = key;
     const entry = focus.entry ? titleKey(focus.entry) : undefined;
     const row = entry
-      ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find(
-          (el) => el.dataset.entry === entry,
-        )
+      ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find((el) => el.dataset.entry === entry)
       : undefined;
     const area = row
       ? undefined
-      : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find(
-          (el) => el.dataset.area === focus.area,
-        );
+      : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
     const target = row ?? area;
     if (!target) return;
     target.scrollIntoView?.({
@@ -477,11 +359,7 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
 
 function lessMotion(): boolean {
   const gate = document.documentElement.dataset.cmuxMotion;
-  return (
-    gate === "off" ||
-    gate === "reduced" ||
-    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-  );
+  return gate === "off" || gate === "reduced" || !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** About how many rows a loading day will have: its highlights as the index counts them, else
@@ -526,16 +404,12 @@ export interface SheetRow {
     each with its description. Each knows its app area and, when it has a public one, its pull
     request: a curated change's own, else the day's change with the same title. */
 export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
-  const curated = [
-    ...(view.hero ? [view.hero] : []),
-    ...view.groups.flatMap((g) => g.items),
-  ];
+  const curated = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((g) => g.items)];
   if (curated.length > 0) {
     const pulls = new Map<string, number>();
     for (const change of view.changes) {
       const pr = publicPullNumber(change.pr);
-      if (pr !== undefined && !pulls.has(words(change.title)))
-        pulls.set(words(change.title), pr);
+      if (pr !== undefined && !pulls.has(words(change.title))) pulls.set(words(change.title), pr);
     }
     return curated.map((item) => {
       const line = addedLine(item.title, firstParagraph(item.summary));
@@ -572,10 +446,7 @@ function words(text: string): string {
 
 /** A curated change's app area as What's New files it: what its title names, else what its
     summary's first paragraph adds (the Updated card's list groups by the same rule). */
-export function curatedArea(
-  title: string,
-  summary: string | undefined,
-): AreaKey | undefined {
+export function curatedArea(title: string, summary: string | undefined): AreaKey | undefined {
   const line = addedLine(title, summary ? firstParagraph(summary) : undefined);
   return areaOf(title) ?? (line ? areaOf(line) : undefined);
 }
@@ -584,10 +455,7 @@ export function curatedArea(
     off by default." under "The host pressure warning is off by default"), its tail when it repeats
     it and goes on ("…; turn it on from the Command Palette." reads "Turn it on from the Command
     Palette."), else the line. */
-export function addedLine(
-  title: string,
-  line: string | undefined,
-): string | undefined {
+export function addedLine(title: string, line: string | undefined): string | undefined {
   if (!line) return undefined;
   const head = words(title);
   const body = words(line);
@@ -656,7 +524,5 @@ export function AreaIcon({ area }: { area?: AreaKey }) {
 const KIND_GLYPHS: Partial<Record<WhatsNewCategory, ReactNode>> = {
   new: <path d="M10 5v10M5 10h10" />,
   fixed: <path d="M5 10.5l3.2 3.1L15 6.8" />,
-  security: (
-    <path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.5-5.5-6.8V5.5z" />
-  ),
+  security: <path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.5-5.5-6.8V5.5z" />,
 };
