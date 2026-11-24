@@ -11,6 +11,22 @@ public enum MacLinkFailure: Equatable, Sendable {
     case authRequired
     /// The Mac refused this iPhone.
     case notAllowed
+    /// Tailscale only: the dial could not use the tailnet, and why.
+    case tailscale(TailscaleProblem)
+}
+
+/// Why a Tailscale-only dial could not reach a Mac (PROTOCOL.md "Tailscale-only links").
+public enum TailscaleProblem: Equatable, Sendable {
+    /// The Tailscale app is off or not connected on this iPhone.
+    case phoneOff
+    /// Tailscale is not running on the Mac.
+    case macOff
+    /// The Mac is on the tailnet, but its address did not answer.
+    case unreachable
+    /// The Mac never answered the dial: an older cmux on it, or it is asleep.
+    case noAnswer
+    /// The cmux service does not relay the dial yet.
+    case unsupported
 }
 
 /// What a Mac's own view says about it: the presence the cmux service reports, this phone's
@@ -33,6 +49,8 @@ public enum MacReachability: Equatable, Sendable {
     case serviceDown
     case authRequired
     case notAllowed
+    /// Tailscale only: the tailnet could not carry the dial.
+    case tailscale(TailscaleProblem)
     /// This iPhone has no network: nothing about the Mac is known.
     case phoneOffline
 
@@ -56,6 +74,8 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: return .authRequired
         case .notAllowed: return .notAllowed
         case .serviceDown: return .serviceDown
+        case .tailscale(let problem) where connection != .connected && connection != .connecting:
+            return .tailscale(problem)
         case .hostUnreachable where connection != .connected && connection != .connecting:
             return .noAnswer(listedOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         default: break
@@ -80,7 +100,7 @@ public enum MacReachability: Equatable, Sendable {
         switch self {
         case .connected, .connecting, .notConnected: nil
         case .authRequired: .signIn
-        case .slow, .offline, .noAnswer, .serviceDown, .notAllowed, .phoneOffline: .retry
+        case .slow, .offline, .noAnswer, .serviceDown, .notAllowed, .phoneOffline, .tailscale: .retry
         }
     }
 
@@ -96,6 +116,7 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: "person.crop.circle.badge.exclamationmark"
         case .notAllowed: "hand.raised"
         case .phoneOffline: "wifi.slash"
+        case .tailscale: "network.slash"
         }
     }
 
@@ -113,6 +134,11 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: "Signed out"
         case .notAllowed: "Didn't allow this iPhone"
         case .phoneOffline: "This iPhone is offline"
+        case .tailscale(.phoneOff): "Tailscale is off on this iPhone"
+        case .tailscale(.macOff): "Tailscale is off on the Mac"
+        case .tailscale(.unreachable): "Not reachable on your tailnet"
+        case .tailscale(.noAnswer): "Didn't answer over Tailscale"
+        case .tailscale(.unsupported): "Tailscale Only unavailable"
         }
     }
 
@@ -128,6 +154,11 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: "Sign in again"
         case .notAllowed: "\(macName) didn't allow this iPhone"
         case .phoneOffline: "This iPhone is offline"
+        case .tailscale(.phoneOff): "Tailscale isn't connected on this iPhone"
+        case .tailscale(.macOff): "Tailscale isn't running on \(macName)"
+        case .tailscale(.unreachable): "\(macName) isn't reachable on your tailnet"
+        case .tailscale(.noAnswer): "\(macName) didn't answer over Tailscale"
+        case .tailscale(.unsupported): "Tailscale Only isn't available yet"
         }
     }
 
@@ -155,6 +186,16 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: "The cmux service refused this iPhone's session. Sign in again to reach \(macName)."
         case .notAllowed: "Allow this iPhone on \(macName), then retry."
         case .phoneOffline: "Connect to Wi-Fi or cellular. \(macName) reconnects on its own when the network is back."
+        case .tailscale(.phoneOff):
+            "Tailscale Only reaches \(macName) through the Tailscale app. Open Tailscale and connect, then retry. To use cmux's own connection instead, turn on Fall back to WireGuard in Settings → Transport."
+        case .tailscale(.macOff):
+            "\(macName) has no tailnet address. Open Tailscale on the Mac and connect, then retry, or turn on Fall back to WireGuard in Settings → Transport."
+        case .tailscale(.unreachable):
+            "\(macName) is on a tailnet, but this iPhone couldn't reach it there. Make sure both are on the same tailnet and the Mac is awake, then retry."
+        case .tailscale(.noAnswer):
+            "\(macName) didn't answer a Tailscale Only connection. Update cmux on the Mac, or make sure it's awake, then retry."
+        case .tailscale(.unsupported):
+            "The cmux service can't set up Tailscale Only connections yet. Choose WireGuard in Settings → Transport for now."
         }
     }
 

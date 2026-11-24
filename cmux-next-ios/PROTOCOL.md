@@ -285,6 +285,8 @@ closed with 4001 `moved`.
     relay because nothing it sent reached the peer otherwise; the peer
     joins too. Sent only to a peer whose `wg-init` / `wg-resp` carried
     `relay`.
+  - `tailnet-init` `{token, lanes?}`, `tailnet-resp` `{endpoints, lanes?}`
+    (added 2026-11-23): a Tailscale-only link ("Tailscale-only links" below).
   - `bye` `{reason}`
 - Relay frames (retired in API 0.9.0). Binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]` used to
@@ -1387,8 +1389,9 @@ Mac closed the first Mac's link).
 
 ## Transport switch
 
-The app exposes Settings → Connection → Transport: "WireGuard (recommended)"
-or "WebRTC only" (2026-10-19). Both produce the same `Link`; switching tears
+The app exposes Settings → Connection → Transport: "WireGuard (recommended)",
+"WebRTC only" (2026-10-19) or "Tailscale only" (2026-11-23, "Tailscale-only
+links"). Both produce the same `Link`; switching tears
 the link down and redials. WireGuard is the default for an install with no
 saved choice (it was WebRTC); a saved choice stays. With WireGuard the link
 rides the tunnel and browser video a WebRTC media session beside it ("Media
@@ -1421,6 +1424,37 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
 (and the same for WebRTC's TURN). cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
+
+## Tailscale-only links (`tailnet`; added 2026-11-23, backward compatible)
+
+Settings → Transport → **Tailscale only**: the phone reaches its Macs at their
+tailnet addresses through the Tailscale app's VPN, and cmux's own WireGuard, STUN,
+TURN and ICE never run. The link frames, `auth` and every service are unchanged;
+only the byte stream underneath is plain TCP.
+
+- phone → Mac `tailnet-init {token, lanes?}`: `token` is 32 random bytes as 64
+  hex characters, one per session. The phone refuses to dial (error
+  `tailscale_off_phone`) when it has no tailnet address itself.
+- The Mac (hostd, `cmux-mobile-link` `dial/tailnet.rs`) admits it like any dial,
+  binds a TCP listener on port 0 of each of its tailnet addresses
+  (100.64.0.0/10 first, then fd7a:115c:a1e0::/48, at most 8) and answers
+  `tailnet-resp {endpoints:["ip:port"], lanes?}`. With no tailnet address it
+  answers `bye {reason:"transport: tailscale_off_mac"}`.
+- The phone connects to the endpoints in order, 150 ms apart (6 s each), and
+  writes the hello `"CMXTN1" | u8 lane | token` (39 bytes); lane 0 is the main
+  stream, lane 1 the input lane ("Lanes", when both listed `input`). The Mac
+  answers one byte `0x01` and the connection carries the link. A connection from
+  outside the tailnet, with another token, or silent for 5 s is closed; 16 bad
+  ones close the listener. The listener lives at most 30 s for the main stream,
+  then 10 s for the lane.
+- No media lane and no media session: browser video rides its reliable channel.
+  Pings are link frames (no liveness datagrams). The path is `direct`;
+  `link_stat` and `phone_up` name the transport `tailnet`.
+- Errors the app shows: `tailscale_off_phone`, `tailscale_off_mac`,
+  `tailscale_unreachable` (no endpoint answered), `tailscale_no_answer` (no
+  `tailnet-resp` within the answer timeout: an older Mac ignores the kind) and
+  `bad_request: unknown payload kind` from an older Worker. With Settings →
+  Transport → Fall back to WireGuard on, any of these dials WireGuard instead.
 
 ## Terminal size claims
 

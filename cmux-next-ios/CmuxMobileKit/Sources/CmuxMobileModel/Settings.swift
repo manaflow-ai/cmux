@@ -4,10 +4,13 @@ import Observation
 /// The link transport (PROTOCOL.md "Transport switch", verify/hybrid-link.md).
 /// WireGuard (the default) carries the link and opens a WebRTC media session
 /// beside it for browser video; WebRTC carries everything on one peer
-/// connection. The picker lists WireGuard first.
+/// connection. Tailscale Only rides the person's own tailnet through the
+/// Tailscale app's VPN, and the built-in WireGuard never runs (PROTOCOL.md
+/// "Tailscale-only links"). The picker lists WireGuard first.
 public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable {
     case wireguard
     case webrtc
+    case tailscale
 
     public var id: String { rawValue }
 
@@ -16,6 +19,7 @@ public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable
         switch self {
         case .webrtc: "WebRTC only"
         case .wireguard: "WireGuard"
+        case .tailscale: "Tailscale only"
         }
     }
 
@@ -24,6 +28,15 @@ public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable
         switch self {
         case .webrtc: String(localized: "WebRTC only")
         case .wireguard: String(localized: "WireGuard (recommended)")
+        case .tailscale: String(localized: "Tailscale only")
+        }
+    }
+
+    /// The Transport page's second line under the row title.
+    public var pickerDetail: String? {
+        switch self {
+        case .tailscale: String(localized: "Use your tailnet through the Tailscale app. cmux's own WireGuard stays off.")
+        case .webrtc, .wireguard: nil
         }
     }
 
@@ -32,7 +45,8 @@ public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable
     /// PROTOCOL.md "Transport switch"), Relay only applies to both.
     public func settingsValue(blockUDP: Bool, relayOnly: Bool) -> String {
         if blockUDP, self == .wireguard { return "\(title), UDP blocked" }
-        if relayOnly { return "\(title), relay only" }
+        // Tailscale only uses no relay: the developer dial policies do not apply.
+        if relayOnly, self != .tailscale { return "\(title), relay only" }
         return title
     }
 
@@ -180,6 +194,10 @@ public final class SettingsStore {
     /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
     /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
     public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
+    /// Settings → Transport → Fall Back to WireGuard (off by default): with Tailscale only, a dial
+    /// that finds Tailscale off (on the iPhone or the Mac) uses the built-in WireGuard instead of
+    /// failing. Read at each dial (`TailscaleOnly.fallsBack`) through the same key.
+    public var tailscaleFallback: Bool { didSet { save(tailscaleFallback, "tailscaleFallback") } }
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
@@ -234,6 +252,7 @@ public final class SettingsStore {
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
         alignKeepalives = bool("alignKeepalives", false)
+        tailscaleFallback = bool("tailscaleFallback", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))

@@ -122,6 +122,11 @@ extension LiveCoordinator {
         switch reason {
         case LinkController.reason(LinkError(code: "not_admitted", message: "")): .notAllowed
         case LinkController.reason(LinkError(code: LinkError.unauthorized, message: "")): .authRequired
+        case LinkController.reason(LinkError(code: LinkError.tailscaleOffPhone, message: "")): .tailscale(.phoneOff)
+        case LinkController.reason(LinkError(code: LinkError.tailscaleOffMac, message: "")): .tailscale(.macOff)
+        case LinkController.reason(LinkError(code: LinkError.tailscaleUnreachable, message: "")): .tailscale(.unreachable)
+        case LinkController.reason(LinkError(code: LinkError.tailscaleNoAnswer, message: "")): .tailscale(.noAnswer)
+        case LinkController.reason(LinkError(code: LinkError.tailscaleUnsupported, message: "")): .tailscale(.unsupported)
         default: .hostUnreachable
         }
     }

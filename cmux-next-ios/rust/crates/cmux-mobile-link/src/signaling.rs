@@ -131,6 +131,23 @@ pub enum SignalPayload {
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
     },
+    /// A Tailscale-only dial (PROTOCOL.md "Tailscale-only links"): the
+    /// phone's one-session token (32 bytes, hex) that the Mac checks on the
+    /// TCP connection's hello. Older Macs ignore it (an unknown kind).
+    #[serde(rename = "tailnet-init")]
+    TailnetInit {
+        token: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
+    /// The Mac's answer to `tailnet-init`: `ip:port` of the one-session TCP
+    /// listener on each of its tailnet addresses.
+    #[serde(rename = "tailnet-resp")]
+    TailnetResp {
+        endpoints: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -800,7 +817,7 @@ impl Shared {
                 }
                 if !matches!(
                     envelope.payload,
-                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. } | SignalPayload::TailnetInit { .. }
                 ) {
                     tracing::debug!(
                         session = envelope.session_id,

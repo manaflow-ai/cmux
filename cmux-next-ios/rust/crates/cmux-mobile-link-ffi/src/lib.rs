@@ -89,6 +89,9 @@ where
 pub enum Transport {
     WebRtc,
     WireGuard,
+    /// Tailscale only: plain TCP over the person's tailnet, through the
+    /// Tailscale app's VPN; the built-in WireGuard never runs.
+    Tailnet,
 }
 
 impl From<Transport> for cmux_mobile_link::TransportKind {
@@ -96,6 +99,7 @@ impl From<Transport> for cmux_mobile_link::TransportKind {
         match value {
             Transport::WebRtc => Self::WebRtc,
             Transport::WireGuard => Self::WireGuard,
+            Transport::Tailnet => Self::Tailnet,
         }
     }
 }
@@ -785,6 +789,43 @@ pub async fn connect_with_options(
         ultra: cmux_mobile_link::UltraSetting::parse(&options.ultra),
     };
     on_runtime(connect_inner(request, observer)).await
+}
+
+/// Whether this device has a tailnet address now (the Tailscale app's VPN is
+/// connected): Settings > Connection shows it, and a Tailscale-only dial
+/// fails at once without it.
+#[uniffi::export]
+pub fn tailscale_connected() -> bool {
+    cmux_mobile_link::dial::tailnet::tailscale_up()
+}
+
+/// Why a Tailscale-only dial failed, from its error text (the app's message
+/// and its fallback to the built-in transport).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TailnetFailure {
+    /// Tailscale is off or not connected on this iPhone.
+    PhoneOff,
+    /// Tailscale is off on the Mac.
+    MacOff,
+    /// The Mac's tailnet address did not answer.
+    Unreachable,
+    /// The Mac never answered (its cmux predates Tailscale-only links, or it slept).
+    NoAnswer,
+    /// The cmux service does not relay Tailscale-only dials yet.
+    ServiceTooOld,
+}
+
+/// The Tailscale-only failure `message` (a dial error's text) names, if any.
+#[uniffi::export]
+pub fn tailnet_failure(message: String) -> Option<TailnetFailure> {
+    use cmux_mobile_link::dial::tailnet::TailnetFailure as Link;
+    Link::classify(&message).map(|failure| match failure {
+        Link::PhoneOff => TailnetFailure::PhoneOff,
+        Link::MacOff => TailnetFailure::MacOff,
+        Link::Unreachable => TailnetFailure::Unreachable,
+        Link::NoAnswer => TailnetFailure::NoAnswer,
+        Link::ServiceTooOld => TailnetFailure::ServiceTooOld,
+    })
 }
 
 /// The library version.

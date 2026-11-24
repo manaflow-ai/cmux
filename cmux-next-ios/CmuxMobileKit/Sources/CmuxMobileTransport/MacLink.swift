@@ -4,11 +4,16 @@ import Foundation
 public enum TransportKind: String, CaseIterable, Codable, Sendable {
     case webRTC = "webrtc"
     case wireGuard = "wireguard"
+    /// Tailscale only: plain TCP over the person's tailnet, through the
+    /// Tailscale app's VPN (PROTOCOL.md "Tailscale-only links"). The built-in
+    /// WireGuard never runs.
+    case tailnet = "tailnet"
 
     public var displayName: String {
         switch self {
         case .webRTC: "WebRTC"
         case .wireGuard: "WireGuard"
+        case .tailnet: "Tailscale"
         }
     }
 }
@@ -173,6 +178,23 @@ public struct LinkError: Error, Equatable, Sendable {
     /// The code for the cmux service refusing the access token (a 401), as the
     /// Rust link sends it (`cmux_mobile_link_ffi::UNAUTHORIZED`).
     public static let unauthorized = "unauthorized"
+    /// Tailscale only: this iPhone has no tailnet address (the Tailscale app is off).
+    public static let tailscaleOffPhone = "tailscale_off_phone"
+    /// Tailscale only: the Mac has no tailnet address.
+    public static let tailscaleOffMac = "tailscale_off_mac"
+    /// Tailscale only: the Mac's tailnet addresses did not answer.
+    public static let tailscaleUnreachable = "tailscale_unreachable"
+    /// Tailscale only: the Mac never answered the dial (an older cmux, or it slept).
+    public static let tailscaleNoAnswer = "tailscale_no_answer"
+    /// Tailscale only: the cmux service does not relay the dial yet.
+    public static let tailscaleUnsupported = "tailscale_unsupported"
+
+    /// Whether this failure means Tailscale itself is not usable for this dial (the
+    /// built-in transport may still reach the Mac): what the fallback switch acts on.
+    public var isTailscaleUnavailable: Bool {
+        [Self.tailscaleOffPhone, Self.tailscaleOffMac, Self.tailscaleNoAnswer, Self.tailscaleUnsupported,
+         Self.tailscaleUnreachable].contains(code)
+    }
 
     public init(code: String, message: String) {
         self.code = code
@@ -195,6 +217,21 @@ extension LinkError: LocalizedError {
             return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
         case LinkError.unauthorized:
             return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
+        case LinkError.tailscaleOffPhone:
+            return (reason: "Tailscale is off on this iPhone",
+                    sentence: "Tailscale isn't connected on this iPhone. Open the Tailscale app and connect, or turn off Tailscale Only in Settings → Transport.")
+        case LinkError.tailscaleOffMac:
+            return (reason: "Tailscale is off on the Mac",
+                    sentence: "Tailscale isn't running on your Mac. Connect Tailscale on the Mac, or turn off Tailscale Only in Settings → Transport.")
+        case LinkError.tailscaleUnreachable:
+            return (reason: "the Mac isn't reachable on your tailnet",
+                    sentence: "Your Mac isn't reachable on your tailnet. Make sure both devices are on the same tailnet and the Mac is awake.")
+        case LinkError.tailscaleNoAnswer:
+            return (reason: "the Mac didn't answer over Tailscale",
+                    sentence: "Your Mac didn't answer over Tailscale. Update cmux on your Mac, or make sure it's awake.")
+        case LinkError.tailscaleUnsupported:
+            return (reason: "Tailscale Only isn't available yet",
+                    sentence: "The cmux service doesn't support Tailscale Only yet. Turn it off in Settings → Transport for now.")
         default:
             return nil
         }

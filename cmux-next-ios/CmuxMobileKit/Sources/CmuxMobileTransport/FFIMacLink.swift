@@ -31,6 +31,16 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
         try applyBuildSpaceToCore()
+        #if DEBUG
+        // `CMUX_MOBILE_DEV_TAILSCALE=off`: act as an iPhone whose Tailscale app is off (the rig's
+        // and the screenshots' "Tailscale not running"), whatever its interfaces say.
+        if transport == .tailnet, ProcessInfo.processInfo.environment["CMUX_MOBILE_DEV_TAILSCALE"] == "off" {
+            if TailscaleOnly.fallsBack() {
+                return try await dial(endpoint, transport: .wireGuard, accessToken: accessToken)
+            }
+            throw LinkError(code: LinkError.tailscaleOffPhone, message: "Tailscale is off (CMUX_MOBILE_DEV_TAILSCALE=off)")
+        }
+        #endif
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -46,6 +56,14 @@ public struct FFIMacLinkDialer: MacLinkDialer {
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)
         } catch let error as CmuxMobileError {
+            if transport == .tailnet, let tailnet = error.tailnetLinkError() {
+                // Settings → Transport → Fall Back to WireGuard: Tailscale is not usable for this
+                // dial, so reach the Mac the built-in way instead (the status line says WireGuard).
+                if tailnet.isTailscaleUnavailable, TailscaleOnly.fallsBack() {
+                    return try await dial(endpoint, transport: .wireGuard, accessToken: accessToken)
+                }
+                throw tailnet
+            }
             throw error.linkError
         }
     }
@@ -326,11 +344,35 @@ final class StateObserver: LinkObserver, @unchecked Sendable {
 }
 
 extension TransportKind {
-    var ffi: Transport { self == .webRTC ? .webRtc : .wireGuard }
+    var ffi: Transport {
+        switch self {
+        case .webRTC: .webRtc
+        case .wireGuard: .wireGuard
+        case .tailnet: .tailnet
+        }
+    }
 }
 
 extension Transport {
-    var kind: TransportKind { self == .webRtc ? .webRTC : .wireGuard }
+    var kind: TransportKind {
+        switch self {
+        case .webRtc: .webRTC
+        case .wireGuard: .wireGuard
+        case .tailnet: .tailnet
+        }
+    }
+}
+
+extension TailnetFailure {
+    var code: String {
+        switch self {
+        case .phoneOff: LinkError.tailscaleOffPhone
+        case .macOff: LinkError.tailscaleOffMac
+        case .unreachable: LinkError.tailscaleUnreachable
+        case .noAnswer: LinkError.tailscaleNoAnswer
+        case .serviceTooOld: LinkError.tailscaleUnsupported
+        }
+    }
 }
 
 extension LinkPath {
@@ -356,6 +398,16 @@ extension MediaState {
 }
 
 extension CmuxMobileError {
+    /// A Tailscale-only dial's own failure, from the Rust error's text (`tailnet_failure`).
+    func tailnetLinkError() -> LinkError? {
+        let message: String
+        switch self {
+        case .Refused(_, let text), .Transport(let text), .Signaling(let text): message = text
+        default: return nil
+        }
+        return tailnetFailure(message: message).map { LinkError(code: $0.code, message: message) }
+    }
+
     var linkError: LinkError {
         switch self {
         case .InvalidArgument(let message): LinkError(code: "invalid_argument", message: message)

@@ -127,6 +127,8 @@ enum IPhoneHostStrings {
         switch wire {
         case "webrtc": "WebRTC"
         case "wireguard": "WireGuard"
+        // Tailscale only: plain TCP over the person's tailnet (PROTOCOL.md "Tailscale-only links").
+        case "tailnet": "Tailscale"
         default: wire
         }
     }

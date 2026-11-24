@@ -114,6 +114,58 @@ async fn wireguard_with_an_older_peer_confirms_by_its_datagrams() {
     assert_eq!(binary, 0);
 }
 
+/// Tailscale only (PROTOCOL.md "Tailscale-only links"): plain TCP, no
+/// WireGuard, no ICE, no relay frame, and the input lane on a second
+/// connection. Loopback stands in for the tailnet here (`include_loopback`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tailnet_carries_the_link_over_plain_tcp() {
+    let (path, binary) = exercise(TransportKind::Tailnet, FakeOptions::default()).await;
+    assert_eq!(path, LinkPath::Direct);
+    assert_eq!(binary, 0);
+}
+
+/// A Mac with no tailnet address ends a Tailscale-only dial with the bye
+/// the app turns into "Tailscale is off on your Mac".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tailnet_to_a_mac_without_tailscale_fails_with_its_reason() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    // The Mac answers without loopback, and a test host has no tailnet address.
+    let mac_task = tokio::spawn({
+        let mac = mac.clone();
+        async move {
+            while let Some(session) = mac.next_session().await {
+                let first = session.first;
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: first.session_id.clone(),
+                    session: session.events,
+                };
+                let no_loopback = DialOptions { timeout: Duration::from_secs(5), ..DialOptions::default() };
+                let _ = dial::answer(&mac, first, events, &no_loopback, LinkConfig::default()).await;
+            }
+        }
+    });
+    if !cmux_mobile_link::dial::tailnet::tailnet_ips().is_empty() {
+        // A runner on a tailnet has one: the dial would reach it.
+        mac_task.abort();
+        return;
+    }
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let error = dial::connect(&phone, &mac_id, TransportKind::Tailnet, &options(), LinkConfig::default())
+        .await
+        .err()
+        .expect("no tailnet on the Mac");
+    assert_eq!(
+        cmux_mobile_link::dial::tailnet::TailnetFailure::classify(&error.to_string()),
+        Some(cmux_mobile_link::dial::tailnet::TailnetFailure::MacOff),
+        "{error}"
+    );
+    mac_task.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dialing_another_users_mac_is_refused() {
     let server = FakeSignaling::start(FakeOptions::default()).await;

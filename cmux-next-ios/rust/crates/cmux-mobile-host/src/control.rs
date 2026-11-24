@@ -611,6 +611,7 @@ pub fn transport_name(kind: cmux_mobile_link::TransportKind) -> &'static str {
     match kind {
         cmux_mobile_link::TransportKind::WebRtc => "webrtc",
         cmux_mobile_link::TransportKind::WireGuard => "wireguard",
+        cmux_mobile_link::TransportKind::Tailnet => "tailnet",
     }
 }
 
