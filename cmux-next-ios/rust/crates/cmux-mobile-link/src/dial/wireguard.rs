@@ -2292,9 +2292,26 @@ pub(super) fn dial_wireguard<'a>(
             stun,
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
+        options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
         let guard = Guard { session: Arc::clone(&tunnel.session) };
         let net = tunnel.session.net()?;
+        {
+            let net = Arc::clone(&net);
+            let timeline = options.timeline.clone();
+            tokio::spawn(async move {
+                for _ in 0..6000 {
+                    match net.time_since_last_handshake().await {
+                        Ok(Some(_)) => {
+                            timeline.mark("wg_handshake_done");
+                            return;
+                        }
+                        Ok(None) => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                        Err(_) => return,
+                    }
+                }
+            });
+        }
         tunnel.session.start_control(&net).await;
         options.timeline.mark("wg_control");
         if turn_missed {

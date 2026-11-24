@@ -441,6 +441,10 @@ fn loadavg() -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "measurement"]
 async fn park_cell() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
     let name = env("PARK_PROFILE").unwrap_or_else(|| "lte".into());
     let duress = env("PARK_DURESS").is_some_and(|v| v == "1");
@@ -449,7 +453,17 @@ async fn park_cell() {
     let silent = Duration::from_secs(env("PARK_SILENT_S").and_then(|v| v.parse().ok()).unwrap_or(300));
     let samples: usize = env("PARK_N").and_then(|v| v.parse().ok()).unwrap_or(10);
     let hedge = env("PARK_HEDGE_MS").and_then(|v| v.parse().ok()).map(Duration::from_millis);
-    let profile = if name == "wifi20" {
+    let profile = if name == "none" {
+        // Unshaped: every datagram at once (the harness's delay path idle).
+        LinkProfile {
+            name: name.clone(),
+            up_kbit: 0,
+            down_kbit: 0,
+            rtt_ms: 0,
+            jitter_ms: 0,
+            loss_percent: 0.0,
+        }
+    } else if name == "wifi20" {
         LinkProfile {
             name: name.clone(),
             up_kbit: 40_000,

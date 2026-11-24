@@ -415,8 +415,23 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When this side last sent a handshake initiation of its own (see
+    /// [`INITIATION_PENDING`]).
+    initiated_at: Option<Instant>,
     scratch: Vec<u8>,
 }
+
+/// After this side sent a handshake initiation, a segment queued with no
+/// session does not start another one for this long: boringtun's own
+/// REKEY_TIMEOUT, after which its timer resends. Both sides of a fresh
+/// tunnel initiate at once; each answers the other's initiation, which
+/// clears boringtun's "in progress" mark, and a fresh initiation sent then
+/// replaces the one whose response is already on its way, so that response
+/// is refused. With round trips in flight the two sides did this to each
+/// other until boringtun's rate limit answered with cookies, and the tunnel
+/// came up only at the 5 s retry (lte, 70 ms: 5.6-8.8 s to the first
+/// handshake, every dial). The answer to the first initiation completes it.
+const INITIATION_PENDING: Duration = Duration::from_secs(5);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -495,6 +510,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            initiated_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -701,7 +717,10 @@ impl Driver {
         self.pace_deadline = None;
         // Without a session boringtun would hold the segment through the
         // handshake, and the pacer would time that wait as a round trip.
-        if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() {
+        if self.tunn.time_since_last_handshake().is_none()
+            && self.pacer.has_queued()
+            && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
+        {
             self.initiate_handshake();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
