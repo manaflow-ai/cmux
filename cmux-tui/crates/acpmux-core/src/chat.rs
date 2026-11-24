@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod act;
 pub mod act_ids;
+pub mod prompt_lifecycle;
 pub mod queue;
 pub mod source;
 pub mod stream;
@@ -1757,7 +1758,8 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
     let final_bytes = state.blobs.settle(body)?;
     if final_bytes.is_none() {
-        let outline = Outline { head: "{}", preview: "" };
+        let head = row.head();
+        let outline = Outline { head: &head, preview: "" };
         encoded.clear();
         row.as_row("{}")
             .encode_blob(body.len(), outline, &mut encoded)
