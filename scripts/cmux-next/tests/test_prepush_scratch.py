@@ -60,6 +60,32 @@ class ScratchDirTest(unittest.TestCase):
         self.assertFalse(os.path.lexists(tmp))
         self.assertNotIn(tmp, gate._LIVE_SCRATCH)
 
+    @unittest.skipUnless(hasattr(os, "fork"), "fork only")
+    def test_a_forked_child_stopped_by_sigterm_never_removes_the_gates_scratch(self):
+        # 2026-11-23: the crash ratchet's scan pool (multiprocessing fork) inherited the SIGTERM handler and
+        # _LIVE_SCRATCH; Pool.terminate's SIGTERM made a busy worker delete the gate's base and head trees
+        # mid-scan, so the push died with FileNotFoundError on base/.../lib.rs.
+        real = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGHUP)}
+        self.addCleanup(lambda: [signal.signal(s, h) for s, h in real.items()])
+        gate.remove_scratch_on_signals()
+        with gate.scratch_dir() as tmp:
+            Path(tmp, "base").mkdir()
+            Path(tmp, "base", "lib.rs").write_text("x")
+            ready_r, ready_w = os.pipe()
+            pid = os.fork()
+            if pid == 0:  # the worker: busy until signalled
+                os.write(ready_w, b"1")
+                while True:
+                    time.sleep(0.01)
+            os.read(ready_r, 1)
+            os.close(ready_r)
+            os.close(ready_w)
+            os.kill(pid, signal.SIGTERM)
+            _, status = os.waitpid(pid, 0)
+            self.assertTrue(os.WIFSIGNALED(status))
+            self.assertTrue(Path(tmp, "base", "lib.rs").exists())
+        self.assertFalse(os.path.lexists(tmp))
+
     def test_a_failed_run_removes_its_scratch(self):
         with self.assertRaises(RuntimeError):
             with gate.scratch_dir() as tmp:
