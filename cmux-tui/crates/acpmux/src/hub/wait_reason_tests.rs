@@ -55,7 +55,7 @@ async fn card_reads(kind: secrets::CardKind, expect: &str) {
     assert_eq!(waiting_on(&hub, &session), expect);
 
     hub.cancel_pending_secrets(&session);
-    let (outcome, value) = ask.await.unwrap();
+    let (outcome, value, _kept) = ask.await.unwrap();
     assert_eq!(outcome, "cancelled");
     assert!(value.is_none());
     assert_eq!(session.status(), SessionStatus::Ready);
