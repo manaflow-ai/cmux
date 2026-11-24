@@ -147,6 +147,8 @@ jobs:
             --model stub --chaos-move --seed "$SEED-$KILL" --claude-bin "$(command -v claude)" "${pick[@]}" || rc=$?
           { echo "### Move drills: $KILL (seed $SEED-$KILL)"; echo; cat "$out/move.md" 2>/dev/null || echo "(no table written)"; echo; } >> "$GITHUB_STEP_SUMMARY"
           test -s "$out/move.json" || { echo "::error::the drill wrote no results (journey exit $rc)"; exit 1; }
+          ran=$(jq '[.results[] | select(.outcome != "unmeasured")] | length' "$out/move.json")
+          [ "$ran" -gt 0 ] || { echo "::error::the drill measured no move (journey exit $rc): $(grep -m1 'FAIL move drills' "$out/summary.md" 2>/dev/null || echo 'see journey.json')"; exit 1; }
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
