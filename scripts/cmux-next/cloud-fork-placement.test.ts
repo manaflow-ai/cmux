@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { RISKY_STEP, checkpointKept, notFound, dirtyCommand, facts, parity, parityCommand, setupCommand, verdict, workCommand, type RunRow } from "./cloud-fork-placement.ts";
+import {
+  RISKY_STEP,
+  checkpointKept,
+  notFound,
+  dirtyCommand,
+  facts,
+  parity,
+  parityCommand,
+  setupCommand,
+  verdict,
+  workCommand,
+  type RunRow,
+  p95,
+} from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
   run: 1, parent: "vm_p", child: "vm_c", parent_ready_ms: 1, fork_call_ms: 6000, fork_status: 200,
@@ -8,6 +21,12 @@ const row = (over: Partial<RunRow>): RunRow => ({
 });
 
 describe("cloud fork placement", () => {
+  test("p95 is the nearest-rank 95th percentile", () => {
+    expect(p95([])).toBeNull();
+    expect(p95([5])).toBe(5);
+    expect(p95([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).toBe(10);
+    expect(p95(Array.from({ length: 20 }, (_, i) => i + 1))).toBe(19);
+  });
   test("facts reads key=value lines", () => {
     expect(facts("marker=abc\nhead=123\nnoise\ncount=4:7")).toEqual({ marker: "abc", head: "123", count: "4:7" });
   });
