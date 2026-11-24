@@ -1,5 +1,6 @@
 import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
@@ -16,13 +17,12 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { type BrowseRequest } from "./AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -100,6 +100,10 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -139,6 +143,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -494,6 +499,11 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
@@ -509,10 +519,16 @@ export function NewTabPage({
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {
