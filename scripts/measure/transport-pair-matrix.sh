@@ -73,6 +73,8 @@ bench() {
     CMUX_ZIG="$(MEDIA_ZIG_CACHE="$root/.build/transport-pair-matrix-zig" scripts/ci/media_pinned_zig.sh "$root")"
     export CMUX_ZIG PATH="$(dirname "$CMUX_ZIG"):$PATH"
   fi
+  # The libghostty-vt build as feat-parity-check.sh runs it in CI: ghostty-next's zig pin, a portable CPU.
+  [[ "$features" == *hub-carrier* ]] && export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_VT_ZIG_CPU="${CMUX_GHOSTTY_VT_ZIG_CPU:-baseline}"
   # Build first, timed, so a run that hits its bound says whether the build or a cell took the time
   # (run 45428699703: 49 min silent after the zig install, no cell).
   local started=$SECONDS
