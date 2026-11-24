@@ -492,6 +492,11 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
+/* A row accessory (tabRow.ts TAB_ROW_ACCESSORY) with no room in the half of the row the tabs give up hides whole; the
+   tools stay where they are. */
+[data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
+  display: none;
+}
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}
 .acpmux-header-tools[data-header-icons=contextualPeek]:is(:hover,:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:is(:has([data-popup-open]),:focus-within) [data-header-dormant],.acpmux-header-tools[data-header-icons=contextualPeek]:has([data-header-dormant] [aria-expanded=true]) [data-header-dormant]{opacity:1;pointer-events:auto}

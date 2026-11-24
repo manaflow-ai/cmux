@@ -93,6 +93,7 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                direct_port,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -184,6 +185,9 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
+            // restart applies a change.
+            current.direct_port = direct_port;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;

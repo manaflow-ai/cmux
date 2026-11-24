@@ -802,8 +802,12 @@ pub struct Enforcement {
 pub struct LastTurn {
     pub turn_id: Option<String>,
     pub prompt_id: Option<String>,
-    /// `completed`, `failed` or `cancelled`.
+    /// `completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a
+    /// capacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).
     pub status: Option<String>,
+    /// When a `capacity` turn's continuation runs, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<u64>,
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
