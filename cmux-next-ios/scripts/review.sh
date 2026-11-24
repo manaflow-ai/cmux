@@ -5,7 +5,11 @@
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
 #       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
-#       [--manual-pairing | --approve-first | --no-auth] [--backend <origin|tag-stack|dev>]
+#       [--manual-pairing | --approve-first | --no-auth] [--backend <origin|tag-stack|dev>] [--forbid-tailnet] [--urgent]
+#
+# --urgent: a person waits on the phone now. The iPhone step goes ahead of the simulator queue
+#   (cmux-ci run --urgent) and the Mac build moves up the Mac queue (cmux-ci promote), each logged with
+#   the reason "review.sh --urgent: a person waits ...". Not for an agent's own end-of-task run.
 #
 # --backend: the Cloud backend this tag's Mac and iPhone builds talk to, chosen at launch, no rebuild.
 #   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
@@ -85,7 +89,13 @@
 #     credential-free relaunch (no account, no Mac named, as the person's own cold launch) comes back
 #     signed in from its own session and linked again; then the tagged Mac app quits as the person
 #     quits it and starts again (`open -g`), and one more credential-free relaunch of each phone is
-#     linked to it again.
+#     linked to it again. Between the two, the relay-only relaunch: credential-free with only
+#     DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1 (the Rust link skips every direct path), which must
+#     link via TURN, the path a phone away from home takes.
+#     Every verdict names the link's transport and path (the receipt's DogfoodReadiness.Route):
+#     "over WireGuard, direct LAN", "direct over the tailnet", "direct over the internet", "via TURN".
+#     The person's iPhone and Mac may both run Tailscale, so a link at home can ride the tailnet,
+#     which no user without Tailscale gets; --forbid-tailnet makes a tailnet path a failure.
 #  5. Prints the report (AGENTS.md format). Exit 0 only when every phone passed every check;
 #     no connected phone is a failure too.
 #
@@ -101,12 +111,12 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,98p' "$0"; }
+usage() { awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEAM=7WLXT3NR37
-TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
+TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE="" URGENT=0 SIM_SIGNIN_RETRIED=0
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
@@ -122,6 +132,8 @@ BACKEND_PHONE_URL="" BACKEND_PHONE_MOBILE_URL=""
 #            person presses Allow on the Mac
 #   none     --no-auth: no credentials, no Mac named, and the tag's stored session cleared first
 PHONE_MODE=paired
+# --forbid-tailnet: a link whose peer is a tailnet or CGNAT address fails (handoff_receipt.py --forbid-tailnet).
+FORBID_TAILNET=0
 
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$REPO_ROOT/scripts/lib/mobile-attach.sh"
@@ -180,9 +192,14 @@ retry_command() {
   case "$PHONE_MODE" in
     manual) printf ' --manual-pairing' ;; approve) printf ' --approve-first' ;; none) printf ' --no-auth' ;;
   esac
+  [[ "$FORBID_TAILNET" -eq 0 ]] || printf ' --forbid-tailnet'
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
   [[ -z "$BACKEND_ARG" ]] || printf ' --backend %s' "$BACKEND_ARG"
+  [[ "${URGENT:-0}" -eq 0 ]] || printf ' --urgent'
 }
+
+# --urgent: the reason the fleet logs for raising this hand-off's steps (cmux-ci run --urgent, cmux-ci promote).
+urgent_reason() { printf 'review.sh --urgent: a person waits on the phone for the hand-off of tag %s at %s' "$SLUG" "${SHA:0:12}"; }
 
 # --backend to an origin (BACKEND_URL) and the report's words for it (BACKEND_REPORT), before any build.
 review_resolve_backend() {
@@ -239,6 +256,7 @@ fleet_submit_mac() {
       MAC_JOB=""
     else
       echo "==> Mac build: resuming fleet job $MAC_JOB"
+      mac_promote
       return 0
     fi
   fi
@@ -256,6 +274,18 @@ fleet_submit_mac() {
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
+  mac_promote
+}
+
+# --urgent: the Mac build moves up the Mac queue (cmux-ci promote; a build has no --urgent). A refusal
+# (the job already started or finished) changes nothing, so it is only noted.
+mac_promote() {
+  [[ "${URGENT:-0}" -ne 0 && -n "${MAC_JOB:-}" ]] || return 0
+  if cmux_ci promote "$MAC_JOB" --reason "$(urgent_reason)" >/dev/null 2>&1; then
+    echo "==> Mac build: promoted (--urgent)"
+  else
+    echo "==> Mac build: promote refused (--urgent); it keeps its place"
+  fi
 }
 
 # The simulator step's key for this head. The controller answers a key with the step it already
@@ -274,6 +304,12 @@ sim_step_ended() {
   local step="$1" attempt
   [[ -n "$step" ]] || return 1
   cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  sim_next_attempt
+}
+
+# The next head's step gets a new key (sim_key's -rN).
+sim_next_attempt() {
+  local attempt
   attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
   [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
   printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
@@ -288,6 +324,7 @@ fleet_start_sim() {
     --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
     --key "$(sim_key)")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
+  [[ "${URGENT:-0}" -eq 0 ]] || args+=(--urgent --reason "$(urgent_reason)")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
   cmux_ci "${args[@]}" >"$STATE/sim-step.log" 2>"$STATE/sim-step.err" &
   SIM_PID=$!
@@ -326,6 +363,37 @@ fleet_finish_sim() {
     sim_step_ended "$SIM_STEP" || true
     newer="$(sed -n 's/.*superseded by \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
     REPORT_SIM="BLOCKED: not a failure: step ${SIM_STEP:-not created} was superseded by ${newer:-a newer step}, sent for a newer head of tag $SLUG; a newer review.sh run of this tag owns it; review.sh builds the checkout's HEAD, so to review ${SHA:0:12} again, check it out and rerun: $(retry_command)"
+    return 1
+  fi
+  # The step's sign-in session comes from this Mac while cmux-ci run follows it (hq build-fleet sign_in). A
+  # delivery the controller dropped ("no session was delivered within 10m0s", step 1e1c4a5c2700774f73411917 while
+  # the controller timed out, 2026-11-24) says nothing about the build: send one new step, once.
+  # A controller restart under the step loses it the same way: "the controller no longer lists this run as the
+  # step's (409 Conflict)" (step df827ca8f4eb26596c17942e, hq#22711, 2026-11-24). So does a worker that stops
+  # mid-step: "lease lost: cmux23 stopped renewing the step's lease" (step c50f2a91d132270d466e64d8, 2026-11-24).
+  local lost
+  lost="$(grep -ohE "no session was delivered|no longer lists this run as the step|lease lost" \
+    "$STATE/sim-step.log" "$STATE/sim-step.err" 2>/dev/null | head -n 1 || true)"
+  if [[ $rc -ne 0 && -n "$lost" ]]; then
+    # The step's own log says it ended; a status read that fails (the controller timing out, as when the
+    # delivery was lost) must not resend under the dead step's key, which answers with that step again.
+    sim_step_ended "$SIM_STEP" || sim_next_attempt
+    if [[ "${SIM_SIGNIN_RETRIED:-0}" -eq 0 ]]; then
+      SIM_SIGNIN_RETRIED=1
+      if [[ "$lost" == "lease lost" ]]; then
+        echo "==> iPhone app: step ${SIM_STEP:-?} ended because its fleet worker stopped mid-step (lease lost); sending it once more"
+      else
+        echo "==> iPhone app: step ${SIM_STEP:-?} ended because no sign-in session reached it from this Mac; sending it once more"
+      fi
+      fleet_start_sim
+      fleet_finish_sim
+      return
+    fi
+    if [[ "$lost" == "lease lost" ]]; then
+      REPORT_SIM="BLOCKED: the fleet iPhone build lost its worker mid-step twice (last step ${SIM_STEP:-?}; $STATE/sim-step.log): the simulator workers are failing (cmux-ci status), retry later: $(retry_command)"
+    else
+      REPORT_SIM="BLOCKED: the fleet iPhone build got no sign-in session from this Mac twice (steps ended: last ${SIM_STEP:-?}; $STATE/sim-step.log): check that cmux-ci reaches the controller (cmux-ci status), then retry: $(retry_command)"
+    fi
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
@@ -547,19 +615,26 @@ mac_restart() {
 #   restored     nothing: the app's own stored session, as the person's own cold launch
 #   clear        CMUX_MOBILE_CLEAR_AUTH=1 (DEBUG only: drops the tag's stored session), then signed out
 #   signed_out   nothing, and the app must still be signed out
+#   relay-only   nothing but CMUX_MOBILE_DEV_RELAY_ONLY=1 (TURN only, as a phone away from home): restored,
+#                and linked via TURN
 # Credentials go in the environment of this one call only; every other launch carries none, and
-# the ambient DEVICECTL_CHILD_ credential, focus and clear variables are dropped first.
+# the ambient DEVICECTL_CHILD_ credential, focus, clear and relay variables are dropped first.
 phone_launch_and_check() {
   local udid="$1" client="$2" launch="$3" focus_mac="${4:-}" nonce rc=0 session mac_id=""
   session="$launch"
   [[ "$launch" != clear ]] || session=signed_out
+  [[ "$launch" != relay-only ]] || session=restored
+  # How the link must travel: never over the tailnet (--forbid-tailnet); through TURN (the relay-only relaunch).
+  local route=()
+  [[ "$FORBID_TAILNET" -eq 0 ]] || route+=(--forbid-tailnet)
+  [[ "$launch" != relay-only ]] || route+=(--require-turn)
   # The paired hand-off and --approve-first check the Mac; --manual-pairing and --no-auth prove sign-in state only.
   case "$PHONE_MODE" in paired|approve) mac_id="$MAC_DEVICE_ID" ;; esac
   nonce="$(cmux_attach_readiness_nonce)"
   # In a subshell's environment, never on a command line (ps would show it).
   if ! (
     unset DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC \
-      DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND
+      DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY
     export DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client"
     # --backend: the first launch names the tag's backend (`default`: the build's own, clearing a kept one);
     # every later launch carries nothing and must keep it, as the person's own launches do.
@@ -569,6 +644,8 @@ phone_launch_and_check() {
       [[ -z "$focus_mac" ]] || export DEVICECTL_CHILD_CMUX_MOBILE_FOCUS_MAC="$focus_mac"
     elif [[ "$launch" == clear ]]; then
       export DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH=1
+    elif [[ "$launch" == relay-only ]]; then
+      export DEVICECTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1
     fi
     exec xcrun devicectl device process launch --terminate-existing --device "$udid" "$BUNDLE_ID" >/dev/null 2>&1
   ); then
@@ -582,19 +659,26 @@ phone_launch_and_check() {
   [[ -z "$BACKEND_PHONE_URL" ]] || phone_mobile="$BACKEND_PHONE_MOBILE_URL"
   local deadline=$((SECONDS + wait)) verdict="" receipt
   receipt="$(mktemp "${TMPDIR:-/tmp}/cnx-review-receipt.XXXXXX")"
+  # A link's path can still change for a second or two after it is up (WireGuard moves from TURN, or no route, to
+  # the direct route it confirms): a passing receipt is read once more, CNX_REVIEW_PATH_SETTLE s later, and that
+  # one decides (a tailnet path it settled on fails --forbid-tailnet). A second read that is not ready yet keeps
+  # the first verdict.
+  local settle="${CNX_REVIEW_PATH_SETTLE:-5}" first_pass=""
   while :; do
     rm -f "$receipt"
     if cmux_attach_fetch_app_receipt physical_device "$udid" "$BUNDLE_ID" "$receipt" 2>/dev/null; then
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
-        --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
+        --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" ${route[@]+"${route[@]}"} \
         --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_PHONE_URL:-${BACKEND_URL:-default}}" \
         ${phone_mobile:+--mobile-api "$phone_mobile"} ${REVIEW_WANT:+--want "$REVIEW_WANT"} \
         ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
+      if [[ $rc -eq 0 && -z "$first_pass" && "$settle" -gt 0 ]]; then first_pass="$verdict"; sleep "$settle"; continue; fi
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
     fi
+    [[ -z "$first_pass" ]] || { rc=0 verdict="$first_pass"; break; }
     (( SECONDS < deadline )) || break
     sleep 3
   done
@@ -676,7 +760,10 @@ phone_review() {
   local first="$PHONE_VERDICT"
   mac_sees_phone "$udid" || { PHONE_REASON="the tagged Mac does not list this phone as paired and connected"; return 1; }
   phone_launch_and_check "$udid" "$client" restored || return 1
-  PHONE_LINE="$label: installed, $first; Mac sees it paired and connected; credential-free relaunch: $PHONE_VERDICT"
+  local restored="$PHONE_VERDICT"
+  # At home the link may take the LAN (or, with Tailscale on both, the tailnet); away from home it goes through TURN.
+  phone_launch_and_check "$udid" "$client" relay-only || return 1
+  PHONE_LINE="$label: installed, $first; Mac sees it paired and connected; credential-free relaunch: $restored; relay-only relaunch (TURN only, as a phone away from home): $PHONE_VERDICT"
 }
 
 # One field of a JSON object (empty when absent or null).
@@ -808,12 +895,15 @@ main() {
       --tag) TAG="${2:-}"; shift 2 ;;
       --device-id) REQUESTED_DEVICE_ID="${2:-}"; shift 2 ;;
       --target-worker) TARGET_WORKER="${2:-}"; shift 2 ;;
+      # --urgent: a person waits on the phone now; both fleet builds go first (logged with a reason).
+      --urgent) URGENT=1; shift ;;
       --workspace) WORKSPACE="${2:-}"; shift 2 ;;
       --manual-pairing) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=manual; shift ;;
       # --approve-first: the person's Allow on the Mac pairs the phone (no auto-approve).
       --approve-first) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=approve; shift ;;
       # --no-auth implies no pairing, whatever order the flags come in.
       --no-auth) PHONE_MODE=none; shift ;;
+      --forbid-tailnet) FORBID_TAILNET=1; shift ;;
       --backend) BACKEND_ARG="${2:-}"; [[ -n "$BACKEND_ARG" ]] || die "--backend needs a value"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "review.sh: unknown argument $1" >&2; usage >&2; exit 2 ;;

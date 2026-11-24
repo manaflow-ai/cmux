@@ -13,7 +13,16 @@
 //!   tasks leave it ([`Hub::bg_unwatch_session`]).
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
-//!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
+//!   output. A chat whose turn runs reads it at that turn's next tool step, as a lane's report
+//!   steers in (`lane_reports.rs`): queued behind the turn, it was a turn of its own once the turn
+//!   ended, and 92 of 382 such turns in a day did nothing (no tool, or only a wait or a status
+//!   read; median 125k tokens each, 13.4M tokens a day on one lane VM, cmuxterm-hq
+//!   `tools/transcript-analytics/tx_noop_turns.py`, 2026-11-24). An idle chat gets it as a turn
+//!   of its own; a turn it may not steer into (the person's own, one past its cap, a review's, an
+//!   agent that does not steer) or that ends before the agent read it gets it after, as before
+//!   (`turns.rs` `run_prompt_joined`, `steer_end.rs`). Leo, 2026-11-24: "anyways, for these
+//!   transcript analyses, we can likely do more tooling on things. and expand on our current
+//!   repertoir."
 //! - Once per task: its prompt id is `bg-done-<task>`, sent with `resend`, so a second send (a
 //!   restart between the send and the mark) is answered from the chat's log instead of running
 //!   again; and once the chat took it, `<task>.notified` beside the record says so, so a
@@ -220,8 +229,8 @@ comes to you."
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
-        // Never steered: it waits for a running turn to end.
-        if let Err(e) = self.prompt_with(session, blocks, SENDER, false, opts).await {
+        // Into a running turn at its next tool step, else a turn of its own (module docs).
+        if let Err(e) = self.prompt_with(session, blocks, SENDER, true, opts).await {
             // Held for a person who resumes the pair: it goes in then.
             if e.data.as_ref().is_none_or(|d| d["held"] != true) {
                 tracing::warn!(session = %session.id, task = %id, "a task's end: {}", e.message);
