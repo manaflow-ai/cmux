@@ -122,12 +122,13 @@ struct Guest {
     avatar_url: Option<String>,
 }
 
-/// General access by link or by team. An invited account has no `via`.
+/// A signed-in guest admitted through the share's general access. Keep the original registry
+/// spelling so older daemons can still load every share. The share's immutable team_id
+/// distinguishes a team admission from a link admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 enum Via {
-    Link,
-    Team,
+    #[serde(rename = "link")]
+    GeneralAccess,
 }
 
 impl Guest {
@@ -424,8 +425,8 @@ impl LinkShare {
                     shown["account"] = json!(account);
                     shown["role"] = json!(g.role);
                 }
-                if let Some(via) = g.via {
-                    shown.set("via", json!(via));
+                if g.via.is_some() {
+                    shown.set("via", json!(if self.team_id.is_some() { "team" } else { "link" }));
                 }
                 if let Some(avatar) = &g.avatar_url {
                     shown.set("avatar_url", json!(avatar));
@@ -740,8 +741,8 @@ pub(super) struct Redeem {
     pub(super) attempt_id: String,
     #[serde(default)]
     pub(super) account: Option<String>,
-    /// Membership attested by the room for this account and share.
-    #[serde(default)]
+    /// Supplied only by the authenticated room connection, never by a control-socket request.
+    #[serde(skip_deserializing)]
     pub(super) team_id: Option<String>,
     /// The signed-in account's profile picture (`https://`, at most 1024 bytes; else dropped).
     #[serde(default)]
@@ -1060,14 +1061,18 @@ impl LinkShares {
                             if share.team_id != p.team_id {
                                 return Err("share.not_invited");
                             }
-                            (Some(account), Some(share.role.unwrap_or(Role::View)), Some(Via::Team))
+                            (
+                                Some(account),
+                                Some(share.role.unwrap_or(Role::View)),
+                                Some(Via::GeneralAccess),
+                            )
                         }
                         // A retry of the account's earlier join by the link: that guest again
                         // (below), with the secret as it came.
-                        (None, Some(Some(Via::Link))) if secret_matches() => {
-                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                        (None, Some(Some(Via::GeneralAccess))) if secret_matches() => {
+                            (Some(account), Some(signed_in_role), Some(Via::GeneralAccess))
                         }
-                        (None, Some(Some(Via::Link))) => return Err("share.secret"),
+                        (None, Some(Some(Via::GeneralAccess))) => return Err("share.secret"),
                         // A retry of a removed account's earlier join says it was removed.
                         (None, Some(_)) => return Err("share.kicked"),
                         // The owner removed this account: the link does not let it back in.
@@ -1077,7 +1082,7 @@ impl LinkShares {
                         // Not invited, holding the link's secret: a link guest that keeps its
                         // account (a use spent).
                         (None, None) if secret_matches() => {
-                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                            (Some(account), Some(signed_in_role), Some(Via::GeneralAccess))
                         }
                         (None, None) => return Err("share.not_invited"),
                     }
@@ -1098,7 +1103,7 @@ impl LinkShares {
                 // A link guest an older daemon recorded without its account (it kept none for
                 // a join by the link) is the same join retried by the link: that guest again.
                 let unrecorded = guest.account.is_none() && guest.via.is_none();
-                if unrecorded && via == Some(Via::Link) {
+                if unrecorded && share.team_id.is_none() && via.is_some() {
                     return match guest.state {
                         GuestState::Active => Ok((reply(guest), false)),
                         GuestState::Kicked => Err("share.kicked"),
@@ -1133,7 +1138,7 @@ impl LinkShares {
             }
             match (&account, via) {
                 // Invitations and team access bound live devices per account instead of spending a link use.
-                (Some(account), None | Some(Via::Team)) => {
+                (Some(account), _) if via.is_none() || share.team_id.is_some() => {
                     let live = share
                         .guests
                         .iter()
