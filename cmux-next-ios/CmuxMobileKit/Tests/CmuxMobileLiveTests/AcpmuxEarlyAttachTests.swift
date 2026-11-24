@@ -7,7 +7,7 @@ import Testing
 /// A chat open when the link comes up writes its `_acpmux/attach` right behind `initialize` and
 /// the first watch page, before either answered (`AcpmuxHub+EarlyAttach.swift`), and opens
 /// correctly on every Mac: one that folds `alsoKinds` in, one from before it that serves the sudo
-/// card's kinds (its early page is not used, the chat attaches again as before), and one that
+/// card's kinds (its early page is kept; the sudo cards are read after it), and one that
 /// serves neither.
 @MainActor
 @Suite(.timeLimit(.minutes(2))) struct AcpmuxEarlyAttachTests {
@@ -40,9 +40,16 @@ import Testing
             case "_acpmux/attach":
                 let history = (0..<Chat.turns).flatMap(Chat.turnRecords).joined(separator: ",")
                 let page = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)
+                // A re-attach from the page's end (an early page that lacked the sudo cards)
+                // reads only what came after it: nothing here.
+                if let after = (object["params"] as? [String: Any])?["afterSeq"] as? Int, after >= Chat.turns * 5 {
+                    return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[]}"#)]
+                }
                 guard live, wire.attaches.count == 1 else { return [page] }
                 let stream = Chat.turnRecords(Chat.turns).map { Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#($0)}"#.utf8) }
                 return [page] + stream
+            case "_acpmux/events":
+                return [reply(#"{"events":[],"hasMore":false}"#)]
             default:
                 return [reply("{}")]
             }
@@ -89,8 +96,8 @@ import Testing
     }
 
     /// A Mac from before `alsoKinds` that serves the sudo card: its early page left those kinds
-    /// out. The page is kept; the stream is widened by a read-free hold attach with them, and
-    /// only the sudo-card records are read, not the page again.
+    /// out. The page is kept; the chat attaches again with them from the page's end (it widens
+    /// the stream and reads nothing older), and reads only the sudo-card records, not the page.
     @Test func anOlderMacWithSudoCardsKeepsThePageAndReadsOnlyItsCards() async throws {
         let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation])
         defer { withExtendedLifetime(hub) {} }
@@ -98,8 +105,8 @@ import Testing
         await Chat.waitUntil { wire.attaches.count == 2 }
         #expect(wire.attaches.count == 2)
         let again = try #require(wire.attaches.last)
-        #expect(again["hold"] as? Bool == true)
-        #expect(again["limit"] == nil && again["maxBytes"] == nil)
+        #expect(again["afterSeq"] as? Int == Chat.turns * 5)
+        #expect(again["maxBytes"] == nil)
         #expect((again["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
         #expect(wire.methods.contains("_acpmux/events"))
         #expect(store.turns.count == Chat.turns)

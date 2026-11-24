@@ -1879,26 +1879,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 out.result = reply
                 if let early, hub.earlyPageLacksElevation(early) {
                     // The Mac serves sudo cards but ignored `alsoKinds`: its page and stream
-                    // carry the chat's kinds only. Widen the stream without a read (a hold
-                    // attach), then read the sudo-card records since the page's start, both in
-                    // one round trip; the page is kept, not read again.
-                    var hold = params
-                    for key in ["limit", "afterSeq", "beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
-                        hold.removeValue(forKey: key)
+                    // carry the chat's kinds only. Attach again with the sudo-card kinds from the
+                    // page's end (it widens the stream and reads only what came after the page),
+                    // and read the sudo-card records since the page's start, both in one round
+                    // trip; the page is kept, not read again. (A hold attach cannot do it: it
+                    // refuses "transcript" in its kinds.)
+                    let boundary = stateSeq(reply)
+                    var widen = params
+                    for key in ["beforeSeq", "maxBytes", "toolOutputMaxBytes", "settled"] {
+                        widen.removeValue(forKey: key)
                     }
-                    hold["hold"] = .bool(true)
+                    widen["afterSeq"] = .number(Double(boundary))
                     let first = (reply["events"]?.arrayValue ?? []).first?["seq"]?.numberValue ?? 1
-                    async let held = request("_acpmux/attach", hold)
+                    async let widened = request("_acpmux/attach", widen)
                     async let cards = request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "afterSeq": .number(max(0, first - 1)),
                         "limit": .number(Double(pageSize)), "kinds": .array(elevationKinds),
                     ])
-                    _ = try await held
-                    let records = try await cards["events"]?.arrayValue ?? []
-                    let boundary = stateSeq(reply)
+                    let after = (try await widened)["events"]?.arrayValue ?? []
+                    let records = (try await cards)["events"]?.arrayValue ?? []
                     let seq = { (r: JSONValue) in Int(r["seq"]?.numberValue ?? 0) }
                     let inPage = records.filter { seq($0) <= boundary }
-                    out.late = records.filter { seq($0) > boundary }
+                    out.late = (records + after).filter { seq($0) > boundary }
                     if !inPage.isEmpty, var events = reply["events"]?.arrayValue {
                         events = (events + inPage).enumerated()
                             .sorted { (seq($0.element), $0.offset) < (seq($1.element), $1.offset) }
