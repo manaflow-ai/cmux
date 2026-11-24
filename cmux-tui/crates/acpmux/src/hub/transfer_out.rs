@@ -265,6 +265,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_live.rs"]
+pub(super) mod transfer_live;
 #[path = "transfer_precopy.rs"]
 pub(super) mod transfer_precopy;
 
@@ -272,6 +274,8 @@ pub(super) mod transfer_precopy;
 /// turn lock is fair, so a prompt queued before the move runs first; the queue's later prompts
 /// move with the chat.
 const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// How often a move that waits for the running turn looks again for a turn that holds no lock.
+const AFTER_TURN_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// How long a `transfer_begin` with `afterTurn` waits for the running turn: its
 /// `afterTurnTimeoutMs` (the mover's `--timeout`), at most [`AFTER_TURN_WAIT`]; that when absent.
@@ -368,6 +372,9 @@ impl Hub {
             "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
             "stage_finish" => self.transfer_stage_finish(params),
+            "digest" => self.transfer_digest(params),
+            "end_stale" => self.transfer_end_stale(params).await,
+            "progress" => self.transfer_progress(params),
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
@@ -448,16 +455,32 @@ impl Hub {
         }
         // Taken before the freeze, so nothing is refused while the turn finishes: its
         // permission answers, steering and new prompts go in as usual.
+        // The lock alone is not the turn: a turn an agent host runs (a chat whose host is
+        // another build's, `hosts.rs`) or one recovered from it holds no lock, so the wait is
+        // for both the lock and no turn (2026-11-22: `--after-turn` refused a coordinator's move
+        // at once with "a turn is running").
         let early = if let Some(wait) = after_turn {
-            match tokio::time::timeout(wait, session.turn_lock.lock()).await {
-                Ok(guard) => Some(guard),
-                Err(_) => {
-                    let why = format!(
-                        "the running turn did not end within {}s; try again, or pass --interrupt",
-                        wait.as_secs()
-                    );
-                    return Err(transfer_error("busy", why));
+            let deadline = tokio::time::Instant::now() + wait;
+            let busy = || {
+                let why = format!(
+                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    wait.as_secs()
+                );
+                transfer_error("busy", why)
+            };
+            loop {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                let Ok(guard) = tokio::time::timeout(left, session.turn_lock.lock()).await else {
+                    return Err(busy());
+                };
+                if session.turn().is_none() {
+                    break Some(guard);
                 }
+                drop(guard);
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(busy());
+                }
+                tokio::time::sleep(AFTER_TURN_POLL).await;
             }
         } else {
             None
