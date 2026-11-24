@@ -65,6 +65,7 @@ impl Hub {
         }
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
+            super::verify::stamp(&session.id, o);
             let trigger = o.get("trigger") == Some(&Value::Bool(true));
             o.insert("unread".into(), Value::Bool(!trigger && !self.attended(session)));
         }
