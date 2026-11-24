@@ -854,13 +854,25 @@ pub(super) fn connection_view(c: &Value) -> Value {
     put(
         &mut out,
         "statusLabel",
-        json!(match status {
-            "active" => "Connected",
-            "needs_reauth" => "Needs a new key",
-            other => other,
+        json!(match (status, provider) {
+            ("active", _) => "Connected",
+            ("needs_reauth", "stripe") => "Needs a new key",
+            ("needs_reauth", _) => "Needs to be linked again",
+            (other, _) => other,
         }),
     );
     put(&mut out, "healthy", json!(status == "active"));
+    // A connection the provider stopped honouring (RFD 0055 "Revoke": `needs_reauth`) offers Reconnect: a key
+    // provider takes a new pasted key, an OAuth provider goes through its link again. Null while it works.
+    put(
+        &mut out,
+        "reconnect",
+        match (status, provider) {
+            ("needs_reauth", "stripe") => json!("key"),
+            ("needs_reauth", _) => json!("link"),
+            _ => Value::Null,
+        },
+    );
     put(&mut out, "canRemove", json!(c.get("canRemove").and_then(Value::as_bool).unwrap_or(false)));
     out
 }

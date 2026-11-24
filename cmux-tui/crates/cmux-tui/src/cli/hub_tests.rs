@@ -268,12 +268,19 @@ fn hub_shapes_connections() {
     assert_eq!(c["sharingLabel"], "Shared with the team");
     assert_eq!(c["statusLabel"], "Needs a new key");
     assert_eq!(c["healthy"], false);
+    assert_eq!(c["reconnect"], "key");
     let c = connection_view(
         &json!({"id": "hubc_2", "provider": "stripe", "account": "B", "sharing": "private", "status": "active"}),
     );
     assert_eq!(c["modeLabel"], Value::Null);
     assert_eq!(c["sharingLabel"], "Private to you");
     assert_eq!(c["canRemove"], false);
+    assert_eq!(c["reconnect"], Value::Null);
+    let c = connection_view(
+        &json!({"id": "hubc_3", "provider": "github", "account": "acme", "status": "needs_reauth"}),
+    );
+    assert_eq!(c["statusLabel"], "Needs to be linked again");
+    assert_eq!(c["reconnect"], "link");
 }
 
 #[test]

@@ -32,6 +32,7 @@ type Run = (run: Exclude<HubRun, { action: "refresh" }>) => Promise<void>;
 function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean; onRun: Run }) {
   const titleId = useId();
   const [confirming, setConfirming] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const confirmTitle = t("settingsWindow.hub.removeTitle", row.title);
   const details = [row.modeLabel, row.sharingLabel].filter((part): part is string => !!part);
   return (
@@ -52,6 +53,26 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
             <span className="accounts-dot" aria-hidden="true" />
             {row.statusLabel}
           </span>
+          {row.reconnect && !confirming && !reconnecting && (
+            <Button
+              variant="solid"
+              className="button"
+              data-hub-action="reconnect"
+              aria-describedby={titleId}
+              disabled={busy}
+              onClick={() =>
+                row.reconnect === "key"
+                  ? setReconnecting(true)
+                  : void onRun({
+                      action: "link",
+                      provider: "github",
+                      sharing: row.sharing === "team" ? "team" : "private",
+                    })
+              }
+            >
+              {t("settingsWindow.hub.reconnect")}
+            </Button>
+          )}
           {row.canRemove && !confirming && (
             <Button
               danger
@@ -67,6 +88,14 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
           )}
         </span>
       </div>
+      {reconnecting && (
+        <LinkStripe
+          busy={busy}
+          onRun={onRun}
+          initialSharing={row.sharing === "team" ? "team" : "private"}
+          onDone={() => setReconnecting(false)}
+        />
+      )}
       {confirming && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="accounts-form" data-hub-confirm="" role="group" aria-label={confirmTitle}>
@@ -96,15 +125,27 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
   );
 }
 
-function LinkStripe({ busy, onRun }: { busy: boolean; onRun: Run }) {
+function LinkStripe({
+  busy,
+  onRun,
+  initialSharing = "private",
+  onDone,
+}: {
+  busy: boolean;
+  onRun: Run;
+  initialSharing?: "private" | "team";
+  /** Set when the form reconnects a linked account in its row; called once the key is sent. */
+  onDone?: () => void;
+}) {
   const [key, setKey] = useState("");
-  const [sharing, setSharing] = useState<"private" | "team">("private");
+  const [sharing, setSharing] = useState<"private" | "team">(initialSharing);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const pasted = key.trim();
     // The key goes to the host once and leaves the page's state at once.
     setKey("");
     if (pasted) void onRun({ action: "link", provider: "stripe", key: pasted, sharing });
+    if (pasted) onDone?.();
   };
   return (
     <form className="row accounts-row hub-wide" data-hub-link="stripe" onSubmit={submit}>

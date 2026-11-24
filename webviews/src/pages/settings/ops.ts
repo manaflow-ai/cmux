@@ -1589,8 +1589,12 @@ export type HubConnection = {
   /** "Test mode" / "Live mode", or null when the provider has no mode (GitHub). */
   modeLabel: string | null;
   sharingLabel: string;
+  /** The hub's raw `private` / `team`. */
+  sharing?: string;
   statusLabel: string;
   healthy: boolean;
+  /** Set when the provider stopped honouring it (`needs_reauth`): "key" takes a new pasted key, "link" links again. */
+  reconnect?: "key" | "link" | null;
   canRemove: boolean;
 };
 

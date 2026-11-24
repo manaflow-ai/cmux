@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample accounts, charges, rules and audit lines), not shipped UI.
 // Settings > Integrations (IntegrationsHubCard): linked Stripe and GitHub accounts, the approvals
-// waiting for the person with Allow, Deny and Don't ask again, rules, the pause switch and audit.
+// waiting for the person with Approve once, Approve and don't ask again and Deny, Reconnect on a dead
+// key, rules, the pause switch and audit.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { MOCK_HUB_GITHUB, MOCK_HUB_STRIPE, mockHubOverview, mockHubState } from "./mockHub";
 
@@ -20,7 +21,7 @@ export default settingsPageEntry({
   anchors: [{ selector: '[data-card="integrationsHub"]' }],
   variants: {
     shipped: variant({
-      note: "A Stripe test account; one refund waits with its pinned summary, Allow, Don't ask again and Deny; rules and recent activity.",
+      note: "A Stripe test account; one refund waits with its pinned summary, Approve once, Approve and don't ask again and Deny; rules and recent activity.",
     }),
     empty: variant({
       hub: mockHubState(
@@ -33,12 +34,37 @@ export default settingsPageEntry({
         mockHubOverview({
           paused: true,
           pausedText: "Paused: every agent call is refused until you turn this off.",
-          connections: [MOCK_HUB_STRIPE, { ...MOCK_HUB_GITHUB, healthy: false, statusLabel: "Needs attention" }],
+          connections: [
+            MOCK_HUB_STRIPE,
+            { ...MOCK_HUB_GITHUB, healthy: false, statusLabel: "Needs to be linked again", reconnect: "link" },
+          ],
           hasGithub: true,
           approvals: [],
         }),
       ),
-      note: "Paused, both accounts linked (GitHub needs attention), no approvals; the team rule has no Remove.",
+      note: "Paused, both accounts linked (GitHub must be linked again: Reconnect), no approvals; the team rule has no Remove.",
+    }),
+    "needs-new-key": variant({
+      hub: mockHubState(
+        mockHubOverview({
+          connections: [{ ...MOCK_HUB_STRIPE, healthy: false, statusLabel: "Needs a new key", reconnect: "key" }],
+          approvals: [],
+        }),
+      ),
+      note: "Stripe refused the stored key (needs_reauth): the row says so and offers Reconnect next to Remove.",
+    }),
+    "reconnect-key": variant({
+      hub: mockHubState(
+        mockHubOverview({
+          connections: [{ ...MOCK_HUB_STRIPE, healthy: false, statusLabel: "Needs a new key", reconnect: "key" }],
+          approvals: [],
+        }),
+      ),
+      steps: [
+        shown,
+        { selector: '[data-hub-connection="hubc_mock_stripe"] [data-hub-action="reconnect"]', action: "click" },
+      ],
+      note: "Reconnect opens the restricted-key form inside the account's row, keeping its sharing.",
     }),
     "live-key-refused": variant({
       hub: {

@@ -133,6 +133,33 @@
         }
       }
     },
+    "settingsWindow.hub.reconnect": {
+      "comment": "Settings > Integrations: button on a linked account whose key or sign-in stopped working; links it again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reconnect"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إعادة الاتصال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ponovo poveži"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Forbind igen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Erneut verbinden"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Volver a conectar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Reconnecter"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Riconnetti"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "再接続"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ភ្ជាប់ម្ដងទៀត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "다시 연결"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Koble til igjen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Połącz ponownie"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Reconectar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Переподключить"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เชื่อมต่อใหม่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeniden bağlan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Перепідключити"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kết nối lại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "重新连接"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "重新連線"}}
+      }
+    },
     "settingsWindow.hub.title": {
       "comment": "Settings > Integrations: card title.",
       "extractionState": "manual",
@@ -1454,135 +1481,30 @@
       }
     },
     "settingsWindow.hub.allow": {
-      "comment": "Settings > Integrations: button that allows one waiting call.",
+      "comment": "Settings > Integrations: button that approves one waiting call, this time only.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "سماح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dozvoli"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillad"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erlauben"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autoriser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Consenti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "許可"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អនុញ្ញាត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "허용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zezwól"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อนุญาต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İzin ver"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дозволити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cho phép"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允許"
-          }
-        }
+        "en": {"stringUnit": {"state": "translated", "value": "Approve once"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الموافقة مرة واحدة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Odobri jednom"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Godkend én gang"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Einmal genehmigen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Aprobar una vez"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Approuver une fois"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Approva una volta"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "今回のみ承認"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុម័តម្ដង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이번만 승인"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Godkjenn én gang"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zatwierdź raz"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aprovar uma vez"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Одобрить один раз"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อนุมัติครั้งเดียว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir kez onayla"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Схвалити один раз"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Duyệt một lần"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅批准一次"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅核准一次"}}
       }
     },
     "settingsWindow.hub.deny": {
@@ -1718,135 +1640,30 @@
       }
     },
     "settingsWindow.hub.remember": {
-      "comment": "Settings > Integrations: button that allows a waiting call and adds a rule allowing calls like it.",
+      "comment": "Settings > Integrations: button that approves a waiting call and adds a remembered rule (same action, account, agent, at most this amount, 30 days) so calls like it are not asked again.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Don't ask again"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا تسأل مرة أخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne pitaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spørg ikke igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nicht mehr fragen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No volver a preguntar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne plus demander"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non chiedere più"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "今後は確認しない"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កុំសួរម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 묻지 않기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikke spør igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie pytaj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não perguntar de novo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Больше не спрашивать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ต้องถามอีก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir daha sorma"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Більше не питати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không hỏi lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "不再询问"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "不再詢問"
-          }
-        }
+        "en": {"stringUnit": {"state": "translated", "value": "Approve and don't ask again"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الموافقة وعدم السؤال مرة أخرى"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Odobri i ne pitaj ponovo"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Godkend og spørg ikke igen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Genehmigen und nicht mehr fragen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Aprobar y no volver a preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Approuver et ne plus demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Approva e non chiedere più"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "承認して今後は確認しない"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុម័ត ហើយកុំសួរម្ដងទៀត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "승인하고 다시 묻지 않기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Godkjenn og ikke spør igjen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zatwierdź i nie pytaj ponownie"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aprovar e não perguntar de novo"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Одобрить и больше не спрашивать"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อนุมัติและไม่ต้องถามอีก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Onayla ve bir daha sorma"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Схвалити й більше не питати"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Duyệt và không hỏi lại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "批准且不再询问"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "核准且不再詢問"}}
       }
     },
     "settingsWindow.hub.accounts": {
