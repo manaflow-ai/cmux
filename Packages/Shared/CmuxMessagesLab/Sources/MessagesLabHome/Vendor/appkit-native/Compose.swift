@@ -660,7 +660,11 @@ final class ComposeTextView {
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
     private var scrolled: NSObjectProtocol?
-    init() {
+    /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
+    /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
+    private let announce: (NSView, NSAccessibility.Notification) -> Void
+    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = { NSAccessibility.post(element: $0, notification: $1) }) {
+        self.announce = announce
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
