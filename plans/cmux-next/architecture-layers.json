@@ -49,6 +49,7 @@
     "CmuxNextComputerUse": {"layer": "service"},
     "CmuxNextComputerUsePreview": {"layer": "ui"},
     "CmuxNextStash": {"layer": "service"},
+    "CmuxNextAppInstallLink": {"layer": "ui"},
     "CmuxNextHistoryPages": {"layer": "ui"},
     "CmuxNextTaskManagerPage": {"layer": "ui"},
     "CmuxNextSidebarActions": {"layer": "ui", "mixes": ["domain"], "plan": "domain once CmuxNextSidebar's Store splits from its views (owner a590)"},

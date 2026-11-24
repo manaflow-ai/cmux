@@ -95,7 +95,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var canGoForward = false
     public private(set) var isLoading = false
     public var progress: Double { isLoading ? 0.5 : 1 }
-    public private(set) var phase: Phase = .connecting
+    public private(set) var phase: Phase = .connecting {
+        didSet {
+            if case .waiting = phase { waitingSince = waitingSince ?? Date() }
+            else if phase == .live || phase == .unavailable { waitingSince = nil }
+        }
+    }
+    /// When the page last lost its link (the first `.waiting` since it was live): the link
+    /// chip's quiet wait counts from here, not from when the chip appeared.
+    public private(set) var waitingSince: Date?
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
