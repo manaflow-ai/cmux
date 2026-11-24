@@ -126,8 +126,8 @@ public final class ClickTrace {
         guard Self.isPress(event.type) else { return }
         if let open, open.timestamp == event.timestamp, open.timestamp != 0 { return }
         let screen = window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
-        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Int(screen.x.rounded()),
-                     y: Int(screen.y.rounded()), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
+        append(Entry(seq: 0, at: Self.stamp(now()), button: Self.button(event.type), x: Self.coordinate(screen.x),
+                     y: Self.coordinate(screen.y), window: Self.name(window), windowNumber: window?.windowNumber ?? -1),
                timestamp: event.timestamp)
     }
 
@@ -203,6 +203,14 @@ public final class ClickTrace {
     private func update(_ change: (inout Entry) -> Void) {
         guard let open, ring.indices.contains(open.index) else { return }
         change(&ring[open.index])
+    }
+
+    /// A screen coordinate as the trace's integer. `Int(_:)` traps on NaN, infinity and values past Int's range, and a
+    /// synthesized event (CGEventPost from a driver, a stale window) can carry any of them: those record 0, never crash
+    /// (nightly 4533834483401: EXC_BREAKPOINT in `press(_:window:)` from the press monitor, after a driven New chat).
+    static func coordinate(_ value: CGFloat) -> Int {
+        guard value.isFinite, abs(value) < 1e9 else { return 0 }
+        return Int(value.rounded())
     }
 
     static func name(_ window: NSWindow?) -> String {

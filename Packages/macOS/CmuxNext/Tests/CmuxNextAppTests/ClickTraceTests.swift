@@ -18,6 +18,15 @@ import Testing
                                         clickCount: 1, pressure: 1))
     }
 
+    @Test func aNonFiniteOrHugeCoordinateRecordsZeroInsteadOfTrapping() {
+        #expect(ClickTrace.coordinate(.nan) == 0)
+        #expect(ClickTrace.coordinate(.infinity) == 0)
+        #expect(ClickTrace.coordinate(-.infinity) == 0)
+        #expect(ClickTrace.coordinate(1e300) == 0)
+        #expect(ClickTrace.coordinate(40.6) == 41)
+        #expect(ClickTrace.coordinate(-12.4) == -12)
+    }
+
     @Test func aPressRecordsItsWindowItsGrantsAndTheKeyWindowAfter() throws {
         _ = NSApplication.shared
         let clock = Clock()
