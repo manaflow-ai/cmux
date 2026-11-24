@@ -274,7 +274,9 @@ test.each([
     await press(gitHubRow());
     expect(scopeChip("GitHub")).toBeDefined();
     if (button) await press(option(button)!);
-    expect(gh.calls.map(([method]) => method)).toEqual(action ? ["github.status", action] : ["github.status"]);
+    // The chip showing read the status (prefetch), and the open read it again.
+    const reads = ["github.status", "github.status"];
+    expect(gh.calls.map(([method]) => method)).toEqual(action ? [...reads, action] : reads);
     expect(picked).toEqual([]);
     if (!action) expect(message()).toBeTruthy();
   } finally {
@@ -1207,6 +1209,110 @@ test("a pending connection's words never sit under Connect to GitHub, and a clic
     await press(gitHubRow());
     await press(option("Connect to GitHub")!);
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// cmux#53226: the This Mac folder menu listed GitHub right under the last folder, its heading with no
+// line over it, and its repositories arrived after the open, the rows filling in under the pointer.
+const persistent = { runMode: { mode: "persistent", onMode: () => {} } };
+const listRow = (name: string) =>
+  [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option]")].find((item) =>
+    item.textContent?.includes(name),
+  );
+
+test("the folder chip showing reads GitHub's status and repositories once, so the menu opens on them (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray(persistent, gh.store);
+  try {
+    await settle();
+    // Read before any open: the chip is shown.
+    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list"]);
+    // A second chip on the page asks nothing again.
+    await act(async () => gh.store.prefetch());
+    await settle();
+    expect(gh.calls).toHaveLength(2);
+    // The open lists them at once, with no Loading row; it reads the status again, never the repositories.
+    await openFolderMenu();
+    expect(option("Loading repositories…")).toBeUndefined();
+    expect(listRow("acme/api")).toBeDefined();
+    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list", "github.status"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("This Mac's folders, then the GitHub group under a hairline; the group holds a Loading row until its repositories land (cmux#53226)", async () => {
+  let listed: (value: unknown) => void = () => undefined;
+  const gh = host({
+    "github.status": ready,
+    "github.repos.list": () => new Promise((resolve) => (listed = resolve)),
+  });
+  const { root, picked } = await renderTray(persistent, gh.store);
+  const section = (row: HTMLElement | undefined) => row?.querySelector(".acpmux-location-row");
+  try {
+    await openFolderMenu();
+    const rows = [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option]")];
+    // The folders first, with no heading and no line: the field's line is over them.
+    expect(rows[0]?.textContent).toContain("app");
+    expect(section(rows[0])?.hasAttribute("data-divider")).toBe(false);
+    expect(section(rows[0])?.hasAttribute("data-section")).toBe(false);
+    // Then one Loading row holds the GitHub group's place, its heading and hairline already over it.
+    const loading = listRow("Loading repositories…")!;
+    expect(section(loading)?.getAttribute("data-section")).toBe("GitHub");
+    expect(section(loading)?.hasAttribute("data-divider")).toBe(true);
+    // A press on it picks nothing and keeps the menu open.
+    await press(loading);
+    expect(picked).toEqual([]);
+    expect(doc().querySelector(".acpmux-folder-popover [role=listbox]")).not.toBeNull();
+    const folderRows = rows.filter((row) => !row.querySelector("[data-github]"));
+    await act(async () => listed(installed));
+    await settle();
+    expect(listRow("Loading repositories…")).toBeUndefined();
+    const api = listRow("acme/api")!;
+    expect(section(api)?.getAttribute("data-section")).toBe("GitHub");
+    expect(section(api)?.hasAttribute("data-divider")).toBe(true);
+    expect(section(listRow("acme/web"))?.hasAttribute("data-section")).toBe(false);
+    // The folder rows above stay as they were: the same elements.
+    for (const row of folderRows) expect(row.isConnected).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Cloud lists the repositories first with no line over GitHub, and a second machine's heading opens with one (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const first = doc().querySelector<HTMLElement>(".ui-combobox-scroll [role=option] .acpmux-location-row")!;
+    expect(first.getAttribute("data-section")).toBe("GitHub");
+    expect(first.hasAttribute("data-divider")).toBe(false);
+    // Every heading under other rows carries the hairline.
+    for (const headed of doc().querySelectorAll(".ui-combobox-scroll .acpmux-location-row[data-section]"))
+      expect(headed.hasAttribute("data-divider")).toBe(headed !== first);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the menu opened while the chip's list is still out asks for no second list (cmux#53226)", async () => {
+  const answers: ((value: unknown) => void)[] = [];
+  const gh = host({
+    "github.status": ready,
+    "github.repos.list": () => new Promise((resolve) => answers.push(resolve)),
+  });
+  const { root } = await renderTray(persistent, gh.store);
+  try {
+    await settle();
+    await openFolderMenu();
+    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list", "github.status"]);
+    // The one list's answer lands in the open menu.
+    await act(async () => answers[0]!(installed));
+    await settle();
+    expect(listRow("Loading repositories…")).toBeUndefined();
+    expect(listRow("acme/api")).toBeDefined();
   } finally {
     await act(async () => root.unmount());
   }
