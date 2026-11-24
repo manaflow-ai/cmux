@@ -84,8 +84,10 @@ final class ComposerTypingLagUITests: XCTestCase {
         }
         if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
         app.launch()
-        let identifier = surface == "chat" ? "chat.composer.field" : Self.field
-        let field = app.textViews[identifier]
+        // The chat card's identifier (`chat.composer.card`) can stand in for the field's own in
+        // the accessibility tree, so the chat field is either; the trace keys follow the view's.
+        let ids = surface == "chat" ? ["chat.composer.field", "chat.composer.card"] : [Self.field]
+        let field = app.textViews.matching(NSPredicate(format: "identifier IN %@", ids)).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "\(surface) composer \(chars)\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard for \(surface) \(chars)")
@@ -97,6 +99,7 @@ final class ComposerTypingLagUITests: XCTestCase {
         let typed = field.value as? String ?? ""
         XCTAssertTrue(typed.hasSuffix(Self.keys), "\(surface) \(chars) did not receive all \(Self.keys.count) keys")
         let board = summary(app)
+        let identifier = ids.first { board["\($0)_key_frame"] != nil } ?? ids[0]
         let commit = stats(board, "\(identifier)_key_commit")
         let cpu = stats(board, "\(identifier)_key_cpu")
         let hitches = stats(board, "\(identifier)_key_frame")
