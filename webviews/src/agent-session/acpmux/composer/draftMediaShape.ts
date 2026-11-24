@@ -55,9 +55,9 @@ export function draftShapeOf(file: File, video: boolean): LocalDraftShape {
         return () => {};
       }
       paints.add(paint);
-      // File-reading events share the renderer with the initial composer update. Give a supported
-      // header three display frames from mount; an unsupported format has its square immediately.
-      let frames = 3;
+      // Videos can keep a square when the header misses the first paint. The sent image shows
+      // the full picture, so allow its short header read three frames to preserve that aspect.
+      let frames = video ? 1 : 3;
       let frame = requestAnimationFrame(function tick() {
         if (ratio) return;
         if (--frames) frame = requestAnimationFrame(tick);

@@ -1362,7 +1362,7 @@ os.replace(path + ".part", path)
           const uri = `file:///Users/dev/Desktop/${encodeURIComponent(name)}`;
           if (!row.videoBlocks.some((block) => block.type === "resource_link" && block.uri === uri))
             problem("the local prompt did not carry the original file URL");
-          if ((await probes(page)).begins.length) problem("the local attachment opened an upload");
+          if ((await probes(page)).begins > 0) problem("the local attachment opened an upload");
         }
         if (!row.videoBlocks.length)
           problem(`the recording never reached the agent: the prompt carried ${JSON.stringify(blocks)}`);
