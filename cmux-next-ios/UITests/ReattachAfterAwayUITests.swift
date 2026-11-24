@@ -39,9 +39,26 @@ final class ReattachAfterAwayUITests: XCTestCase {
     @MainActor func testTerminalReturnAfterMinutes() throws { try run(flow: "terminal") }
     @MainActor func testChatReturnAfterMinutes() throws { try run(flow: "chat") }
 
+    /// The process is killed while in the background (as iOS does under memory pressure), then the
+    /// person opens cmux again: a cold launch that restores the last workspace and tab (no
+    /// `-cmux-mobile-tab`, no `-cmux-mobile-no-restore`). Mock mode has no link, so the time away
+    /// does not change a cold launch here; three runs of 20 s for a spread.
+    @MainActor func testKilledInBackgroundRelaunch() throws {
+        try run(flow: "terminal", aways: [20, 20, 20], killed: true)
+    }
+
+    /// Settings > Require Face ID on (`cmuxMobile.settings.requireFaceID`): the lock window covers the
+    /// app on return. The simulator has no passcode, so `canEvaluatePolicy` fails and the lock lifts
+    /// with no Face ID sheet: `lock_ms` is the cover's own time, a lower bound of a phone's.
+    @MainActor func testRequireFaceIDReturn() throws {
+        try run(flow: "terminal", aways: [5, 60], faceID: true)
+    }
+
     @MainActor
-    private func run(flow: String) throws {
+    private func run(flow: String, aways: [TimeInterval] = ReattachAfterAwayUITests.aways, killed: Bool = false,
+                     faceID: Bool = false) throws {
         let app = ResumeFromSwitchUITests.makeApp()
+        if faceID { app.launchArguments += ["-cmuxMobile.settings.requireFaceID", "YES"] }
         app.launch()
         let workspace = flow == "terminal" ? ResumeFromSwitchUITests.terminalWorkspace : ResumeFromSwitchUITests.chatWorkspace
         open(workspace, in: app)
@@ -55,24 +72,33 @@ final class ReattachAfterAwayUITests: XCTestCase {
             XCTAssertTrue(openChatField(app, timeout: 30), "the chat composer\n\(app.debugDescription)")
         }
         RunLoop.current.run(until: Date().addingTimeInterval(2))
-        for (index, away) in Self.aways.enumerated() {
-            returnOnce(app, flow: flow, away: away, index: index)
+        let variant = killed ? "killed" : faceID ? "faceid" : flow
+        for (index, away) in aways.enumerated() {
+            returnOnce(app, flow: flow, variant: variant, away: away, index: index, killed: killed)
         }
     }
 
     @MainActor
-    private func returnOnce(_ app: XCUIApplication, flow: String, away: TimeInterval, index: Int) {
-        let tag = "\(flow)-\(Int(away))s"
+    private func returnOnce(_ app: XCUIApplication, flow: String, variant: String, away: TimeInterval, index: Int, killed: Bool) {
+        let tag = "\(variant)-\(Int(away))s-\(index)"
         let beforeShot = XCUIScreen.main.screenshot()
         keep(beforeShot, "\(tag)-0-before-home")
         let beforeLuma = Self.meanLuma(beforeShot.image)
         let cycle = (ResumeFromSwitchUITests.marks(app)["cycle"] ?? 0) + 1
         XCUIDevice.shared.press(.home)
         RunLoop.current.run(until: Date().addingTimeInterval(away))
+        if killed {
+            // Killed while in the background; the next open is a cold launch that restores the last place.
+            app.terminate()
+            app.launchArguments = app.launchArguments.filter { $0 != "-cmux-mobile-no-restore" }
+            if let tab = app.launchArguments.firstIndex(of: "-cmux-mobile-tab") {
+                app.launchArguments.removeSubrange(tab ... min(tab + 1, app.launchArguments.count - 1))
+            }
+        }
         let start = Date()
-        app.activate()
+        if killed { app.launch() } else { app.activate() }
         func since() -> Double { Date().timeIntervalSince(start) * 1000 }
-        var row: [String: Double] = ["activate_wall_ms": since(), "away_s": away, "luma_before": beforeLuma]
+        var row: [String: Double] = ["activate_wall_ms": since(), "away_s": away, "luma_before": beforeLuma, "killed": killed ? 1 : 0]
         // The screen as it comes back, before any input.
         let first = XCUIScreen.main.screenshot()
         row["first_shot_wall_ms"] = since()
@@ -84,6 +110,16 @@ final class ReattachAfterAwayUITests: XCTestCase {
         let key = ["q", "z", "#", "%", "~"][index % 5]
         let field = app.textViews[flow == "terminal" ? "terminal.composer.field" : "chat.composer.field"]
         if flow == "chat", !field.exists { _ = openChatField(app, timeout: 10) }
+        if killed {
+            // Restored into the terminal, or back on the list (then open it again, timed in the tap).
+            let restored = field.waitForExistence(timeout: 5)
+            row["restored_terminal"] = restored ? 1 : 0
+            row["restore_wait_wall_ms"] = since()
+            if !restored {
+                open(ResumeFromSwitchUITests.terminalWorkspace, in: app)
+                _ = field.waitForExistence(timeout: 30)
+            }
+        }
         field.tap()
         row["first_tap_wall_ms"] = since()
         field.typeText(key)
@@ -111,7 +147,9 @@ final class ReattachAfterAwayUITests: XCTestCase {
             samples.append((ms, Self.meanLuma(shot.image), statusText(app), lockShown(app)))
         }
         let marks = ResumeFromSwitchUITests.marks(app)
-        if marks["cycle"] == cycle {
+        let launchProbe = app.staticTexts["debug.launch-marks"]
+        let launchMarks = killed && launchProbe.exists ? launchProbe.label : ""
+        if !killed, marks["cycle"] == cycle {
             for (name, value) in marks where name != "cycle" { row["mark_\(name)"] = value }
             if flow == "terminal" {
                 if let sent = marks["terminal_key_sent"] { row["first_key_accepted_ms"] = sent }
@@ -132,7 +170,7 @@ final class ReattachAfterAwayUITests: XCTestCase {
         let statuses = Array(Set(samples.compactMap(\.status))).sorted()
         let series = samples.map { String(format: "[%.0f,%.1f,%@,%ld]", $0.ms, $0.luma, Self.quoted($0.status ?? ""), $0.lock ? 1 : 0) }
             .joined(separator: ",")
-        emit(flow: flow, away: away, row: row, statuses: statuses, series: series)
+        emit(flow: variant, away: away, row: row, statuses: statuses, series: series, launchMarks: launchMarks)
     }
 
     // MARK: Probes
@@ -209,14 +247,15 @@ final class ReattachAfterAwayUITests: XCTestCase {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    private func emit(flow: String, away: TimeInterval, row: [String: Double], statuses: [String], series: String) {
+    private func emit(flow: String, away: TimeInterval, row: [String: Double], statuses: [String], series: String,
+                      launchMarks: String) {
         let body = row.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\(String(format: "%.1f", $0.value))" }.joined(separator: ",")
         let statusList = statuses.map(Self.quoted).joined(separator: ",")
         let line = #"REATTACH {"flow":"\#(flow)","away_s":\#(Int(away)),"duress":"\#(ProcessInfo.processInfo.environment["CMUX_MOBILE_DURESS_PROFILE"] ?? "see step"),"#
-            + #""statuses":[\#(statusList)],\#(body),"series":[\#(series)]}"#
+            + #""statuses":[\#(statusList)],"launch_marks":\#(Self.quoted(launchMarks)),\#(body),"series":[\#(series)]}"#
         print(line)
         let attachment = XCTAttachment(string: line)
-        attachment.name = "reattach-\(flow)-\(Int(away))s"
+        attachment.name = "reattach-\(flow)-\(Int(away))s-row"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
