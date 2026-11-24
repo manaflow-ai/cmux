@@ -270,12 +270,12 @@ jobs:
   # queued on 2026-11-19, the oldest from 11-11). Each feat-cmux-next push cancels every older
   # feat-cmux-next push run of this workflow that no runner ever took (attempt 1, no job with a
   # runner or a step; scripts/ci/cmux_tui_feat_supersede.py). A started run is never cancelled, nor
-  # a dispatch, a re-run or a nightly-next push. On the one-minute control pool, beside
+  # a dispatch, a re-run or a nightly-next push. On the persistent pool (cmux-linux), beside
   # tree-preflight (nothing needs it), so a backed-up owned lane label does not hold it.
   supersede-feat-runs:
     name: cancel superseded queued feat-cmux-next runs
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 }}
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     continue-on-error: true
     permissions:
