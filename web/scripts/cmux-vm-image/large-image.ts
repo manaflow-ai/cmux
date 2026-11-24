@@ -1,25 +1,28 @@
 /**
- * The large image: a second snapshot of the same bake, at the size a default Cloud chat start asks for, so such
- * a machine boots at full size with no resize call after its create (plans/cmux-next/cloud-automation.md 18).
+ * The large image (the default-shape image): a second snapshot of the same bake, at the size a default Cloud chat
+ * start asks for, so such a machine boots at full size with no resize call after its create
+ * (plans/cmux-next/cloud-automation.md 18; RFD 0133 item 10).
  *
  * A snapshot keeps its source VM's size and resize only grows, so the bake snapshots its builder twice: first as
- * it is (the base's 2 vCPU / 4 GiB / 16 GB, the image every create boots today), then grown to LARGE_IMAGE_SHAPE.
+ * it is (the base's 2 vCPU / 4 GiB / 16 GB), then grown to LARGE_IMAGE_SHAPE.
  * Nothing but the resize and read-only checks runs on the builder between the two, so both hold the same tree.
  *
- * This file only makes and checks the image. Which image a create boots is not decided here: the cmux-vm Worker
- * and cmux-platform keep booting the small image and growing it until they are taught to pick this one by the
- * size a create asks for.
+ * This file only makes and checks the image. Which image a create boots is decided by the cmux-vm Worker
+ * (vmImageAllowed): a create from a service in CMUX_VM_SIZED_IMAGE_SERVICE_IDS that asks for exactly this size
+ * boots it, any other create boots the small image and grows it. cmux-platform's creates and spares ask for
+ * CHAT_START_SHAPE, so they take this one.
  */
 import { run, sleep, type Vm } from "./guest";
 
 /**
- * The large image's size: 4 vCPU / 16 GiB of memory / 64 GiB of disk. It mirrors cmux-platform's
+ * The large image's size: 2 vCPU / 4 GiB of memory / 20 GiB of disk. It mirrors cmux-platform's
  * CHAT_START_SHAPE (src/server/machines/MachineSizes.ts), the size a Cloud chat start asks for and every
- * prewarmed spare is made at. It is not one of the catalog's ladder sizes (md is 4 vCPU / 8 GiB / 32 GiB).
+ * prewarmed spare is made at (4 / 16 / 64 until 2026-11-23, Leo's smaller default VM). It is not one of the
+ * catalog's ladder sizes (sm is 2 / 4 / 16, md is 4 / 8 / 32).
  * Change it only together with that constant: a large image at any other size makes every default start resize
  * again (a smaller one) or boot bigger than was asked (a larger one; nothing shrinks).
  */
-export const LARGE_IMAGE_SHAPE = Object.freeze({ vcpu: 4, memGiB: 16, diskGiB: 64 });
+export const LARGE_IMAGE_SHAPE = Object.freeze({ vcpu: 2, memGiB: 4, diskGiB: 20 });
 export type ImageShape = { vcpu: number; memGiB: number; diskGiB: number };
 
 /**
@@ -92,7 +95,9 @@ export async function growToShape(
   const before = await shape(vm);
   const t0 = now();
   const startedAt = new Date(t0).toISOString();
-  await vm.resize({ cpu: want.vcpu, memory: want.memGiB * 1024 });
+  // The base already has the chat start vCPUs and memory: only the disk grows, and a resize to the size it has is no call.
+  const haveCpuMemory = before.cpu === want.vcpu && before.memoryMb >= want.memGiB * 1024 * GUEST_SHAPE_FLOOR && before.memoryMb <= want.memGiB * 1024;
+  if (!haveCpuMemory) await vm.resize({ cpu: want.vcpu, memory: want.memGiB * 1024 });
   const cpuMemoryCallMs = now() - t0;
   const t1 = now();
   await vm.resize({ storage: want.diskGiB * 1024 });

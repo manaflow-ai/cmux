@@ -27,13 +27,14 @@ name: Cloud VM image bake
 # file manifest are taken after the snapshot, beside the smoke (inventory.ts). layered=false is the full bake
 # from the lock: the manual fallback, and the weekly run main's cloud-vm-image-full-bake.yml starts, so the
 # image stays reproducible from the lock alone. A dev tree bake is always a full bake.
-# large_image (off by default) also makes the large image (web/scripts/cmux-vm-image/large-image.ts): after the
-# image's own snapshot the same builder is grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB)
+# large_image (on by default; RFD 0133 item 10) also makes the large image (web/scripts/cmux-vm-image/large-image.ts): after the
+# image's own snapshot the same builder is grown to the default Cloud chat start size (2 vCPU / 4 GiB / 20 GiB)
 # and snapshotted again as <name>-large, then smoked on its own (large-smoke.ts: clones boot at that size with no
 # resize). It has its own ledger (large/resources.tsv), so it is kept only when its own smoke passed and the
 # candidate records it, as the member `large` of channel-dev.json. The image's own snapshot, id, smoke and
 # candidate fields are the same with it on or off, and a large image that fails is a warning, never a red run:
-# nothing boots it yet (creates still boot the image and grow it).
+# the cmux-vm Worker boots it for a create that asks for exactly that size, from a service in
+# CMUX_VM_SIZED_IMAGE_SERVICE_IDS (cmux-platform's creates and spares); any other create boots the image and grows it.
 on:
   workflow_dispatch:
     inputs:
@@ -93,9 +94,9 @@ on:
         default: true
         type: boolean
       large_image:
-        description: Also bake and smoke the large image, the same builder grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB), named <name>-large. No create boots it yet; not with team_vm or dev_tree
+        description: Also bake and smoke the large image, the same builder grown to the default Cloud chat start size (2 vCPU / 4 GiB / 20 GiB), named <name>-large. A create at exactly that size from a sized-image service boots it; skipped with team_vm, dev_tree or prod-copy
         required: false
-        default: false
+        default: true
         type: boolean
   # The image roll (cloud-vm-image-roll.yml) calls the bake with roll: true: it pins cmux_tui_commit into this
   # checkout's lock first (when set), and hands the gated candidate back as outputs. Nothing else differs.
@@ -107,7 +108,7 @@ on:
       probes: { type: boolean, required: false, default: false }
       agent_tools: { type: boolean, required: false, default: true }
       layered: { type: boolean, required: false, default: true }
-      large_image: { type: boolean, required: false, default: false }
+      large_image: { type: boolean, required: false, default: true }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
     # The Freestyle key and the UI test login are repository secrets, which a called workflow gets only when its
@@ -298,7 +299,8 @@ jobs:
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
           DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
           LAYERED: ${{ inputs.layered && '--layered --defer-inventory' || '' }}
-          LARGE: ${{ inputs.large_image && '--large' || '' }}
+          # On by default, but only where the bake has a large image to make (bake.ts largeFlag): not a team image, a dev tree or a production copy.
+          LARGE: ${{ inputs.large_image && inputs.mode != 'prod-copy' && !inputs.team_vm && !inputs.dev_tree && '--large' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
