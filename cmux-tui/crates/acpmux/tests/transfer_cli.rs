@@ -77,11 +77,27 @@ impl Daemon {
     /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
     /// with `agent_env`.
     async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
+        Self::spawn_with(tag, peer, agent_env, false).await
+    }
+
+    /// [`Self::spawn`]; `linked`: it serves its WebSocket port too, so the daemon whose peer
+    /// it is holds a live link to it (`session_move::fake_ssh` carries the link).
+    async fn spawn_with(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        linked: bool,
+    ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        if linked {
+            let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+            let listen = free.local_addr().expect("its address").to_string();
+            config["websocket"] = json!({"listen": listen, "token": format!("token-{tag}")});
+        }
         let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             session_move::fake_ssh(&home, &peer_home, &peer_socket)
@@ -154,5 +170,7 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_follow.rs"]
+mod session_move_follow;
 #[path = "transfer_cli/session_move_live.rs"]
 mod session_move_live;

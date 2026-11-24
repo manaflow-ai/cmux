@@ -1594,6 +1594,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_files_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/keys_mint",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true
@@ -3893,8 +3905,15 @@
             "null"
           ]
         },
+        "mode": {
+          "description": "With `live`: the permission mode the fork starts in, one of the modes the chat's harness\nlists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
-          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "description": "The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the\nchat's own harness's (set before the reply, or the fork is refused and removed).",
           "type": [
             "string",
             "null"
@@ -3909,6 +3928,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "subagentId": {
+          "description": "With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's\nown conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`\nnames it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).\nA Claude Code or Codex chat only; a running subagent forks through its last settled step.\nCapability `acp.session.fork.subagent.v1`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "throughSeq": {
           "format": "uint64",
@@ -5320,6 +5346,13 @@
     },
     "PermissionGroupItem": {
       "properties": {
+        "command": {
+          "description": "A shell call's command as the agent wrote it, without the line acpmux put before a\nsubagent's command to name its caller (`bg_hook::without_subagent_mark`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "permissionId": {
           "type": "string"
         },
@@ -5330,6 +5363,13 @@
         },
         "state": {
           "$ref": "#/types/PermissionItemState"
+        },
+        "summary": {
+          "description": "What the call does, in the agent's plain words (a shell call's `description`), for the\nrow in place of the command (Leo 2026-11-23: \"i also dont know why you asked me this\").",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
