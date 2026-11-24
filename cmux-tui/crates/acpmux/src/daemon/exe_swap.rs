@@ -106,6 +106,7 @@ pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> 
         let mut watching = true;
         // The next wait after a failed swap, by attempt; none after the last.
         let mut failed = 0usize;
+        // lifetime-ok: this watcher is intentionally long-lived and wakes on kernel events or bounded retries.
         loop {
             let retry = failed.checked_sub(1).and_then(|i| RETRY_AFTER.get(i)).copied();
             let wake = tokio::select! {
@@ -228,6 +229,7 @@ impl Swap for ExeSwap {
     type New = cmux_process::Child;
 
     fn start_new(&mut self) -> Result<cmux_process::Child, String> {
+        // lifetime-ok: wait_timeout reaps readiness; Child drop ends it on timeout/error.
         cmux_process::Command::new(&self.installed)
             .arg("--version")
             .stdin(cmux_process::Stdio::null())
@@ -274,12 +276,15 @@ impl Swap for ExeSwap {
         }
         let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
+        // lifetime-ok: this child is polled through the handover deadline, then reaped or detached.
         let mut successor = cmux_process::Command::new(&self.installed);
         // A daemon started from a chat's shell by an older build kept that chat's marks; the
         // successor drops them (`STARTER_SESSION_MARKS`).
         for k in super::STARTER_SESSION_MARKS {
             successor.env_remove(k);
         }
+        // The unmanaged path must not inherit a launchd marker from the daemon that spawned it.
+        successor.env_remove("XPC_SERVICE_NAME");
         let mut child = successor
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
