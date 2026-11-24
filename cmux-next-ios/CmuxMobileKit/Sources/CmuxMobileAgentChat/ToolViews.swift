@@ -112,6 +112,12 @@ struct ToolRowView: View {
     }
 }
 
+/// What an expanded tool call draws under its card: nothing while its cut output's rest is read
+/// (the head stays in the card), a Try Again line only once the read failed.
+enum ToolOutputFooter {
+    static func shows(cut: Bool, failed: Bool) -> Bool { cut && failed }
+}
+
 /// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
 /// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
@@ -123,20 +129,17 @@ struct ToolOutputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             card
-            if call.outputCut != nil {
-                if loadFailed {
-                    Button("Couldn't load the full output. Try Again") {
-                        loadFailed = false
-                        Task { loadFailed = !(await loadFull(call)) }
-                    }
-                    .font(.footnote)
-                    .padding(.leading, 26)
-                } else {
-                    Text("Loading the full output…")
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 26)
+            // The head the Mac sent stays drawn while the rest is read, and the whole text
+            // takes its place in the same card (capped at the same height): no "Loading the full
+            // output…" line that comes and goes under it. Leo, 2026-11-24: "wer need to chase
+            // all these placeholders doen and prevent them". Only a failed read adds a line.
+            if ToolOutputFooter.shows(cut: call.outputCut != nil, failed: loadFailed) {
+                Button("Couldn't load the full output. Try Again") {
+                    loadFailed = false
+                    Task { loadFailed = !(await loadFull(call)) }
                 }
+                .font(.footnote)
+                .padding(.leading, 26)
             }
         }
         .task(id: call.outputCut) {

@@ -349,7 +349,16 @@ struct ReplayConversationScreen: View {
         Group {
             switch player.state {
             case .loading:
-                CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                if store.hasTurns {
+                    // The chat's own turns, drawn still, while its recording is read: a replay
+                    // opens on the chat it replays, never a spinner over a chat this phone holds
+                    // (Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them").
+                    AgentChatPreview(store: store, topInset: 0, bottomInset: 0)
+                        .accessibilityIdentifier("chat.replay.kept")
+                } else {
+                    // placeholder-ok: the chat holds no turns on this phone, so nothing kept can stand in
+                    CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             case .failed(let message):
                 ContentUnavailableView {
                     Label("Couldn't load this chat's history.", systemImage: "exclamationmark.triangle")
@@ -416,23 +425,65 @@ final class ChatReplayPlayer {
         surface.holdsTranscript = false
     }
 
+    /// The recordings replayed this run, newest last, by chat: a replay opened again plays the one
+    /// it had at once while the Mac's copy is read, and takes that copy in place when it differs.
+    private static var kept: [(key: String, recording: AgentReplayRecording)] = []
+    static let keptLimit = 4
+
+    static func keptRecording(_ key: String) -> AgentReplayRecording? {
+        kept.last { $0.key == key }?.recording
+    }
+
+    static func keep(_ recording: AgentReplayRecording, for key: String) {
+        kept.removeAll { $0.key == key }
+        guard !recording.steps.isEmpty else { return }
+        kept.append((key, recording))
+        if kept.count > keptLimit { kept.removeFirst(kept.count - keptLimit) }
+    }
+
+    static func forgetKept() { kept.removeAll() }
+
     func load(_ chat: AgentChatStore) async {
-        state = .loading
         summary = chat.summary
+        let key = AgentSessionDirectory.key(id: chat.summary.id, macID: chat.summary.macID)
+        let shown = state == .ready ? nil : Self.keptRecording(key)
+        if let shown {
+            apply(shown)
+            play()
+        } else if state != .ready {
+            state = .loading
+        }
+        let read: AgentReplayRecording
         do {
-            recording = try await chat.source.replayRecording()
-            toolCallTimes = Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted()
+            read = try await chat.source.replayRecording()
         } catch {
-            state = .failed(SessionInfoScreen.message(error))
+            // The kept recording stays on screen; only a replay with none says it failed.
+            if state != .ready { state = .failed(SessionInfoScreen.message(error)) }
             return
         }
-        guard !recording.steps.isEmpty else {
-            state = .empty
+        Self.keep(read, for: key)
+        guard !read.steps.isEmpty else {
+            if state != .ready { state = .empty }
             return
         }
+        if state == .ready, Self.sameSteps(read, recording) { return }
+        let wasPlaying = playing || state != .ready
+        apply(read)
+        if wasPlaying { play() }
+    }
+
+    /// Two recordings play the same steps (the kept one is still current).
+    static func sameSteps(_ a: AgentReplayRecording, _ b: AgentReplayRecording) -> Bool {
+        a.steps.count == b.steps.count && a.truncated == b.truncated && a.steps.last?.time == b.steps.last?.time
+    }
+
+    /// Plays `next` from where the playhead is (clamped to its length).
+    private func apply(_ next: AgentReplayRecording) {
+        recording = next
+        toolCallTimes = Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted()
+        time = min(time, recording.duration)
         rebuild()
         state = .ready
-        play()
     }
 
     var duration: TimeInterval { recording.duration }

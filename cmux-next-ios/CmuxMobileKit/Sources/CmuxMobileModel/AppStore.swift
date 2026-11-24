@@ -320,6 +320,12 @@ public final class AppStore {
         return workspaces.first { $0.id == id }
     }
 
+    /// The workspace as this phone last saved it (the live snapshot on disk), for a screen that
+    /// opens before `workspaces` lists it: a cold open from a notification while the list loads,
+    /// a workspace past the first screen of cached rows. Nil when the phone never saved it.
+    /// Live mode sets it (`LiveCoordinator`); it is never observed and reads no network.
+    @ObservationIgnored public var savedWorkspace: (String) -> Workspace? = { _ in nil }
+
     /// Follows a created placeholder to its real workspace id.
     public func resolvedWorkspaceID(_ id: String) -> String {
         workspaceAliases[id] ?? id
