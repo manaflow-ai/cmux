@@ -115,6 +115,23 @@ fn vt_write_step_breakdown_bench() {
             }
             report("trackers", started.elapsed().as_secs_f64());
         }
+        if wanted("prepare_write") {
+            // Everything vt_write does to the bytes before the parse, as it runs
+            // there: one neutral scan, then C1, Kitty filter and trackers on the rest.
+            let mut term = terminal();
+            let started = Instant::now();
+            for frame in &frames {
+                std::hint::black_box(term.prepare_write(frame));
+            }
+            report("prepare_write", started.elapsed().as_secs_f64());
+        }
+        if wanted("neutral_scan") {
+            let started = Instant::now();
+            for frame in &frames {
+                std::hint::black_box(byte_scan::neutral_run_end(frame, 0, true));
+            }
+            report("neutral_scan", started.elapsed().as_secs_f64());
+        }
         if wanted("history_bookkeeping") {
             // Everything vt_write does around the parse, on a terminal whose
             // history is already full (the steady state of a flood).
