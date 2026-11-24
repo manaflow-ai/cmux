@@ -18,7 +18,8 @@ pub fn write_600mib(path: &Path, session: &str, cwd: &Path) -> usize {
         let prompt = if n == 0 { "day one needle".to_owned() } else { format!("review turn {n}") };
         let timestamp = if n == 0 { "2026-11-12T07:00:00Z" } else { "2026-11-24T07:00:00Z" };
         let user = json!({"type":"user","sessionId":session,"cwd":cwd,"timestamp":timestamp,"message":{"role":"user","content":prompt}});
-        let answer = json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Review complete."}]}});
+        let reply = if n % 24 == 0 { "Review **complete**." } else { "Review complete." };
+        let answer = json!({"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":reply}]}});
         let block = format!("{user}\n{tool}\n{result}\n{answer}\n");
         if size + block.len() as u64 + 1024 > BYTES {
             // Fill the final small gap with a valid, complete JSON record.

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::transcript_index::Offsets;
 use super::transcript_preview::{self, tool_title};
+use super::transcript_raw;
 
 use cmux_chat_index::AdapterKind;
 use serde_json::{Value, json};
@@ -53,12 +54,12 @@ pub(super) async fn handle(
         .and_then(Value::as_str)
         .filter(|cwd| cwd.len() <= 4096)
         .map(PathBuf::from);
-    let needle = if method == FIND {
+    let query = if method == FIND {
         let text = params
             .get("query")
             .and_then(Value::as_str)
             .ok_or_else(|| RpcError::invalid_params("query must be a string"))?;
-        Some(Needle::parse(text).map_err(RpcError::invalid_params)?)
+        Some((Needle::parse(text).map_err(RpcError::invalid_params)?, text.trim().to_owned()))
     } else {
         None
     };
@@ -68,13 +69,18 @@ pub(super) async fn handle(
         params,
         method == PAGE && !meta_only && before.is_some(),
     )?;
+    let raw = transcript_raw::Request::parse(
+        params,
+        method == PAGE && !meta_only && before.is_some() && chunk.is_none(),
+    )?;
+    let supplied_witness = params.get("completeThrough").cloned();
     let sources = match &service {
         Some(service) => service.transcript_sources().clone(),
         None => ChatSources::daemon(&*hub.config.read().await)
             .ok_or_else(|| RpcError::internal("could not locate agent stores"))?,
     };
     super::blocking(move || {
-        let read_dates = meta_only || (needle.is_none() && before.is_none());
+        let read_dates = meta_only || (query.is_none() && before.is_none());
         let mut chat = terminal::locate(service.as_deref(), &sources, &key, cwd.as_deref(), read_dates)
             .ok_or_else(|| RpcError::not_found(format!("no transcript for {}", key_text(&key))))?;
         if meta_only {
@@ -82,16 +88,31 @@ pub(super) async fn handle(
         }
         let family = if key.harness == AdapterKind::ClaudeCode { "claude" } else { "codex" };
         let mut offsets = Offsets::open(&sources.acpmux_home, &chat.path, family, &chat.metadata);
-        let end = before.unwrap_or(chat.metadata.len());
-        if let Some(needle) = needle {
-            return search(&mut chat.file, family, &mut offsets, end, &needle);
+        let size = chat.metadata.len();
+        let end = before.unwrap_or(size);
+        let mut through = transcript_raw::witness(&mut chat.file, size, supplied_witness.as_ref())?;
+        if let Some((needle, literal)) = query {
+            return search(&mut chat.file, family, &mut offsets, end, size, through, (&needle, &literal));
+        }
+        if let Some(raw) = &raw
+            && offsets.as_mut().is_some_and(|cache| cache.contains_part(end, raw.start, raw.end))
+        {
+            return raw.read(&mut chat.file, size);
         }
         let page = read(&mut chat.file, family, end)?;
+        let parts = transcript_raw::parts(&mut chat.file, &page, size, &mut through)?;
+        if let Some(index) = &mut offsets { index.record(&page, &parts); }
+        if let Some(raw) = raw {
+            if !parts.iter().any(|part| part.start == raw.start && part.end == raw.end) {
+                return Err(RpcError::invalid_params("raw range is not part of this page"));
+            }
+            return raw.read(&mut chat.file, size);
+        }
         if let Some(chunk) = chunk { return chunk.reply(&page); }
-        if let Some(index) = &mut offsets { index.record(&page) }
         Ok(json!({
             "key": key_text(&key), "title": chat.title.as_deref().map(transcript_preview::title), "createdMs": chat.created_ms,
-            "updatedMs": chat.updated_ms, "turns": transcript_preview::turns(&page), "before": older(page.start), "pageEnd": page.end
+            "updatedMs": chat.updated_ms, "turns": transcript_preview::turns(&page), "before": older(page.start), "pageEnd": page.end,
+            "completeThrough":through,"rawRanges":parts
         }))
     }).await
 }
@@ -113,7 +134,9 @@ fn search(
     family: &str,
     offsets: &mut Option<Offsets>,
     end: u64,
-    needle: &Needle,
+    size: u64,
+    mut through: Option<u64>,
+    (needle, literal): (&Needle, &str),
 ) -> Result<Value, RpcError> {
     let started = Instant::now();
     let mut hits = Vec::new();
@@ -125,6 +148,8 @@ fn search(
         if let Some(index) = &mut *offsets
             && let Some(start) = index.skip(end, needle)
         {
+            // Only complete, ordinary pages enter the offset table.
+            through = through.max(Some(end));
             before = older(start);
             if before.is_none() {
                 break;
@@ -132,8 +157,9 @@ fn search(
             continue;
         }
         let page = read(file, family, end)?;
+        let parts = transcript_raw::parts(file, &page, size, &mut through)?;
         if let Some(index) = &mut *offsets {
-            index.record(&page)
+            index.record(&page, &parts)
         }
         for (turn, row) in page.turns.iter().enumerate().rev() {
             let mut hit = |role: &str, text: &str| {
@@ -149,10 +175,17 @@ fn search(
             row.tools.iter().rev().any(|tool| hit("tool", tool_title(tool)));
             hit("user", &row.prompt);
         }
+        for part in parts.iter().rev() {
+            if let Some(hit) =
+                transcript_raw::find(file, part, literal, through.unwrap_or(0), page.end)?
+            {
+                hits.push(hit);
+            }
+        }
         before = older(page.start);
         if !hits.is_empty() || before.is_none() || started.elapsed() >= Duration::from_millis(70) {
             break;
         }
     }
-    Ok(json!({"hits": hits, "before": before}))
+    Ok(json!({"hits": hits, "before": before, "completeThrough": through}))
 }

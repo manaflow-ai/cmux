@@ -26,6 +26,9 @@ pub struct TranscriptPage {
     pub end: u64,
     /// Bytes read while finding and folding this page.
     pub read: u64,
+    /// Source extents for terminal clients recovering a line that didn't fit in a normal page.
+    pub(crate) clipped_head: Option<std::ops::Range<u64>>,
+    pub(crate) last_break: Option<u64>,
 }
 
 /// Read at most `want` turns ending at `before`, or at the current file end when it is `None`.
@@ -34,8 +37,8 @@ pub struct TranscriptPage {
 /// The file is opened once and bounded by its length at open time. A partial trailing line is
 /// skipped, allowing a concurrently written record to be read on the next request.
 /// The RPC encodes a bounded preview and serves long message text separately.
-/// A single JSONL record larger than [`page::PAGE_MAX_BYTES`] is advanced past as an oversized record,
-/// so it cannot stall older-page cursors.
+/// For a record spanning [`page::PAGE_MAX_BYTES`], the terminal RPC exposes the covered source
+/// range on demand while the cursor advances by at most one bounded page.
 pub fn transcript_page(
     file: &Path,
     family: &str,
@@ -107,7 +110,14 @@ fn transcript_page_open(
         fold.finish()
     };
     turns.retain(|t| !t.prompt.is_empty() || !t.answer.is_empty() || !t.tools.is_empty());
-    Ok(TranscriptPage { turns, start: raw.start, end, read: raw.read })
+    Ok(TranscriptPage {
+        turns,
+        start: raw.start,
+        end,
+        read: raw.read,
+        clipped_head: raw.clipped_head,
+        last_break: raw.last_break,
+    })
 }
 
 /// Legacy Codex can write both an item and an event for one prompt. The pair must agree with

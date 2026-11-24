@@ -45,9 +45,17 @@
 //!   returns the key and dates without paging. Shortened rows supply UTF-8 offsets in `promptMore`
 //!   or `answerMore`. Pass their `pageEnd` as `before` with `turn`, `role` (user or assistant), and
 //!   `offset` for a bounded continuation `{text, nextOffset}` (null at the end of the message).
+//!   `rawRanges: [{start,end,position}]` covers any complete JSONL source that spans the read cap.
+//!   Positions are before or after the ordinary turns. Send the page's `before` cursor and
+//!   `completeThrough` forward when paging older. To expand a range, send `before: pageEnd`,
+//!   `completeThrough`, `rawStart`, `rawEnd`, and absolute UTF-8 byte `rawOffset`; the result
+//!   is `{text,nextOffset}`, at most 64 KiB. End offsets are exclusive.
 //! - `_acpmux/chat_transcript_find {key, cwd?, query, before?}` searches one bounded slice;
 //!   `hits` supplies a page offset and turn index for each matching row, and `before` continues
-//!   the search through older pages, including after an empty slice.
+//!   the search through older pages, including after an empty slice. Raw source hits use
+//!   `role: "raw"` and `rawStart,rawEnd,rawOffset,completeThrough` instead of a turn index.
+//!   These search rendered JSONL source literally (ASCII case-insensitive), including across
+//!   chunks. JSON escape sequences are matched as written on disk.
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
@@ -81,6 +89,7 @@ mod team_audit;
 mod transcript;
 mod transcript_index;
 mod transcript_preview;
+mod transcript_raw;
 pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 

@@ -67,7 +67,7 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
 
 fn read_claude_page(f: &mut File, end: u64, want: usize) -> std::io::Result<ClaudePage> {
     let raw = scan_page(f, end, want, false, parse, |record| Prompt::from(is_prompt(record)))?;
-    let RawPage { lines, start, read, has_prompt } = raw;
+    let RawPage { lines, start, read, has_prompt, .. } = raw;
     let mut turns: Vec<PastTurn> = Vec::new();
     if !has_prompt && !lines.is_empty() {
         // Part of one turn whose prompt is older than the page.
@@ -98,6 +98,10 @@ pub(super) struct RawPage {
     pub start: u64,
     pub read: u64,
     pub has_prompt: bool,
+    /// A completed line whose older bytes lie beyond the page budget.
+    pub clipped_head: Option<std::ops::Range<u64>>,
+    /// The newest newline encountered, expressed as the offset immediately after it.
+    pub last_break: Option<u64>,
 }
 
 #[derive(PartialEq)]
@@ -138,6 +142,8 @@ pub(super) fn scan_page(
     // A whole line was read (parsed or not).
     let mut whole = false;
     let mut boundary = None;
+    let mut last_break = None;
+    let mut clipped_head = None;
     let start = 'scan: loop {
         if pos == 0 {
             // `head` begins the file: its line is whole.
@@ -160,6 +166,7 @@ pub(super) fn scan_page(
         if skip {
             match memchr::memrchr(b'\n', &buf) {
                 Some(i) => {
+                    last_break = Some(pos + i as u64 + 1);
                     buf.truncate(i + 1);
                     skip = false;
                 }
@@ -222,10 +229,20 @@ pub(super) fn scan_page(
         if read >= PAGE_MAX_BYTES {
             // One turn bigger than a page: its newest part, from the oldest whole line read. With
             // no whole line, one line bigger than a page: the next page goes on from inside it.
+            if !whole && let Some(break_at) = last_break {
+                clipped_head = Some(pos..break_at);
+            }
             break 'scan oldest_prompt.unwrap_or(if whole { pos + head.len() as u64 } else { pos });
         }
     };
-    Ok(RawPage { lines, start, read: end - pos, has_prompt: oldest_prompt.is_some() })
+    Ok(RawPage {
+        lines,
+        start,
+        read: end - pos,
+        has_prompt: oldest_prompt.is_some(),
+        clipped_head,
+        last_break,
+    })
 }
 
 /// The newest page of `file` that holds turns: pages that hold none (the end of a line bigger

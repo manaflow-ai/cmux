@@ -11,13 +11,16 @@ use std::time::SystemTime;
 use sha2::{Digest, Sha256};
 
 use super::transcript_preview::tool_title;
+use super::transcript_raw::Part;
 use crate::adopt_replay::TranscriptPage;
 use crate::chats::search::Needle;
 
-// The on-disk bound is 4,096 * 184 bytes. Only pages actually visited get a slot.
+// The on-disk bound is 4,096 * 216 bytes. Only pages actually visited get a slot.
 const SLOTS: u64 = 4096;
 const FILTER_BYTES: usize = 128;
-const RECORD_BYTES: usize = 32 + 8 + FILTER_BYTES + 16;
+// At most one clipped record before and one after the ordinary turns.
+const PARTS_AT: usize = 40 + FILTER_BYTES;
+const RECORD_BYTES: usize = PARTS_AT + 2 * 16 + 16;
 
 pub(super) struct Offsets {
     file: File,
@@ -47,7 +50,7 @@ impl Offsets {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
-        let file = options.open(home.join("terminal-transcript-offsets.v1")).ok()?;
+        let file = options.open(home.join("terminal-transcript-offsets.v2")).ok()?;
         // Best effort. A second reader can always page the transcript directly.
         file.try_lock().ok()?;
         Some(Self { file, source })
@@ -60,7 +63,7 @@ impl Offsets {
         Some(tag)
     }
 
-    pub fn skip(&mut self, end: u64, needle: &Needle) -> Option<u64> {
+    fn validated(&mut self, end: u64) -> Option<[u8; RECORD_BYTES]> {
         let tag = self.slot(end)?;
         let mut record = [0; RECORD_BYTES];
         self.file.read_exact(&mut record).ok()?;
@@ -68,6 +71,19 @@ impl Offsets {
         if body.get(..32)? != tag || Sha256::digest(body).get(..16)? != check {
             return None;
         }
+        Some(record)
+    }
+
+    pub fn contains_part(&mut self, end: u64, start: u64, stop: u64) -> bool {
+        self.validated(end).is_some_and(|record| {
+            record[PARTS_AT..RECORD_BYTES - 16]
+                .chunks_exact(16)
+                .any(|part| part[..8] == start.to_le_bytes() && part[8..] == stop.to_le_bytes())
+        })
+    }
+
+    pub fn skip(&mut self, end: u64, needle: &Needle) -> Option<u64> {
+        let body = self.validated(end)?;
         let older = u64::from_le_bytes(body.get(32..40)?.try_into().ok()?);
         let filter = body.get(40..)?;
         (older < end
@@ -81,8 +97,8 @@ impl Offsets {
         .then_some(older)
     }
 
-    pub fn record(&mut self, page: &TranscriptPage) {
-        if page.start >= page.end {
+    pub fn record(&mut self, page: &TranscriptPage, parts: &[Part]) {
+        if page.start >= page.end || (parts.is_empty() && page.last_break != Some(page.end)) {
             return;
         }
         let Some(tag) = self.slot(page.end) else { return };
@@ -106,6 +122,15 @@ impl Offsets {
                     let bit = trigram(tri);
                     filter[bit / 8] |= 1 << (bit % 8);
                 }
+            }
+        }
+        if !parts.is_empty() {
+            // Raw source is searchable too. A provisional or missing prose trigram cannot skip it.
+            filter.fill(0xff);
+            for (dest, part) in record[PARTS_AT..RECORD_BYTES - 16].chunks_exact_mut(16).zip(parts)
+            {
+                dest[..8].copy_from_slice(&part.start.to_le_bytes());
+                dest[8..].copy_from_slice(&part.end.to_le_bytes());
             }
         }
         let (body, check) = record.split_at_mut(RECORD_BYTES - 16);
@@ -135,9 +160,11 @@ mod tests {
             start: 4,
             end: path.metadata().unwrap().len(),
             read: 0,
+            clipped_head: None,
+            last_break: Some(path.metadata().unwrap().len()),
             turns: vec![PastTurn { prompt: "SHOW status".into(), ..PastTurn::default() }],
         };
-        index.record(&page);
+        index.record(&page, &[]);
         let term = |text: &str| Needle::parse(text).unwrap();
         assert_eq!(index.skip(page.end, &term("show")), None);
         assert_eq!(index.skip(page.end, &term("xyzzy")), Some(4));

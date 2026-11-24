@@ -626,6 +626,102 @@ async fn terminal_agent_history_finds_text_after_a_shortened_wire_preview() {
 }
 
 #[cfg(unix)]
+/// A 17 MiB assistant record is source-paged in two contiguous UTF-8 slices. An equally
+/// large append without its newline stays invisible. Ordinary turns keep their own indices.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_agent_history_reads_and_finds_oversized_source_without_losing_a_byte() {
+    use std::io::Write as _;
+    const PAGE: &str = "_acpmux/chat_transcript_page";
+    const FIND: &str = "_acpmux/chat_transcript_find";
+    let h = home();
+    let hub = hub_on(&h.0).await;
+    let (tx, mut rx) = connect(&hub, Origin::Local).await;
+    let cwd = "/work/api";
+    let key = format!("claude-code:{CLAUDE_ID}");
+    let file = h.0.join(format!(".claude/projects/-work-api/{CLAUDE_ID}.jsonl"));
+    let prompt = format!(
+        "{}\n",
+        json!({"type":"user","sessionId":CLAUDE_ID,"cwd":cwd,"message":{"role":"user","content":"Day one"}})
+    );
+    write(&file, &prompt);
+    let mut source = br#"{"type":"assistant","message":{"role":"assistant","content":""#.to_vec();
+    source.resize(17 * 1024 * 1024, b'x');
+    source.extend_from_slice(b" near-the-end-marker\"}}\n");
+    let split = source.len() - 16 * 1024 * 1024;
+    let across = "cross🔎boundary";
+    let cross_at = split - "cross".len() - 2;
+    source[cross_at..cross_at + across.len()].copy_from_slice(across.as_bytes());
+    std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(&source).unwrap();
+
+    let latest = call(&tx, &mut rx, 2, PAGE, json!({"key":key,"cwd":cwd})).await;
+    let latest = &latest["result"];
+    let newest = &latest["rawRanges"][0];
+    let end = prompt.len() + source.len();
+    let cut = prompt.len() + split - 2; // floor the reverse-page cut to the start of the emoji
+    assert_eq!(newest, &json!({"start":cut,"end":end,"position":"before"}), "{latest}");
+    assert!(latest["turns"].as_array().unwrap().is_empty());
+    let older = call(&tx, &mut rx, 3, PAGE, json!({"key":key,"cwd":cwd,"before":latest["before"],"completeThrough":latest["completeThrough"]})).await;
+    let older = &older["result"];
+    assert_eq!(older["turns"][0]["prompt"], "Day one");
+    assert_eq!(older["rawRanges"][0], json!({"start":prompt.len(),"end":cut,"position":"after"}));
+    assert!(older["before"].is_null());
+
+    for (query, start, stop) in [("NEAR-THE-END-MARKER", cut, end), (across, prompt.len(), cut)] {
+        let mut before = Value::Null;
+        let mut through = Value::Null;
+        let hit = loop {
+            let reply = call(&tx, &mut rx, 4, FIND, json!({"key":key,"cwd":cwd,"before":before,"query":query,"completeThrough":through})).await;
+            if let Some(hit) = reply["result"]["hits"].as_array().unwrap().first() {
+                break hit.clone();
+            }
+            let next = reply["result"]["before"].clone();
+            assert!(next.is_u64() && next != before, "{reply}");
+            before = next;
+            through = reply["result"]["completeThrough"].clone();
+        };
+        assert_eq!(hit["role"], "raw");
+        assert_eq!(hit["rawStart"], start);
+        assert_eq!(hit["rawEnd"], stop);
+        let args = json!({"key":key,"cwd":cwd,"before":hit["pageEnd"],"rawStart":start,"rawEnd":stop,"rawOffset":hit["rawOffset"],"completeThrough":hit["completeThrough"]});
+        let chunk = call(&tx, &mut rx, 5, PAGE, args.clone()).await;
+        let text = chunk["result"]["text"].as_str().unwrap();
+        let offset = hit["rawOffset"].as_u64().unwrap() as usize - prompt.len();
+        assert!(!text.is_empty() && text.len() <= 65_536);
+        assert_eq!(text.as_bytes(), &source[offset..offset + text.len()]);
+        let mut outside = args;
+        outside["rawEnd"] = json!(stop + 1);
+        assert!(call(&tx, &mut rx, 6, PAGE, outside).await["error"].is_object());
+    }
+
+    let aligned =
+        json!({"key":key,"cwd":cwd,"before":end,"rawStart":cut,"rawEnd":end,"rawOffset":cut});
+    let chunk = call(&tx, &mut rx, 7, PAGE, aligned.clone()).await;
+    let first = chunk["result"]["text"].as_str().unwrap();
+    assert!(first.starts_with('🔎') && first.len() <= 65_536);
+    assert_eq!(chunk["result"]["nextOffset"], cut + first.len());
+    let mut unaligned = aligned;
+    unaligned["rawOffset"] = json!(cut + 1);
+    assert!(call(&tx, &mut rx, 8, PAGE, unaligned).await["error"].is_object());
+
+    // This oversized live append cannot be mistaken for a completed source record.
+    let mut out = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+    out.write_all(&vec![b'z'; 17 * 1024 * 1024]).unwrap();
+    let tail = call(&tx, &mut rx, 9, PAGE, json!({"key":key,"cwd":cwd})).await;
+    assert_eq!(tail["result"]["rawRanges"], json!([]));
+    assert!(tail["result"]["completeThrough"].is_null());
+    let behind = call(
+        &tx,
+        &mut rx,
+        10,
+        PAGE,
+        json!({"key":key,"cwd":cwd,"before":tail["result"]["before"]}),
+    )
+    .await;
+    for part in behind["result"]["rawRanges"].as_array().unwrap() {
+        assert!(part["end"].as_u64().unwrap() <= end as u64);
+    }
+}
+
 #[path = "support/terminal_history_fixture.rs"]
 mod terminal_history_fixture;
 
