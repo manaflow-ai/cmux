@@ -111,7 +111,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, trayItemKey, type TrayItem, itemStart } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -147,13 +147,14 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
+import { setHatHeight, useHatHeight, HAT_OPEN_SLOP, hatDragEnd, hatDragHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -1044,6 +1045,7 @@ export const SubagentTray = memo(function SubagentTray({
         // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
         <div
           className="acpmux-running-tray__rim"
+          {...RESIZE_HANDLE_PROPS}
           title={t("tray.resize")}
           aria-hidden="true"
           onPointerDown={onRimDown}

@@ -22,6 +22,7 @@ import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experim
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
@@ -66,6 +67,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
+import { hatCountMotion } from "../agent-session/acpmux/subagents/hatCount.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
@@ -116,6 +118,7 @@ import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
+import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
@@ -183,6 +186,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartAskLook,
   startRecoveryLook,
   agentStartLook,
+  composerUnpop,
   liveLineTokens,
   compactingLine,
   liveLineTimes,
@@ -197,6 +201,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayStopLook,
   trayMotionLook,
   composerHatLook,
+  hatCountMotion,
   hatQuestionsLook,
   hatChevronLook,
   hatTuckLook,
@@ -245,6 +250,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApprove,
   holdToApproveDuration,
   jumpLatestPlace,
+  hatPillPlace,
   dockBand,
   outcomeAsk,
   glassToolbarLook,
