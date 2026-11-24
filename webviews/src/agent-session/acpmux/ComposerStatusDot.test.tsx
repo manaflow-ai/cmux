@@ -98,6 +98,8 @@ afterEach(() => {
 
 afterAll(async () => {
   void mock.module("./composerStatusCard", () => realSeam);
+  // computerUseState.ts, reached through the dot's imports, installs this hook at load.
+  delete scope.cmuxAcpmuxComputerUseState;
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -244,4 +246,19 @@ test("a held send is the dot's to say", async () => {
   const { ComposerStatusFoot } = await import("./ComposerStatusDot");
   await render(<ComposerStatusFoot snapshot={{ summary: {} }} link={null} heldForHost />);
   expect(button().getAttribute("aria-label")).toBe("Sending when ready");
+});
+
+test("the strip arm draws the static facts as a line and the live ones as counters; off draws neither", async () => {
+  const facts = [
+    { kind: "machine" as const, text: "walk-remote", live: false },
+    { kind: "folder" as const, text: "/Users/leo/Projects/cmux", live: false },
+    { kind: "subagents" as const, count: 2, live: true },
+  ];
+  await dot({ facts, arm: "strip", now: 1 });
+  const strip = host.querySelector(".acpmux-composer-status-strip");
+  expect(strip?.textContent).toBe("walk-remote · Projects/cmux");
+  expect(host.querySelector(".acpmux-composer-status-count[data-shown]")).not.toBeNull();
+  await dot({ facts, arm: "off", now: 1 });
+  expect(host.querySelector(".acpmux-composer-status-strip")).toBeNull();
+  expect(host.querySelector(".acpmux-composer-status-count")).toBeNull();
 });
