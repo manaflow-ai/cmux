@@ -201,7 +201,9 @@ extension WebKitTab: WKNavigationDelegate {
         // A page the system ended for memory reloads by itself once, now when on screen, else
         // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
         let pressure = memoryPressure()
-        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        var owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        // Exit page on a hung page (`answerUnresponsivePage`) is the person's end: the sad tab waits for their Reload.
+        if endedByPerson { endedByPerson = false; exitRecovery.cancel(); owed = false }
         let tabID = id.rawValue
         processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         apply(.processExited(exit))
