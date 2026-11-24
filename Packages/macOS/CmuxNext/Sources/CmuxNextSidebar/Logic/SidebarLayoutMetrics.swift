@@ -261,11 +261,8 @@ nonisolated extension SidebarLayoutOptions {
         if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
-        // over a status or an expanded row's age, and never a line of its own.
-        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
-            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
-        }
+        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
+        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 

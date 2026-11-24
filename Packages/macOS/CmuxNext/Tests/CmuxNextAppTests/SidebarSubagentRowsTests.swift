@@ -74,6 +74,22 @@ import Testing
         #expect(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content?.treeFold == nil, "no chevron off the tree")
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/52977: a "✧ 1 running" line under a row, with the tree off,
+    /// read as a stray line above the next row. Off the tree a row draws no subagent line in any look, and
+    /// keeps the height of a row without subagents; its working indicator says the agent runs.
+    @Test func withTheTreeOffARowDrawsNoSubagentLine() throws {
+        let bare = try #require(Self.layout(nil, tree: nil))
+        for look in SidebarSubagentLook.allCases {
+            for states: [SidebarSubagent.State] in [[.running], [.done, .running], [.done, .failed]] {
+                let row = try #require(Self.layout(Self.subagents(states), tree: nil, look: look))
+                #expect(row.content?.subagents == nil, "\(look) \(states) draws a subagent line off the tree")
+                #expect(row.height == bare.height, "\(look) \(states) grows the row off the tree")
+                #expect(row.content?.treeFold == nil, "no chevron off the tree")
+            }
+        }
+        #expect(SidebarSubagentStrip.make(Self.subagents([.running]), tree: false, folded: false) == nil)
+    }
+
     @Test func theThreeLooks() throws {
         let tree = SidebarSessionTreeState()
         #expect(Self.layout(Self.subagents([.running]), tree: tree, look: .rows)?.content?.subagents?.mode == .rows)

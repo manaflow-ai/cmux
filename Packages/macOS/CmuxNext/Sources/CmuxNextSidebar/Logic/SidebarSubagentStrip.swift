@@ -62,7 +62,7 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// `folded`: the person folded this row there. Folded or with the tree off a row lists none (nil).
     public static func make(_ subagents: SidebarSubagents?, tree: Bool, folded: Bool,
                             look: SidebarSubagentLook = .both) -> SidebarSubagentStrip? {
-        guard let subagents, !subagents.isEmpty else { return nil }
+        guard tree, let subagents, !subagents.isEmpty else { return nil }
         let items = subagents.items
         let failed = items.filter { $0.state == .failed }.count
         let rowsMode: Bool = switch look {

@@ -49,6 +49,10 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             ],
             "diff.comments.send",
         ),
+        (
+            vec!["git", "comments", "reply", "dc_1", "--root", "/repo", "--text", "Fixed"],
+            "diff.comments.thread",
+        ),
         (vec!["git", "branches", "--path", "/repo", "--limit", "50"], "git.branches"),
         (vec!["git", "fingerprint", "--path", "/repo", "--scope", "branch"], "git.fingerprint"),
         (
@@ -98,6 +102,30 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             "git.worktree.create",
         ),
         (vec!["git", "worktree", "apply", "--path", "/repo"], "git.worktree.apply"),
+        (
+            vec!["git", "review", "start", "--path", "/repo", "https://github.com/o/r/pull/1"],
+            "git.review.start",
+        ),
+        (
+            vec![
+                "git",
+                "review",
+                "comment",
+                "--path",
+                "/repo",
+                "--file",
+                "src/a.rs",
+                "--line",
+                "4",
+                "--start-line",
+                "2",
+                "--side",
+                "old",
+                "--message",
+                "off by one",
+            ],
+            "git.review.comment",
+        ),
         (vec!["git", "worktree", "remove", "--path", "/repo", "--discard"], "git.worktree.remove"),
         (
             vec!["git", "worktree", "setup", "--path", "/repo", "--since", "10"],
