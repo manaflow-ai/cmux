@@ -91,4 +91,27 @@ import Testing
             #expect(gridAt < wideAt && wideAt < moreAt, "shown out of order: \(box.events)")
         }
     }
+
+    /// The hidden case keeps its hold: the page leaves (the wrapper says
+    /// hidden, then releases the fit), and the Mac's grid waits. Back on
+    /// screen with no claim (the program no longer fitted), it shows at once
+    /// instead of waiting forever for a claim that never goes out.
+    @Test func aHiddenPageHoldsTheMacsGridAndShowsItWhenBackWithoutAClaim() async throws {
+        let daemon = FakeTerminalDaemon()
+        let (session, box) = try await fittedAlternateScreen(daemon)
+        defer { session.stop() }
+
+        session.setPageShown(false)
+        session.setClaimsSize(false)
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+        session.handle(grid(120, 40, Self.wide))
+        session.handle(output(Self.more))
+        #expect(!box.events.contains(.hostGrid(columns: 120, rows: 40)), "a hidden page drew the Mac's grid")
+        #expect(!box.events.contains(.output(Self.more)))
+
+        session.setPageShown(true)
+        #expect(box.events.contains(.hostGrid(columns: 120, rows: 40)), "held after the page came back: \(box.events)")
+        #expect(box.events.last == .output(Self.more))
+        #expect(commands(daemon, "resize-surface").count == 1, "no claim goes out for a page that does not claim")
+    }
 }

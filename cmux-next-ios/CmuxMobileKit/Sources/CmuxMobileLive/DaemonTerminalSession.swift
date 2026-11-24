@@ -445,6 +445,33 @@ public final class DaemonTerminalSession: TerminalSession {
         projectsLocally = projects
     }
 
+    /// A projecting page is on screen (``setPageShown(_:)``), claiming or not.
+    private var pageShown = true
+
+    /// Projected and on screen, the page shows the Mac's own grid (zoomed on
+    /// the alternate screen) unless it claims for a fit: only a hidden page
+    /// holds the Mac's grid back (review follow-up F1 on #45381: a fit
+    /// released on screen held the Mac's grid and its output with no
+    /// deadline, and the page froze).
+    private var showsMacGrid: Bool { projectsLocally && pageShown && !claimsSize }
+
+    public func setPageShown(_ shown: Bool) {
+        guard shown != pageShown else { return }
+        pageShown = shown
+        // Back on screen with no claim (the program is not fitted): what
+        // was held while hidden shows now, from the Mac's grid.
+        if showsMacGrid { releaseHoldForMacGrid() }
+    }
+
+    /// Shows what the reclaim hold has, from the Mac's grid now.
+    private func releaseHoldForMacGrid() {
+        guard reclaimHold.isHolding else { return }
+        let grid = reportedColumns.flatMap { columns in
+            reportedRows.map { TerminalReclaimHold.Grid(columns: columns, rows: $0) }
+        }
+        releaseReclaimHold(from: grid)
+    }
+
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
     /// background). Leaving releases the phone's size on the Mac at once, so
@@ -471,6 +498,9 @@ public final class DaemonTerminalSession: TerminalSession {
                 releaseNow()
             }
             sizeClaimed = false
+            // A projecting page on screen stops claiming (the fit released):
+            // no claim will end a hold now.
+            if showsMacGrid { releaseHoldForMacGrid() }
         }
     }
 
@@ -1064,7 +1094,7 @@ public final class DaemonTerminalSession: TerminalSession {
         // nothing to hold back. A hidden full-screen app still waits for the
         // phone's grid, so a return never shows it stretched.
         let projectsPrimary = projectsLocally && !isAlternateScreen
-        var claims = claimsSize || projectsPrimary
+        var claims = claimsSize || projectsPrimary || showsMacGrid
         var unwanted = false
         if case .hostGrid(let columns, let rows) = event, let phoneGrid {
             if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {

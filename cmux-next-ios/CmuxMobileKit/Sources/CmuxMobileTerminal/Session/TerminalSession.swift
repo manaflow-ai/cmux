@@ -213,6 +213,13 @@ public protocol TerminalSession: AnyObject {
     /// Mac's own grid back from the screen while the primary screen shows.
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
+    /// A projecting page (``setProjectsLocally(_:)``) is on screen in the
+    /// foreground app (true) or not, whether or not it claims its size: it
+    /// claims only for a fit, and on screen without a claim it shows the
+    /// Mac's own grid, so nothing waits for the phone's. Hidden, the Mac's
+    /// grid waits for the page's return as before. Sessions without a Mac
+    /// ignore it.
+    func setPageShown(_ shown: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
     /// A projection keeps those lines when it re-wraps at a new width.
@@ -259,6 +266,8 @@ extension TerminalSession {
     public func requestHistoryRows(_ rows: Int) {}
 
     public func setProjectsLocally(_ projects: Bool) {}
+
+    public func setPageShown(_ shown: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 

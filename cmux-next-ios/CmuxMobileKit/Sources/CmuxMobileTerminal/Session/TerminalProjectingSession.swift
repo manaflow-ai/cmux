@@ -204,7 +204,12 @@ public final class TerminalProjectingSession: TerminalSession {
 
     public func setClaimsSize(_ claims: Bool) {
         pageClaims = claims
+        // Hidden before the release, so the Mac's grid that answers it
+        // waits for the page; shown after the claim, so a remembered
+        // program's claim answers what was held, and anything else shows.
+        if !claims { inner.setPageShown(false) }
         apply(fit.setPagePresent(present: claims))
+        if claims { inner.setPageShown(true) }
     }
 
     // MARK: Events
